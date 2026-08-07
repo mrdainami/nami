@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('dainami', {
   readClipboard: () => ipcRenderer.invoke('clipboard:read'),
   transcribe: (args) => ipcRenderer.invoke('stt:transcribe', args),
 
+  libraryScan: (args) => ipcRenderer.invoke('library:scan', args),
+  libraryCreate: (args) => ipcRenderer.invoke('library:create', args),
+  libraryDuplicate: (args) => ipcRenderer.invoke('library:duplicate', args),
+
   claudeStart: (args) => ipcRenderer.invoke('claude:start', args),
   claudeSend: (args) => ipcRenderer.invoke('claude:send', args),
   claudePermission: (args) => ipcRenderer.invoke('claude:permission', args),
