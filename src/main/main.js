@@ -24,7 +24,7 @@ const claudeSessions = new Map(); // id -> ClaudeSession
 
 // ---- state (restart-proof) -------------------------------------------------
 function stateFile() { return path.join(app.getPath('userData'), 'state.json'); }
-let state = { recentFolders: [], currentFolder: null };
+let state = { recentFolders: [], currentFolder: null, panels: [] };
 function loadState() {
   try { state = Object.assign(state, JSON.parse(fs.readFileSync(stateFile(), 'utf8'))); } catch (_) {}
 }
@@ -175,7 +175,11 @@ ipcMain.handle('boot', () => ({
   recentFolders: (state.recentFolders || []).map((f) => ({ path: f, pathShort: homeShort(f), name: baseName(f) })),
   currentFolder: state.currentFolder && fs.existsSync(state.currentFolder)
     ? scanFolder(state.currentFolder) : null,
+  panels: Array.isArray(state.panels) ? state.panels.slice(0, 12) : [],
 }));
+
+// Renderer sends its panel layout after every change; restored on next boot.
+ipcMain.handle('panels:save', (_e, { panels }) => { persist({ panels: Array.isArray(panels) ? panels.slice(0, 12) : [] }); return { ok: true }; });
 
 ipcMain.handle('folder:pick', async () => {
   const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Open a folder' });
@@ -309,15 +313,16 @@ ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
-ipcMain.handle('term:create', (_e, { id, cwd, cols, rows, kind, command, program, args, seed }) => {
+ipcMain.handle('term:create', (_e, { id, cwd, cols, rows, kind, command, program, args, seed, cont }) => {
   if (!pty) { send('term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
   let file = shellPath, spawnArgs = [], afterStart = null;
   if (kind === 'claude') {
-    if (claudeExe) { file = claudeExe; spawnArgs = []; }
-    else { file = shellPath; afterStart = 'claude'; }
+    // cont: restored session — pick the conversation back up in this cwd
+    if (claudeExe) { file = claudeExe; spawnArgs = cont ? ['--continue'] : []; }
+    else { file = shellPath; afterStart = cont ? 'claude --continue' : 'claude'; }
     if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + ' SEED '; // handled below
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
