@@ -20,6 +20,14 @@ contextBridge.exposeInMainWorld('dainami', {
   transcribe: (args) => ipcRenderer.invoke('stt:transcribe', args),
 
   savePanels: (args) => ipcRenderer.invoke('panels:save', args),
+
+  aiConfigGet: () => ipcRenderer.invoke('ai:config:get'),
+  aiConfigSet: (cfg) => ipcRenderer.invoke('ai:config:set', cfg),
+  aiStart: (args) => ipcRenderer.invoke('ai:start', args),
+  aiSend: (args) => ipcRenderer.invoke('ai:send', args),
+  aiPermission: (args) => ipcRenderer.invoke('ai:permission', args),
+  aiClose: (args) => ipcRenderer.invoke('ai:close', args),
+  onAiEvent: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('ai:event', h); return () => ipcRenderer.removeListener('ai:event', h); },
   libraryScan: (args) => ipcRenderer.invoke('library:scan', args),
   libraryCreate: (args) => ipcRenderer.invoke('library:create', args),
   libraryDuplicate: (args) => ipcRenderer.invoke('library:duplicate', args),
