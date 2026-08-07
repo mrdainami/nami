@@ -90,6 +90,7 @@ function dropFilesOnPanel(p, paths) {
 
   if (S.demo) seedDemo();
   renderAll();
+  if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
 })();
 
 // ===========================================================================
@@ -485,7 +486,7 @@ function registerPathLinks(term, p) {
 }
 async function startProcess(p, cols, rows) {
   if (p.started) return; p.started = true;
-  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed });
+  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont });
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
@@ -570,7 +571,7 @@ async function openCard(item) {
   };
   if (doc.malformed) toast('Frontmatter looks malformed — raw view only.');
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader();
+  renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function mountCard(p, rec) {
   const ro = p.item.readOnly;
@@ -726,14 +727,43 @@ function injectToSession(p, text) {
 // ===========================================================================
 //  Panel lifecycle
 // ===========================================================================
+// ---- persistence: the layout survives restarts -----------------------------
+let saveTimer = null;
+function savePanels() {
+  if (S.demo) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const panels = S.panels.map((p) => {
+      if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
+      if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
+      if (p.kind === 'card') return { kind: 'card', item: p.item };
+      return { kind: p.kind, title: p.title, code: p.code, tint: p.tint, cwd: p.cwd, command: p.command, program: p.program, args: p.args };
+    });
+    api.savePanels({ panels });
+  }, 400);
+}
+async function restorePanels(snaps) {
+  // open* unshift; walk the list backwards so the restored order matches
+  for (const s of [...snaps].reverse()) {
+    try {
+      if (s.kind === 'editor') await openEditor(s.filePath);
+      else if (s.kind === 'viewer') await openFile(s.filePath);
+      else if (s.kind === 'card' && s.item) await openCard(s.item);
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, code: s.code, tint: s.tint, cwd: s.cwd, command: s.command, program: s.program, args: s.args, cont: s.kind === 'claude' });
+    } catch (_) {}
+  }
+  S.activeId = S.panels[0] ? S.panels[0].id : null;
+  renderAll();
+}
+
 function startPanel(opts) {
   const p = Object.assign({
     id: uid('p_'), kind: 'claude', tint: opts.tint || nextTint(), code: opts.code || code2(opts.title || 'SS'),
     title: opts.title || 'Session', cwd: opts.cwd || (S.project && S.project.path), status: 'live',
-    attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed,
+    attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed, cont: opts.cont,
   }, opts);
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader(); refreshCmdPreview();
+  renderGrid(); renderRail(); renderHeader(); refreshCmdPreview(); savePanels();
   return p;
 }
 const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', other: 'FI' };
@@ -749,7 +779,7 @@ function openViewer(filePath, sub, note) {
   if (existing) { focusPanel(existing.id); return; }
   const p = { id: uid('p_'), kind: 'viewer', sub, note, tint: TINTS[hashIdx(filePath)], code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader();
+  renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 async function openEditor(filePath) {
   const existing = S.panels.find((p) => p.kind === 'editor' && p.filePath === filePath);
@@ -758,7 +788,7 @@ async function openEditor(filePath) {
   if (!res.ok) { openViewer(filePath, 'other', res.error || 'Could not open'); return; }
   const p = { id: uid('p_'), kind: 'editor', tint: TINTS[hashIdx(filePath)], code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader();
+  renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function focusPanel(id, scroll = true) {
   S.activeId = id; renderRail();
@@ -774,7 +804,7 @@ function closePanel(id) {
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
   if (S.expandedId === id) S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader();
+  renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function closeFinished() {
   const gone = S.panels.filter((p) => p.exited || (p.kind === 'editor' && !p.dirty && false));
@@ -786,7 +816,7 @@ function reorderPanels(fromId, toId) {
   const from = S.panels.findIndex((p) => p.id === fromId), to = S.panels.findIndex((p) => p.id === toId);
   if (from < 0 || to < 0) return;
   const [m] = S.panels.splice(from, 1); S.panels.splice(to, 0, m);
-  renderGrid();
+  renderGrid(); savePanels();
 }
 
 // ===========================================================================
