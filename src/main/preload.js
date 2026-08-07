@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('dainami', {
   statPath: (args) => ipcRenderer.invoke('path:stat', args),
   revealFile: (file) => ipcRenderer.invoke('file:reveal', file),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
+  readClipboard: () => ipcRenderer.invoke('clipboard:read'),
+  transcribe: (args) => ipcRenderer.invoke('stt:transcribe', args),
 
   claudeStart: (args) => ipcRenderer.invoke('claude:start', args),
   claudeSend: (args) => ipcRenderer.invoke('claude:send', args),

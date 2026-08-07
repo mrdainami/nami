@@ -611,3 +611,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* link hint for cmd-clickable paths */
 .xterm .xterm-link-layer { pointer-events: auto; }
+
+/* ---- dictation buttons ---- */
+.t-btn svg { width: 14px; height: 14px; display: block; }
+.t-mic.rec { color: var(--red-btn); border-color: var(--red-line); background: var(--red-bg); }
+.t-mic.rec .rec-square { width: 9px; height: 9px; background: var(--red-btn); display: inline-block; border-radius: 1px; animation: pulse 1s ease-in-out infinite; }
+.t-mic.busy { color: var(--amber-btn); }
+
+/* rail content layout (moved off inline style so collapse can override display) */
+#rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sheet.rail-collapsed .rail { width: 46px; overflow: hidden; }
+.sheet.rail-collapsed #rail-content { display: none; }

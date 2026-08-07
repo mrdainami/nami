@@ -60,7 +60,8 @@ function q(sel, root) { return (root || document).querySelector(sel); }
 (async function boot() {
   buildShell();
   const b = await api.boot();
-  S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null; S.stt = b.stt;
+  if (b.collapsed) { S.railCollapsed = true; S.cmdCollapsed = true; S.agentsCollapsed = true; }
 
   api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
   api.onTermExit(({ id, code }) => {
@@ -98,7 +99,7 @@ function buildShell() {
             <button class="rail-tab" data-tab="workspace">Workspace</button>
             <button class="rail-collapse" id="rail-collapse" title="Hide sidebar">‹</button>
           </div>
-          <div id="rail-content" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
+          <div id="rail-content"></div>
           <div id="agents-panel" class="agents-panel"></div>
         </div>
         <div class="main">
@@ -165,7 +166,7 @@ function onGlobalKey(e) {
 // ===========================================================================
 //  Render regions
 // ===========================================================================
-function renderAll() { renderHeader(); renderRail(); renderAgentsPanel(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); }
+function renderAll() { renderHeader(); renderRail(); renderAgentsPanel(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); applyChrome(); }
 
 function renderHeader() {
   const p = S.project; els.topbarCenter.innerHTML = '';
@@ -305,18 +306,24 @@ function renderGrid() {
   }
 }
 
+const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
+const CLIP_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/><path d="M8 12h8M8 16h6"/></svg>`;
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile'; root.dataset.id = p.id;
   root.innerHTML = `<div class="tile-head" draggable="true">
       <span class="code" style="background:${p.tint}">${esc(p.code)}</span>
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
+      <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
+      <button class="t-btn t-paste" title="Paste dictation from Echo (clipboard)">${CLIP_SVG}</button>
       <button class="t-btn t-expand" title="Expand">⤢</button>
       <button class="t-btn t-close" title="Close">✕</button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
   const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null };
   tileEls.set(p.id, rec);
+  q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
+  q('.t-paste', head).onclick = (e) => { e.stopPropagation(); pasteDictation(p); };
   q('.t-expand', head).onclick = (e) => { e.stopPropagation(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
   q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
   head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
@@ -414,6 +421,62 @@ async function saveEditor(p) {
   const res = await api.saveFile({ file: p.filePath, text: p.text });
   if (res && res.ok) { p.dirty = false; refreshTileHead(p); refreshRail(); toast('Saved ' + baseNameOf(p.filePath)); }
   else toast('Save failed: ' + (res && res.error || '?'));
+}
+
+// ---- dictation (in-app mic + Echo clipboard) -------------------------------
+let recording = null; // { panelId, recorder, stream }
+function micBtn(p) { const t = tileEls.get(p.id); return t ? q('.t-mic', t.head) : null; }
+function setMicState(p, state) {
+  const b = micBtn(p); if (!b) return;
+  b.classList.toggle('rec', state === 'recording');
+  b.classList.toggle('busy', state === 'transcribing');
+  if (state === 'recording') b.innerHTML = '<span class="rec-square"></span>';
+  else if (state === 'transcribing') b.textContent = '…';
+  else b.innerHTML = MIC_SVG;
+  b.title = state === 'recording' ? 'Stop & transcribe' : state === 'transcribing' ? 'Transcribing…' : 'Dictate into this session';
+}
+async function toggleMic(p) {
+  if (recording && recording.panelId === p.id) { stopMic(); return; }
+  if (recording) stopMic();
+  if (!S.stt) { toast('No transcription key — using clipboard. Dictate with Echo, then click the clip icon.'); return pasteDictation(p); }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream); const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach((x) => x.stop());
+      setMicState(p, 'transcribing');
+      const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const res = await api.transcribe({ bytes, mime: blob.type });
+      setMicState(p, 'idle');
+      if (res && res.ok && res.text) { injectToSession(p, res.text); toast('Dictated: ' + shorten(res.text, 40)); }
+      else toast('Transcribe failed: ' + (res && res.error || 'no speech'));
+    };
+    rec.start(); recording = { panelId: p.id, recorder: rec, stream };
+    setMicState(p, 'recording');
+    toast('Recording… click the mic again to stop.');
+  } catch (e) { toast('Mic error: ' + e.message); }
+}
+function stopMic() { if (recording) { try { recording.recorder.stop(); } catch (_) {} recording = null; } }
+async function pasteDictation(p) {
+  const text = await api.readClipboard();
+  if (!text || !text.trim()) { toast('Clipboard is empty — dictate with Echo first.'); return; }
+  injectToSession(p, text.trim()); toast('Pasted dictation into ' + shorten(p.title, 24));
+}
+function injectToSession(p, text) {
+  if (!text) return;
+  focusPanel(p.id, false);
+  if (p.kind === 'editor') {
+    const t = tileEls.get(p.id); if (!t || !t.ta) return;
+    const ta = t.ta, s = ta.selectionStart;
+    ta.value = ta.value.slice(0, s) + text + ta.value.slice(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = s + text.length;
+    p.text = ta.value; p.dirty = true; refreshTileHead(p);
+    ta.dispatchEvent(new Event('input'));
+    return;
+  }
+  api.termWrite({ id: p.id, data: text });
 }
 
 // ===========================================================================
