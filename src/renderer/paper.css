@@ -116,9 +116,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   padding: 0 22px;
   border-bottom: 2px dashed var(--dash);
   -webkit-app-region: drag;
+  padding-left: 84px; /* clear the macOS traffic lights */
 }
-.topbar > * { -webkit-app-region: no-drag; }
-.brand { display: flex; align-items: baseline; gap: 12px; -webkit-app-region: drag; }
+.topbar .btn, .topbar .project-chip, .topbar .live-badge,
+.topbar input, .topbar button { -webkit-app-region: no-drag; }
+.brand { display: flex; align-items: baseline; gap: 12px; }
 .brand-name { font-family: 'Caveat', cursive; font-size: 34px; font-weight: 700; line-height: 1; }
 .brand-sub { font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 .topbar-center { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
