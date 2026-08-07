@@ -519,7 +519,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   align-content: start; overflow-y: auto; overflow-x: hidden;
   background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,145,180,0.12) 27px 28px);
 }
-.grid.has-focus { grid-template-columns: 1fr; }
+/* Focused mode: one real 1fr row so the tile fills the canvas (percentage
+   min-height resolves to auto against auto-sized grid rows and collapses). */
+.grid.has-focus { grid-template-columns: 1fr; grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
 .grid.has-focus .tile:not(.focused) { display: none; }
 .grid > .lane-empty { grid-column: 1 / -1; min-height: 62vh; }
 
@@ -529,7 +531,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
   animation: rise 0.25s ease both; position: relative;
 }
-.tile.focused { height: auto; min-height: calc(100% - 2px); grid-column: 1 / -1; }
+.tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; }
 .tile.active { box-shadow: 5px 6px 0 var(--shadow-mid), 0 0 0 1.5px #b8c9ad; }
 .tile.attention { border-color: var(--amber-line); box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); animation: breathe 1.8s ease-in-out infinite; }
 .tile.exited { opacity: 0.82; }

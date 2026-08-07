@@ -15,7 +15,9 @@ let colorSeed = 3;
 function nextTint() { colorSeed = (colorSeed + 1) % TINTS.length; return TINTS[colorSeed]; }
 
 const XTERM_THEME = {
-  background: 'rgba(0,0,0,0)', foreground: '#33302a', cursor: '#4a6b52', cursorAccent: '#fdf9ec',
+  // Transparent, but with the paper's RGB channels: xterm's minimumContrastRatio
+  // measures against this color, so faint dark-theme TUI text gets re-inked for cream.
+  background: 'rgba(253,249,236,0)', foreground: '#33302a', cursor: '#4a6b52', cursorAccent: '#fdf9ec',
   selectionBackground: 'rgba(120,145,180,0.35)',
   black: '#5a4b34', red: '#a8482f', green: '#4a7a4a', yellow: '#9a7420', blue: '#3f6088',
   magenta: '#8a5f8a', cyan: '#3f7d82', white: '#6f6553',
@@ -393,7 +395,7 @@ function refreshTileHead(p) {
 
 // ---- terminal tiles --------------------------------------------------------
 function mountTerminal(p, rec) {
-  const term = new Terminal({ fontFamily: "'Courier Prime','Courier New',monospace", fontSize: 13, lineHeight: 1.2, theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, allowProposedApi: true, scrollback: 6000 });
+  const term = new Terminal({ fontFamily: "'Courier Prime','Courier New',monospace", fontSize: 13, lineHeight: 1.2, theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, allowProposedApi: true, scrollback: 6000, minimumContrastRatio: 4.5 });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(rec.body); rec.term = term; rec.fit = fit;
   requestAnimationFrame(() => { try { fit.fit(); } catch (_) {} startProcess(p, term.cols, term.rows); });
   term.onData((d) => { clearAttention(p); api.termWrite({ id: p.id, data: d }); });
