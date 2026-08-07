@@ -168,6 +168,8 @@ app.on('before-quit', () => {
 // ---- IPC: boot + folders ---------------------------------------------------
 ipcMain.handle('boot', () => ({
   demo: DEMO,
+  collapsed: process.argv.includes('--collapsed'),
+  stt: !!(process.env.OPENAI_API_KEY || process.env.ELEVENLABS_API_KEY),
   claudeExe: resolveClaudeExecutable(),
   recentFolders: (state.recentFolders || []).map((f) => ({ path: f, pathShort: homeShort(f), name: baseName(f) })),
   currentFolder: state.currentFolder && fs.existsSync(state.currentFolder)
@@ -242,6 +244,43 @@ ipcMain.handle('file:read', (_e, file) => {
 });
 ipcMain.handle('file:reveal', (_e, file) => { try { shell.showItemInFolder(file); } catch (_) {} });
 ipcMain.handle('clipboard:write', (_e, text) => { try { clipboard.writeText(String(text || '')); } catch (_) {} return true; });
+ipcMain.handle('clipboard:read', () => { try { return clipboard.readText(); } catch (_) { return ''; } });
+
+// ---- IPC: dictation → text (in-app record, OpenAI Whisper / ElevenLabs Scribe) ----
+function sttConfig() {
+  // env first; a userData/settings.json can override later.
+  let s = {};
+  try { s = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'settings.json'), 'utf8')); } catch (_) {}
+  const openai = s.openaiKey || process.env.OPENAI_API_KEY || '';
+  const eleven = s.elevenKey || process.env.ELEVENLABS_API_KEY || '';
+  const provider = s.sttProvider || (openai ? 'openai' : (eleven ? 'elevenlabs' : ''));
+  return { provider, openai, eleven };
+}
+ipcMain.handle('stt:transcribe', async (_e, { bytes, mime }) => {
+  const cfg = sttConfig();
+  if (!cfg.provider) return { ok: false, error: 'No OPENAI_API_KEY or ELEVENLABS_API_KEY set' };
+  try {
+    const buf = Buffer.from(bytes);
+    const blob = new Blob([buf], { type: mime || 'audio/webm' });
+    const form = new FormData();
+    let url, headers;
+    if (cfg.provider === 'openai') {
+      form.append('file', blob, 'audio.webm');
+      form.append('model', 'whisper-1');
+      url = 'https://api.openai.com/v1/audio/transcriptions';
+      headers = { Authorization: `Bearer ${cfg.openai}` };
+    } else {
+      form.append('file', blob, 'audio.webm');
+      form.append('model_id', 'scribe_v1');
+      url = 'https://api.elevenlabs.io/v1/speech-to-text';
+      headers = { 'xi-api-key': cfg.eleven };
+    }
+    const r = await fetch(url, { method: 'POST', headers, body: form });
+    if (!r.ok) { const t = await r.text().catch(() => ''); return { ok: false, error: `${cfg.provider} ${r.status}: ${t.slice(0, 140)}` }; }
+    const j = await r.json();
+    return { ok: true, text: (j.text || '').trim(), provider: cfg.provider };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
 
 // ---- IPC: Claude sessions --------------------------------------------------
 ipcMain.handle('claude:start', (_e, { id, cwd, model, agentName, prompt, resumeId }) => {
