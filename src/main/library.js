@@ -210,4 +210,28 @@ function duplicateItem({ filePath, type, projectPath }) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
-module.exports = { scanLibrary, createItem, duplicateItem };
+// ---- edges: who references whom --------------------------------------------
+// An item references another when its file mentions the target's slug. To keep noise out,
+// a plain mention only counts for hyphenated slugs (distinctive); single-word slugs need an
+// explicit [[wiki-link]]. Self and same-slug (other scopes/versions) never link.
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function extractEdges(items, { maxBytes = 65536 } = {}) {
+  const edges = [];
+  const targets = items.map((t) => ({
+    t,
+    wiki: '[[' + t.slug + ']]',
+    re: t.slug.includes('-') ? new RegExp('(^|[^\\w-])' + escapeRe(t.slug) + '($|[^\\w-])') : null,
+  }));
+  for (const src of items) {
+    let body = '';
+    try { body = fs.readFileSync(src.filePath, 'utf8').slice(0, maxBytes); } catch (_) { continue; }
+    for (const { t, wiki, re } of targets) {
+      if (t.id === src.id || t.slug === src.slug) continue;
+      if (!body.includes(t.slug)) continue; // cheap guard before regex
+      if (body.includes(wiki) || (re && re.test(body))) edges.push({ from: src.id, to: t.id });
+    }
+  }
+  return edges;
+}
+
+module.exports = { scanLibrary, createItem, duplicateItem, extractEdges };
