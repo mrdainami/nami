@@ -62,7 +62,7 @@ function droppedPaths(e) {
     .map((f) => api.droppedFilePath(f)).filter(Boolean);
 }
 function dropFilesOnPanel(p, paths) {
-  if (p.kind === 'editor') { paths.forEach(openEditor); return; }
+  if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach(openFile); return; }
   injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
   toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
 }
@@ -266,7 +266,7 @@ function renderTreeLevel(container, dir, depth) {
     const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';
     row.innerHTML = `<span class="tw">${glyph}</span><span class="icon" style="background:${n.kind === 'dir' ? '#e8dfc7' : '#f0e7d0'}"></span>
       <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
-    row.onclick = () => { if (n.kind === 'dir') toggleDir(n.path); else openEditor(n.path); };
+    row.onclick = () => { if (n.kind === 'dir') toggleDir(n.path); else openFile(n.path); };
     container.appendChild(row);
     if (n.kind === 'dir' && isOpen) renderTreeLevel(container, n.path, depth + 1);
   }
@@ -299,12 +299,14 @@ function renderFooter() { els.footerPath.textContent = S.project ? S.project.pat
 //  Grid of tiles
 // ===========================================================================
 function statusMeta(p) {
+  if (p.kind === 'viewer') return { label: p.sub, color: '#8d8065' };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? '#a8792a' : '#8d8065' };
   if (p.exited) return { label: 'closed', color: '#8d8065' };
   if (p.attention) return { label: 'needs you', color: '#a8792a' };
   return { label: 'live', color: '#4a7a4a' };
 }
 function kindLabel(p) {
+  if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
   if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
   if (p.kind === 'shell') return 'terminal · ' + shortHome(p.cwd);
@@ -368,7 +370,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -416,7 +418,7 @@ function registerPathLinks(term, p) {
             if (!(ev.metaKey || ev.ctrlKey)) return;
             const st = await api.statPath({ token: tok, cwd: p.cwd });
             if (!st.exists) { toast('Not found: ' + tok); return; }
-            if (st.isFile) openEditor(st.abs); else api.revealFile(st.abs);
+            if (st.isFile) openFile(st.abs); else api.revealFile(st.abs);
           },
         });
       }
@@ -455,6 +457,32 @@ async function saveEditor(p) {
   const res = await api.saveFile({ file: p.filePath, text: p.text });
   if (res && res.ok) { p.dirty = false; refreshTileHead(p); refreshRail(); toast('Saved ' + baseNameOf(p.filePath)); }
   else toast('Save failed: ' + (res && res.error || '?'));
+}
+
+// ---- viewer tiles (image / video / audio / pdf / fallback) -----------------
+function mountViewer(p, rec) {
+  const wrap = document.createElement('div'); wrap.className = 'viewer viewer--' + p.sub;
+  const url = fileUrl(p.filePath);
+  const fallback = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">▣</div>
+      <div class="vw-name">${esc(p.title)}</div>
+      <div class="vw-note">${esc(p.note || "Can't preview this file here.")}</div>
+      <button class="btn vw-reveal">Reveal in Finder</button></div>`;
+  if (p.sub === 'image') wrap.innerHTML = `<div class="vw-stage"><img src="${esc(url)}" alt="${esc(p.title)}" /></div>`;
+  else if (p.sub === 'video') wrap.innerHTML = `<div class="vw-stage vw-stage--dark"><video src="${esc(url)}" controls playsinline></video></div>`;
+  else if (p.sub === 'audio') wrap.innerHTML = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">♪</div><div class="vw-name">${esc(p.title)}</div><audio src="${esc(url)}" controls></audio></div>`;
+  else if (p.sub === 'pdf') wrap.innerHTML = `<iframe class="vw-pdf" src="${esc(url)}"></iframe>`;
+  else wrap.innerHTML = fallback;
+  wrap.insertAdjacentHTML('beforeend',
+    `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">Finder</button></div>`);
+  rec.body.appendChild(wrap);
+  wrap.querySelectorAll('.vw-reveal, .vw-finder').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); });
+  const media = wrap.querySelector('img, video, audio');
+  if (media) media.addEventListener('error', () => {
+    const stage = wrap.querySelector('.vw-stage, .vw-pdf');
+    p.note = 'This format could not be decoded.';
+    if (stage) stage.outerHTML = fallback;
+    const b = wrap.querySelector('.vw-reveal'); if (b) b.onclick = () => api.revealFile(p.filePath);
+  }, { once: true });
 }
 
 // ---- dictation (in-app mic + Echo clipboard) -------------------------------
@@ -526,11 +554,26 @@ function startPanel(opts) {
   renderGrid(); renderRail(); renderHeader(); refreshCmdPreview();
   return p;
 }
+const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', other: 'FI' };
+// Open any path the right way: media/pdf → viewer tile, everything else → editor
+// (which falls back to an 'other' viewer card when the file is binary or too large).
+function openFile(filePath) {
+  const kind = fileKind(filePath);
+  if (kind === 'text') return openEditor(filePath);
+  openViewer(filePath, kind);
+}
+function openViewer(filePath, sub, note) {
+  const existing = S.panels.find((x) => x.kind === 'viewer' && x.filePath === filePath);
+  if (existing) { focusPanel(existing.id); return; }
+  const p = { id: uid('p_'), kind: 'viewer', sub, note, tint: TINTS[hashIdx(filePath)], code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  renderGrid(); renderRail(); renderHeader();
+}
 async function openEditor(filePath) {
   const existing = S.panels.find((p) => p.kind === 'editor' && p.filePath === filePath);
   if (existing) { focusPanel(existing.id); return; }
   const res = await api.rawFile(filePath);
-  if (!res.ok) { toast(res.error || 'Could not open'); return; }
+  if (!res.ok) { openViewer(filePath, 'other', res.error || 'Could not open'); return; }
   const p = { id: uid('p_'), kind: 'editor', tint: TINTS[hashIdx(filePath)], code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
   renderGrid(); renderRail(); renderHeader();
@@ -544,7 +587,7 @@ function focusPanel(id, scroll = true) {
 function closePanel(id) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
   if (p.kind === 'editor' && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
-  if (p.kind !== 'editor') api.termKill({ id });
+  if (p.kind !== 'editor' && p.kind !== 'viewer') api.termKill({ id });
   const t = tileEls.get(id); if (t) { t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;

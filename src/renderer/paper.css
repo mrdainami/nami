@@ -571,6 +571,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ed-bar .ed-path { flex: 1; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-bar .ed-save { font-size: 11px; padding: 6px 12px; }
 
+/* ---- viewer tiles ---- */
+.viewer { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.viewer .vw-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: repeating-linear-gradient(0deg, transparent 0 23px, rgba(120,100,60,0.05) 23px 24px); }
+.viewer .vw-stage--dark { background: #2f2b26; }
+.viewer .vw-stage--pad { gap: 10px; padding: 18px; }
+.viewer .vw-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid rgba(60,45,25,0.25); background: #fff; box-shadow: 3px 4px 0 var(--shadow-mid); }
+.viewer .vw-stage video { max-width: 100%; max-height: 100%; }
+.viewer .vw-stage audio { width: 90%; }
+.viewer .vw-pdf { flex: 1; min-height: 0; width: 100%; border: 0; }
+.viewer .vw-glyph { font-size: 34px; color: var(--muted); }
+.viewer .vw-name { font-size: 13px; font-weight: 700; }
+.viewer .vw-note { font-size: 11px; color: var(--muted); text-align: center; }
+.viewer .vw-bar-btn, .viewer .vw-finder, .viewer .vw-reveal { font-size: 11px; padding: 6px 12px; }
+
 /* ---- explorer twist + rail attention ---- */
 .tree-row .tw { width: 12px; flex: none; font-size: 9px; color: var(--muted-2); text-align: center; }
 .tree-row { align-items: center; }
