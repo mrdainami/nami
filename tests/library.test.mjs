@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { scanLibrary, createItem, duplicateItem } from '../src/main/library.js';
+import { scanLibrary, createItem, duplicateItem, extractEdges } from '../src/main/library.js';
 
 // Build one fixture "computer": a project folder and a fake home dir covering all sources.
 let home, project;
@@ -114,4 +114,23 @@ test('duplicateItem copies a plugin agent file into the project', () => {
   const res = duplicateItem({ filePath: critic.filePath, type: 'agent', projectPath: project });
   assert.ok(res.ok);
   assert.ok(res.filePath.endsWith('.claude/agents/critic.md'));
+});
+
+test('extractEdges: hyphenated slug and [[wiki-link]] references, no substring noise', () => {
+  write(path.join(project, '.claude/skills/paper-craft/SKILL.md'), '---\nname: paper-craft\ndescription: crafting\n---\nRules here.\n');
+  write(path.join(project, '.claude/agents/decorator.md'),
+    '---\nname: decorator\ndescription: uses skills\n---\nRead the paper-craft skill first. Also see [[deploy]]. Not superpaper-craftish.\n');
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const edges = extractEdges(items);
+  const dec = items.find((i) => i.slug === 'decorator');
+  const craft = items.find((i) => i.slug === 'paper-craft');
+  const deploy = items.find((i) => i.slug === 'deploy');
+  assert.ok(edges.some((e) => e.from === dec.id && e.to === craft.id), 'hyphenated slug match');
+  assert.ok(edges.some((e) => e.from === dec.id && e.to === deploy.id), 'wiki-link match for single-word slug');
+  // single-word slug without [[ ]] must NOT match plain prose
+  write(path.join(project, '.claude/agents/prose.md'), '---\nname: prose\ndescription: d\n---\nWe deploy on Fridays.\n');
+  const items2 = scanLibrary({ projectPath: project, homeDir: home });
+  const edges2 = extractEdges(items2);
+  const prose = items2.find((i) => i.slug === 'prose');
+  assert.ok(!edges2.some((e) => e.from === prose.id), 'plain word deploy should not create an edge');
 });

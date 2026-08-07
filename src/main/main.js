@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
-const { scanLibrary, createItem, duplicateItem } = require('./library');
+const { scanLibrary, createItem, duplicateItem, extractEdges } = require('./library');
 
 let pty = null;
 try { pty = require('@lydell/node-pty'); } catch (_) { try { pty = require('node-pty'); } catch (_) {} }
@@ -232,7 +232,10 @@ ipcMain.handle('path:stat', (_e, { token, cwd }) => {
 });
 
 // ---- IPC: agents & skills library ------------------------------------------
-ipcMain.handle('library:scan', (_e, { projectPath }) => { try { return scanLibrary({ projectPath }); } catch (_) { return []; } });
+ipcMain.handle('library:scan', (_e, { projectPath }) => {
+  try { const items = scanLibrary({ projectPath }); return { items, edges: extractEdges(items) }; }
+  catch (_) { return { items: [], edges: [] }; }
+});
 ipcMain.handle('library:create', (_e, args) => createItem(args || {}));
 ipcMain.handle('library:duplicate', (_e, args) => duplicateItem(args || {}));
 
