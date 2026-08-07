@@ -16,6 +16,12 @@ npm start          # opens the app
   handwriting, tool calls as steps that strike through as they finish, todos as a checklist, the
   yellow **Needs your OK** card for real permission prompts, produced files in **Pasted in**.
 - **Terminal sessions** run a real shell (node-pty) inside an ink-on-paper xterm.
+- **Drop files from anywhere** — drag a file from Finder onto a session card and its
+  (shell-quoted) path is typed into that session; drop it on the command bar to attach it to
+  your next message; drop it on empty canvas to view it.
+- **Viewer tiles** — click any file in the Workspace rail (or ⌘-click a path in a terminal):
+  images, video, audio and PDFs open as paper viewer cards in-app; anything unviewable gets a
+  card with a Reveal-in-Finder button. Text files open in the paper editor as before.
 - Auth: it uses your **logged-in `claude`** (subscription), found at `~/.local/bin/claude`. No API
   key is set. If your `claude` lives elsewhere, set `CLAUDE_CODE_EXECUTABLE=/path/to/claude`.
 

@@ -157,6 +157,13 @@ function buildShell() {
   // OS file drops: never let Electron navigate away on a stray drop.
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => e.preventDefault());
+  // Dropping on empty canvas opens the file as a viewer/editor tile
+  // (tile drops stopPropagation, so this only fires outside tiles).
+  els.grid.addEventListener('dragover', (e) => { if (isFileDrag(e)) e.preventDefault(); });
+  els.grid.addEventListener('drop', (e) => {
+    const paths = droppedPaths(e); if (!paths.length) return;
+    e.preventDefault(); paths.forEach(openFile);
+  });
   els.cmdInput.addEventListener('dragover', (e) => { if (isFileDrag(e)) { e.preventDefault(); els.cmdbarBox.classList.add('file-hint'); } });
   els.cmdInput.addEventListener('dragleave', () => els.cmdbarBox.classList.remove('file-hint'));
   els.cmdInput.addEventListener('drop', (e) => {
