@@ -33,6 +33,7 @@ const S = {
   demo: false,
   sessions: [],           // session objects
   activeSessionId: null,
+  composeNew: false,      // when true (or no live target), the next send starts a fresh conversation
   railTab: 'sessions',    // sessions | workspace
   overlay: null,          // { type, ... }
   draft: '',
@@ -137,8 +138,8 @@ function buildShell() {
             <div class="cmdbar">
               <div class="cmdbar-box" id="cmdbar-box">
                 <span class="prompt-mark">❯</span>
-                <input id="cmd-input" placeholder="Describe the job, or type /run /open /agents /term /help" />
-                <button class="btn btn--go cmd-run" id="cmd-run">Run ⌘⏎</button>
+                <input id="cmd-input" placeholder="Message the session, or say what you want to start…" />
+                <button class="btn btn--go cmd-run" id="cmd-run">Send ⌘⏎</button>
               </div>
               <div class="cmd-preview" id="cmd-preview"></div>
             </div>
@@ -163,7 +164,7 @@ function buildShell() {
     footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
   };
 
-  q('#btn-new').onclick = () => openNewSession();
+  q('#btn-new').onclick = () => startFreshConversation();
   q('#btn-agents').onclick = () => openAgentPicker();
   q('#cmd-run').onclick = () => runDraft();
   els.cmdInput.addEventListener('input', (e) => { S.draft = e.target.value; refreshCmdPreview(); });
@@ -186,7 +187,7 @@ function onGlobalKey(e) {
   const meta = e.metaKey || e.ctrlKey;
   const typing = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
   if (meta && e.key === 'Enter') { e.preventDefault(); runDraft(); return; }
-  if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openNewSession(); return; }
+  if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); startFreshConversation(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
   if (e.key === 'Escape') { if (S.overlay) { S.overlay = null; renderOverlay(); } }
@@ -312,7 +313,7 @@ function renderLane() {
     cardEls.forEach((c) => c.root.remove()); cardEls.clear();
     els.laneStack.innerHTML = `<div class="lane-empty">
       <div class="polaroid">no sessions</div>
-      <div><div class="big">Start a session</div><div class="hint">Write the job below, or press ⌘N to set one up.</div></div></div>`;
+      <div><div class="big">Say what you want</div><div class="hint">Type below and press Enter — it starts a session and streams back, right here.</div></div></div>`;
     return;
   }
   if (q('.lane-empty', els.laneStack)) els.laneStack.innerHTML = '';
@@ -527,7 +528,7 @@ function retrySession(s) {
   api.claudeStart({ id: s.id, cwd: s.cwd, model: s.model, agentName: s.agentName, prompt: 'Please try again — continue where you left off.', resumeId: s.claudeSessionId });
   refreshCardHead(s); refreshClaudeBody(s);
 }
-function focusSession(id) { S.activeSessionId = id; renderRail(); const c = cardEls.get(id); if (c) c.root.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function focusSession(id) { S.activeSessionId = id; S.composeNew = false; renderRail(); refreshCmdPreview(); const c = cardEls.get(id); if (c) c.root.scrollIntoView({ behavior: 'smooth', block: 'start' }); els.cmdInput.focus(); }
 function clearFinished() {
   const gone = S.sessions.filter((s) => ['done', 'failed', 'exited'].includes(s.status));
   for (const s of gone) { if (s.type === 'terminal') api.termKill({ id: s.id }); else api.claudeClose({ id: s.id }); const c = cardEls.get(s.id); if (c) { c.root.remove(); cardEls.delete(s.id); } }
@@ -539,8 +540,9 @@ function clearFinished() {
 function startClaudeSession({ goal, agentName, model, cwd }) {
   const s = makeSession({ type: 'claude', goal, agentName, model, cwd: cwd || (S.project && S.project.path) });
   s.command = buildCommand({ goal, agentName });
-  S.sessions.unshift(s); S.activeSessionId = s.id;
-  renderLane(); renderRail(); renderHeader();
+  s.flow.push({ kind: 'user', text: goal }); // show what you asked, like a chat
+  S.sessions.unshift(s); S.activeSessionId = s.id; S.composeNew = false;
+  renderLane(); renderRail(); renderHeader(); refreshCmdPreview();
   api.claudeStart({ id: s.id, cwd: s.cwd, model: s.model, agentName, prompt: goal });
   return s;
 }
@@ -558,30 +560,53 @@ function buildCommand({ goal, agentName }) {
   return `dainami run ${who}--project ${proj} "${shorten(goal || '', 60)}"`;
 }
 
-// ---- command bar -----------------------------------------------------------
-function runDraft() {
-  const v = (els.cmdInput.value || '').trim(); if (!v) { openNewSession(); return; }
-  els.cmdInput.value = ''; S.draft = ''; refreshCmdPreview();
+// ---- command bar (live chat composer) --------------------------------------
+// The active conversation the composer talks to — the focused Claude session that isn't closed.
+function activeLive() {
+  if (S.composeNew) return null;
+  const s = S.sessions.find((x) => x.id === S.activeSessionId);
+  return s && s.type === 'claude' && !s.exited ? s : null;
+}
+function startFreshConversation() {
+  S.composeNew = true; S.activeSessionId = null;
+  renderRail(); refreshCmdPreview();
+  els.cmdInput.focus();
+  toast('New session — say what you want.');
+}
+async function runDraft() {
+  const v = (els.cmdInput.value || '').trim(); if (!v) { els.cmdInput.focus(); return; }
+  els.cmdInput.value = ''; S.draft = '';
   if (v.startsWith('/')) {
     const [cmd, ...rest] = v.slice(1).split(' '); const arg = rest.join(' ').trim();
+    refreshCmdPreview();
     if (cmd === 'open') return openFolderDialog();
     if (cmd === 'agents') return openAgentPicker();
     if (cmd === 'term') return startTerminalSession({ goal: arg || 'Terminal', command: arg || '' });
-    if (cmd === 'help') return toast('Commands: /run /open /agents /term');
+    if (cmd === 'new') return openNewSession();
+    if (cmd === 'help') return toast('Type to chat · /new options · /open folder · /agents · /term');
     if (cmd === 'run') return guardStart(arg);
     return toast('Unknown command: /' + cmd);
   }
-  guardStart(v);
+  const target = activeLive();
+  if (target) { sendToSession(target, v); refreshCmdPreview(); return; }
+  await guardStart(v);
 }
-function guardStart(goal) {
+async function guardStart(goal) {
   if (!goal) return;
-  if (!S.project) { toast('Open a folder first (⌘O).'); return; }
+  if (!S.project) {
+    const info = await api.pickFolder();
+    if (!info) { toast('Open a folder to start a session.'); return; }
+    applyProject(info);
+  }
   startClaudeSession({ goal });
+  refreshCmdPreview();
 }
 function refreshCmdPreview() {
   const v = (S.draft || '').trim();
-  if (!v || v.startsWith('/')) { els.cmdPreview.textContent = v.startsWith('/') ? 'slash command' : ''; return; }
-  els.cmdPreview.textContent = buildCommand({ goal: v });
+  if (v.startsWith('/')) { els.cmdPreview.textContent = 'command'; return; }
+  const target = activeLive();
+  if (target) { els.cmdPreview.textContent = `→ continues “${shorten(target.goal, 44)}” · Enter sends, ⌘N starts a new one`; return; }
+  els.cmdPreview.textContent = S.project ? `→ new session in ${S.project.name}` : '→ Enter picks a folder, then starts a session';
 }
 
 // ===========================================================================
