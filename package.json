@@ -8,6 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
     "shot": "electron . --demo --screenshot shots/app.png"
   },
   "dependencies": {
