@@ -91,6 +91,14 @@ test('duplicateItem copies a plugin skill dir into the project, -copy on collisi
   assert.ok(two.filePath.endsWith('.claude/skills/tdd-copy/SKILL.md'));
 });
 
+test('block-scalar descriptions (description: |) are joined, not shown as "|"', () => {
+  write(path.join(home, '.claude/agents/blocky.md'), '---\nname: blocky\ndescription: |\n  First line of it.\n  Second line.\ntools: Read\n---\nbody\n');
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const b = items.find((i) => i.slug === 'blocky');
+  assert.equal(b.description, 'First line of it. Second line.');
+  assert.equal(b.meta.tools, 'Read');
+});
+
 test('multiple cached plugin versions collapse to the newest', () => {
   write(path.join(home, '.claude/plugins/cache/market/superpowers/1.9.0/skills/tdd/SKILL.md'), '---\nname: tdd\ndescription: Older-but-lexically-tricky\n---\nbody\n');
   write(path.join(home, '.claude/plugins/cache/market/superpowers/1.10.0/skills/tdd/SKILL.md'), '---\nname: tdd\ndescription: Newest\n---\nbody\n');
