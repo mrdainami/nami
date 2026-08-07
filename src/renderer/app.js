@@ -35,6 +35,7 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
+  railCollapsed: false, cmdCollapsed: false, agentsCollapsed: false,
 };
 
 let els = {};
@@ -90,19 +91,23 @@ function buildShell() {
         </div>
       </div>
       <div class="split">
-        <div class="rail">
+        <div class="rail" id="rail">
+          <button class="rail-strip" id="rail-strip" title="Show sidebar">›</button>
           <div class="rail-tabs">
             <button class="rail-tab active" data-tab="sessions">Sessions</button>
             <button class="rail-tab" data-tab="workspace">Workspace</button>
+            <button class="rail-collapse" id="rail-collapse" title="Hide sidebar">‹</button>
           </div>
           <div id="rail-content" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
           <div id="agents-panel" class="agents-panel"></div>
         </div>
         <div class="main">
           <div class="grid" id="grid"></div>
-          <div class="cmdbar">
+          <div class="cmdbar" id="cmdbar">
+            <button class="cmd-reopen" id="cmd-reopen">❯ start a session…</button>
             <div class="cmdbar-box" id="cmdbar-box"><span class="prompt-mark">❯</span>
               <input id="cmd-input" placeholder="Start a Claude session (type a first message) · /term · /run <cmd> · /open" />
+              <button class="cmd-collapse" id="cmd-collapse" title="Minimise">▾</button>
               <button class="btn btn--go cmd-run" id="cmd-run">Start ⌘⏎</button></div>
             <div class="cmd-preview" id="cmd-preview"></div>
           </div>
@@ -129,7 +134,21 @@ function buildShell() {
   els.cmdInput.addEventListener('blur', () => els.cmdbarBox.classList.remove('focused'));
   els.cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runDraft(); } });
   document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; renderAll(); }; });
+  q('#rail-collapse').onclick = () => { S.railCollapsed = true; applyChrome(); };
+  q('#rail-strip').onclick = () => { S.railCollapsed = false; applyChrome(); };
+  q('#cmd-collapse').onclick = () => { S.cmdCollapsed = true; applyChrome(); };
+  q('#cmd-reopen').onclick = () => { S.cmdCollapsed = false; applyChrome(); els.cmdInput.focus(); };
   document.addEventListener('keydown', onGlobalKey);
+  applyChrome();
+}
+
+function applyChrome() {
+  const sheet = q('.sheet');
+  sheet.classList.toggle('rail-collapsed', S.railCollapsed);
+  q('#cmdbar').classList.toggle('collapsed', S.cmdCollapsed);
+  els.agentsPanel.classList.toggle('collapsed', S.agentsCollapsed);
+  // tiles need a re-fit when the grid width changes
+  setTimeout(() => tileEls.forEach((t) => { if (t.fit) { try { t.fit.fit(); } catch (_) {} } }), 60);
 }
 
 function onGlobalKey(e) {
@@ -231,9 +250,10 @@ async function toggleDir(dir) {
 
 function renderAgentsPanel() {
   const p = S.project; const el = els.agentsPanel; const agents = (p && p.agents) || [];
-  el.innerHTML = `<div class="head"><span class="title">Agents on file</span><span class="count">${agents.length}</span></div>
+  el.innerHTML = `<div class="head" id="agents-head"><span class="title">Agents on file</span><span class="count">${agents.length}</span><span class="caret">${S.agentsCollapsed ? '▸' : '▾'}</span></div>
     <div class="from">${p ? 'read from ' + esc(p.pathShort) + '/.claude' : 'open a folder to read .claude'}</div>
     <div class="list" id="agents-list"></div>`;
+  q('#agents-head', el).onclick = () => { S.agentsCollapsed = !S.agentsCollapsed; applyChrome(); };
   const list = q('#agents-list', el);
   if (!agents.length) { list.innerHTML = `<div class="rail-empty" style="padding:2px 0">No agents found${p ? '' : ' yet'}.</div>`; return; }
   for (const a of agents) {
@@ -323,13 +343,45 @@ function refreshTileHead(p) {
 
 // ---- terminal tiles --------------------------------------------------------
 function mountTerminal(p, rec) {
-  const term = new Terminal({ fontFamily: "'Courier Prime','Courier New',monospace", fontSize: 13, lineHeight: 1.2, theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, scrollback: 6000 });
+  const term = new Terminal({ fontFamily: "'Courier Prime','Courier New',monospace", fontSize: 13, lineHeight: 1.2, theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, allowProposedApi: true, scrollback: 6000 });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(rec.body); rec.term = term; rec.fit = fit;
   requestAnimationFrame(() => { try { fit.fit(); } catch (_) {} startProcess(p, term.cols, term.rows); });
   term.onData((d) => { clearAttention(p); api.termWrite({ id: p.id, data: d }); });
   term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
   term.onBell(() => setAttention(p));
+  registerPathLinks(term, p);
   const ro = new ResizeObserver(() => { try { fit.fit(); } catch (_) {} }); ro.observe(rec.body);
+}
+
+// Cmd/Ctrl-click a file path in the terminal → open it as an editor tile (or reveal a folder).
+const PATH_RE = /(?:~|\.{0,2})?(?:\/[\w.@+-]+)+|(?:[\w@+-]+\/)+[\w.@+-]+|\b[\w@+-]+\.[A-Za-z][\w]{0,8}\b/g;
+function registerPathLinks(term, p) {
+  if (!term.registerLinkProvider) return;
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const line = term.buffer.active.getLine(y - 1);
+      if (!line) return callback(undefined);
+      const text = line.translateToString(true);
+      const links = []; let m;
+      PATH_RE.lastIndex = 0;
+      while ((m = PATH_RE.exec(text)) !== null) {
+        const tok = m[0];
+        if (tok.length < 3 || (!tok.includes('/') && !tok.includes('.'))) continue;
+        const startX = m.index + 1, endX = m.index + tok.length;
+        links.push({
+          text: tok,
+          range: { start: { x: startX, y }, end: { x: endX, y } },
+          activate: async (ev) => {
+            if (!(ev.metaKey || ev.ctrlKey)) return;
+            const st = await api.statPath({ token: tok, cwd: p.cwd });
+            if (!st.exists) { toast('Not found: ' + tok); return; }
+            if (st.isFile) openEditor(st.abs); else api.revealFile(st.abs);
+          },
+        });
+      }
+      callback(links);
+    },
+  });
 }
 async function startProcess(p, cols, rows) {
   if (p.started) return; p.started = true;

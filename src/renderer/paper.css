@@ -575,3 +575,39 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .nav-card.attn { border-color: var(--amber-line); box-shadow: 0 0 0 1.5px rgba(201,169,78,0.55); }
 .live-badge.attn { border-color: var(--amber-line); background: rgba(253,242,207,0.6); color: var(--amber-btn); }
 .live-badge.attn .dot { background: var(--amber-btn); }
+
+/* ===== collapsible chrome ============================================== */
+.rail { transition: width 0.16s ease; position: relative; }
+.rail-tabs { align-items: center; }
+.rail-collapse, .rail-strip {
+  font-family: inherit; font-size: 14px; color: var(--muted); cursor: pointer;
+  background: var(--paper); border: 1px solid var(--line); width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center; flex: none;
+}
+.rail-collapse:hover, .rail-strip:hover { background: var(--hover); color: var(--ink); }
+.rail-strip { display: none; margin: 12px auto; }
+.sheet.rail-collapsed .rail { width: 46px; }
+.sheet.rail-collapsed .rail-tabs, .sheet.rail-collapsed #rail-content, .sheet.rail-collapsed #agents-panel { display: none; }
+.sheet.rail-collapsed .rail-strip { display: flex; }
+
+.agents-panel .head { cursor: pointer; user-select: none; }
+.agents-panel .head .caret { margin-left: 8px; font-size: 11px; color: var(--muted-3); }
+.agents-panel.collapsed .from, .agents-panel.collapsed .list { display: none; }
+
+.cmdbar { position: relative; }
+.cmd-collapse {
+  font-family: inherit; font-size: 12px; color: var(--muted); cursor: pointer;
+  background: var(--paper); border: 1px solid var(--dash); width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center; flex: none;
+}
+.cmd-collapse:hover { background: var(--hover); color: var(--ink); }
+.cmd-reopen {
+  display: none; font-family: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer;
+  background: var(--paper); border: 1px dashed var(--dash-dark); padding: 8px 14px; width: 100%; text-align: left;
+}
+.cmd-reopen:hover { background: var(--hover); color: var(--ink); }
+.cmdbar.collapsed .cmdbar-box, .cmdbar.collapsed .cmd-preview { display: none; }
+.cmdbar.collapsed .cmd-reopen { display: block; }
+
+/* link hint for cmd-clickable paths */
+.xterm .xterm-link-layer { pointer-events: auto; }

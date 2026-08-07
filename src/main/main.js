@@ -214,6 +214,17 @@ ipcMain.handle('file:raw', (_e, file) => {
 ipcMain.handle('file:save', (_e, { file, text }) => {
   try { fs.writeFileSync(file, text); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
 });
+// Resolve a token clicked in a terminal (absolute, ~, or relative to the session cwd).
+ipcMain.handle('path:stat', (_e, { token, cwd }) => {
+  try {
+    let p = String(token || '').trim().replace(/[)>,.:'"]+$/, '');
+    if (!p) return { exists: false };
+    if (p.startsWith('~')) p = path.join(os.homedir(), p.slice(1));
+    if (!path.isAbsolute(p)) p = path.resolve(cwd || os.homedir(), p);
+    const st = fs.statSync(p);
+    return { exists: true, isFile: st.isFile(), isDir: st.isDirectory(), abs: p };
+  } catch (_) { return { exists: false }; }
+});
 
 // ---- IPC: quick look / files ----------------------------------------------
 ipcMain.handle('file:read', (_e, file) => {
