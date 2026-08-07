@@ -189,6 +189,32 @@ ipcMain.handle('folder:open', (_e, folder) => {
 ipcMain.handle('folder:scan', (_e, folder) => (folder && fs.existsSync(folder)) ? scanFolder(folder) : null);
 ipcMain.handle('folder:rescan', (_e, folder) => (folder && fs.existsSync(folder)) ? scanFolder(folder) : null);
 
+// ---- IPC: explorer + editor ------------------------------------------------
+ipcMain.handle('dir:list', (_e, dir) => {
+  try {
+    let entries = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !IGNORE.has(e.name) && !(e.name.startsWith('.') && e.name !== '.claude'))
+      .sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
+    return entries.map((e) => {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { let c = 0; try { c = fs.readdirSync(full).length; } catch (_) {} return { name: e.name, path: full, kind: 'dir', meta: c + (c === 1 ? ' item' : ' items') }; }
+      let size = ''; try { size = fmtSize(fs.statSync(full).size); } catch (_) {}
+      return { name: e.name, path: full, kind: 'file', meta: size };
+    });
+  } catch (_) { return []; }
+});
+ipcMain.handle('file:raw', (_e, file) => {
+  try {
+    const stat = fs.statSync(file);
+    if (stat.isDirectory()) return { ok: false, error: 'is a directory' };
+    if (stat.size > 2 * 1024 * 1024) return { ok: false, error: 'file too large to edit (' + fmtSize(stat.size) + ')' };
+    return { ok: true, text: fs.readFileSync(file, 'utf8'), path: file, size: fmtSize(stat.size) };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('file:save', (_e, { file, text }) => {
+  try { fs.writeFileSync(file, text); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // ---- IPC: quick look / files ----------------------------------------------
 ipcMain.handle('file:read', (_e, file) => {
   try {
@@ -219,21 +245,50 @@ ipcMain.handle('claude:permission', (_e, { id, permissionId, allow, note }) => {
 ipcMain.handle('claude:interrupt', (_e, { id }) => { const s = claudeSessions.get(id); if (s) s.interrupt(); return { ok: !!s }; });
 ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id); if (s) { s.close(); claudeSessions.delete(id); } return { ok: true }; });
 
-// ---- IPC: terminal sessions ------------------------------------------------
-ipcMain.handle('term:create', (_e, { id, cwd, cols, rows, command }) => {
+// ---- IPC: terminal / harness sessions --------------------------------------
+// kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
+// 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
+ipcMain.handle('term:create', (_e, { id, cwd, cols, rows, kind, command, program, args, seed }) => {
   if (!pty) { send('term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+  const claudeExe = resolveClaudeExecutable();
+
+  let file = shellPath, spawnArgs = [], afterStart = null;
+  if (kind === 'claude') {
+    if (claudeExe) { file = claudeExe; spawnArgs = []; }
+    else { file = shellPath; afterStart = 'claude'; }
+    if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + ' SEED '; // handled below
+  } else if (kind === 'harness' && program) {
+    file = program; spawnArgs = Array.isArray(args) ? args : [];
+  } else if (kind === 'run' && command) {
+    file = shellPath; afterStart = command;
+  } else {
+    file = shellPath;
+  }
+
   let p;
   try {
-    p = pty.spawn(shellPath, [], {
+    p = pty.spawn(file, spawnArgs, {
       name: 'xterm-256color', cols: cols || 100, rows: rows || 30,
-      cwd: cwd || os.homedir(), env: Object.assign({}, process.env, { TERM: 'xterm-256color' }),
+      cwd: (cwd && fs.existsSync(cwd)) ? cwd : os.homedir(),
+      env: Object.assign({}, process.env, { TERM: 'xterm-256color', FORCE_COLOR: '1' }),
     });
-  } catch (e) { send('term:data', { id, data: '\r\n[could not start shell: ' + e.message + ']\r\n' }); return { ok: false }; }
+  } catch (e) { send('term:data', { id, data: '\r\n[could not start: ' + e.message + ']\r\n' }); return { ok: false }; }
+
   termSessions.set(id, p);
   p.onData((data) => send('term:data', { id, data }));
   p.onExit(({ exitCode }) => { termSessions.delete(id); send('term:exit', { id, code: exitCode }); });
-  if (command) setTimeout(() => { try { p.write(command + '\r'); } catch (_) {} }, 120);
+
+  // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
+  if (afterStart && afterStart.indexOf(' SEED ') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
+  else if (afterStart) setTimeout(() => { try { p.write('claude\r'); } catch (_) {} }, 200);
+
+  // Seed a first message into an interactive claude session once it's ready.
+  if (kind === 'claude' && seed) {
+    const delay = claudeExe ? 1600 : 2200;
+    setTimeout(() => { try { p.write(seed); } catch (_) {} }, delay);
+    setTimeout(() => { try { p.write('\r'); } catch (_) {} }, delay + 350);
+  }
   return { ok: true };
 });
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });

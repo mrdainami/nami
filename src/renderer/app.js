@@ -1,6 +1,7 @@
-// Dainami CLI — the paper agent workbench (renderer).
-// Vanilla DOM. Static shell built once; regions refreshed on state change. Session cards are managed
-// incrementally so live terminals (xterm) survive re-renders.
+// Dainami CLI — the paper agent workbench (renderer, terminal-first).
+// Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
+// can focus, reorder, and expand. Workspace is a live explorer + paper editor. Vanilla DOM; tiles
+// (xterm + editors) are managed incrementally so live processes survive re-renders.
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
@@ -9,13 +10,9 @@ const api = window.dainami;
 
 // ---- palette ---------------------------------------------------------------
 const TINTS = ['#a9c0dc', '#a9c8a4', '#e3b0bd', '#ecc98d', '#dfa287', '#c0b3dc'];
-const PAPERS = ['#fffdf6', '#fdf7e6', '#fbf3e0'];
-const ROTS = ['-0.7deg', '0.5deg', '-0.4deg', '0.8deg', '-0.9deg'];
-const ART_ROTS = ['-1.4deg', '1deg', '-0.7deg', '1.3deg'];
 let colorSeed = 3;
 function nextTint() { colorSeed = (colorSeed + 1) % TINTS.length; return TINTS[colorSeed]; }
 
-// Ink-on-paper xterm theme (ANSI remapped to the mockup's tints).
 const XTERM_THEME = {
   background: 'rgba(0,0,0,0)', foreground: '#33302a', cursor: '#4a6b52', cursorAccent: '#fdf9ec',
   selectionBackground: 'rgba(120,145,180,0.35)',
@@ -25,60 +22,36 @@ const XTERM_THEME = {
   brightBlue: '#5a7fae', brightMagenta: '#a07aa0', brightCyan: '#5aa0a0', brightWhite: '#2f2b26',
 };
 
+// ---- harness profiles (extensible: Claude today, Hermes/others later) ------
+const HARNESSES = [
+  { id: 'claude', name: 'Claude Code', sub: 'your subscription · slash commands work', kind: 'claude', tint: TINTS[4], code: 'CC' },
+  { id: 'shell', name: 'Terminal', sub: 'a plain shell, ink on paper', kind: 'shell', tint: TINTS[5], code: '❯' },
+  { id: 'custom', name: 'Custom command…', sub: 'run any harness or program', kind: 'custom', tint: TINTS[0], code: '+' },
+];
+
 // ---- state -----------------------------------------------------------------
 const S = {
-  project: null,          // folder info from main
-  recents: [],
-  claudeExe: null,
-  demo: false,
-  sessions: [],           // session objects
-  activeSessionId: null,
-  composeNew: false,      // when true (or no live target), the next send starts a fresh conversation
-  railTab: 'sessions',    // sessions | workspace
-  overlay: null,          // { type, ... }
-  draft: '',
-  seq: 0,
-  toast: null,
+  project: null, recents: [], claudeExe: null, demo: false,
+  panels: [], activeId: null, expandedId: null,
+  railTab: 'sessions', overlay: null, toast: null, seq: 0,
+  tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
 };
 
-let els = {};             // static shell region refs
-const cardEls = new Map(); // sessionId -> { root, head, body, term, fit, statusChip, mark }
+let els = {};
+const tileEls = new Map(); // panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
 
-function uid(prefix) { S.seq += 1; return `${prefix}${S.seq}`; }
-function code2(str) {
-  const words = String(str || '').replace(/[^a-zA-Z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return (String(str || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2) || 'SS').toUpperCase();
-}
+function uid(p) { S.seq += 1; return `${p}${S.seq}`; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function shorten(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
-
-// ---- session model ---------------------------------------------------------
-function makeSession(opts) {
-  return Object.assign({
-    id: uid('ses_'), type: 'claude', tint: nextTint(), rot: ROTS[S.sessions.length % ROTS.length],
-    code: code2(opts.goal || opts.agentName || 'SS'),
-    goal: opts.goal || 'New session', subtitle: '', agentName: opts.agentName || null,
-    model: opts.model || null, cwd: opts.cwd || (S.project && S.project.path),
-    status: 'building', flow: [], artifacts: [], pendingPermission: null,
-    claudeSessionId: null, expanded: true, command: '',
-    term: null, fit: null, ptyStarted: false, exited: false,
-  }, opts);
+function code2(str) {
+  const w = String(str || '').replace(/[^a-zA-Z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+  return (String(str || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2) || 'SS').toUpperCase();
 }
-
-function statusMeta(s) {
-  const t = s.type === 'terminal';
-  switch (s.status) {
-    case 'building': return { label: t ? 'live' : 'thinking', color: '#7a5d3a', working: true };
-    case 'running': return { label: t ? 'live' : 'working', color: '#4a6b52', working: true };
-    case 'needs-ok': return { label: 'needs your ok', color: '#a8792a', working: false };
-    case 'done': return { label: 'finished', color: '#4a7a4a', working: false };
-    case 'failed': return { label: 'stopped', color: '#b4503c', working: false };
-    case 'idle': return { label: 'idle', color: '#8d8065', working: false };
-    case 'exited': return { label: 'closed', color: '#8d8065', working: false };
-    default: return { label: s.status, color: '#8d8065', working: false };
-  }
-}
+function hashIdx(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % TINTS.length; }
+function baseNameOf(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || '(file)'; }
+function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); }
+function q(sel, root) { return (root || document).querySelector(sel); }
 
 // ===========================================================================
 //  Boot
@@ -86,17 +59,14 @@ function statusMeta(s) {
 (async function boot() {
   buildShell();
   const b = await api.boot();
-  S.demo = b.demo; S.claudeExe = b.claudeExe;
-  S.recents = b.recentFolders || [];
-  S.project = b.currentFolder || null;
+  S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
 
-  api.onClaudeEvent(onClaudeEvent);
-  api.onTermData(({ id, data }) => { const c = cardEls.get(id); if (c && c.term) c.term.write(data); });
+  api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
   api.onTermExit(({ id, code }) => {
-    const s = S.sessions.find((x) => x.id === id); if (!s) return;
-    s.exited = true; s.status = 'exited';
-    const c = cardEls.get(id); if (c && c.term) c.term.write(`\r\n\x1b[38;2;141;128;101m[session closed · exit ${code}]\x1b[0m\r\n`);
-    refreshCardHead(s); refreshRail();
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    p.exited = true; p.status = 'exited';
+    const t = tileEls.get(id); if (t && t.term) t.term.write(`\r\n\x1b[38;2;141;128;101m[process exited · ${code}]\x1b[0m\r\n`);
+    refreshTileHead(p); refreshRail(); renderHeader();
   });
 
   if (S.demo) seedDemo();
@@ -107,135 +77,96 @@ function statusMeta(s) {
 //  Static shell
 // ===========================================================================
 function buildShell() {
-  const root = document.getElementById('root');
-  root.innerHTML = `
-    <div class="desk">
-      <div class="sheet">
-        <div class="tape tape--left"></div><div class="tape tape--right"></div>
-
-        <div class="topbar">
-          <div class="brand"><span class="brand-name">Dainami CLI</span><span class="brand-sub">agent workbench</span></div>
-          <div class="topbar-center" id="topbar-center"></div>
-          <div class="topbar-right">
-            <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
-            <button class="btn" id="btn-agents">Agents ⌘K</button>
-            <button class="btn btn--go" id="btn-new">＋ New session ⌘N</button>
-          </div>
+  document.getElementById('root').innerHTML = `
+    <div class="desk"><div class="sheet">
+      <div class="tape tape--left"></div><div class="tape tape--right"></div>
+      <div class="topbar">
+        <div class="brand"><span class="brand-name">Dainami CLI</span><span class="brand-sub">workbench</span></div>
+        <div class="topbar-center" id="topbar-center"></div>
+        <div class="topbar-right">
+          <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
+          <button class="btn" id="btn-agents">Agents ⌘K</button>
+          <button class="btn btn--go" id="btn-new">＋ New session ⌘N</button>
         </div>
-
-        <div class="split">
-          <div class="rail">
-            <div class="rail-tabs">
-              <button class="rail-tab active" data-tab="sessions">Sessions</button>
-              <button class="rail-tab" data-tab="workspace">Workspace</button>
-            </div>
-            <div id="rail-content" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
-            <div id="agents-panel" class="agents-panel"></div>
-          </div>
-
-          <div class="main">
-            <div class="lane" id="lane"><div class="lane-stack" id="lane-stack"></div></div>
-            <div class="cmdbar">
-              <div class="cmdbar-box" id="cmdbar-box">
-                <span class="prompt-mark">❯</span>
-                <input id="cmd-input" placeholder="Message the session, or say what you want to start…" />
-                <button class="btn btn--go cmd-run" id="cmd-run">Send ⌘⏎</button>
-              </div>
-              <div class="cmd-preview" id="cmd-preview"></div>
-            </div>
-            <div class="footer">
-              <span>⌘N new session</span><span>⌘O open folder</span><span>⌘K agents</span>
-              <span>⌘⏎ run</span><span>space quick-look</span><span>esc close</span>
-              <span class="path" id="footer-path"></span>
-            </div>
-          </div>
-        </div>
-
-        <div id="overlay-root"></div>
-        <div id="toast-root"></div>
       </div>
-    </div>`;
+      <div class="split">
+        <div class="rail">
+          <div class="rail-tabs">
+            <button class="rail-tab active" data-tab="sessions">Sessions</button>
+            <button class="rail-tab" data-tab="workspace">Workspace</button>
+          </div>
+          <div id="rail-content" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
+          <div id="agents-panel" class="agents-panel"></div>
+        </div>
+        <div class="main">
+          <div class="grid" id="grid"></div>
+          <div class="cmdbar">
+            <div class="cmdbar-box" id="cmdbar-box"><span class="prompt-mark">❯</span>
+              <input id="cmd-input" placeholder="Start a Claude session (type a first message) · /term · /run <cmd> · /open" />
+              <button class="btn btn--go cmd-run" id="cmd-run">Start ⌘⏎</button></div>
+            <div class="cmd-preview" id="cmd-preview"></div>
+          </div>
+          <div class="footer">
+            <span>⌘N new</span><span>⌘K agents</span><span>⌘O folder</span><span>⌘⏎ start</span>
+            <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
+          </div>
+        </div>
+      </div>
+      <div id="overlay-root"></div><div id="toast-root"></div>
+    </div></div>`;
 
   els = {
     topbarCenter: q('#topbar-center'), liveBadge: q('#live-badge'), liveLabel: q('#live-label'),
-    railContent: q('#rail-content'), agentsPanel: q('#agents-panel'),
-    laneStack: q('#lane-stack'), lane: q('#lane'),
+    railContent: q('#rail-content'), agentsPanel: q('#agents-panel'), grid: q('#grid'),
     cmdInput: q('#cmd-input'), cmdPreview: q('#cmd-preview'), cmdbarBox: q('#cmdbar-box'),
     footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
   };
-
-  q('#btn-new').onclick = () => startFreshConversation();
+  q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
   q('#cmd-run').onclick = () => runDraft();
   els.cmdInput.addEventListener('input', (e) => { S.draft = e.target.value; refreshCmdPreview(); });
   els.cmdInput.addEventListener('focus', () => els.cmdbarBox.classList.add('focused'));
   els.cmdInput.addEventListener('blur', () => els.cmdbarBox.classList.remove('focused'));
-  els.cmdInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); runDraft(); }
-  });
+  els.cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runDraft(); } });
   document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; renderAll(); }; });
-
   document.addEventListener('keydown', onGlobalKey);
 }
 
-function q(sel, root) { return (root || document).querySelector(sel); }
-
-// ===========================================================================
-//  Global keys
-// ===========================================================================
 function onGlobalKey(e) {
   const meta = e.metaKey || e.ctrlKey;
-  const typing = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
   if (meta && e.key === 'Enter') { e.preventDefault(); runDraft(); return; }
-  if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); startFreshConversation(); return; }
+  if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
-  if (e.key === 'Escape') { if (S.overlay) { S.overlay = null; renderOverlay(); } }
+  if (meta && (e.key === 'w' || e.key === 'W')) { if (S.activeId) { e.preventDefault(); closePanel(S.activeId); } return; }
+  if (meta && (e.key === 's' || e.key === 'S')) { const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } return; }
+  if (e.key === 'Escape') { if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
 // ===========================================================================
 //  Render regions
 // ===========================================================================
-function renderAll() {
-  renderHeader();
-  renderRail();
-  renderAgentsPanel();
-  renderLane();
-  renderFooter();
-  renderOverlay();
-  refreshCmdPreview();
-}
+function renderAll() { renderHeader(); renderRail(); renderAgentsPanel(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); }
 
 function renderHeader() {
-  const p = S.project;
-  els.topbarCenter.innerHTML = '';
-  const chip = document.createElement('div');
-  chip.className = 'project-chip';
-  if (p) {
-    chip.innerHTML = `<span class="swatch" style="background:${TINTS[0]}"></span>
-      <span class="name">${esc(p.name)}</span><span class="path">${esc(p.pathShort)}</span><span class="caret">▼</span>`;
-  } else {
-    chip.innerHTML = `<span class="swatch" style="background:${TINTS[3]}"></span><span class="name">Open a folder</span><span class="caret">▼</span>`;
-  }
-  chip.onclick = (e) => { e.stopPropagation(); toggleProjectsPop(chip); };
+  const p = S.project; els.topbarCenter.innerHTML = '';
+  const chip = document.createElement('div'); chip.className = 'project-chip';
+  chip.innerHTML = p
+    ? `<span class="swatch" style="background:${TINTS[0]}"></span><span class="name">${esc(p.name)}</span><span class="path">${esc(p.pathShort)}</span><span class="caret">▼</span>`
+    : `<span class="swatch" style="background:${TINTS[3]}"></span><span class="name">Open a folder</span><span class="caret">▼</span>`;
+  chip.onclick = (e) => { e.stopPropagation(); toggleProjectsPop(); };
   els.topbarCenter.appendChild(chip);
-
-  const live = S.sessions.filter((s) => statusMeta(s).working).length;
-  if (live > 0) { els.liveBadge.style.display = ''; els.liveLabel.textContent = `${live} session${live > 1 ? 's' : ''} live`; }
+  const live = S.panels.filter((x) => x.status === 'live' && x.kind !== 'editor').length;
+  const attn = S.panels.filter((x) => x.attention).length;
+  if (live > 0) { els.liveBadge.style.display = ''; els.liveLabel.textContent = attn ? `${attn} needs you` : `${live} live`; els.liveBadge.classList.toggle('attn', attn > 0); }
   else els.liveBadge.style.display = 'none';
 }
-
-function toggleProjectsPop(anchor) {
-  const existing = q('.projects-pop', els.topbarCenter);
-  if (existing) { existing.remove(); return; }
-  const pop = document.createElement('div');
-  pop.className = 'projects-pop';
-  const rows = (S.recents || []).map((r) => `
-    <button class="project-row" data-path="${esc(r.path)}">
-      <span class="swatch" style="background:${TINTS[hashIdx(r.path)]}"></span>
-      <span class="col"><span class="name">${esc(r.name)}</span><span class="summary">${esc(r.pathShort)}</span></span>
-      <span class="mark">›</span>
-    </button>`).join('');
+function toggleProjectsPop() {
+  const ex = q('.projects-pop', els.topbarCenter); if (ex) { ex.remove(); return; }
+  const pop = document.createElement('div'); pop.className = 'projects-pop';
+  const rows = (S.recents || []).map((r) => `<button class="project-row" data-path="${esc(r.path)}">
+    <span class="swatch" style="background:${TINTS[hashIdx(r.path)]}"></span>
+    <span class="col"><span class="name">${esc(r.name)}</span><span class="summary">${esc(r.pathShort)}</span></span><span class="mark">›</span></button>`).join('');
   pop.innerHTML = `<div class="pop-label">Recent folders</div>${rows || '<div class="rail-empty">No recent folders yet.</div>'}
     <button class="project-open-other" id="open-other"><span class="plus">＋</span><span>Open another folder…</span><span class="kbd">⌘O</span></button>`;
   els.topbarCenter.appendChild(pop);
@@ -243,52 +174,63 @@ function toggleProjectsPop(anchor) {
   q('#open-other', pop).onclick = () => { pop.remove(); openFolderDialog(); };
   setTimeout(() => document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }, { once: true }), 0);
 }
-function hashIdx(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % TINTS.length; }
 
-function renderRail() {
-  document.querySelectorAll('.rail-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === S.railTab));
-  refreshRail();
-}
+function renderRail() { document.querySelectorAll('.rail-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === S.railTab)); refreshRail(); }
 function refreshRail() {
   const c = els.railContent; c.innerHTML = '';
-  if (S.railTab === 'sessions') {
-    const head = document.createElement('div'); head.className = 'rail-head';
-    head.innerHTML = `<span class="title">Sessions</span>${S.sessions.length ? '<span class="action" id="clear-all">clear finished</span>' : ''}`;
-    c.appendChild(head);
-    const cl = q('#clear-all', head); if (cl) cl.onclick = clearFinished;
-    const list = document.createElement('div'); list.className = 'rail-list';
-    if (!S.sessions.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No sessions yet. Write a job below, or press ⌘N.'; c.appendChild(e); return; }
-    for (const s of S.sessions) {
-      const m = statusMeta(s);
-      const card = document.createElement('div');
-      card.className = 'nav-card' + (s.id === S.activeSessionId ? ' active' : '');
-      card.innerHTML = `<span class="code" style="background:${s.tint}">${esc(s.code)}</span>
-        <span class="col"><span class="goal">${esc(shorten(s.goal, 30))}</span><span class="sid">${esc(s.type === 'terminal' ? 'terminal' : (s.claudeSessionId ? s.claudeSessionId.slice(0, 8) : 'starting…'))}</span></span>
-        <span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
-      card.onclick = () => focusSession(s.id);
-      list.appendChild(card);
-    }
-    c.appendChild(list);
-  } else {
-    const p = S.project;
-    const tree = document.createElement('div'); tree.className = 'tree';
-    if (!p) { tree.innerHTML = '<div class="rail-empty">Open a folder to see its files.</div>'; c.appendChild(tree); return; }
-    tree.innerHTML = `<div class="tree-path">${esc(p.pathShort)}</div>`;
-    for (const n of (p.tree || [])) {
-      const row = document.createElement('div'); row.className = 'tree-row';
-      row.style.paddingLeft = (6 + n.pad * 14) + 'px';
-      row.innerHTML = `<span class="icon" style="background:${n.kind === 'dir' ? '#e8dfc7' : '#f0e7d0'}"></span>
-        <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
-      if (n.kind === 'file') row.onclick = () => quickLook(joinPath(p.path, n.name));
-      tree.appendChild(row);
-    }
-    c.appendChild(tree);
+  if (S.railTab === 'sessions') return refreshSessionsRail(c);
+  return refreshWorkspaceRail(c);
+}
+function refreshSessionsRail(c) {
+  const head = document.createElement('div'); head.className = 'rail-head';
+  head.innerHTML = `<span class="title">Sessions</span>${S.panels.length ? '<span class="action" id="clear-all">close finished</span>' : ''}`;
+  c.appendChild(head);
+  const cl = q('#clear-all', head); if (cl) cl.onclick = closeFinished;
+  if (!S.panels.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No sessions yet. Press ⌘N, or type a message below.'; c.appendChild(e); return; }
+  const list = document.createElement('div'); list.className = 'rail-list';
+  for (const p of S.panels) {
+    const m = statusMeta(p);
+    const row = document.createElement('div');
+    row.className = 'nav-card' + (p.id === S.activeId ? ' active' : '') + (p.attention ? ' attn' : '');
+    row.innerHTML = `<span class="code" style="background:${p.tint}">${esc(p.code)}</span>
+      <span class="col"><span class="goal">${esc(shorten(p.title, 30))}</span><span class="sid">${esc(kindLabel(p))}</span></span>
+      <span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
+    row.onclick = () => focusPanel(p.id);
+    list.appendChild(row);
   }
+  c.appendChild(list);
+}
+function refreshWorkspaceRail(c) {
+  const p = S.project;
+  const wrap = document.createElement('div'); wrap.className = 'tree';
+  if (!p) { wrap.innerHTML = '<div class="rail-empty">Open a folder (⌘O) to browse and edit files.</div>'; c.appendChild(wrap); return; }
+  const head = document.createElement('div'); head.className = 'tree-path'; head.textContent = p.pathShort; wrap.appendChild(head);
+  renderTreeLevel(wrap, p.path, 0);
+  c.appendChild(wrap);
+}
+function renderTreeLevel(container, dir, depth) {
+  const children = S.tree[dir];
+  if (!children) return;
+  for (const n of children) {
+    const row = document.createElement('div'); row.className = 'tree-row';
+    row.style.paddingLeft = (6 + depth * 13) + 'px';
+    const isOpen = S.expanded.has(n.path);
+    const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';
+    row.innerHTML = `<span class="tw">${glyph}</span><span class="icon" style="background:${n.kind === 'dir' ? '#e8dfc7' : '#f0e7d0'}"></span>
+      <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
+    row.onclick = () => { if (n.kind === 'dir') toggleDir(n.path); else openEditor(n.path); };
+    container.appendChild(row);
+    if (n.kind === 'dir' && isOpen) renderTreeLevel(container, n.path, depth + 1);
+  }
+}
+async function toggleDir(dir) {
+  if (S.expanded.has(dir)) { S.expanded.delete(dir); refreshRail(); return; }
+  if (!S.tree[dir]) S.tree[dir] = await api.listDir(dir);
+  S.expanded.add(dir); refreshRail();
 }
 
 function renderAgentsPanel() {
-  const p = S.project; const el = els.agentsPanel;
-  const agents = (p && p.agents) || [];
+  const p = S.project; const el = els.agentsPanel; const agents = (p && p.agents) || [];
   el.innerHTML = `<div class="head"><span class="title">Agents on file</span><span class="count">${agents.length}</span></div>
     <div class="from">${p ? 'read from ' + esc(p.pathShort) + '/.claude' : 'open a folder to read .claude'}</div>
     <div class="list" id="agents-list"></div>`;
@@ -298,594 +240,302 @@ function renderAgentsPanel() {
     const row = document.createElement('div'); row.className = 'agent-row';
     row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span>
       <span class="col"><span class="name">${esc(a.name)}</span><span class="tools">${esc(a.tools || a.desc || '')}</span></span><span class="chev">›</span>`;
-    row.onclick = () => openAgentInspector(a);
+    row.onclick = () => startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` });
     list.appendChild(row);
   }
 }
-
-function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready · ' + S.claudeExe : 'no folder open'); }
+function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
 
 // ===========================================================================
-//  Lane — incremental session cards
+//  Grid of tiles
 // ===========================================================================
-function renderLane() {
-  if (!S.sessions.length) {
-    cardEls.forEach((c) => c.root.remove()); cardEls.clear();
-    els.laneStack.innerHTML = `<div class="lane-empty">
-      <div class="polaroid">no sessions</div>
-      <div><div class="big">Say what you want</div><div class="hint">Type below and press Enter — it starts a session and streams back, right here.</div></div></div>`;
+function statusMeta(p) {
+  if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? '#a8792a' : '#8d8065' };
+  if (p.exited) return { label: 'closed', color: '#8d8065' };
+  if (p.attention) return { label: 'needs you', color: '#a8792a' };
+  return { label: 'live', color: '#4a7a4a' };
+}
+function kindLabel(p) {
+  if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
+  if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
+  if (p.kind === 'shell') return 'terminal · ' + shortHome(p.cwd);
+  if (p.kind === 'harness') return (p.program ? baseNameOf(p.program) : 'harness') + ' · ' + shortHome(p.cwd);
+  return 'run · ' + shortHome(p.cwd);
+}
+
+function renderGrid() {
+  if (!S.panels.length) {
+    tileEls.forEach((t) => t.root.remove()); tileEls.clear();
+    els.grid.classList.remove('has-focus');
+    els.grid.innerHTML = `<div class="lane-empty"><div class="polaroid">nothing open</div>
+      <div><div class="big">Start a session</div><div class="hint">Type a message below and press Enter — it opens a real Claude session, right here. ⌘N for terminals & harnesses.</div></div></div>`;
     return;
   }
-  if (q('.lane-empty', els.laneStack)) els.laneStack.innerHTML = '';
-  // remove stale
-  for (const [id, c] of cardEls) { if (!S.sessions.find((s) => s.id === id)) { c.root.remove(); cardEls.delete(id); } }
-  // ensure + order
-  for (const s of S.sessions) {
-    if (!cardEls.has(s.id)) mountCard(s);
-    els.laneStack.appendChild(cardEls.get(s.id).root);
-    refreshCardHead(s);
-    if (s.type === 'claude') refreshClaudeBody(s);
+  if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
+  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { t.root.remove(); tileEls.delete(id); } }
+  els.grid.classList.toggle('has-focus', !!S.expandedId);
+  for (const p of S.panels) {
+    if (!tileEls.has(p.id)) mountTile(p);
+    const t = tileEls.get(p.id);
+    t.root.classList.toggle('focused', p.id === S.expandedId);
+    t.root.classList.toggle('active', p.id === S.activeId);
+    els.grid.appendChild(t.root);
+    refreshTileHead(p);
+    if (t.fit) requestAnimationFrame(() => { try { t.fit.fit(); } catch (_) {} });
   }
 }
 
-function mountCard(s) {
-  const root = document.createElement('div'); root.className = 'card'; root.style.transform = `rotate(${s.rot})`;
-  root.innerHTML = `<div class="card-tape" style="background-color:${s.tint}"></div>
-    <div class="card-head">
-      <span class="code" style="background:${s.tint}"></span>
-      <span class="col"><span class="goal"></span><span class="subtitle"></span></span>
-      <span class="status-chip"></span><span class="mark"></span>
-    </div>
-    <div class="card-body"></div>`;
-  const head = q('.card-head', root); const body = q('.card-body', root);
-  head.onclick = (e) => { if (e.target.closest('.status-chip')) return; s.expanded = !s.expanded; body.style.display = s.expanded ? '' : 'none'; q('.mark', head).textContent = s.expanded ? '▾' : '▸'; };
-  const rec = { root, head, body, statusChip: q('.status-chip', head), mark: q('.mark', head), code: q('.code', head), goal: q('.goal', head), subtitle: q('.subtitle', head), term: null, fit: null };
-  cardEls.set(s.id, rec);
-  if (s.type === 'terminal') mountTerminal(s, rec);
+function mountTile(p) {
+  const root = document.createElement('div'); root.className = 'tile'; root.dataset.id = p.id;
+  root.innerHTML = `<div class="tile-head" draggable="true">
+      <span class="code" style="background:${p.tint}">${esc(p.code)}</span>
+      <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
+      <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
+      <button class="t-btn t-expand" title="Expand">⤢</button>
+      <button class="t-btn t-close" title="Close">✕</button>
+    </div><div class="tile-body"></div>`;
+  const head = q('.tile-head', root), body = q('.tile-body', root);
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null };
+  tileEls.set(p.id, rec);
+  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
+  q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
+  head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
+  // drag reorder
+  head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
+  head.addEventListener('dragend', () => root.classList.remove('dragging'));
+  root.addEventListener('dragover', (e) => { e.preventDefault(); root.classList.add('drop-hint'); });
+  root.addEventListener('dragleave', () => root.classList.remove('drop-hint'));
+  root.addEventListener('drop', (e) => { e.preventDefault(); root.classList.remove('drop-hint'); reorderPanels(e.dataTransfer.getData('text/plain'), p.id); });
+
+  if (p.kind === 'editor') mountEditor(p, rec); else mountTerminal(p, rec);
 }
 
-function refreshCardHead(s) {
-  const c = cardEls.get(s.id); if (!c) return;
-  const m = statusMeta(s);
-  c.code.textContent = s.code; c.code.style.background = s.tint;
-  c.goal.textContent = s.goal;
-  c.subtitle.textContent = s.subtitle || (s.type === 'terminal' ? 'terminal · ' + shortHome(s.cwd) : (s.agentName ? s.agentName + ' · ' + shortHome(s.cwd) : 'claude code · ' + shortHome(s.cwd)));
-  c.statusChip.textContent = m.label;
-  c.statusChip.style.color = m.color;
-  c.statusChip.classList.toggle('working', m.working);
-  c.mark.textContent = s.expanded ? '▾' : '▸';
-}
-function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); }
-
-function refreshClaudeBody(s) {
-  const c = cardEls.get(s.id); if (!c || s.type !== 'claude') return;
-  const b = c.body; b.innerHTML = '';
-
-  if (s.command) { const cs = document.createElement('div'); cs.className = 'cmd-strip'; cs.textContent = s.command; b.appendChild(cs); }
-
-  const flow = document.createElement('div'); flow.className = 'flow';
-  for (const item of s.flow) flow.appendChild(renderFlowItem(item));
-  b.appendChild(flow);
-
-  if (s.pendingPermission) b.appendChild(renderApproval(s));
-  if (s.status === 'failed' && s.failText) b.appendChild(renderStopped(s));
-  if (s.artifacts.length) b.appendChild(renderArtifacts(s));
-  if (!s.exited) b.appendChild(renderReplyRow(s));
+function refreshTileHead(p) {
+  const t = tileEls.get(p.id); if (!t) return;
+  const m = statusMeta(p);
+  q('.t-title', t.head).textContent = p.title + (p.kind === 'editor' && p.dirty ? ' •' : '');
+  q('.t-sub', t.head).textContent = kindLabel(p);
+  q('.t-status .lbl', t.head).textContent = m.label;
+  t.statusDot.style.background = m.color;
+  t.root.classList.toggle('attention', !!p.attention);
+  t.root.classList.toggle('exited', !!p.exited);
 }
 
-function renderFlowItem(item) {
-  const el = document.createElement('div');
-  if (item.kind === 'assistant') { el.className = 'say'; el.textContent = item.text; return el; }
-  if (item.kind === 'user') { el.className = 'say say--user'; el.textContent = item.text; return el; }
-  if (item.kind === 'thinking') { el.className = 'say'; el.style.color = '#9c8f78'; el.style.fontStyle = 'italic'; el.textContent = shorten(item.text, 160); return el; }
-  if (item.kind === 'step') {
-    el.className = 'step ' + (item.state || 'running');
-    const mk = item.state === 'done' ? '✓' : item.state === 'failed' ? '✕' : '·';
-    el.innerHTML = `<span class="box">${mk}</span><span class="text">${esc(item.label)}</span>${item.detail ? `<span class="detail">${esc(item.detail)}</span>` : ''}`;
-    return el;
-  }
-  if (item.kind === 'todos') {
-    const wrap = document.createElement('div'); wrap.className = 'flow'; wrap.style.gap = '9px';
-    for (const t of item.todos) {
-      const st = t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'running' : '';
-      const row = document.createElement('div'); row.className = 'step ' + st;
-      const mk = st === 'done' ? '✓' : st === 'running' ? '·' : '';
-      row.innerHTML = `<span class="box">${mk}</span><span class="text">${esc(t.text)}</span>`;
-      wrap.appendChild(row);
-    }
-    return wrap;
-  }
-  return el;
+// ---- terminal tiles --------------------------------------------------------
+function mountTerminal(p, rec) {
+  const term = new Terminal({ fontFamily: "'Courier Prime','Courier New',monospace", fontSize: 13, lineHeight: 1.2, theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, scrollback: 6000 });
+  const fit = new FitAddon(); term.loadAddon(fit); term.open(rec.body); rec.term = term; rec.fit = fit;
+  requestAnimationFrame(() => { try { fit.fit(); } catch (_) {} startProcess(p, term.cols, term.rows); });
+  term.onData((d) => { clearAttention(p); api.termWrite({ id: p.id, data: d }); });
+  term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
+  term.onBell(() => setAttention(p));
+  const ro = new ResizeObserver(() => { try { fit.fit(); } catch (_) {} }); ro.observe(rec.body);
 }
+async function startProcess(p, cols, rows) {
+  if (p.started) return; p.started = true;
+  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed });
+}
+function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
+function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
 
-function renderApproval(s) {
-  const p = s.pendingPermission;
-  const wrap = document.createElement('div'); wrap.className = 'approval';
-  wrap.innerHTML = `<div class="col"><div class="title">Needs your OK</div><div class="body">${esc(p.summary || p.label)}</div></div>
-    <div class="actions"><button class="btn btn--quiet">Not now</button><button class="btn btn--amber">Go ahead</button></div>`;
-  const [deny, allow] = wrap.querySelectorAll('button');
-  deny.onclick = () => decide(s, false);
-  allow.onclick = () => decide(s, true);
-  return wrap;
-}
-function renderStopped(s) {
-  const wrap = document.createElement('div'); wrap.className = 'stopped';
-  wrap.innerHTML = `<div class="col"><div class="title">Stopped early</div><div class="body">${esc(s.failText)}</div></div>
-    <button class="btn btn--red">Try again</button>`;
-  wrap.querySelector('button').onclick = () => retrySession(s);
-  return wrap;
-}
-function renderArtifacts(s) {
-  const wrap = document.createElement('div'); wrap.className = 'artifacts';
-  wrap.innerHTML = `<div class="title">Pasted in</div><div class="grid"></div>`;
-  const grid = q('.grid', wrap);
-  s.artifacts.slice(-8).forEach((a, i) => {
-    const el = document.createElement('div'); el.className = 'artifact'; el.style.transform = `rotate(${ART_ROTS[i % ART_ROTS.length]})`;
-    el.innerHTML = `<span class="kind" style="background:${a.tint || TINTS[hashIdx(a.path)]}">${esc(a.kind || 'FILE')}</span>
-      <span class="col"><span class="label">${esc(baseNameOf(a.path))}</span><span class="what">${esc(a.what || shortHome(a.path))}</span></span>`;
-    el.onclick = () => quickLook(a.path);
-    grid.appendChild(el);
+// ---- editor tiles ----------------------------------------------------------
+function mountEditor(p, rec) {
+  const wrap = document.createElement('div'); wrap.className = 'editor';
+  wrap.innerHTML = `<div class="ed-gutter"></div><textarea class="ed-area" spellcheck="false"></textarea>
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
+  rec.body.appendChild(wrap);
+  const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
+  rec.ta = ta; rec.gutter = gutter;
+  ta.value = p.text || '';
+  const sync = () => { const lines = ta.value.split('\n').length; gutter.innerHTML = Array.from({ length: lines }, (_, i) => `<div>${i + 1}</div>`).join(''); gutter.scrollTop = ta.scrollTop; };
+  ta.addEventListener('input', () => { p.text = ta.value; if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); } sync(); });
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; });
+  ta.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
+    if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; p.text = ta.value; sync(); }
   });
-  return wrap;
+  ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
+  q('.ed-save', wrap).onclick = () => saveEditor(p);
+  sync();
 }
-function renderReplyRow(s) {
-  const row = document.createElement('div'); row.className = 'reply-row';
-  row.innerHTML = `<span class="prompt-mark">❯</span><input placeholder="Reply, or add to the job…" /><button class="btn btn--go send">Send</button>`;
-  const input = q('input', row);
-  const doSend = () => { const v = input.value.trim(); if (!v) return; input.value = ''; sendToSession(s, v); };
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSend(); } });
-  q('.send', row).onclick = doSend;
-  return row;
-}
-function baseNameOf(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || '(file)'; }
-
-// ---- terminal cards --------------------------------------------------------
-function mountTerminal(s, rec) {
-  const wrap = document.createElement('div'); wrap.className = 'term-wrap';
-  rec.body.innerHTML = ''; rec.body.appendChild(wrap);
-  const term = new Terminal({
-    fontFamily: "'Courier Prime', 'Courier New', monospace", fontSize: 13, lineHeight: 1.15,
-    theme: XTERM_THEME, cursorBlink: true, allowTransparency: true, scrollback: 4000,
-  });
-  const fit = new FitAddon(); term.loadAddon(fit);
-  term.open(wrap); rec.term = term; rec.fit = fit;
-  requestAnimationFrame(() => { try { fit.fit(); } catch (_) {} startTerm(s, term.cols, term.rows); });
-  term.onData((d) => api.termWrite({ id: s.id, data: d }));
-  term.onResize(({ cols, rows }) => api.termResize({ id: s.id, cols, rows }));
-  const ro = new ResizeObserver(() => { try { fit.fit(); } catch (_) {} });
-  ro.observe(wrap);
-}
-async function startTerm(s, cols, rows) {
-  if (s.ptyStarted) return; s.ptyStarted = true;
-  await api.termCreate({ id: s.id, cwd: s.cwd, cols, rows, command: s.command || null });
+async function saveEditor(p) {
+  const res = await api.saveFile({ file: p.filePath, text: p.text });
+  if (res && res.ok) { p.dirty = false; refreshTileHead(p); refreshRail(); toast('Saved ' + baseNameOf(p.filePath)); }
+  else toast('Save failed: ' + (res && res.error || '?'));
 }
 
 // ===========================================================================
-//  Claude events → flow
+//  Panel lifecycle
 // ===========================================================================
-function onClaudeEvent(ev) {
-  const s = S.sessions.find((x) => x.id === ev.sessionId); if (!s) return;
-  switch (ev.kind) {
-    case 'init': s.claudeSessionId = ev.claudeSessionId || s.claudeSessionId; s.status = 'running'; break;
-    case 'assistant': s.flow.push({ kind: 'assistant', text: ev.text }); s.status = 'running'; break;
-    case 'thinking': /* keep quiet; optional */ break;
-    case 'tool': s.flow.push({ kind: 'step', toolId: ev.toolId, label: ev.label, detail: ev.detail, state: 'running' }); s.status = 'running';
-      if (/^Writing /.test(ev.label) || ev.name === 'Write') pushArtifact(s, ev); break;
-    case 'tool_result': {
-      const step = [...s.flow].reverse().find((f) => f.kind === 'step' && f.toolId === ev.toolId);
-      if (step) step.state = ev.isError ? 'failed' : 'done';
-      break;
-    }
-    case 'todos': {
-      const existing = s.flow.find((f) => f.kind === 'todos');
-      if (existing) existing.todos = ev.todos; else s.flow.push({ kind: 'todos', todos: ev.todos });
-      break;
-    }
-    case 'permission':
-      s.pendingPermission = { permissionId: ev.permissionId, toolName: ev.toolName, label: ev.label, summary: ev.summary };
-      s.status = 'needs-ok'; break;
-    case 'user_echo': s.flow.push({ kind: 'user', text: ev.text }); s.status = 'running'; break;
-    case 'result':
-      s.claudeSessionId = ev.claudeSessionId || s.claudeSessionId;
-      if (ev.ok) { s.status = 'done'; s.subtitle = `finished · $${(ev.costUsd || 0).toFixed(3)}`; }
-      else { s.status = 'failed'; s.failText = friendlyFail(ev.subtype); }
-      break;
-    case 'interrupted': s.status = 'idle'; break;
-    case 'error': s.status = 'failed'; s.failText = shorten(ev.message || 'Something went wrong.', 200); break;
-    default: break;
-  }
-  refreshCardHead(s); refreshClaudeBody(s); refreshRail(); renderHeader();
+function startPanel(opts) {
+  const p = Object.assign({
+    id: uid('p_'), kind: 'claude', tint: opts.tint || nextTint(), code: opts.code || code2(opts.title || 'SS'),
+    title: opts.title || 'Session', cwd: opts.cwd || (S.project && S.project.path), status: 'live',
+    attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed,
+  }, opts);
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  renderGrid(); renderRail(); renderHeader(); refreshCmdPreview();
+  return p;
 }
-
-function pushArtifact(s, ev) {
-  const path = (ev.detail && ev.detail.indexOf('/') >= 0) ? ev.detail : null;
-  if (!path) return;
-  if (!s.artifacts.find((a) => a.path === path)) s.artifacts.push({ path, kind: 'FILE', tint: TINTS[hashIdx(path)], what: 'written by the agent' });
+async function openEditor(filePath) {
+  const existing = S.panels.find((p) => p.kind === 'editor' && p.filePath === filePath);
+  if (existing) { focusPanel(existing.id); return; }
+  const res = await api.rawFile(filePath);
+  if (!res.ok) { toast(res.error || 'Could not open'); return; }
+  const p = { id: uid('p_'), kind: 'editor', tint: TINTS[hashIdx(filePath)], code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  renderGrid(); renderRail(); renderHeader();
 }
-function friendlyFail(subtype) {
-  if (subtype === 'error_max_turns') return 'Hit the turn limit before finishing.';
-  if (subtype === 'error_max_budget_usd') return 'Hit the spend limit.';
-  return 'The run stopped before finishing.';
+function focusPanel(id, scroll = true) {
+  S.activeId = id; renderRail();
+  for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
+  const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
+  refreshCmdPreview();
+}
+function closePanel(id) {
+  const p = S.panels.find((x) => x.id === id); if (!p) return;
+  if (p.kind === 'editor' && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  if (p.kind !== 'editor') api.termKill({ id });
+  const t = tileEls.get(id); if (t) { t.root.remove(); tileEls.delete(id); }
+  S.panels = S.panels.filter((x) => x.id !== id);
+  if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
+  if (S.expandedId === id) S.expandedId = null;
+  renderGrid(); renderRail(); renderHeader();
+}
+function closeFinished() {
+  const gone = S.panels.filter((p) => p.exited || (p.kind === 'editor' && !p.dirty && false));
+  for (const p of gone) closePanel(p.id);
+  if (!gone.length) toast('Nothing finished to close.');
+}
+function reorderPanels(fromId, toId) {
+  if (!fromId || fromId === toId) return;
+  const from = S.panels.findIndex((p) => p.id === fromId), to = S.panels.findIndex((p) => p.id === toId);
+  if (from < 0 || to < 0) return;
+  const [m] = S.panels.splice(from, 1); S.panels.splice(to, 0, m);
+  renderGrid();
 }
 
 // ===========================================================================
-//  Actions
+//  Command bar + launcher
 // ===========================================================================
-function decide(s, allow) {
-  const p = s.pendingPermission; if (!p) return;
-  api.claudePermission({ id: s.id, permissionId: p.permissionId, allow, note: allow ? '' : 'Not now.' });
-  s.pendingPermission = null; s.status = 'running';
-  refreshCardHead(s); refreshClaudeBody(s); refreshRail();
-}
-function sendToSession(s, text) {
-  if (s.type === 'terminal') { api.termWrite({ id: s.id, data: text + '\r' }); return; }
-  api.claudeSend({ id: s.id, text });
-  s.status = 'running'; refreshCardHead(s);
-}
-function retrySession(s) {
-  s.flow.push({ kind: 'user', text: 'Try again.' });
-  s.status = 'running'; s.failText = null;
-  api.claudeStart({ id: s.id, cwd: s.cwd, model: s.model, agentName: s.agentName, prompt: 'Please try again — continue where you left off.', resumeId: s.claudeSessionId });
-  refreshCardHead(s); refreshClaudeBody(s);
-}
-function focusSession(id) { S.activeSessionId = id; S.composeNew = false; renderRail(); refreshCmdPreview(); const c = cardEls.get(id); if (c) c.root.scrollIntoView({ behavior: 'smooth', block: 'start' }); els.cmdInput.focus(); }
-function clearFinished() {
-  const gone = S.sessions.filter((s) => ['done', 'failed', 'exited'].includes(s.status));
-  for (const s of gone) { if (s.type === 'terminal') api.termKill({ id: s.id }); else api.claudeClose({ id: s.id }); const c = cardEls.get(s.id); if (c) { c.root.remove(); cardEls.delete(s.id); } }
-  S.sessions = S.sessions.filter((s) => !gone.includes(s));
-  renderAll();
-}
-
-// ---- start sessions --------------------------------------------------------
-function startClaudeSession({ goal, agentName, model, cwd }) {
-  const s = makeSession({ type: 'claude', goal, agentName, model, cwd: cwd || (S.project && S.project.path) });
-  s.command = buildCommand({ goal, agentName });
-  s.flow.push({ kind: 'user', text: goal }); // show what you asked, like a chat
-  S.sessions.unshift(s); S.activeSessionId = s.id; S.composeNew = false;
-  renderLane(); renderRail(); renderHeader(); refreshCmdPreview();
-  api.claudeStart({ id: s.id, cwd: s.cwd, model: s.model, agentName, prompt: goal });
-  return s;
-}
-function startTerminalSession({ goal, command, cwd }) {
-  const s = makeSession({ type: 'terminal', goal: goal || 'Terminal', command: command || '', cwd: cwd || (S.project && S.project.path) });
-  s.status = 'running';
-  S.sessions.unshift(s); S.activeSessionId = s.id;
-  renderLane(); renderRail(); renderHeader();
-  return s;
-}
-
-function buildCommand({ goal, agentName }) {
-  const proj = S.project ? S.project.name : 'here';
-  const who = agentName ? `--agent ${agentName} ` : '';
-  return `dainami run ${who}--project ${proj} "${shorten(goal || '', 60)}"`;
-}
-
-// ---- command bar (live chat composer) --------------------------------------
-// The active conversation the composer talks to — the focused Claude session that isn't closed.
-function activeLive() {
-  if (S.composeNew) return null;
-  const s = S.sessions.find((x) => x.id === S.activeSessionId);
-  return s && s.type === 'claude' && !s.exited ? s : null;
-}
-function startFreshConversation() {
-  S.composeNew = true; S.activeSessionId = null;
-  renderRail(); refreshCmdPreview();
-  els.cmdInput.focus();
-  toast('New session — say what you want.');
-}
 async function runDraft() {
-  const v = (els.cmdInput.value || '').trim(); if (!v) { els.cmdInput.focus(); return; }
-  els.cmdInput.value = ''; S.draft = '';
+  const v = (els.cmdInput.value || '').trim(); if (!v) { openLauncher(); return; }
+  els.cmdInput.value = ''; S.draft = ''; refreshCmdPreview();
   if (v.startsWith('/')) {
     const [cmd, ...rest] = v.slice(1).split(' '); const arg = rest.join(' ').trim();
-    refreshCmdPreview();
+    if (cmd === 'term') return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: TINTS[5] });
+    if (cmd === 'run') return arg ? startPanel({ kind: 'run', title: shorten(arg, 24), code: 'RN', command: arg }) : toast('usage: /run <command>');
     if (cmd === 'open') return openFolderDialog();
     if (cmd === 'agents') return openAgentPicker();
-    if (cmd === 'term') return startTerminalSession({ goal: arg || 'Terminal', command: arg || '' });
-    if (cmd === 'new') return openNewSession();
-    if (cmd === 'help') return toast('Type to chat · /new options · /open folder · /agents · /term');
-    if (cmd === 'run') return guardStart(arg);
+    if (cmd === 'new') return openLauncher();
+    if (cmd === 'help') return toast('type a message → Claude · /term · /run <cmd> · /open · /agents');
     return toast('Unknown command: /' + cmd);
   }
-  const target = activeLive();
-  if (target) { sendToSession(target, v); refreshCmdPreview(); return; }
-  await guardStart(v);
+  if (!(await ensureFolder())) return;
+  startPanel({ kind: 'claude', title: shorten(v, 30), code: 'CC', tint: TINTS[4], seed: v });
 }
-async function guardStart(goal) {
-  if (!goal) return;
-  if (!S.project) {
-    const info = await api.pickFolder();
-    if (!info) { toast('Open a folder to start a session.'); return; }
-    applyProject(info);
-  }
-  startClaudeSession({ goal });
-  refreshCmdPreview();
+async function ensureFolder() {
+  if (S.project) return true;
+  const info = await api.pickFolder(); if (!info) { toast('Open a folder to start a session.'); return false; }
+  applyProject(info); return true;
 }
 function refreshCmdPreview() {
   const v = (S.draft || '').trim();
   if (v.startsWith('/')) { els.cmdPreview.textContent = 'command'; return; }
-  const target = activeLive();
-  if (target) { els.cmdPreview.textContent = `→ continues “${shorten(target.goal, 44)}” · Enter sends, ⌘N starts a new one`; return; }
-  els.cmdPreview.textContent = S.project ? `→ new session in ${S.project.name}` : '→ Enter picks a folder, then starts a session';
+  els.cmdPreview.textContent = S.project ? `→ new Claude session in ${S.project.name} · ⌘N for terminals & harnesses` : '→ Enter picks a folder, then opens a Claude session';
 }
 
-// ===========================================================================
-//  Overlays
-// ===========================================================================
-function renderOverlay() {
-  els.overlayRoot.innerHTML = '';
-  const o = S.overlay; if (!o) return;
-  if (o.type === 'new') return renderNewSessionSheet();
-  if (o.type === 'agents') return renderAgentPickerSheet();
-  if (o.type === 'inspector') return renderInspector(o.agent);
-  if (o.type === 'quicklook') return renderQuickLook(o.data);
+function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); els.cmdInput.blur(); }
+function renderLauncher() {
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
+    <div class="picker-list" id="lc-list"></div>`, { top: true });
+  const list = q('#lc-list', modal);
+  for (const h of HARNESSES) {
+    const row = document.createElement('div'); row.className = 'picker-row';
+    row.innerHTML = `<span class="code" style="background:${h.tint}">${esc(h.code)}</span>
+      <span class="col"><span class="name">${esc(h.name)}</span><span class="desc">${esc(h.sub)}</span></span>`;
+    row.onclick = async () => { closeOverlay(); if (!(await ensureFolder())) return; launchHarness(h); };
+    list.appendChild(row);
+  }
 }
-function closeOverlay() { S.overlay = null; renderOverlay(); }
-
-function overlay(cls, inner, opts) {
-  const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : '');
-  wrap.onclick = closeOverlay;
-  const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation();
-  modal.innerHTML = inner;
-  wrap.appendChild(modal); els.overlayRoot.appendChild(wrap);
-  return modal;
-}
-
-// ---- new session sheet -----------------------------------------------------
-function openNewSession() { S.overlay = { type: 'new', goal: '', folder: S.project ? S.project.path : null, who: 'auto', rules: { ask: true, sandbox: true } }; renderOverlay(); }
-function renderNewSessionSheet() {
-  const o = S.overlay;
-  const agents = (S.project && S.project.agents) || [];
-  const folderChips = [
-    ...(S.recents || []).map((r) => ({ path: r.path, name: r.name })),
-  ];
-  if (S.project && !folderChips.find((f) => f.path === S.project.path)) folderChips.unshift({ path: S.project.path, name: S.project.name });
-
-  const modal = overlay('modal', `
-    <div class="modal-head"><div class="col"><div class="title">New session</div><div class="sub">One job, one runner, one folder.</div></div><div class="modal-x">✕</div></div>
-    <div class="modal-body">
-      <div class="field-label">1 · What needs doing</div>
-      <input class="text-input" id="ns-goal" placeholder="e.g. pull competitor pricing into a sheet" value="${esc(o.goal)}" />
-      <div class="field-label section-gap">2 · Where</div>
-      <div class="chip-row" id="ns-folders"></div>
-      <div class="field-label section-gap">3 · Who runs it</div>
-      <div class="who-grid" id="ns-who"></div>
-      <div class="field-label section-gap">4 · Ground rules</div>
-      <div class="chip-row" id="ns-rules"></div>
-      <div class="sheet-cmd" id="ns-cmd"></div>
-    </div>
-    <div class="modal-foot"><span class="note" id="ns-note"></span>
-      <button class="btn btn--quiet" id="ns-cancel">Cancel</button>
-      <button class="btn btn--go" id="ns-start">Start session</button></div>`);
-
-  const goalInput = q('#ns-goal', modal);
-  goalInput.oninput = () => { o.goal = goalInput.value; refreshSheetCmd(modal); };
-  setTimeout(() => goalInput.focus(), 30);
-  goalInput.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') startFromSheet(); });
-
-  // folders
-  const fWrap = q('#ns-folders', modal);
-  folderChips.forEach((f) => {
-    const chip = document.createElement('div'); chip.className = 'pick-chip' + (o.folder === f.path ? ' picked' : '');
-    chip.innerHTML = `<span class="swatch" style="background:${TINTS[hashIdx(f.path)]}"></span><span>${esc(f.name)}</span>`;
-    chip.onclick = () => { o.folder = f.path; renderOverlay(); };
-    fWrap.appendChild(chip);
-  });
-  const other = document.createElement('div'); other.className = 'pick-chip'; other.style.borderStyle = 'dashed'; other.innerHTML = '＋ another folder';
-  other.onclick = async () => { const info = await api.pickFolder(); if (info) { S.project = info; S.recents = [{ path: info.path, pathShort: info.pathShort, name: info.name }, ...S.recents.filter((r) => r.path !== info.path)]; o.folder = info.path; renderAll(); renderOverlay(); } };
-  fWrap.appendChild(other);
-
-  // who
-  const wWrap = q('#ns-who', modal);
-  const auto = document.createElement('div'); auto.className = 'who-tile' + (o.who === 'auto' ? ' picked' : '');
-  auto.innerHTML = `<span class="code" style="background:#e8dfc7">✳</span><span class="col"><span class="name">Pick for me</span><span class="short">claude reads the job</span></span>`;
-  auto.onclick = () => { o.who = 'auto'; renderOverlay(); };
-  wWrap.appendChild(auto);
-  const term = document.createElement('div'); term.className = 'who-tile' + (o.who === 'terminal' ? ' picked' : '');
-  term.innerHTML = `<span class="code" style="background:${TINTS[4]}">❯</span><span class="col"><span class="name">Terminal</span><span class="short">plain shell, ink on paper</span></span>`;
-  term.onclick = () => { o.who = 'terminal'; renderOverlay(); };
-  wWrap.appendChild(term);
-  agents.forEach((a) => {
-    const tile = document.createElement('div'); tile.className = 'who-tile' + (o.who === a.slug ? ' picked' : '');
-    tile.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span><span class="col"><span class="name">${esc(a.name)}</span><span class="short">${esc(shorten(a.desc || a.tools || '', 32))}</span></span>`;
-    tile.onclick = () => { o.who = a.slug; renderOverlay(); };
-    wWrap.appendChild(tile);
-  });
-
-  // rules
-  const rWrap = q('#ns-rules', modal);
-  const RULES = [{ id: 'ask', name: 'ask before anything destructive' }, { id: 'sandbox', name: 'stay inside this folder' }, { id: 'net', name: 'allow internet' }];
-  RULES.forEach((r) => {
-    const on = o.rules[r.id] !== false;
-    const chip = document.createElement('div'); chip.className = 'pick-chip' + (on ? ' picked' : '');
-    chip.innerHTML = `<span class="check">${on ? '✓' : ''}</span><span>${esc(r.name)}</span>`;
-    chip.onclick = () => { o.rules[r.id] = !on; renderOverlay(); };
-    rWrap.appendChild(chip);
-  });
-
-  q('.modal-x', modal).onclick = closeOverlay;
-  q('#ns-cancel', modal).onclick = closeOverlay;
-  q('#ns-start', modal).onclick = startFromSheet;
-  refreshSheetCmd(modal);
-}
-function refreshSheetCmd(modal) {
-  const o = S.overlay; const proj = folderName(o.folder);
-  const who = o.who === 'terminal' ? '' : (o.who === 'auto' ? '' : `--agent ${o.who} `);
-  const cmd = o.who === 'terminal'
-    ? `# opens a terminal in ${proj}${o.goal ? '\n' + o.goal : ''}`
-    : `dainami run ${who}--project ${proj} "${shorten(o.goal || '', 60)}"`;
-  const cmdEl = q('#ns-cmd', modal); if (cmdEl) cmdEl.textContent = cmd;
-  const note = q('#ns-note', modal); if (note) note.textContent = o.folder ? '' : 'Pick a folder to run in.';
-}
-function folderName(p) { const f = (S.recents || []).find((r) => r.path === p); if (f) return f.name; if (S.project && S.project.path === p) return S.project.name; return baseNameOf(p) || 'folder'; }
-function startFromSheet() {
-  const o = S.overlay; if (!o.goal || !o.goal.trim()) { toast('What needs doing?'); return; }
-  if (!o.folder) { toast('Pick a folder.'); return; }
-  const goal = o.goal.trim();
-  closeOverlay();
-  if (o.who === 'terminal') { startTerminalSession({ goal, command: goal.startsWith('/') ? '' : goal, cwd: o.folder }); return; }
-  const agentName = o.who === 'auto' ? null : o.who;
-  startClaudeSession({ goal, agentName, cwd: o.folder });
+async function launchHarness(h) {
+  if (h.kind === 'custom') {
+    const cmd = prompt('Command to run (e.g. hermes, npm run dev, python x.py):');
+    if (!cmd || !cmd.trim()) return;
+    return startPanel({ kind: 'run', title: shorten(cmd.trim(), 24), code: code2(cmd), command: cmd.trim() });
+  }
+  if (h.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', tint: h.tint });
+  return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: h.tint });
 }
 
 // ---- agent picker (⌘K) -----------------------------------------------------
 function openAgentPicker() { S.overlay = { type: 'agents', query: '', hi: 0 }; renderOverlay(); }
 function renderAgentPickerSheet() {
-  const o = S.overlay;
-  const agents = (S.project && S.project.agents) || [];
+  const o = S.overlay; const agents = (S.project && S.project.agents) || [];
   const filtered = agents.filter((a) => (a.name + ' ' + (a.desc || '')).toLowerCase().includes(o.query.toLowerCase()));
-  const modal = overlay('picker-box', `
-    <div class="picker-input"><span class="prompt-mark">❯</span><input id="ap-input" placeholder="Which agent? (or type a job)" value="${esc(o.query)}" /></div>
-    <div class="picker-list" id="ap-list"></div>`, { top: true });
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span><input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div><div class="picker-list" id="ap-list"></div>`, { top: true });
   const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.query = input.value; o.hi = 0; renderOverlay(); };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { const a = filtered[o.hi]; if (a) { closeOverlay(); startClaudeSession({ goal: o.query || `Run ${a.name}`, agentName: a.slug }); } else if (o.query.trim()) { closeOverlay(); guardStart(o.query.trim()); } }
+    if (e.key === 'Enter') { const a = filtered[o.hi]; if (a) { closeOverlay(); startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` }); } }
     if (e.key === 'ArrowDown') { o.hi = Math.min(filtered.length - 1, o.hi + 1); renderOverlay(); }
     if (e.key === 'ArrowUp') { o.hi = Math.max(0, o.hi - 1); renderOverlay(); }
   });
   const list = q('#ap-list', modal);
-  if (!filtered.length) { list.innerHTML = `<div class="rail-empty" style="padding:14px">${agents.length ? 'No match.' : 'No agents in this folder. Type a job and press Enter.'}</div>`; return; }
+  if (!filtered.length) { list.innerHTML = `<div class="rail-empty" style="padding:14px">${agents.length ? 'No match.' : 'No agents in this folder.'}</div>`; return; }
   filtered.forEach((a, i) => {
     const row = document.createElement('div'); row.className = 'picker-row' + (i === o.hi ? ' hilite' : '');
-    row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span>
-      <span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.desc || a.tools || '')}</span></span>`;
-    row.onclick = () => { closeOverlay(); openNewSessionWithAgent(a); };
+    row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span><span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.desc || a.tools || '')}</span></span>`;
+    row.onclick = () => { closeOverlay(); startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` }); };
     list.appendChild(row);
   });
 }
-function openNewSessionWithAgent(a) { S.overlay = { type: 'new', goal: '', folder: S.project ? S.project.path : null, who: a.slug, rules: { ask: true, sandbox: true } }; renderOverlay(); }
 
-// ---- agent inspector -------------------------------------------------------
-function openAgentInspector(a) { S.overlay = { type: 'inspector', agent: a }; renderOverlay(); }
-function renderInspector(a) {
-  const skills = (S.project && S.project.skills) || [];
-  const tools = (a.tools || '').split(/[,·]/).map((t) => t.trim()).filter(Boolean);
-  const modal = overlay('modal', `
-    <div class="modal-head">
-      <span class="code" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${TINTS[hashIdx(a.slug)]};border:1px solid rgba(60,45,25,.35);box-shadow:2px 2px 0 rgba(90,72,44,.2)">${esc(code2(a.name))}</span>
-      <div class="col"><div class="title">${esc(a.name)}</div><div class="sub">${esc(a.desc || 'agent on file')}</div></div><div class="modal-x">✕</div></div>
-    <div class="modal-body" style="width:560px">
-      <div class="field-label">Tools it can use</div>
-      <div class="chip-row">${tools.length ? tools.map((t) => `<span class="pick-chip picked"><span class="check">✓</span><span>${esc(t)}</span></span>`).join('') : '<div class="rail-empty" style="padding:2px 0">not specified</div>'}</div>
-      <div class="field-label section-gap">Skills in this folder</div>
-      <div class="chip-row">${skills.length ? skills.map((sk) => `<span class="pick-chip"><span>${esc(sk.name)}</span></span>`).join('') : '<div class="rail-empty" style="padding:2px 0">none found</div>'}</div>
-    </div>
-    <div class="modal-foot"><span class="note">read-only</span><button class="btn btn--go" id="insp-use">Start a session</button></div>`);
-  q('.modal-x', modal).onclick = closeOverlay;
-  q('#insp-use', modal).onclick = () => { closeOverlay(); openNewSessionWithAgent(a); };
+// ---- overlays --------------------------------------------------------------
+function renderOverlay() {
+  els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
+  if (o.type === 'launcher') return renderLauncher();
+  if (o.type === 'agents') return renderAgentPickerSheet();
 }
-
-// ---- quick look ------------------------------------------------------------
-async function quickLook(file) {
-  const data = await api.readFile(file);
-  data._path = file;
-  S.overlay = { type: 'quicklook', data }; renderOverlay();
-}
-function renderQuickLook(d) {
-  let bodyHtml = '';
-  if (d.kind === 'dir') {
-    bodyHtml = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">${(d.files || []).map((f) => `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 8px;background:#fffdf6;border:1px solid #d4c7ab;box-shadow:3px 3px 0 rgba(90,72,44,.16)">
-        <div style="width:44px;height:54px;background:#f0e7d0;border:1px solid #cdbfa2"></div>
-        <span style="font-size:10.5px;text-align:center;word-break:break-all">${esc(f.name)}</span></div>`).join('')}</div>`;
-  } else {
-    bodyHtml = `<div class="ql-lines">${(d.rows || []).map((r) => `<div class="ql-row"><span class="n">${r.n}</span><span class="t">${esc(r.t)}</span></div>`).join('')}</div>`;
-  }
-  const modal = overlay('modal', `
-    <div class="modal-head"><span class="code" style="width:34px;height:40px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;background:${TINTS[hashIdx(d._path)]};border:1px solid rgba(60,45,25,.35)">${d.kind === 'dir' ? 'DIR' : 'FILE'}</span>
-      <div class="col"><div class="title">${esc(d.name)}</div><div class="sub">${esc(shortHome(d._path))}${d.size ? ' · ' + d.size : ''}</div></div><div class="modal-x">✕</div></div>
-    <div class="modal-body" style="width:760px;max-height:60vh">${bodyHtml}</div>
-    <div class="modal-foot"><span class="note">${esc(shortHome(d._path))}</span>
-      <button class="btn btn--quiet" id="ql-copy">Copy path</button>
-      <button class="btn btn--go" id="ql-reveal">Reveal in Finder</button></div>`);
-  q('.modal-x', modal).onclick = closeOverlay;
-  q('#ql-copy', modal).onclick = () => { api.copyText(d._path); toast('Path copied'); };
-  q('#ql-reveal', modal).onclick = () => api.revealFile(d._path);
+function closeOverlay() { S.overlay = null; renderOverlay(); }
+function overlay(cls, inner, opts) {
+  const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
+  const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
+  wrap.appendChild(modal); els.overlayRoot.appendChild(wrap); return modal;
 }
 
 // ---- folders ---------------------------------------------------------------
 async function openFolderDialog() { const info = await api.pickFolder(); if (info) applyProject(info); }
 async function openFolder(path) { const info = await api.openFolder(path); if (info) applyProject(info); }
 function applyProject(info) {
-  S.project = info;
+  S.project = info; S.tree = {}; S.expanded = new Set();
   S.recents = [{ path: info.path, pathShort: info.pathShort, name: info.name }, ...S.recents.filter((r) => r.path !== info.path)].slice(0, 8);
+  S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
+  // load root level fresh for the explorer
+  api.listDir(info.path).then((rows) => { S.tree[info.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
   renderAll();
 }
-function joinPath(dir, name) { return dir.replace(/\/$/, '') + '/' + name; }
 
 // ---- toast -----------------------------------------------------------------
 let toastTimer = null;
-function toast(msg) {
-  els.toastRoot.innerHTML = `<div class="toast"><span class="dot"></span><span class="msg">${esc(msg)}</span></div>`;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { els.toastRoot.innerHTML = ''; }, 2200);
-}
+function toast(msg) { els.toastRoot.innerHTML = `<div class="toast"><span class="dot"></span><span class="msg">${esc(msg)}</span></div>`; clearTimeout(toastTimer); toastTimer = setTimeout(() => { els.toastRoot.innerHTML = ''; }, 2200); }
 
 // ===========================================================================
-//  Demo seed (for the screenshot / first-run preview)
+//  Demo seed (screenshot / preview)
 // ===========================================================================
 function seedDemo() {
-  S.project = {
-    path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas', hasClaude: true,
-    tree: [
-      { name: '.claude', kind: 'dir', pad: 0, meta: 'agents & skills' },
-      { name: 'agents', kind: 'dir', pad: 1, meta: '5 items' },
-      { name: 'src', kind: 'dir', pad: 0, meta: '212 items' },
-      { name: 'auth', kind: 'dir', pad: 1, meta: '9 items' },
-      { name: 'passkey.ts', kind: 'file', pad: 2, meta: '4 KB' },
-      { name: 'data', kind: 'dir', pad: 0, meta: '2 items' },
-      { name: 'pricing.csv', kind: 'file', pad: 1, meta: '31 KB' },
-      { name: 'CLAUDE.md', kind: 'file', pad: 0, meta: 'house rules' },
-      { name: 'README.md', kind: 'file', pad: 0, meta: '2 KB' },
-    ],
-    agents: [
-      { slug: 'collector', name: 'collector', desc: 'Pulls structured data off pages', tools: 'browser · files · shell' },
-      { slug: 'engineer', name: 'engineer', desc: 'Edits the repo, runs tests, opens a PR', tools: 'claude code · git' },
-      { slug: 'researcher', name: 'researcher', desc: 'Reads the web and writes a brief', tools: 'web · sources' },
-      { slug: 'writer', name: 'writer', desc: 'Drafts docs and updates', tools: 'files · mcp' },
-      { slug: 'operator', name: 'operator', desc: 'Touches live systems — asks first', tools: 'shell · mcp' },
-    ],
-    skills: [{ slug: 'review-pr', name: 'review-pr' }, { slug: 'write-tests', name: 'write-tests' }, { slug: 'brand-voice', name: 'brand-voice' }],
-  };
-  S.recents = [
-    { path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas' },
-    { path: '/Users/calvin/work/pricing', pathShort: '~/work/pricing', name: 'Pricing research' },
-    { path: '/Users/calvin/work/site', pathShort: '~/work/site', name: 'Marketing site' },
-  ];
-
-  const s1 = makeSession({ type: 'claude', goal: 'Compare our pricing with the top 20 competitors', agentName: 'collector' });
-  s1.tint = TINTS[2]; s1.code = 'CO'; s1.status = 'done'; s1.subtitle = 'collector · finished · $0.42'; s1.command = 'dainami run --agent collector --project Atlas "Compare our pricing…"';
-  s1.flow = [
-    { kind: 'step', label: 'Lining up 20 websites', state: 'done' },
-    { kind: 'step', label: 'Reading each page', state: 'done' },
-    { kind: 'step', label: 'Tidying the numbers', state: 'done' },
-    { kind: 'step', label: 'Building your spreadsheet', state: 'done' },
-  ];
-  s1.artifacts = [
-    { path: '/Users/calvin/work/atlas/out/pricing.csv', kind: 'FILE', tint: TINTS[0], what: 'spreadsheet · 187 rows' },
-    { path: '/Users/calvin/work/atlas/out/pages', kind: 'DIR', tint: TINTS[3], what: 'the raw pages it read' },
-  ];
-
-  const s2 = makeSession({ type: 'claude', goal: 'Rotate the staging database credentials', agentName: 'operator' });
-  s2.tint = TINTS[4]; s2.code = 'OP'; s2.status = 'needs-ok'; s2.subtitle = 'operator · waiting';
-  s2.flow = [
-    { kind: 'assistant', text: "I'll rotate the staging credentials. First I need to run the rotation script." },
-    { kind: 'step', label: 'Reading the current config', state: 'done' },
-    { kind: 'step', label: 'Rotate staging DB password', detail: 'rotate-db.sh', state: 'running' },
-  ];
-  s2.pendingPermission = { permissionId: 'demo', toolName: 'Bash', label: 'Rotate staging DB password', summary: 'Run: ./scripts/rotate-db.sh staging — this changes a live credential.' };
-
-  const s3 = makeSession({ type: 'claude', goal: 'Summarise the Q2 board notes into a brief', agentName: 'writer' });
-  s3.tint = TINTS[1]; s3.code = 'WR'; s3.status = 'running'; s3.subtitle = 'writer · working';
-  s3.flow = [
-    { kind: 'todos', todos: [
-      { text: 'Read the board notes', status: 'completed' },
-      { text: 'Pull out the decisions', status: 'completed' },
-      { text: 'Draft the one-page brief', status: 'in_progress' },
-      { text: 'Add the action items', status: 'pending' },
-    ] },
-  ];
-
-  S.sessions = [s2, s3, s1];
-  S.activeSessionId = s2.id;
+  S.project = { path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas', hasClaude: true, tree: [], agents: [
+    { slug: 'collector', name: 'collector', desc: 'Pulls structured data off pages', tools: 'browser · files · shell' },
+    { slug: 'engineer', name: 'engineer', desc: 'Edits the repo, runs tests, opens a PR', tools: 'claude code · git' },
+    { slug: 'researcher', name: 'researcher', desc: 'Reads the web and writes a brief', tools: 'web · sources' },
+  ], skills: [] };
+  S.recents = [{ path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas' }];
+  // A claude tile + an editor tile so the paper grid reads clearly.
+  const c = { id: uid('p_'), kind: 'shell', tint: TINTS[4], code: 'CC', title: 'Claude session', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, attention: true, _demoText: true };
+  const e = { id: uid('p_'), kind: 'editor', tint: TINTS[1], code: 'ED', title: 'passkey.ts', filePath: '/Users/calvin/work/atlas/src/auth/passkey.ts', dirty: true, status: 'live',
+    text: `import { verifyRegistration } from './webauthn'\n\nexport async function register(user: User) {\n  const options = await createOptions(user)\n  const cred = await navigator.credentials.create({ publicKey: options })\n  return verifyRegistration(cred)\n}\n` };
+  S.panels = [c, e]; S.activeId = c.id;
+  // paint a paper "claude" banner into the demo terminal after mount
+  setTimeout(() => { const t = tileEls.get(c.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
 }
