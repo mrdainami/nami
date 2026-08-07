@@ -135,7 +135,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1360, height: 940, minWidth: 1040, minHeight: 700,
     titleBarStyle: 'hiddenInset', backgroundColor: '#cfc3ac',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, plugins: true },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('closed', () => { win = null; });
@@ -209,8 +209,10 @@ ipcMain.handle('file:raw', (_e, file) => {
   try {
     const stat = fs.statSync(file);
     if (stat.isDirectory()) return { ok: false, error: 'is a directory' };
-    if (stat.size > 2 * 1024 * 1024) return { ok: false, error: 'file too large to edit (' + fmtSize(stat.size) + ')' };
-    return { ok: true, text: fs.readFileSync(file, 'utf8'), path: file, size: fmtSize(stat.size) };
+    if (stat.size > 2 * 1024 * 1024) return { ok: false, error: 'file too large to edit (' + fmtSize(stat.size) + ')', size: fmtSize(stat.size) };
+    const buf = fs.readFileSync(file);
+    if (buf.includes(0)) return { ok: false, binary: true, error: 'binary file', size: fmtSize(stat.size) };
+    return { ok: true, text: buf.toString('utf8'), path: file, size: fmtSize(stat.size) };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 ipcMain.handle('file:save', (_e, { file, text }) => {

@@ -1,7 +1,8 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('dainami', {
   boot: () => ipcRenderer.invoke('boot'),
+  droppedFilePath: (file) => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } },
 
   pickFolder: () => ipcRenderer.invoke('folder:pick'),
   openFolder: (folder) => ipcRenderer.invoke('folder:open', folder),
