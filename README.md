@@ -17,8 +17,7 @@ npm start          # opens the app
   yellow **Needs your OK** card for real permission prompts, produced files in **Pasted in**.
 - **Terminal sessions** run a real shell (node-pty) inside an ink-on-paper xterm.
 - **Drop files from anywhere** — drag a file from Finder onto a session card and its
-  (shell-quoted) path is typed into that session; drop it on the command bar to attach it to
-  your next message; drop it on empty canvas to view it.
+  (shell-quoted) path is typed into that session; drop it on empty canvas to view it.
 - **Viewer tiles** — click any file in the Workspace rail (or ⌘-click a path in a terminal):
   images, video, audio and PDFs open as paper viewer cards in-app; anything unviewable gets a
   card with a Reveal-in-Finder button. Text files open in the paper editor as before.
@@ -35,7 +34,8 @@ npm start          # opens the app
 - **Any AI model** — ⌘N → "Any AI model" runs a session against any OpenAI-compatible
   endpoint (Ollama, LM Studio, vLLM, OpenRouter, Hermes…): the model gets real tools
   (run commands, read/write files), risky actions show the yellow **Needs your OK** card,
-  and the transcript renders as a paper chat. `/model` reconfigures the endpoint.
+  and the transcript renders as a paper chat. "AI model settings…" in ⌘N reconfigures the
+  endpoint.
 - **Sessions survive restarts** — the layout is restored on launch: editors, viewers and
   cards reopen, terminals restart in their folder, and Claude sessions pick their
   conversation back up via `claude --continue`.
@@ -44,7 +44,7 @@ npm start          # opens the app
   cards joined by red yarn.
 
 ## Keys
-⌘N new session · ⌘O open folder · ⌘K agents · ⌘⏎ run · esc close · space quick-look
+⌘N new session · ⌘O open folder · ⌘K agents · ⌘W close pane · ⌘S save · esc close
 
 ## Preview
 `npm run shot` renders a demo-seeded screenshot to `shots/app.png` (no live sessions).
