@@ -32,6 +32,7 @@ const HARNESSES = [
   { id: 'ai', name: 'Any AI model', sub: 'OpenAI-compatible endpoint — Hermes, Ollama, LM Studio, vLLM…', kind: 'ai', tint: TINTS[3], code: 'AI' },
   { id: 'shell', name: 'Terminal', sub: 'a plain shell, ink on paper', kind: 'shell', tint: TINTS[5], code: '❯' },
   { id: 'custom', name: 'Custom command…', sub: 'run any harness or program', kind: 'custom', tint: TINTS[0], code: '+' },
+  { id: 'ai-config', name: 'AI model settings…', sub: 'change the OpenAI-compatible endpoint, model or key', kind: 'ai-config', tint: TINTS[2], code: '⚙' },
 ];
 
 // ---- state -----------------------------------------------------------------
@@ -41,7 +42,7 @@ const S = {
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
   library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugin:claude']) },
-  railCollapsed: false, cmdCollapsed: false,
+  railCollapsed: false,
 };
 
 let els = {};
@@ -79,7 +80,7 @@ function dropFilesOnPanel(p, paths) {
   buildShell();
   const b = await api.boot();
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null; S.stt = b.stt;
-  if (b.collapsed) { S.railCollapsed = true; S.cmdCollapsed = true; }
+  if (b.collapsed) S.railCollapsed = true;
 
   api.onAiEvent((ev) => {
     const p = S.panels.find((x) => x.id === ev.sessionId); if (!p) return;
@@ -130,16 +131,8 @@ function buildShell() {
         </div>
         <div class="main">
           <div class="grid" id="grid"></div>
-          <div class="cmdbar" id="cmdbar">
-            <button class="cmd-reopen" id="cmd-reopen">❯ start a session…</button>
-            <div class="cmdbar-box" id="cmdbar-box"><span class="prompt-mark">❯</span>
-              <input id="cmd-input" placeholder="Start a Claude session (type a first message) · /term · /run <cmd> · /open" />
-              <button class="cmd-collapse" id="cmd-collapse" title="Minimise">▾</button>
-              <button class="btn btn--go cmd-run" id="cmd-run">Start ⌘⏎</button></div>
-            <div class="cmd-preview" id="cmd-preview"></div>
-          </div>
           <div class="footer">
-            <span>⌘N new</span><span>⌘K agents</span><span>⌘O folder</span><span>⌘⏎ start</span>
+            <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
             <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
           </div>
         </div>
@@ -150,21 +143,13 @@ function buildShell() {
   els = {
     topbarCenter: q('#topbar-center'), liveBadge: q('#live-badge'), liveLabel: q('#live-label'),
     railContent: q('#rail-content'), grid: q('#grid'),
-    cmdInput: q('#cmd-input'), cmdPreview: q('#cmd-preview'), cmdbarBox: q('#cmdbar-box'),
     footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
-  q('#cmd-run').onclick = () => runDraft();
-  els.cmdInput.addEventListener('input', (e) => { S.draft = e.target.value; refreshCmdPreview(); });
-  els.cmdInput.addEventListener('focus', () => els.cmdbarBox.classList.add('focused'));
-  els.cmdInput.addEventListener('blur', () => els.cmdbarBox.classList.remove('focused'));
-  els.cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runDraft(); } });
   document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; renderAll(); }; });
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; applyChrome(); };
-  q('#cmd-collapse').onclick = () => { S.cmdCollapsed = true; applyChrome(); };
-  q('#cmd-reopen').onclick = () => { S.cmdCollapsed = false; applyChrome(); els.cmdInput.focus(); };
   document.addEventListener('keydown', onGlobalKey);
 
   // OS file drops: never let Electron navigate away on a stray drop.
@@ -177,31 +162,18 @@ function buildShell() {
     const paths = droppedPaths(e); if (!paths.length) return;
     e.preventDefault(); paths.forEach(openFile);
   });
-  els.cmdInput.addEventListener('dragover', (e) => { if (isFileDrag(e)) { e.preventDefault(); els.cmdbarBox.classList.add('file-hint'); } });
-  els.cmdInput.addEventListener('dragleave', () => els.cmdbarBox.classList.remove('file-hint'));
-  els.cmdInput.addEventListener('drop', (e) => {
-    els.cmdbarBox.classList.remove('file-hint');
-    const paths = droppedPaths(e); if (!paths.length) return;
-    e.preventDefault(); e.stopPropagation();
-    const v = els.cmdInput.value ? els.cmdInput.value.trimEnd() + ' ' : '';
-    els.cmdInput.value = v + paths.map(shellQuote).join(' ') + ' ';
-    S.draft = els.cmdInput.value; refreshCmdPreview(); els.cmdInput.focus();
-  });
-
   applyChrome();
 }
 
 function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
-  q('#cmdbar').classList.toggle('collapsed', S.cmdCollapsed);
   // tiles need a re-fit when the grid width changes
   setTimeout(() => tileEls.forEach((t) => { if (t.fit) { try { t.fit.fit(); } catch (_) {} } }), 60);
 }
 
 function onGlobalKey(e) {
   const meta = e.metaKey || e.ctrlKey;
-  if (meta && e.key === 'Enter') { e.preventDefault(); runDraft(); return; }
   if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
@@ -213,7 +185,7 @@ function onGlobalKey(e) {
 // ===========================================================================
 //  Render regions
 // ===========================================================================
-function renderAll() { renderHeader(); renderRail(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); applyChrome(); }
+function renderAll() { renderHeader(); renderRail(); renderGrid(); renderFooter(); renderOverlay(); applyChrome(); }
 
 function renderHeader() {
   const p = S.project; els.topbarCenter.innerHTML = '';
@@ -387,7 +359,7 @@ function renderGrid() {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
     els.grid.classList.remove('has-focus');
     els.grid.innerHTML = `<div class="lane-empty"><div class="polaroid">nothing open</div>
-      <div><div class="big">Start a session</div><div class="hint">Type a message below and press Enter — it opens a real Claude session, right here. ⌘N for terminals & harnesses.</div></div></div>`;
+      <div><div class="big">Start a session</div><div class="hint">Press ⌘N (or the ＋ New session button) — Claude Code, any AI model, terminals & harnesses.</div></div></div>`;
     return;
   }
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
@@ -830,7 +802,7 @@ function startPanel(opts) {
     attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed, cont: opts.cont,
   }, opts);
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader(); refreshCmdPreview(); savePanels();
+  renderGrid(); renderRail(); renderHeader(); savePanels();
   return p;
 }
 const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', other: 'FI' };
@@ -861,7 +833,6 @@ function focusPanel(id, scroll = true) {
   S.activeId = id; renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
   const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.aiInput) t.aiInput.focus(); else if (t.ta) t.ta.focus(); }
-  refreshCmdPreview();
 }
 function closePanel(id) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
@@ -888,37 +859,15 @@ function reorderPanels(fromId, toId) {
 }
 
 // ===========================================================================
-//  Command bar + launcher
+//  Launcher
 // ===========================================================================
-async function runDraft() {
-  const v = (els.cmdInput.value || '').trim(); if (!v) { openLauncher(); return; }
-  els.cmdInput.value = ''; S.draft = ''; refreshCmdPreview();
-  if (v.startsWith('/')) {
-    const [cmd, ...rest] = v.slice(1).split(' '); const arg = rest.join(' ').trim();
-    if (cmd === 'term') return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: TINTS[5] });
-    if (cmd === 'run') return arg ? startPanel({ kind: 'run', title: shorten(arg, 24), code: 'RN', command: arg }) : toast('usage: /run <command>');
-    if (cmd === 'open') return openFolderDialog();
-    if (cmd === 'model') { const cfg = await configureAiModel(await api.aiConfigGet()); return toast(cfg ? `Model set: ${cfg.model}` : 'Model unchanged.'); }
-    if (cmd === 'agents') return openAgentPicker();
-    if (cmd === 'new') return openLauncher();
-    if (cmd === 'help') return toast('type a message → Claude · /term · /run <cmd> · /open · /agents');
-    return toast('Unknown command: /' + cmd);
-  }
-  if (!(await ensureFolder())) return;
-  startPanel({ kind: 'claude', title: shorten(v, 30), code: 'CC', tint: TINTS[4], seed: v });
-}
 async function ensureFolder() {
   if (S.project) return true;
   const info = await api.pickFolder(); if (!info) { toast('Open a folder to start a session.'); return false; }
   applyProject(info); return true;
 }
-function refreshCmdPreview() {
-  const v = (S.draft || '').trim();
-  if (v.startsWith('/')) { els.cmdPreview.textContent = 'command'; return; }
-  els.cmdPreview.textContent = S.project ? `→ new Claude session in ${S.project.name} · ⌘N for terminals & harnesses` : '→ Enter picks a folder, then opens a Claude session';
-}
 
-function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); els.cmdInput.blur(); }
+function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); }
 function renderLauncher() {
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
@@ -943,6 +892,10 @@ async function configureAiModel(existing) {
   return cfg;
 }
 async function launchHarness(h) {
+  if (h.kind === 'ai-config') {
+    const cfg = await configureAiModel(await api.aiConfigGet());
+    return toast(cfg ? `Model set: ${cfg.model}` : 'Model unchanged.');
+  }
   if (h.kind === 'ai') {
     let cfg = await api.aiConfigGet();
     if (!cfg || !cfg.baseUrl || !cfg.model) cfg = await configureAiModel(cfg);
