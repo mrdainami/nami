@@ -86,8 +86,21 @@ function scanLibrary({ projectPath, homeDir } = {}) {
   for (const d of listSkillDirs(path.join(home, '.claude/skills'))) items.push(mkItem('skill', 'claude', 'user', path.join(d, 'SKILL.md')));
   for (const f of listMd(path.join(home, '.config/opencode/agent'))) items.push(mkItem('agent', 'opencode', 'user', f));
   for (const f of listMd(path.join(home, '.config/opencode/command'))) items.push(mkItem('command', 'opencode', 'user', f));
-  walkPlugins(path.join(home, '.claude/plugins'), items);
-  return items;
+  const plugin = [];
+  walkPlugins(path.join(home, '.claude/plugins'), plugin);
+  return items.concat(dedupePluginVersions(plugin));
+}
+
+// Plugin caches keep multiple versions of the same plugin side by side; show each
+// agent/skill once, from the newest version (numeric-aware compare: 6.10.0 > 6.2.0).
+function dedupePluginVersions(items) {
+  const best = new Map();
+  for (const i of items) {
+    const key = i.type + ':' + i.slug;
+    const prev = best.get(key);
+    if (!prev || i.filePath.localeCompare(prev.filePath, undefined, { numeric: true }) > 0) best.set(key, i);
+  }
+  return [...best.values()];
 }
 
 // ---- create from template ---------------------------------------------------
