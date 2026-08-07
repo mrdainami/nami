@@ -535,6 +535,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tile.exited { opacity: 0.82; }
 .tile.dragging { opacity: 0.5; }
 .tile.drop-hint { outline: 2px dashed var(--dash-dark); outline-offset: 2px; }
+.tile.file-hint { outline: 2px dashed var(--amber-line, #c9a94e); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(201, 169, 78, 0.25), 5px 6px 0 var(--shadow-mid); }
+.cmdbar-box.file-hint { outline: 2px dashed var(--amber-line, #c9a94e); outline-offset: 2px; }
 @keyframes breathe { 0%,100% { box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); } 50% { box-shadow: 0 0 0 3px rgba(201,169,78,0.85), 5px 6px 0 rgba(150,120,40,0.3); } }
 
 .tile-head {

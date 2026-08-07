@@ -5,6 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
+import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
 
 const api = window.dainami;
 
@@ -53,6 +54,18 @@ function hashIdx(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.char
 function baseNameOf(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || '(file)'; }
 function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); }
 function q(sel, root) { return (root || document).querySelector(sel); }
+
+// ---- OS file drops ---------------------------------------------------------
+function isFileDrag(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files'); }
+function droppedPaths(e) {
+  return Array.from((e.dataTransfer && e.dataTransfer.files) || [])
+    .map((f) => api.droppedFilePath(f)).filter(Boolean);
+}
+function dropFilesOnPanel(p, paths) {
+  if (p.kind === 'editor') { paths.forEach(openEditor); return; }
+  injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
+  toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
+}
 
 // ===========================================================================
 //  Boot
@@ -140,6 +153,21 @@ function buildShell() {
   q('#cmd-collapse').onclick = () => { S.cmdCollapsed = true; applyChrome(); };
   q('#cmd-reopen').onclick = () => { S.cmdCollapsed = false; applyChrome(); els.cmdInput.focus(); };
   document.addEventListener('keydown', onGlobalKey);
+
+  // OS file drops: never let Electron navigate away on a stray drop.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+  els.cmdInput.addEventListener('dragover', (e) => { if (isFileDrag(e)) { e.preventDefault(); els.cmdbarBox.classList.add('file-hint'); } });
+  els.cmdInput.addEventListener('dragleave', () => els.cmdbarBox.classList.remove('file-hint'));
+  els.cmdInput.addEventListener('drop', (e) => {
+    els.cmdbarBox.classList.remove('file-hint');
+    const paths = droppedPaths(e); if (!paths.length) return;
+    e.preventDefault(); e.stopPropagation();
+    const v = els.cmdInput.value ? els.cmdInput.value.trimEnd() + ' ' : '';
+    els.cmdInput.value = v + paths.map(shellQuote).join(' ') + ' ';
+    S.draft = els.cmdInput.value; refreshCmdPreview(); els.cmdInput.focus();
+  });
+
   applyChrome();
 }
 
@@ -330,9 +358,15 @@ function mountTile(p) {
   // drag reorder
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
-  root.addEventListener('dragover', (e) => { e.preventDefault(); root.classList.add('drop-hint'); });
-  root.addEventListener('dragleave', () => root.classList.remove('drop-hint'));
-  root.addEventListener('drop', (e) => { e.preventDefault(); root.classList.remove('drop-hint'); reorderPanels(e.dataTransfer.getData('text/plain'), p.id); });
+  root.addEventListener('dragover', (e) => { e.preventDefault(); root.classList.add(isFileDrag(e) ? 'file-hint' : 'drop-hint'); });
+  root.addEventListener('dragleave', () => root.classList.remove('drop-hint', 'file-hint'));
+  root.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    root.classList.remove('drop-hint', 'file-hint');
+    const paths = droppedPaths(e);
+    if (paths.length) return dropFilesOnPanel(p, paths);
+    reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
+  });
 
   if (p.kind === 'editor') mountEditor(p, rec); else mountTerminal(p, rec);
 }
