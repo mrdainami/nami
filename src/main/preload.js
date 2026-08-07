@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('dainami', {
   rescanFolder: (folder) => ipcRenderer.invoke('folder:rescan', folder),
 
   readFile: (file) => ipcRenderer.invoke('file:read', file),
+  listDir: (dir) => ipcRenderer.invoke('dir:list', dir),
+  rawFile: (file) => ipcRenderer.invoke('file:raw', file),
+  saveFile: (args) => ipcRenderer.invoke('file:save', args),
   revealFile: (file) => ipcRenderer.invoke('file:reveal', file),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
 
