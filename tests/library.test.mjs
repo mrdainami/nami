@@ -91,6 +91,15 @@ test('duplicateItem copies a plugin skill dir into the project, -copy on collisi
   assert.ok(two.filePath.endsWith('.claude/skills/tdd-copy/SKILL.md'));
 });
 
+test('multiple cached plugin versions collapse to the newest', () => {
+  write(path.join(home, '.claude/plugins/cache/market/superpowers/1.9.0/skills/tdd/SKILL.md'), '---\nname: tdd\ndescription: Older-but-lexically-tricky\n---\nbody\n');
+  write(path.join(home, '.claude/plugins/cache/market/superpowers/1.10.0/skills/tdd/SKILL.md'), '---\nname: tdd\ndescription: Newest\n---\nbody\n');
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const tdds = items.filter((i) => i.slug === 'tdd' && i.scope === 'plugin');
+  assert.equal(tdds.length, 1);
+  assert.match(tdds[0].filePath, /1\.10\.0/); // numeric-aware: 1.10.0 > 1.9.0 > 1.0.0
+});
+
 test('duplicateItem copies a plugin agent file into the project', () => {
   const items = scanLibrary({ projectPath: project, homeDir: home });
   const critic = items.find((i) => i.slug === 'critic' && i.scope === 'plugin');

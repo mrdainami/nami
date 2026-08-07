@@ -22,6 +22,13 @@ npm start          # opens the app
 - **Viewer tiles** — click any file in the Workspace rail (or ⌘-click a path in a terminal):
   images, video, audio and PDFs open as paper viewer cards in-app; anything unviewable gets a
   card with a Reveal-in-Finder button. Text files open in the paper editor as before.
+- **Library** — the third rail tab finds every agent and skill on your machine: this
+  project's `.claude/` and `.opencode/`, your user-level `~/.claude/` and
+  `~/.config/opencode/`, and installed Claude plugins. Click one to edit it as a paper card —
+  a **Form** view (name, description, tools, instructions; no frontmatter syntax needed) with
+  a **Markdown** toggle for the raw file. Plugin items are read-only (their cache is
+  overwritten on updates) with one-click **Duplicate to project**. ＋ new scaffolds a Claude
+  agent, Claude skill, or OpenCode agent from a template.
 - Auth: it uses your **logged-in `claude`** (subscription), found at `~/.local/bin/claude`. No API
   key is set. If your `claude` lives elsewhere, set `CLAUDE_CODE_EXECUTABLE=/path/to/claude`.
 
