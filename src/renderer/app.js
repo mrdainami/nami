@@ -29,6 +29,7 @@ const XTERM_THEME = {
 // ---- harness profiles (extensible: Claude today, Hermes/others later) ------
 const HARNESSES = [
   { id: 'claude', name: 'Claude Code', sub: 'your subscription · slash commands work', kind: 'claude', tint: TINTS[4], code: 'CC' },
+  { id: 'ai', name: 'Any AI model', sub: 'OpenAI-compatible endpoint — Hermes, Ollama, LM Studio, vLLM…', kind: 'ai', tint: TINTS[3], code: 'AI' },
   { id: 'shell', name: 'Terminal', sub: 'a plain shell, ink on paper', kind: 'shell', tint: TINTS[5], code: '❯' },
   { id: 'custom', name: 'Custom command…', sub: 'run any harness or program', kind: 'custom', tint: TINTS[0], code: '+' },
 ];
@@ -80,6 +81,13 @@ function dropFilesOnPanel(p, paths) {
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null; S.stt = b.stt;
   if (b.collapsed) { S.railCollapsed = true; S.cmdCollapsed = true; }
 
+  api.onAiEvent((ev) => {
+    const p = S.panels.find((x) => x.id === ev.sessionId); if (!p) return;
+    (p.log = p.log || []).push(ev);
+    renderAiEvent(p, ev);
+    if (ev.kind === 'result') { p.busy = false; refreshTileHead(p); }
+    if (ev.kind === 'permission') setAttention(p);
+  });
   api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
   api.onTermExit(({ id, code }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
@@ -355,6 +363,7 @@ function renderFooter() { els.footerPath.textContent = S.project ? S.project.pat
 //  Grid of tiles
 // ===========================================================================
 function statusMeta(p) {
+  if (p.kind === 'ai') return { label: p.busy ? 'thinking' : 'live', color: p.busy ? '#a8792a' : '#4a7a4a' };
   if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? '#a8792a' : '#8d8065' };
   if (p.kind === 'viewer') return { label: p.sub, color: '#8d8065' };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? '#a8792a' : '#8d8065' };
@@ -363,6 +372,7 @@ function statusMeta(p) {
   return { label: 'live', color: '#4a7a4a' };
 }
 function kindLabel(p) {
+  if (p.kind === 'ai') return (p.aiConfig ? p.aiConfig.model : 'ai model') + ' · ' + shortHome(p.cwd);
   if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
   if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
@@ -428,7 +438,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'ai') mountAi(p, rec); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -541,6 +551,62 @@ function mountViewer(p, rec) {
     if (stage) stage.outerHTML = fallback;
     const b = wrap.querySelector('.vw-reveal'); if (b) b.onclick = () => api.revealFile(p.filePath);
   }, { once: true });
+}
+
+// ---- AI chat tiles (any OpenAI-compatible model) ---------------------------
+function mountAi(p, rec) {
+  const wrap = document.createElement('div'); wrap.className = 'ai-chat';
+  wrap.innerHTML = `<div class="ai-log"></div>
+    <div class="ai-inputrow"><span class="prompt-mark">❯</span>
+      <textarea class="ai-input" rows="1" spellcheck="false" placeholder="Message ${esc(p.title)} — Enter sends"></textarea></div>`;
+  rec.body.appendChild(wrap);
+  rec.aiLog = q('.ai-log', wrap); rec.aiInput = q('.ai-input', wrap);
+  p.log = p.log || [];
+  const ready = (async () => {
+    const cfg = p.aiConfig || (await api.aiConfigGet());
+    if (!cfg || !cfg.model) { renderAiEvent(p, { kind: 'error', message: 'No model configured yet — type /model below, or ⌘N → “Any AI model”.' }); return false; }
+    p.aiConfig = cfg; p.title = cfg.model;
+    await api.aiStart({ id: p.id, cwd: p.cwd, config: cfg });
+    refreshTileHead(p);
+    return true;
+  })();
+  for (const ev of p.log) renderAiEvent(p, ev); // replay after a re-mount
+  rec.aiInput.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    const v = rec.aiInput.value.trim(); if (!v) return;
+    if (!(await ready)) return;
+    rec.aiInput.value = '';
+    p.busy = true; refreshTileHead(p);
+    api.aiSend({ id: p.id, text: v });
+  });
+  rec.aiInput.addEventListener('focus', () => { S.activeId = p.id; clearAttention(p); refreshRail(); });
+}
+function renderAiEvent(p, ev) {
+  const rec = tileEls.get(p.id); if (!rec || !rec.aiLog) return;
+  const log = rec.aiLog;
+  const add = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; log.appendChild(d); return d; };
+  if (ev.kind === 'user_echo') add('ai-user', '❯ ' + ev.text);
+  else if (ev.kind === 'assistant') add('ai-msg', ev.text);
+  else if (ev.kind === 'error') add('ai-err', ev.message);
+  else if (ev.kind === 'tool') { const d = add('ai-step', '● ' + ev.label); d.dataset.tool = ev.toolId; }
+  else if (ev.kind === 'tool_result') {
+    const d = log.querySelector(`[data-tool="${CSS.escape(ev.toolId)}"]`);
+    if (d) { d.classList.add(ev.isError ? 'err' : 'done'); d.textContent = (ev.isError ? '✗ ' : '✓ ') + d.textContent.slice(2); }
+  } else if (ev.kind === 'permission') {
+    const card = document.createElement('div'); card.className = 'ai-perm'; card.dataset.perm = ev.permissionId;
+    card.innerHTML = `<div class="ap-title">Needs your OK</div><div class="ap-sum">${esc(ev.summary)}</div>
+      <div class="ap-row"><button class="btn btn--go ap-allow">Allow</button><button class="btn ap-deny">Not now</button></div>`;
+    const settle = (allow) => {
+      api.aiPermission({ id: p.id, permissionId: ev.permissionId, allow });
+      card.innerHTML = `<div class="ap-sum">${esc(ev.summary)}</div><div class="ap-done">${allow ? '✓ allowed' : '✗ denied'}</div>`;
+      clearAttention(p);
+    };
+    q('.ap-allow', card).onclick = () => settle(true);
+    q('.ap-deny', card).onclick = () => settle(false);
+    log.appendChild(card);
+  }
+  log.scrollTop = log.scrollHeight;
 }
 
 // ---- card tiles (agent / skill editing: form + raw markdown) ---------------
@@ -721,6 +787,7 @@ function injectToSession(p, text) {
     ta.dispatchEvent(new Event('input'));
     return;
   }
+  if (p.kind === 'ai') { p.busy = true; refreshTileHead(p); api.aiSend({ id: p.id, text }); return; }
   api.termWrite({ id: p.id, data: text });
 }
 
@@ -793,13 +860,14 @@ async function openEditor(filePath) {
 function focusPanel(id, scroll = true) {
   S.activeId = id; renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
-  const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
+  const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.aiInput) t.aiInput.focus(); else if (t.ta) t.ta.focus(); }
   refreshCmdPreview();
 }
 function closePanel(id) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
   if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
-  if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') api.termKill({ id });
+  if (p.kind === 'ai') api.aiClose({ id });
+  else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') api.termKill({ id });
   const t = tileEls.get(id); if (t) { t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -830,6 +898,7 @@ async function runDraft() {
     if (cmd === 'term') return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: TINTS[5] });
     if (cmd === 'run') return arg ? startPanel({ kind: 'run', title: shorten(arg, 24), code: 'RN', command: arg }) : toast('usage: /run <command>');
     if (cmd === 'open') return openFolderDialog();
+    if (cmd === 'model') { const cfg = await configureAiModel(await api.aiConfigGet()); return toast(cfg ? `Model set: ${cfg.model}` : 'Model unchanged.'); }
     if (cmd === 'agents') return openAgentPicker();
     if (cmd === 'new') return openLauncher();
     if (cmd === 'help') return toast('type a message → Claude · /term · /run <cmd> · /open · /agents');
@@ -863,7 +932,23 @@ function renderLauncher() {
     list.appendChild(row);
   }
 }
+async function configureAiModel(existing) {
+  const baseUrl = prompt('OpenAI-compatible base URL:', (existing && existing.baseUrl) || 'http://localhost:11434/v1');
+  if (!baseUrl || !baseUrl.trim()) return null;
+  const model = prompt('Model name (e.g. hermes3, llama3.1, qwen2.5-coder):', (existing && existing.model) || '');
+  if (!model || !model.trim()) return null;
+  const apiKey = prompt('API key (blank if the endpoint needs none):', (existing && existing.apiKey) || '') || '';
+  const cfg = { baseUrl: baseUrl.trim().replace(/\/+$/, ''), model: model.trim(), apiKey: apiKey.trim() };
+  await api.aiConfigSet(cfg);
+  return cfg;
+}
 async function launchHarness(h) {
+  if (h.kind === 'ai') {
+    let cfg = await api.aiConfigGet();
+    if (!cfg || !cfg.baseUrl || !cfg.model) cfg = await configureAiModel(cfg);
+    if (!cfg) return;
+    return startPanel({ kind: 'ai', title: cfg.model, code: 'AI', tint: h.tint, aiConfig: cfg });
+  }
   if (h.kind === 'custom') {
     const cmd = prompt('Command to run (e.g. hermes, npm run dev, python x.py):');
     if (!cmd || !cmd.trim()) return;

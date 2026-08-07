@@ -32,6 +32,17 @@ npm start          # opens the app
 - Auth: it uses your **logged-in `claude`** (subscription), found at `~/.local/bin/claude`. No API
   key is set. If your `claude` lives elsewhere, set `CLAUDE_CODE_EXECUTABLE=/path/to/claude`.
 
+- **Any AI model** — ⌘N → "Any AI model" runs a session against any OpenAI-compatible
+  endpoint (Ollama, LM Studio, vLLM, OpenRouter, Hermes…): the model gets real tools
+  (run commands, read/write files), risky actions show the yellow **Needs your OK** card,
+  and the transcript renders as a paper chat. `/model` reconfigures the endpoint.
+- **Sessions survive restarts** — the layout is restored on launch: editors, viewers and
+  cards reopen, terminals restart in their folder, and Claude sessions pick their
+  conversation back up via `claude --continue`.
+- **Connections** — agents and skills that reference each other are linked: cards show
+  references/referenced-by chips, and **Map** opens a corkboard of the item's neighborhood,
+  cards joined by red yarn.
+
 ## Keys
 ⌘N new session · ⌘O open folder · ⌘K agents · ⌘⏎ run · esc close · space quick-look
 

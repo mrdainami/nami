@@ -8,6 +8,7 @@ const os = require('os');
 const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
 const { scanLibrary, createItem, duplicateItem, extractEdges } = require('./library');
+const { OpenAISession } = require('./openai-driver');
 
 let pty = null;
 try { pty = require('@lydell/node-pty'); } catch (_) { try { pty = require('node-pty'); } catch (_) {} }
@@ -21,6 +22,7 @@ const SHOT_PATH = SHOT_IDX >= 0 ? process.argv[SHOT_IDX + 1] : null;
 let win = null;
 const termSessions = new Map();   // id -> pty
 const claudeSessions = new Map(); // id -> ClaudeSession
+const aiSessions = new Map();     // id -> OpenAISession (any OpenAI-compatible model)
 
 // ---- state (restart-proof) -------------------------------------------------
 function stateFile() { return path.join(app.getPath('userData'), 'state.json'); }
@@ -164,6 +166,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('before-quit', () => {
   for (const p of termSessions.values()) { try { p.kill(); } catch (_) {} }
   for (const c of claudeSessions.values()) { try { c.close(); } catch (_) {} }
+  for (const a of aiSessions.values()) { try { a.close(); } catch (_) {} }
 });
 
 // ---- IPC: boot + folders ---------------------------------------------------
@@ -309,6 +312,28 @@ ipcMain.handle('claude:send', (_e, { id, text }) => { const s = claudeSessions.g
 ipcMain.handle('claude:permission', (_e, { id, permissionId, allow, note }) => { const s = claudeSessions.get(id); if (s) s.resolvePermission(permissionId, allow, note); return { ok: !!s }; });
 ipcMain.handle('claude:interrupt', (_e, { id }) => { const s = claudeSessions.get(id); if (s) s.interrupt(); return { ok: !!s }; });
 ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id); if (s) { s.close(); claudeSessions.delete(id); } return { ok: true }; });
+
+// ---- IPC: any-model AI sessions (OpenAI-compatible endpoints) ---------------
+function settingsFile() { return path.join(app.getPath('userData'), 'settings.json'); }
+function readSettings() { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch (_) { return {}; } }
+ipcMain.handle('ai:config:get', () => readSettings().aiModel || null);
+ipcMain.handle('ai:config:set', (_e, cfg) => {
+  try {
+    const s = readSettings(); s.aiModel = cfg;
+    fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+    fs.writeFileSync(settingsFile(), JSON.stringify(s, null, 2));
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('ai:start', (_e, { id, cwd, config }) => {
+  if (aiSessions.has(id)) { try { aiSessions.get(id).close(); } catch (_) {} }
+  const s = new OpenAISession({ id, cwd, config, onEvent: (ev) => send('ai:event', ev) });
+  aiSessions.set(id, s);
+  return { ok: true };
+});
+ipcMain.handle('ai:send', (_e, { id, text }) => { const s = aiSessions.get(id); if (s) s.send(text); return { ok: !!s }; });
+ipcMain.handle('ai:permission', (_e, { id, permissionId, allow }) => { const s = aiSessions.get(id); if (s) s.resolvePermission(permissionId, allow); return { ok: !!s }; });
+ipcMain.handle('ai:close', (_e, { id }) => { const s = aiSessions.get(id); if (s) { s.close(); aiSessions.delete(id); } return { ok: true }; });
 
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),

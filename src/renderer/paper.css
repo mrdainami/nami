@@ -645,6 +645,30 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ni-row input { flex: 1; padding: 8px 10px; border: 1px dashed var(--dash-dark); background: var(--paper); font-family: 'Courier Prime', monospace; font-size: 12.5px; color: var(--ink); outline: none; }
 .ni-row .btn { font-size: 11px; padding: 7px 12px; }
 
+/* ---- AI chat tiles (any-model sessions) ---- */
+.ai-chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.ai-log { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px 14px;
+  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
+  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+.ai-log > div { margin-bottom: 8px; }
+.ai-user { font-weight: 700; color: #4a6b52; white-space: pre-wrap; }
+.ai-msg { white-space: pre-wrap; }
+.ai-step { color: var(--muted); font-size: 12px; }
+.ai-step.done { color: #4a7a4a; }
+.ai-step.done::after { content: ''; }
+.ai-step.err { color: #a8482f; }
+.ai-err { color: #a8482f; font-size: 12px; }
+.ai-perm { border: 1.5px solid var(--amber-line); background: rgba(253,242,207,0.75); padding: 10px 12px; box-shadow: 3px 4px 0 rgba(150,120,40,0.18); max-width: 480px; }
+.ai-perm .ap-title { font-family: 'Caveat', cursive; font-size: 18px; font-weight: 700; color: var(--amber-btn, #8a6d1e); margin-bottom: 2px; }
+.ai-perm .ap-sum { font-size: 12px; margin-bottom: 8px; word-break: break-word; }
+.ai-perm .ap-row { display: flex; gap: 8px; }
+.ai-perm .btn { font-size: 11px; padding: 6px 12px; }
+.ai-perm .ap-done { font-size: 11px; font-weight: 700; color: var(--muted); }
+.ai-inputrow { flex: none; display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.6); }
+.ai-inputrow .prompt-mark { margin-top: 4px; }
+.ai-input { flex: 1; resize: none; border: none; outline: none; background: transparent; max-height: 96px;
+  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 20px; color: var(--ink); }
+
 /* ---- card connections + corkboard ---- */
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 7px 12px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.55); }
 .card-links .lk-lbl { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted-2); margin-right: 2px; }
