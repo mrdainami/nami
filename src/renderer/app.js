@@ -6,6 +6,7 @@
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
+import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 
 const api = window.dainami;
 
@@ -38,7 +39,8 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
-  railCollapsed: false, cmdCollapsed: false, agentsCollapsed: false,
+  library: { items: [], q: '', loaded: false, loading: false },
+  railCollapsed: false, cmdCollapsed: false,
 };
 
 let els = {};
@@ -76,7 +78,7 @@ function dropFilesOnPanel(p, paths) {
   buildShell();
   const b = await api.boot();
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null; S.stt = b.stt;
-  if (b.collapsed) { S.railCollapsed = true; S.cmdCollapsed = true; S.agentsCollapsed = true; }
+  if (b.collapsed) { S.railCollapsed = true; S.cmdCollapsed = true; }
 
   api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
   api.onTermExit(({ id, code }) => {
@@ -112,10 +114,10 @@ function buildShell() {
           <div class="rail-tabs">
             <button class="rail-tab active" data-tab="sessions">Sessions</button>
             <button class="rail-tab" data-tab="workspace">Workspace</button>
+            <button class="rail-tab" data-tab="library">Library</button>
             <button class="rail-collapse" id="rail-collapse" title="Hide sidebar">‹</button>
           </div>
           <div id="rail-content"></div>
-          <div id="agents-panel" class="agents-panel"></div>
         </div>
         <div class="main">
           <div class="grid" id="grid"></div>
@@ -138,7 +140,7 @@ function buildShell() {
 
   els = {
     topbarCenter: q('#topbar-center'), liveBadge: q('#live-badge'), liveLabel: q('#live-label'),
-    railContent: q('#rail-content'), agentsPanel: q('#agents-panel'), grid: q('#grid'),
+    railContent: q('#rail-content'), grid: q('#grid'),
     cmdInput: q('#cmd-input'), cmdPreview: q('#cmd-preview'), cmdbarBox: q('#cmdbar-box'),
     footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
   };
@@ -184,7 +186,6 @@ function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
   q('#cmdbar').classList.toggle('collapsed', S.cmdCollapsed);
-  els.agentsPanel.classList.toggle('collapsed', S.agentsCollapsed);
   // tiles need a re-fit when the grid width changes
   setTimeout(() => tileEls.forEach((t) => { if (t.fit) { try { t.fit.fit(); } catch (_) {} } }), 60);
 }
@@ -196,14 +197,14 @@ function onGlobalKey(e) {
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
   if (meta && (e.key === 'w' || e.key === 'W')) { if (S.activeId) { e.preventDefault(); closePanel(S.activeId); } return; }
-  if (meta && (e.key === 's' || e.key === 'S')) { const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } return; }
+  if (meta && (e.key === 's' || e.key === 'S')) { const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } else if (p && p.kind === 'card') { e.preventDefault(); saveCard(p); } return; }
   if (e.key === 'Escape') { if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
 // ===========================================================================
 //  Render regions
 // ===========================================================================
-function renderAll() { renderHeader(); renderRail(); renderAgentsPanel(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); applyChrome(); }
+function renderAll() { renderHeader(); renderRail(); renderGrid(); renderFooter(); renderOverlay(); refreshCmdPreview(); applyChrome(); }
 
 function renderHeader() {
   const p = S.project; els.topbarCenter.innerHTML = '';
@@ -236,6 +237,7 @@ function renderRail() { document.querySelectorAll('.rail-tab').forEach((t) => t.
 function refreshRail() {
   const c = els.railContent; c.innerHTML = '';
   if (S.railTab === 'sessions') return refreshSessionsRail(c);
+  if (S.railTab === 'library') return refreshLibraryRail(c);
   return refreshWorkspaceRail(c);
 }
 function refreshSessionsRail(c) {
@@ -286,21 +288,53 @@ async function toggleDir(dir) {
   S.expanded.add(dir); refreshRail();
 }
 
-function renderAgentsPanel() {
-  const p = S.project; const el = els.agentsPanel; const agents = (p && p.agents) || [];
-  el.innerHTML = `<div class="head" id="agents-head"><span class="title">Agents on file</span><span class="count">${agents.length}</span><span class="caret">${S.agentsCollapsed ? '▸' : '▾'}</span></div>
-    <div class="from">${p ? 'read from ' + esc(p.pathShort) + '/.claude' : 'open a folder to read .claude'}</div>
-    <div class="list" id="agents-list"></div>`;
-  q('#agents-head', el).onclick = () => { S.agentsCollapsed = !S.agentsCollapsed; applyChrome(); };
-  const list = q('#agents-list', el);
-  if (!agents.length) { list.innerHTML = `<div class="rail-empty" style="padding:2px 0">No agents found${p ? '' : ' yet'}.</div>`; return; }
-  for (const a of agents) {
-    const row = document.createElement('div'); row.className = 'agent-row';
-    row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span>
-      <span class="col"><span class="name">${esc(a.name)}</span><span class="tools">${esc(a.tools || a.desc || '')}</span></span><span class="chev">›</span>`;
-    row.onclick = () => startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` });
-    list.appendChild(row);
+// ---- library rail (agents & skills across platforms) -----------------------
+async function loadLibrary(force) {
+  if (S.library.loading || (S.library.loaded && !force)) return;
+  S.library.loading = true;
+  try { S.library.items = (await api.libraryScan({ projectPath: S.project && S.project.path })) || []; }
+  catch (_) { S.library.items = []; }
+  S.library.loading = false; S.library.loaded = true;
+  if (S.railTab === 'library') refreshRail();
+}
+const LIB_GROUPS = [
+  { key: 'project:claude', label: 'This project · Claude' },
+  { key: 'project:opencode', label: 'This project · OpenCode' },
+  { key: 'user:claude', label: 'Your machine · Claude' },
+  { key: 'user:opencode', label: 'Your machine · OpenCode' },
+  { key: 'plugin:claude', label: 'Plugins · read-only' },
+];
+const TYPE_CHIP = { agent: { code: 'AG', tint: TINTS[4] }, skill: { code: 'SK', tint: TINTS[1] }, command: { code: 'CM', tint: TINTS[0] } };
+function refreshLibraryRail(c) {
+  if (!S.library.loaded) loadLibrary();
+  const head = document.createElement('div'); head.className = 'rail-head';
+  head.innerHTML = `<span class="title">Library</span><span class="action" id="lib-new">＋ new</span>`;
+  c.appendChild(head);
+  q('#lib-new', head).onclick = () => openNewItem();
+  const search = document.createElement('input');
+  search.className = 'lib-search'; search.placeholder = 'Filter agents & skills…'; search.value = S.library.q;
+  search.oninput = () => { S.library.q = search.value; refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
+  c.appendChild(search);
+  if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; c.appendChild(e); return; }
+  const ql = S.library.q.trim().toLowerCase();
+  const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug).toLowerCase().includes(ql);
+  let shown = 0;
+  for (const g of LIB_GROUPS) {
+    const [scope, platform] = g.key.split(':');
+    const items = S.library.items.filter((i) => i.scope === scope && i.platform === platform && match(i));
+    if (!items.length) continue;
+    const lab = document.createElement('div'); lab.className = 'lib-group'; lab.textContent = g.label; c.appendChild(lab);
+    for (const i of items) {
+      shown += 1;
+      const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
+      const row = document.createElement('div'); row.className = 'agent-row';
+      row.innerHTML = `<span class="code" style="background:${chip.tint}">${chip.code}</span>
+        <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span><span class="chev">›</span>`;
+      row.onclick = () => openCard(i);
+      c.appendChild(row);
+    }
   }
+  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'No agents or skills found yet — ＋ new creates your first.'; c.appendChild(e); }
 }
 function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
 
@@ -308,6 +342,7 @@ function renderFooter() { els.footerPath.textContent = S.project ? S.project.pat
 //  Grid of tiles
 // ===========================================================================
 function statusMeta(p) {
+  if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? '#a8792a' : '#8d8065' };
   if (p.kind === 'viewer') return { label: p.sub, color: '#8d8065' };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? '#a8792a' : '#8d8065' };
   if (p.exited) return { label: 'closed', color: '#8d8065' };
@@ -315,6 +350,7 @@ function statusMeta(p) {
   return { label: 'live', color: '#4a7a4a' };
 }
 function kindLabel(p) {
+  if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
   if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
   if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
@@ -379,7 +415,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -494,6 +530,108 @@ function mountViewer(p, rec) {
   }, { once: true });
 }
 
+// ---- card tiles (agent / skill editing: form + raw markdown) ---------------
+const FIELD_MAP = {
+  'claude:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model']],
+  'claude:skill': [['name', 'Name'], ['description', 'Description']],
+  'opencode:agent': [['description', 'Description'], ['mode', 'Mode'], ['model', 'Model']],
+  'opencode:command': [['description', 'Description'], ['agent', 'Agent'], ['model', 'Model']],
+};
+async function openCard(item) {
+  const existing = S.panels.find((x) => x.kind === 'card' && x.filePath === item.filePath);
+  if (existing) { focusPanel(existing.id); return; }
+  const res = await api.rawFile(item.filePath);
+  if (!res.ok) { toast(res.error || 'Could not open'); loadLibrary(true); return; }
+  const doc = parseDoc(res.text);
+  const chip = TYPE_CHIP[item.type] || TYPE_CHIP.agent;
+  const p = {
+    id: uid('p_'), kind: 'card', item, filePath: item.filePath, doc, raw: res.text,
+    mode: doc.hasFrontmatter ? 'form' : 'raw', dirty: false, status: 'live',
+    tint: chip.tint, code: chip.code, title: item.name, cwd: S.project && S.project.path,
+  };
+  if (doc.malformed) toast('Frontmatter looks malformed — raw view only.');
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  renderGrid(); renderRail(); renderHeader();
+}
+function mountCard(p, rec) {
+  const ro = p.item.readOnly;
+  const wrap = document.createElement('div'); wrap.className = 'card-ed';
+  const fields = FIELD_MAP[p.item.platform + ':' + p.item.type] || FIELD_MAP['claude:agent'];
+  wrap.innerHTML = `
+    <div class="card-tabs">
+      <button class="card-tab" data-m="form">Form</button>
+      <button class="card-tab" data-m="raw">Markdown</button>
+      <span class="card-src">${esc(p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope)}${ro ? ' · read-only' : ''}</span>
+    </div>
+    <div class="card-form">
+      ${fields.map(([k, label]) => `<label class="card-lbl">${esc(label)}</label>
+        <input class="card-in" data-f="${k}" ${ro ? 'disabled' : ''} />`).join('')}
+      <label class="card-lbl">Instructions</label>
+      <textarea class="card-body" spellcheck="false" ${ro ? 'disabled' : ''}></textarea>
+    </div>
+    <div class="card-raw"><textarea class="raw-area" spellcheck="false" ${ro ? 'readonly' : ''}></textarea></div>
+    <div class="ed-bar">
+      <span class="ed-path">${esc(shortHome(p.filePath))}</span>
+      ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
+      ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>' : '<button class="btn btn--go card-save">Save ⌘S</button>'}
+    </div>`;
+  rec.body.appendChild(wrap);
+  const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
+  const markDirty = () => { if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); } };
+
+  const syncFormFromDoc = () => {
+    formEl.querySelectorAll('.card-in').forEach((inp) => { inp.value = getField(p.doc, inp.dataset.f); });
+    bodyTa.value = p.doc.body;
+  };
+  const applyMode = () => {
+    const formMode = p.mode === 'form';
+    formEl.style.display = formMode ? '' : 'none';
+    rawEl.style.display = formMode ? 'none' : '';
+    wrap.querySelectorAll('.card-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.mode));
+    if (formMode) syncFormFromDoc(); else rawTa.value = p.raw;
+  };
+  wrap.querySelectorAll('.card-tab').forEach((b) => {
+    b.onclick = () => {
+      const target = b.dataset.m;
+      if (target === p.mode) return;
+      if (target === 'raw') { p.raw = serializeDoc(p.doc); p.mode = 'raw'; applyMode(); return; }
+      const doc = parseDoc(rawTa.value);
+      if (doc.malformed) { toast('Fix the frontmatter fences (---) first — staying in raw view.'); return; }
+      p.raw = rawTa.value; p.doc = doc; p.mode = 'form'; applyMode();
+    };
+  });
+  formEl.querySelectorAll('.card-in').forEach((inp) => {
+    inp.addEventListener('input', () => { setField(p.doc, inp.dataset.f, inp.value); markDirty(); });
+  });
+  bodyTa.addEventListener('input', () => { p.doc.body = bodyTa.value; markDirty(); });
+  rawTa.addEventListener('input', () => { p.raw = rawTa.value; markDirty(); });
+  [bodyTa, rawTa].forEach((ta) => ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); }));
+
+  const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
+  const saveBtn = q('.card-save', wrap); if (saveBtn) saveBtn.onclick = () => saveCard(p);
+  const dupBtn = q('.card-dup', wrap);
+  if (dupBtn) dupBtn.onclick = async () => {
+    if (!S.project) { toast('Open a folder first — the copy lands in the project.'); return; }
+    const res = await api.libraryDuplicate({ filePath: p.item.filePath, type: p.item.type, projectPath: S.project.path });
+    if (!res.ok) { toast(res.error || 'Duplicate failed'); return; }
+    toast('Copied into this project — opening your editable copy.');
+    loadLibrary(true);
+    openCard(res.item);
+  };
+  applyMode();
+}
+async function saveCard(p) {
+  if (p.item.readOnly) return;
+  if (p.mode === 'form') p.raw = serializeDoc(p.doc);
+  const res = await api.saveFile({ file: p.filePath, text: p.raw });
+  if (res && res.ok) {
+    p.dirty = false;
+    p.title = getField(p.doc, 'name') || p.item.slug;
+    refreshTileHead(p); refreshRail(); toast('Saved ' + p.title);
+    loadLibrary(true);
+  } else toast('Save failed: ' + (res && res.error || '?'));
+}
+
 // ---- dictation (in-app mic + Echo clipboard) -------------------------------
 let recording = null; // { panelId, recorder, stream }
 function micBtn(p) { const t = tileEls.get(p.id); return t ? q('.t-mic', t.head) : null; }
@@ -595,8 +733,8 @@ function focusPanel(id, scroll = true) {
 }
 function closePanel(id) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
-  if (p.kind === 'editor' && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
-  if (p.kind !== 'editor' && p.kind !== 'viewer') api.termKill({ id });
+  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') api.termKill({ id });
   const t = tileEls.get(id); if (t) { t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -670,27 +808,82 @@ async function launchHarness(h) {
   return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: h.tint });
 }
 
-// ---- agent picker (⌘K) -----------------------------------------------------
-function openAgentPicker() { S.overlay = { type: 'agents', query: '', hi: 0 }; renderOverlay(); }
+// ---- agent picker (⌘K) — fed by the library scan ---------------------------
+function pickerAgents() {
+  return S.library.items.filter((i) => i.type === 'agent' && i.platform === 'claude' && (i.scope === 'project' || i.scope === 'user'));
+}
+function useAgent(a) {
+  startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` });
+}
+async function openAgentPicker() {
+  await loadLibrary();
+  S.overlay = { type: 'agents', query: '', hi: 0 }; renderOverlay();
+}
 function renderAgentPickerSheet() {
-  const o = S.overlay; const agents = (S.project && S.project.agents) || [];
-  const filtered = agents.filter((a) => (a.name + ' ' + (a.desc || '')).toLowerCase().includes(o.query.toLowerCase()));
+  const o = S.overlay; const agents = pickerAgents();
+  const filtered = agents.filter((a) => (a.name + ' ' + (a.description || '')).toLowerCase().includes(o.query.toLowerCase()));
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span><input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div><div class="picker-list" id="ap-list"></div>`, { top: true });
   const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.query = input.value; o.hi = 0; renderOverlay(); };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { const a = filtered[o.hi]; if (a) { closeOverlay(); startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` }); } }
+    if (e.key === 'Enter') { const a = filtered[o.hi]; if (a) { closeOverlay(); useAgent(a); } }
     if (e.key === 'ArrowDown') { o.hi = Math.min(filtered.length - 1, o.hi + 1); renderOverlay(); }
     if (e.key === 'ArrowUp') { o.hi = Math.max(0, o.hi - 1); renderOverlay(); }
   });
   const list = q('#ap-list', modal);
-  if (!filtered.length) { list.innerHTML = `<div class="rail-empty" style="padding:14px">${agents.length ? 'No match.' : 'No agents in this folder.'}</div>`; return; }
+  if (!filtered.length) { list.innerHTML = `<div class="rail-empty" style="padding:14px">${agents.length ? 'No match.' : 'No Claude agents found — create one in the Library tab.'}</div>`; return; }
   filtered.forEach((a, i) => {
     const row = document.createElement('div'); row.className = 'picker-row' + (i === o.hi ? ' hilite' : '');
-    row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span><span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.desc || a.tools || '')}</span></span>`;
-    row.onclick = () => { closeOverlay(); startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` }); };
+    row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.slug)]}">${esc(code2(a.name))}</span><span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.description || a.meta.tools || '')}</span></span>`;
+    row.onclick = () => { closeOverlay(); useAgent(a); };
     list.appendChild(row);
   });
+}
+
+// ---- new library item (＋ new) ----------------------------------------------
+const NEW_KINDS = [
+  { key: 'claude:agent', name: 'Claude agent', sub: 'a .claude/agents markdown agent', chip: TYPE_CHIP.agent },
+  { key: 'claude:skill', name: 'Claude skill', sub: 'a .claude/skills folder with SKILL.md', chip: TYPE_CHIP.skill },
+  { key: 'opencode:agent', name: 'OpenCode agent', sub: 'an .opencode/agent markdown agent', chip: TYPE_CHIP.agent },
+];
+function openNewItem() { S.overlay = { type: 'newitem', kindKey: 'claude:agent', scope: S.project ? 'project' : 'user', name: '' }; renderOverlay(); }
+function renderNewItemSheet() {
+  const o = S.overlay;
+  const modal = overlay('picker-box', `
+    <div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New agent or skill</span></div>
+    <div class="picker-list" id="ni-kinds"></div>
+    <div class="ni-row">
+      <span class="card-lbl" style="margin:0">Scope</span>
+      <button class="btn ni-scope" data-s="project" ${S.project ? '' : 'disabled'}>this project</button>
+      <button class="btn ni-scope" data-s="user">your machine</button>
+    </div>
+    <div class="ni-row"><input id="ni-name" placeholder="Name it (e.g. release scribe)…" value="${esc(o.name)}" />
+      <button class="btn btn--go" id="ni-create">Create</button></div>`, { top: true });
+  const kinds = q('#ni-kinds', modal);
+  for (const k of NEW_KINDS) {
+    const row = document.createElement('div'); row.className = 'picker-row' + (o.kindKey === k.key ? ' hilite' : '');
+    row.innerHTML = `<span class="code" style="background:${k.chip.tint}">${k.chip.code}</span>
+      <span class="col"><span class="name">${esc(k.name)}</span><span class="desc">${esc(k.sub)}</span></span>`;
+    row.onclick = () => { o.kindKey = k.key; o.name = q('#ni-name', modal).value; renderOverlay(); };
+    kinds.appendChild(row);
+  }
+  modal.querySelectorAll('.ni-scope').forEach((b) => {
+    b.classList.toggle('btn--go', b.dataset.s === o.scope);
+    b.onclick = () => { o.scope = b.dataset.s; o.name = q('#ni-name', modal).value; renderOverlay(); };
+  });
+  const nameInput = q('#ni-name', modal); setTimeout(() => nameInput.focus(), 30);
+  const create = async () => {
+    const name = nameInput.value.trim();
+    if (!name) { toast('Give it a name first.'); return; }
+    const [platform, type] = o.kindKey.split(':');
+    const res = await api.libraryCreate({ projectPath: S.project && S.project.path, type, platform, scope: o.scope, name });
+    if (!res.ok) { toast(res.error || 'Could not create'); return; }
+    closeOverlay(); toast('Created ' + name);
+    S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
+    openCard(res.item);
+  };
+  q('#ni-create', modal).onclick = create;
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
 }
 
 // ---- overlays --------------------------------------------------------------
@@ -698,6 +891,7 @@ function renderOverlay() {
   els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'agents') return renderAgentPickerSheet();
+  if (o.type === 'newitem') return renderNewItemSheet();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 function overlay(cls, inner, opts) {
@@ -711,6 +905,7 @@ async function openFolderDialog() { const info = await api.pickFolder(); if (inf
 async function openFolder(path) { const info = await api.openFolder(path); if (info) applyProject(info); }
 function applyProject(info) {
   S.project = info; S.tree = {}; S.expanded = new Set();
+  S.library.loaded = false; S.library.items = [];
   S.recents = [{ path: info.path, pathShort: info.pathShort, name: info.name }, ...S.recents.filter((r) => r.path !== info.path)].slice(0, 8);
   S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
   // load root level fresh for the explorer
