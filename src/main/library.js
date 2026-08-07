@@ -12,11 +12,19 @@ function readMeta(file) {
     const txt = fs.readFileSync(file, 'utf8').slice(0, 4000);
     const m = txt.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const out = {};
-    if (m) {
-      for (const line of m[1].split(/\r?\n/)) {
-        const mm = line.match(/^([A-Za-z_][\w-]*):\s?(.*)$/);
-        if (mm) out[mm[1]] = mm[2].replace(/^["']|["']$/g, '').trim();
+    if (!m) return out;
+    const lines = m[1].split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const mm = lines[i].match(/^([A-Za-z_][\w-]*):\s?(.*)$/);
+      if (!mm) continue;
+      let val = mm[2].trim();
+      if (/^[>|][+-]?$/.test(val)) {
+        // block scalar: join the indented lines that follow
+        const parts = [];
+        while (i + 1 < lines.length && (/^\s/.test(lines[i + 1]) || lines[i + 1] === '')) { i++; parts.push(lines[i].trim()); }
+        val = parts.filter(Boolean).join(' ');
       }
+      out[mm[1]] = val.replace(/^["']|["']$/g, '').trim();
     }
     return out;
   } catch (_) { return {}; }

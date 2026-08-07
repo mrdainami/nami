@@ -39,7 +39,7 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
-  library: { items: [], q: '', loaded: false, loading: false },
+  library: { items: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugin:claude']) },
   railCollapsed: false, cmdCollapsed: false,
 };
 
@@ -311,11 +311,13 @@ function refreshLibraryRail(c) {
   head.innerHTML = `<span class="title">Library</span><span class="action" id="lib-new">＋ new</span>`;
   c.appendChild(head);
   q('#lib-new', head).onclick = () => openNewItem();
+  const top = document.createElement('div'); top.className = 'lib-top';
   const search = document.createElement('input');
   search.className = 'lib-search'; search.placeholder = 'Filter agents & skills…'; search.value = S.library.q;
   search.oninput = () => { S.library.q = search.value; refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
-  c.appendChild(search);
-  if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; c.appendChild(e); return; }
+  top.appendChild(search); c.appendChild(top);
+  const list = document.createElement('div'); list.className = 'lib-list'; c.appendChild(list);
+  if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; list.appendChild(e); return; }
   const ql = S.library.q.trim().toLowerCase();
   const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug).toLowerCase().includes(ql);
   let shown = 0;
@@ -323,18 +325,26 @@ function refreshLibraryRail(c) {
     const [scope, platform] = g.key.split(':');
     const items = S.library.items.filter((i) => i.scope === scope && i.platform === platform && match(i));
     if (!items.length) continue;
-    const lab = document.createElement('div'); lab.className = 'lib-group'; lab.textContent = g.label; c.appendChild(lab);
+    shown += items.length;
+    const open = ql ? true : !S.library.collapsed.has(g.key); // filtering always reveals matches
+    const lab = document.createElement('div'); lab.className = 'lib-group';
+    lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${items.length}</span>`;
+    lab.onclick = () => {
+      if (S.library.collapsed.has(g.key)) S.library.collapsed.delete(g.key); else S.library.collapsed.add(g.key);
+      refreshRail();
+    };
+    list.appendChild(lab);
+    if (!open) continue;
     for (const i of items) {
-      shown += 1;
       const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
       const row = document.createElement('div'); row.className = 'agent-row';
       row.innerHTML = `<span class="code" style="background:${chip.tint}">${chip.code}</span>
         <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span><span class="chev">›</span>`;
       row.onclick = () => openCard(i);
-      c.appendChild(row);
+      list.appendChild(row);
     }
   }
-  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'No agents or skills found yet — ＋ new creates your first.'; c.appendChild(e); }
+  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'No agents or skills found yet — ＋ new creates your first.'; list.appendChild(e); }
 }
 function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
 

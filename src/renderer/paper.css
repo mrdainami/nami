@@ -216,6 +216,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .rail-tab.active { color: var(--ink); background: var(--paper); box-shadow: 2px 2px 0 rgba(90, 72, 44, 0.18); }
 
+/* rail-content is the fixed frame; each tab's list scrolls inside it */
+#rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rail-head { padding: 2px 18px 8px; display: flex; align-items: baseline; justify-content: space-between; }
 .rail-head .title { font-family: 'Caveat', cursive; font-size: 22px; font-weight: 700; }
 .rail-head .action { font-size: 11px; color: var(--muted-2); cursor: pointer; text-decoration: underline; }
@@ -603,11 +605,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .sheet.rail-collapsed .rail-strip { display: flex; }
 
 /* ---- library rail + card editor ---- */
-.lib-search { margin: 0 0 10px; width: 100%; padding: 7px 10px; border: 1px dashed var(--dash-dark); background: var(--paper); font-family: 'Courier Prime', monospace; font-size: 12px; color: var(--ink); outline: none; }
+.lib-top { flex: none; padding: 0 14px 10px; }
+.lib-search { width: 100%; padding: 7px 10px; border: 1px dashed var(--dash-dark); background: var(--paper); font-family: 'Courier Prime', monospace; font-size: 12px; color: var(--ink); outline: none; }
 .lib-search:focus { border-style: solid; }
-.lib-group { font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted-2); margin: 12px 0 6px; }
-.lib-group:first-of-type { margin-top: 2px; }
-#rail-content .agent-row { margin-bottom: 5px; }
+.lib-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 14px 16px; }
+.lib-group {
+  position: sticky; top: 0; z-index: 1; background: var(--rail);
+  display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+  font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted-2);
+  padding: 8px 0 6px; margin-top: 10px; border-top: 1px dashed var(--dash);
+}
+.lib-group:first-child { margin-top: 0; border-top: none; }
+.lib-group:hover { color: var(--ink); }
+.lib-group .lg-caret { width: 10px; font-size: 9px; color: var(--muted-3); }
+.lib-group .lg-count { margin-left: auto; font-weight: 700; color: var(--muted-3); letter-spacing: 0; }
+.lib-list .agent-row { margin-bottom: 5px; }
 
 .card-ed { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .card-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px dashed var(--dash); }
