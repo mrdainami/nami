@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('dainami', {
   listDir: (dir) => ipcRenderer.invoke('dir:list', dir),
   rawFile: (file) => ipcRenderer.invoke('file:raw', file),
   saveFile: (args) => ipcRenderer.invoke('file:save', args),
+  statPath: (args) => ipcRenderer.invoke('path:stat', args),
   revealFile: (file) => ipcRenderer.invoke('file:reveal', file),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
 
