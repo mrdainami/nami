@@ -1162,6 +1162,7 @@ function renderConnectCatalog() {
       <span class="sv-desc">say it in plain words, watch it happen</span></span>
       <span class="sv-go">build it →</span>
     </div>`);
+  const clickOnEnter = (el) => { el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.onclick(); } }; };
   modal.querySelectorAll('.svc-card').forEach((el) => {
     el.onclick = () => {
       const svc = cat.find((s) => s.id === el.dataset.id);
@@ -1169,8 +1170,10 @@ function renderConnectCatalog() {
       if (already) return openServiceDetails(already);
       openConnectForm(svc);
     };
+    clickOnEnter(el);
   });
   q('#svc-custom', modal).onclick = () => openConnectCustom();
+  clickOnEnter(q('#svc-custom', modal));
 }
 function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', platforms: ['claude', 'opencode'], values: {} }; renderOverlay(); }
 function renderConnectForm() {

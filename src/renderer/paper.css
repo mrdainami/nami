@@ -687,6 +687,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .sv-bigok-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .sv-okline { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; margin: 10px 0 4px; }
 .sv-okline .ok { color: var(--green-ok); }
+.setup-head .desc .ok { color: var(--green-ok); } /* connected dot on the service details sheet */
 
 .card-ed { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .card-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px dashed var(--dash); }
