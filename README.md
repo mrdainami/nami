@@ -18,13 +18,15 @@ npm start          # opens the app
 - **Terminal sessions** run a real shell (node-pty) inside an ink-on-paper xterm.
 - **Drop files from anywhere** — drag a file from Finder onto a session card and its
   (shell-quoted) path is typed into that session; drop it on empty canvas to view it.
-- **Viewer tiles** — click any file in the Workspace rail (or ⌘-click a path in a terminal):
-  images, video, audio and PDFs open as paper viewer cards in-app; anything unviewable gets a
-  card with a Reveal-in-Finder button. Text files open in the paper editor as before.
+- **Peek, then pin**: click any file in the Workspace rail (or ⌘-click a path in a terminal)
+  and it floats above the desk as a paper sheet; your running sessions never move. One click
+  on **Pin to desk** keeps it as a tile. Images, video, audio and PDFs preview in the peek;
+  anything unviewable gets a card with a Reveal-in-Finder button; text opens in the paper
+  editor. Drag a file from Finder onto the canvas to pin it directly.
 - **Library** — the third rail tab finds every agent and skill on your machine: this
   project's `.claude/` and `.opencode/`, your user-level `~/.claude/` and
-  `~/.config/opencode/`, and installed Claude plugins. Click one to edit it as a paper card —
-  a **Form** view (name, description, tools, instructions; no frontmatter syntax needed) with
+  `~/.config/opencode/`, and installed Claude plugins. Click one to peek at it as a paper
+  card (pin to desk to keep it): a **Form** view (name, description, tools, instructions; no frontmatter syntax needed) with
   a **Markdown** toggle for the raw file. Plugin items are read-only (their cache is
   overwritten on updates) with one-click **Duplicate to project**. ＋ new scaffolds a Claude
   agent, Claude skill, or OpenCode agent from a template.
