@@ -615,7 +615,7 @@ function clearAttention(p) { if (!p.attention) return; p.attention = false; refr
 function mountEditor(p, rec) {
   const wrap = document.createElement('div'); wrap.className = 'editor';
   wrap.innerHTML = `<div class="ed-gutter"></div><textarea class="ed-area" spellcheck="false"></textarea>
-    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   rec.body.appendChild(wrap);
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   rec.ta = ta; rec.gutter = gutter;
@@ -630,6 +630,7 @@ function mountEditor(p, rec) {
   ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
   const edPath = q('.ed-path', wrap);
   if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
+  q('.ed-finder', wrap).onclick = () => api.revealFile(p.filePath);
   q('.ed-save', wrap).onclick = () => saveEditor(p);
   sync();
 }
@@ -773,6 +774,7 @@ function mountCard(p, rec) {
     <div class="card-links"></div>
     <div class="ed-bar">
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
+      <button class="btn card-finder">Finder</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
       ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>'
            : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
@@ -824,6 +826,8 @@ function mountCard(p, rec) {
 
   const cardPath = q('.ed-path', wrap);
   if (cardPath) { cardPath.title = 'Reveal in Finder'; cardPath.onclick = () => api.revealFile(p.filePath); }
+  const cardFinder = q('.card-finder', wrap);
+  if (cardFinder) cardFinder.onclick = () => api.revealFile(p.filePath);
   const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
   const saveBtn = q('.card-save', wrap); if (saveBtn) saveBtn.onclick = () => saveCard(p);
   const dupBtn = q('.card-dup', wrap);
