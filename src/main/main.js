@@ -8,6 +8,10 @@ const os = require('os');
 const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
 const { detectAgents } = require('./agents-detect');
+const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
+const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
+const { checkServer } = require('./mcp-check');
+const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, extractEdges } = require('./library');
 const { OpenAISession } = require('./openai-driver');
 
@@ -187,6 +191,60 @@ ipcMain.handle('panels:save', (_e, { panels }) => { persist({ panels: Array.isAr
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
 ipcMain.handle('agents:detect', () => detectAgents());
+
+// ---- IPC: connect-a-service -------------------------------------------------
+// The catalog goes to the renderer without its entry-builder functions.
+function catalogForRenderer() {
+  return KNOWN_SERVICES.map((s) => ({ id: s.id, name: s.name, desc: s.desc, code: s.code, kind: s.kind, keys: s.keys, keyHelpUrl: s.keyHelpUrl, docs: s.docs, guide: s.guide }));
+}
+// User-scope Claude config belongs to the claude CLI, never hand-edited.
+function claudeUserScopeAdd(id, entry) {
+  return new Promise((resolve) => {
+    const json = JSON.stringify(entry);
+    execFile('/bin/zsh', ['-lc', `claude mcp add-json --scope user ${id} ${JSON.stringify(json)}`], { timeout: 20000 }, (err) => {
+      resolve(err ? 'skipped: ' + err.message.split('\n')[0] : 'written');
+    });
+  });
+}
+ipcMain.handle('services:list', (_e, { projectPath } = {}) => ({
+  catalog: catalogForRenderer(),
+  connected: detectServices({ projectPath, home: os.homedir() }),
+}));
+ipcMain.handle('services:connect', async (_e, { id, values, scope, platforms, projectPath }) => {
+  const s = serviceById(id);
+  if (!s) return { ok: false, error: 'unknown service' };
+  if (values && values.installDir) values.installDir = values.installDir.replace(/^~/, os.homedir());
+  const files = [];
+  let claudeUserScope = null;
+  try {
+    if (platforms.includes('claude')) {
+      const entry = s.claudeEntry(values);
+      if (scope === 'project' && projectPath) { upsertMcpJson({ file: path.join(projectPath, '.mcp.json'), id, entry }); files.push('.mcp.json'); }
+      else if (scope === 'user') { claudeUserScope = await claudeUserScopeAdd(id, entry); if (claudeUserScope === 'written') files.push('claude user settings'); }
+    }
+    if (platforms.includes('opencode')) {
+      const entry = s.opencodeEntry(values);
+      const file = scope === 'project' && projectPath
+        ? path.join(projectPath, 'opencode.json')
+        : path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
+      upsertOpencode({ file, id, entry });
+      files.push(file.indexOf('.config') >= 0 ? 'opencode config' : 'opencode.json');
+    }
+    const probe = s.claudeEntry(values);
+    const check = await checkServer({ command: probe.command, args: probe.args, env: probe.env || {} });
+    return { ok: true, files, tools: check.ok ? check.tools : 0, checked: check.ok, checkError: check.ok ? null : check.error, claudeUserScope };
+  } catch (e) { return { ok: false, error: e.message, files }; }
+});
+ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
+  // Hand-editable files only; user-scope Claude goes through the claude CLI.
+  const files = knownFiles(projectPath, os.homedir()).filter(([f]) => f.indexOf('.claude.json') < 0).map(([f]) => f);
+  const changed = removeService({ files, id });
+  const viaCli = await new Promise((resolve) => {
+    execFile('/bin/zsh', ['-lc', `claude mcp remove --scope user ${id}`], { timeout: 20000 }, (err) => resolve(!err));
+  });
+  if (viaCli) changed.push('claude user settings');
+  return { changed };
+});
 ipcMain.handle('url:open', (_e, url) => {
   if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
 });
@@ -381,9 +439,10 @@ ipcMain.handle('term:create', (_e, { id, cwd, cols, rows, kind, command, program
   if (afterStart && afterStart.indexOf(' SEED ') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
   else if (afterStart) setTimeout(() => { try { p.write('claude\r'); } catch (_) {} }, 200);
 
-  // Seed a first message into an interactive claude session once it's ready.
-  if (kind === 'claude' && seed) {
-    const delay = claudeExe ? 1600 : 2200;
+  // Seed a first message into an interactive session once it's ready
+  // (claude spawns fast; run-kind agent TUIs draw slower, give them longer).
+  if (seed && (kind === 'claude' || kind === 'run')) {
+    const delay = kind === 'claude' ? (claudeExe ? 1600 : 2200) : 2500;
     setTimeout(() => { try { p.write(seed); } catch (_) {} }, delay);
     setTimeout(() => { try { p.write('\r'); } catch (_) {} }, delay + 350);
   }

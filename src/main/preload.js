@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('dainami', {
 
   savePanels: (args) => ipcRenderer.invoke('panels:save', args),
   detectAgents: () => ipcRenderer.invoke('agents:detect'),
+  listServices: (args) => ipcRenderer.invoke('services:list', args),
+  connectService: (args) => ipcRenderer.invoke('services:connect', args),
+  disconnectService: (args) => ipcRenderer.invoke('services:disconnect', args),
   openUrl: (url) => ipcRenderer.invoke('url:open', url),
 
   aiConfigGet: () => ipcRenderer.invoke('ai:config:get'),
