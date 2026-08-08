@@ -679,7 +679,8 @@ function mountCard(p, rec) {
     <div class="ed-bar">
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
-      ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>' : '<button class="btn btn--go card-save">Save ⌘S</button>'}
+      ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>'
+           : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
     </div>`;
   rec.body.appendChild(wrap);
   const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
@@ -736,6 +737,19 @@ function mountCard(p, rec) {
     toast('Copied into this project — opening your editable copy.');
     loadLibrary(true);
     openCard(res.item);
+  };
+  const impBtn = q('.card-improve', wrap);
+  if (impBtn) impBtn.onclick = () => {
+    if (p.dirty) { toast('Save the card first so your agent sees your latest.'); return; }
+    openImproveItem(p.item);
+  };
+  const delBtn = q('.card-del', wrap);
+  if (delBtn) delBtn.onclick = async () => {
+    if (!delBtn.dataset.armed) { delBtn.dataset.armed = '1'; delBtn.textContent = 'Really move to Trash?'; delBtn.classList.add('armed'); return; }
+    const res = await api.libraryDelete({ filePath: p.item.filePath, projectPath: S.project && S.project.path });
+    if (!res.ok) { toast(res.error || 'Could not delete'); return; }
+    if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
+    loadLibrary(true); toast('Moved to Trash.');
   };
   applyMode();
 }
@@ -1106,6 +1120,35 @@ function renderNewItemSheet() {
   descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); q('#ni-create', modal).onclick(); } });
 }
 
+// ---- improve an existing library item with the user's own agent ------------
+function openImproveItem(item) { S.overlay = { type: 'improve-item', item, text: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
+function renderImproveItem() {
+  const o = S.overlay, item = o.item;
+  const worker = chosenAgent(o);
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" style="background:${TINTS[hashIdx(item.slug)]}">${esc(code2(item.name))}</span>
+      <span class="col"><span class="name">Improve ${esc(item.name)}</span><span class="desc">${esc(item.platform + ' ' + item.type)}</span></span></div>
+    <input class="text-input" id="imp-ask" placeholder="what should change? e.g. give it a real description and sharper instructions" spellcheck="false" />
+    <div class="ni-agent">${worker
+      ? `a new session with <select class="agent-pick" id="imp-agent">${agentOptionsHtml(worker.id)}</select> edits it for you`
+      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
+    <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="imp-go" ${worker ? '' : 'disabled'}>Go</button></div>`);
+  const input = q('#imp-ask', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.text = input.value; };
+  const agentSel = q('#imp-agent', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
+  const go = () => {
+    const w = chosenAgent(o);
+    if (!o.text.trim() || !w) { if (!o.text.trim()) toast('Say what should change first.'); return; }
+    closeOverlay();
+    agentSession(w, { title: 'improve: ' + item.slug, code: 'IM', seed:
+      buildImproveSeed({ platform: item.platform, type: item.type, filePath: item.filePath, ask: o.text }) });
+    toast('Your agent is on it. Reopen the card when it finishes.');
+  };
+  q('#imp-go', modal).onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+}
+
 // ---- overlays --------------------------------------------------------------
 function renderOverlay() {
   els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
@@ -1118,6 +1161,7 @@ function renderOverlay() {
   if (o.type === 'connect-form') return renderConnectForm();
   if (o.type === 'connect-done') return renderConnectDone();
   if (o.type === 'connect-custom') return renderConnectCustom();
+  if (o.type === 'improve-item') return renderImproveItem();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
