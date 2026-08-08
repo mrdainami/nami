@@ -655,7 +655,7 @@ function mountViewer(p, rec) {
   wrap.insertAdjacentHTML('beforeend',
     `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">Finder</button></div>`);
   rec.body.appendChild(wrap);
-  wrap.querySelectorAll('.vw-reveal, .vw-finder').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); });
+  wrap.querySelectorAll('.vw-reveal, .vw-finder, .ed-path').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); if (b.classList.contains('ed-path')) b.title = 'Reveal in Finder'; });
   const media = wrap.querySelector('img, video, audio');
   if (media) media.addEventListener('error', () => {
     const stage = wrap.querySelector('.vw-stage, .vw-pdf');
@@ -847,6 +847,11 @@ function mountCard(p, rec) {
     if (!res.ok) { toast(res.error || 'Could not delete'); return; }
     if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
     loadLibrary(true); toast('Moved to Trash.');
+  };
+  // clicking or tabbing anywhere else stands the armed Delete back down
+  if (delBtn) delBtn.onblur = () => {
+    if (!delBtn.dataset.armed) return;
+    delete delBtn.dataset.armed; delBtn.textContent = 'Delete'; delBtn.classList.remove('armed');
   };
   applyMode();
 }
@@ -1170,11 +1175,11 @@ function renderNewItemSheet() {
     </div>
     <div class="ni-row"><input id="ni-name" placeholder="name it (or leave blank, your agent will)…" value="${esc(o.name)}" /></div>
     <div class="ni-row"><input id="ni-desc" placeholder="what should it do? e.g. turns git history into release notes people read" value="${esc(o.desc)}" /></div>
-    <div class="ni-agent" style="margin:2px 12px 8px">${worker
+    <div class="ni-agent" style="margin:2px 14px 8px">${worker
       ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> creates it for you`
       : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
     <div class="ni-row"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Create it for me</button>
-      <span class="action" id="ni-blank">just give me an empty file</span></div>`, { top: true });
+      <span class="action" id="ni-blank" role="button" tabindex="0">just give me an empty file</span></div>`, { top: true });
   const kinds = q('#ni-kinds', modal);
   const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
   const keep = () => { o.name = nameInput.value; o.desc = descInput.value; };
@@ -1203,7 +1208,9 @@ function renderNewItemSheet() {
     agentSession(w, { title: 'build: ' + (o.name.trim() || type), code: 'BD', seed });
     toast('Your agent is writing it. It appears in the Library when it lands.');
   };
-  q('#ni-blank', modal).onclick = async () => {
+  const blankLink = q('#ni-blank', modal);
+  blankLink.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); blankLink.onclick(); } });
+  blankLink.onclick = async () => {
     keep();
     if (!o.name.trim()) { toast('Give it a name first.'); return; }
     const [platform, type] = o.kindKey.split(':');
