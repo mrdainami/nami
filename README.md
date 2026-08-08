@@ -23,7 +23,8 @@ npm start          # opens the app
   on **Pin to desk** keeps it as a tile. Images, video, audio and PDFs preview in the peek;
   anything unviewable gets a card with a Reveal-in-Finder button; text opens in the paper
   editor. Drag a file from Finder onto the canvas to pin it directly.
-- **Library** — the third rail tab finds every agent and skill on your machine: this
+- **Library** — the third rail tab reads like an inventory, grouped into Agents /
+  Skills / Services / Plugins with a this-project or your-Mac tag on each row: this
   project's `.claude/` and `.opencode/`, your user-level `~/.claude/` and
   `~/.config/opencode/`, and installed Claude plugins. Click one to peek at it as a paper
   card (pin to desk to keep it): a **Form** view (name, description, tools, instructions; no frontmatter syntax needed) with
@@ -39,6 +40,12 @@ npm start          # opens the app
   small "add an agent to this Mac" cards that open a guided setup sheet: the verified
   official install command, run for you inside a terminal tile, plus copy and an official
   guide link. Nothing in the sheet can dead-end.
+- **Connect a service**: the Library's Services section plugs Notion, Slack, Telegram,
+  Creative models, a folder, and (guided) Gmail or Google Drive into your agents. Pick a
+  card, paste one key, done: the app writes the settings where each agent already looks
+  (`.mcp.json` for Claude Code, OpenCode's config for OpenCode) and proves the connection
+  by starting it once. Anything else, describe in plain words and a session with your own
+  agent builds and registers it.
 - **Sessions survive restarts** — the layout is restored on launch: editors, viewers and
   cards reopen, terminals restart in their folder, and Claude sessions pick their
   conversation back up via `claude --continue`.

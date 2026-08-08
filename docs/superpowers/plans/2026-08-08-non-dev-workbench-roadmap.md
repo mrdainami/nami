@@ -38,7 +38,8 @@ subsystem, each shipping working software on its own). Check parts off here as t
   clipping; clean-master boot verified in an isolated worktree. Operator overrides for
   .peek-box ride with the theme session's uncommitted theme-operator.css.**
 
-- [ ] **Part 3 — Connect-a-service: MCP picker for non-developers**
+- [x] **Part 3 — Connect-a-service: MCP picker for non-developers** ✅ shipped 2026-08-08
+  Plan: `2026-08-08-part3-connect-a-service.md`
   A small catalog of popular MCP servers (Gmail, Notion, filesystem, database…) plus
   a form-style "connect" flow that writes the right settings entry for each platform
   (Claude `.mcp.json`, OpenCode config). Scope grown by Calvin's calls (2026-08-08):
@@ -53,7 +54,13 @@ subsystem, each shipping working software on its own). Check parts off here as t
   (github.com/mrdainami/kie-mcp, KIE_API_KEY, images/video/music); (d) the
   "what got written" receipt folds behind a disclosure, not its own screen.
   Mockup approved: parts-3-4 artifact v3.
-  **Status: approved direction, plan next.**
+  **Status: shipped. Commits 4c010ec, 3bc7964, 4560df0, f19e464, d029023, 950b9fe,
+  7c6fe77; 54/54 tests green; catalog re-verified against live registries at build time
+  (Slack corrected to the real `slack-mcp-server` package, single-token mode); all five
+  sheets screenshot-verified in both themes; real end-to-end proven with the folder
+  service (config written to `.mcp.json` + `opencode.json`, live MCP handshake counted
+  14 tools, disconnect cleaned both files); clean-master boot and tests verified in an
+  isolated worktree. Seeded prompts now type into any agent's session, not just Claude.**
 
 - [x] **Part 4 — Graph: REMOVED, not rebuilt** (Calvin's call, 2026-08-08)
   The name-matching corkboard was an honestly worse Obsidian graph, so it is gone
