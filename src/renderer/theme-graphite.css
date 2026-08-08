@@ -1,0 +1,89 @@
+/* Nami — "graphite": the liquid-glass system in dark grey (not black).
+   Only a token remap lives here — the entire structural system (slabs, physics,
+   dot type, cursors, wells) comes from the body[data-glass] rules in
+   theme-glass.css. Spec: 2026-08-09-glass-graphite-themes-design.md */
+
+body[data-theme="graphite"] {
+  --desk: #26272c;
+  --sheet-hi: rgba(64, 66, 76, 0.35);
+  --sheet-lo: rgba(64, 66, 76, 0.35);
+  --paper: rgba(78, 80, 93, 0.44);
+  --paper-2: rgba(70, 72, 84, 0.36);
+  --paper-3: rgba(64, 66, 78, 0.3);
+  --ink: #ececf1;
+  --muted: #a2a3ae;
+  --muted-2: #91929d;
+  --muted-3: #85868f;
+  --faint: #5d5e68;
+  --line: rgba(255, 255, 255, 0.16);
+  --dash: rgba(255, 255, 255, 0.1);
+  --dash-dark: rgba(255, 255, 255, 0.2);
+  --rail: rgba(30, 31, 38, 0.3);
+  --hover: rgba(255, 255, 255, 0.08);
+  --green: #ef6461;
+  --green-dark: #d95350;
+  --green-ok: #63c68a;
+  --amber-bg: rgba(238, 190, 80, 0.14);
+  --amber-line: rgba(230, 192, 92, 0.5);
+  --amber-ink: #e6c05c;
+  --amber-body: #d3b055;
+  --amber-btn: #c98d1a;
+  --amber-btn-line: #e6c05c;
+  --red-bg: rgba(239, 100, 97, 0.16);
+  --red-line: #ef6461;
+  --red-ink: #ff9d9a;
+  --red-body: #e88f8c;
+  --red-btn: #ef6461;
+  --red-btn-line: #ff8b88;
+  --shadow-soft: rgba(8, 9, 14, 0.35);
+  --shadow-mid: rgba(8, 9, 14, 0.45);
+  --shadow-hard: rgba(8, 9, 14, 0.55);
+  --tree-ink: #a2a3ae;
+  --tree-fill: rgba(255, 255, 255, 0.08);
+  --tree-fill-open: rgba(255, 255, 255, 0.14);
+  --tree-fill-file: rgba(255, 255, 255, 0.06);
+  /* glass helpers — dark values for the shared system */
+  --gl-accent: #ef6461;
+  --gl-accent-hi: #ff8b88;
+  --gl-accent-deep: #ff8b88;   /* on grey, "deep" reads better bright */
+  --gl-accent-dim: rgba(239, 100, 97, 0.16);
+  --gl-pane: rgba(78, 80, 93, 0.44);
+  --gl-pane-strong: rgba(92, 94, 109, 0.56);
+  --gl-pane-dim: rgba(74, 76, 89, 0.22);
+  --gl-rim: rgba(255, 255, 255, 0.16);
+  --gl-rim-hi: rgba(255, 255, 255, 0.32);
+  --gl-rim-dim: rgba(255, 255, 255, 0.09);
+  --gl-sh: 8 9 14;
+  --gl-lip: rgba(255, 255, 255, 0.18);
+  --gl-seg-track: rgba(0, 0, 0, 0.26);
+  --gl-seg-active: rgba(126, 128, 144, 0.55);
+  --gl-bar-track: rgba(255, 255, 255, 0.14);
+  --gl-well: rgba(25, 26, 32, 0.42);
+  --gl-well-line: rgba(255, 255, 255, 0.1);
+  --gl-well-lip: rgba(255, 255, 255, 0.05);
+  --gl-slab:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.22),
+    inset 0 14px 30px rgba(255, 255, 255, 0.05),
+    inset 0 -14px 30px rgba(0, 0, 0, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  --nami-fill: #ef6461;
+  --nami-foam: #ffffff;
+  --nami-eye: #ececf1;
+}
+/* the ember desk — the aurora dimmed onto dark grey */
+body[data-theme="graphite"] {
+  background: #26272c;
+  background-image:
+    radial-gradient(52% 44% at 12% 6%,  rgba(239, 100, 97, 0.22) 0%, transparent 62%),
+    radial-gradient(46% 40% at 92% 12%, rgba(86, 160, 175, 0.18) 0%, transparent 60%),
+    radial-gradient(60% 52% at 78% 88%, rgba(210, 120, 100, 0.14) 0%, transparent 64%),
+    radial-gradient(44% 40% at 8% 92%,  rgba(120, 140, 195, 0.15) 0%, transparent 60%),
+    linear-gradient(165deg, #2d2e34 0%, #242529 55%, #27282e 100%);
+}
+body[data-theme="graphite"] a { color: #6f9dff; }
+
+/* the shared system paints white-outlined ink cursors + coral pointer already;
+   graphite only needs the few spots where a light literal reads wrong */
+body[data-theme="graphite"] .nami-mascot { filter: drop-shadow(0 2px 6px rgba(239, 100, 97, 0.45)); }
+body[data-theme="graphite"] .viewer .vw-stage--dark { background: #000; }
+body[data-theme="graphite"] .say--user { color: #d9dae2; }
