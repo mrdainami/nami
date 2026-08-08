@@ -41,7 +41,8 @@ const S = {
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
-  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugin:claude']) },
+  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugins']) },
+  services: { catalog: [], connected: [], loading: false },   // connect-a-service state
   railCollapsed: false,
 };
 
@@ -99,6 +100,7 @@ function dropFilesOnPanel(p, paths) {
 
   if (S.demo) seedDemo();
   refreshAgents();   // pre-detect so ⌘N is instant
+  refreshServices(); // services group in the library + connect sheets
   renderAll();
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
 })();
@@ -281,23 +283,36 @@ async function loadLibrary(force) {
   S.library.loading = false; S.library.loaded = true;
   if (S.railTab === 'library') refreshRail();
 }
-const LIB_GROUPS = [
-  { key: 'project:claude', label: 'This project · Claude' },
-  { key: 'project:opencode', label: 'This project · OpenCode' },
-  { key: 'user:claude', label: 'Your machine · Claude' },
-  { key: 'user:opencode', label: 'Your machine · OpenCode' },
-  { key: 'plugin:claude', label: 'Plugins · read-only' },
+async function refreshServices() {
+  if (S.services.loading) return;
+  S.services.loading = true;
+  try {
+    const res = await api.listServices({ projectPath: S.project && S.project.path });
+    S.services.catalog = res.catalog || []; S.services.connected = res.connected || [];
+  } catch (_) {}
+  S.services.loading = false;
+  if (S.railTab === 'library') refreshRail();
+}
+// The library reads like an inventory: what you have, grouped by what it is.
+const LIB_TYPE_GROUPS = [
+  { key: 'agents', label: 'Agents' },
+  { key: 'skills', label: 'Skills' },
+  { key: 'services', label: 'Services' },
+  { key: 'plugins', label: 'Plugins · read-only' },
 ];
 const TYPE_CHIP = { agent: { code: 'AG', tint: TINTS[4] }, skill: { code: 'SK', tint: TINTS[1] }, command: { code: 'CM', tint: TINTS[0] } };
+function libGroupOf(i) { return i.scope === 'plugin' ? 'plugins' : (i.type === 'agent' ? 'agents' : 'skills'); }
+function scopeTagText(scope) { return scope === 'project' ? 'this project' : 'your Mac'; }
 function refreshLibraryRail(c) {
   if (!S.library.loaded) loadLibrary();
   const head = document.createElement('div'); head.className = 'rail-head';
-  head.innerHTML = `<span class="title">Library</span><span class="action" id="lib-new">＋ new</span>`;
+  head.innerHTML = `<span class="title">Library</span><span class="action" id="lib-connect">＋ connect</span><span class="action" id="lib-new">＋ new</span>`;
   c.appendChild(head);
   q('#lib-new', head).onclick = () => openNewItem();
+  q('#lib-connect', head).onclick = () => openConnect();
   const top = document.createElement('div'); top.className = 'lib-top';
   const search = document.createElement('input');
-  search.className = 'lib-search'; search.placeholder = 'Filter agents & skills…'; search.value = S.library.q;
+  search.className = 'lib-search'; search.placeholder = 'Filter the library…'; search.value = S.library.q;
   search.oninput = () => { S.library.q = search.value; refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
   top.appendChild(search); c.appendChild(top);
   const list = document.createElement('div'); list.className = 'lib-list'; c.appendChild(list);
@@ -305,11 +320,13 @@ function refreshLibraryRail(c) {
   const ql = S.library.q.trim().toLowerCase();
   const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug).toLowerCase().includes(ql);
   let shown = 0;
-  for (const g of LIB_GROUPS) {
-    const [scope, platform] = g.key.split(':');
-    const items = S.library.items.filter((i) => i.scope === scope && i.platform === platform && match(i));
-    if (!items.length) continue;
-    shown += items.length;
+  for (const g of LIB_TYPE_GROUPS) {
+    const isSvc = g.key === 'services';
+    const items = isSvc
+      ? S.services.connected.filter((sv) => !ql || (sv.id + ' ' + sv.name).toLowerCase().includes(ql))
+      : S.library.items.filter((i) => libGroupOf(i) === g.key && match(i));
+    if (!items.length && !(isSvc && !ql)) continue; // the services group always offers connect when not filtering
+    shown += items.length + (isSvc ? 1 : 0);
     const open = ql ? true : !S.library.collapsed.has(g.key); // filtering always reveals matches
     const lab = document.createElement('div'); lab.className = 'lib-group';
     lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${items.length}</span>`;
@@ -319,16 +336,35 @@ function refreshLibraryRail(c) {
     };
     list.appendChild(lab);
     if (!open) continue;
+    if (isSvc) {
+      for (const sv of items) {
+        const cat = S.services.catalog.find((s) => s.id === sv.id);
+        const row = document.createElement('div'); row.className = 'agent-row';
+        row.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(sv.id)]}">${esc((cat && cat.code) || 'SV')}</span>
+          <span class="col"><span class="name">${esc(sv.name)}</span>
+          <span class="tools"><span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))}</span></span>
+          <span class="scope-tag">${scopeTagText(sv.scopes.includes('project') ? 'project' : 'user')}</span>`;
+        row.onclick = () => openServiceDetails(sv);
+        list.appendChild(row);
+      }
+      const add = document.createElement('div'); add.className = 'agent-row';
+      add.innerHTML = `<span class="code" style="background:${TINTS[2]}">⚡</span>
+        <span class="col"><span class="name">connect a service</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
+      add.onclick = () => openConnect();
+      list.appendChild(add);
+      continue;
+    }
     for (const i of items) {
       const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
       const row = document.createElement('div'); row.className = 'agent-row';
       row.innerHTML = `<span class="code" style="background:${chip.tint}">${chip.code}</span>
-        <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span><span class="chev">›</span>`;
+        <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span>
+        ${i.scope === 'plugin' ? '' : `<span class="scope-tag">${scopeTagText(i.scope)}</span>`}<span class="chev">›</span>`;
       row.onclick = () => openCard(i);
       list.appendChild(row);
     }
   }
-  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'No agents or skills found yet — ＋ new creates your first.'; list.appendChild(e); }
+  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet: ＋ new creates your first.'; list.appendChild(e); }
 }
 function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
 
@@ -1096,6 +1132,8 @@ function requestClosePeek() {
       && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
   closeOverlay();
 }
+function openConnect() { toast('Connect arrives with the next commit.'); }
+function openServiceDetails() { openConnect(); }
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
@@ -1112,6 +1150,7 @@ function applyProject(info) {
   S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
   // load root level fresh for the explorer
   api.listDir(info.path).then((rows) => { S.tree[info.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
+  refreshServices();
   renderAll();
 }
 
