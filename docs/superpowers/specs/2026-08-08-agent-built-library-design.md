@@ -95,10 +95,40 @@ unsaved edits, toast "Save the card first so your agent sees your latest." and s
   "Really move to Trash?", second click deletes, closes the tile or peek,
   `loadLibrary(true)`, toast "Moved to Trash." Plugin cards keep no delete button.
 
+### 5. Workspace file actions (added by Calvin, same day)
+
+The Workspace tree is read-only today: rows only open files, and an expanded editor
+tile gives no way to reach the file in Finder. Decision: a right-click context menu on
+tree rows unifies the file verbs; drag stays reserved for what it already means
+(drag onto canvas pins a tile, drag onto a session types the path), so MOVE is a menu
+action with a folder dialog, never a tree drag.
+
+- Context menu (paper-styled, closes on click-away or Esc):
+  - File row: Reveal in Finder · Move to… · Move to Trash.
+  - Folder row: Reveal in Finder · New file · New folder · Move to… · Move to Trash.
+  - Tree head (project path row): Reveal in Finder · New file · New folder.
+- Editor and viewer tiles: the file path in the bottom bar becomes clickable and
+  reveals the file in Finder (tooltip says so). Viewer cards keep their existing
+  Reveal button.
+- Main process: a new `src/main/fs-actions.js` module with injectable fs so guards are
+  unit-tested: `newFile({ dir, name })`, `newFolder({ dir, name })`,
+  `movePath({ src, destDir })` (refuses when the destination exists),
+  `trashPath({ path })`. Every op requires the path inside the open project root;
+  outside-root and existing-destination cases return `{ ok: false, error }` and never
+  touch the disk. Trash uses `shell.trashItem` (recoverable), wired in main.js.
+- Move's destination comes from a plain directory dialog (`folder:choose`) that does
+  NOT remember the folder as a recent project (the existing `folder:pick` does; that
+  side effect is wrong here).
+- New file / New folder names come from a small overlay prompt in the launcher idiom.
+- After any op the affected tree levels rescan and the rail re-renders. Deleting or
+  moving a file that is open in a tile leaves the tile alone (its buffer is intact;
+  save will recreate the file, which is honest and predictable).
+
 ## Not doing (YAGNI)
 
 - No progress tracking of the building session; the session tile IS the progress.
-- No rename UI; renaming is an "improve" ask or a delete + recreate.
+- No rename UI; renaming is an "improve" ask or a delete + recreate. Same for
+  workspace files: no rename menu item for now, and no drag-to-move.
 - No confirm dialog component; the two-click button matches the app's quiet idiom.
 - No persistence of the chosen agent per user; default is first detected, every time.
 

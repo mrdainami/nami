@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Library items are born and raised by the user's own agent: ＋ new takes a name plus plain-words description and seeds a session that writes the real thing, every editable card gains Improve-with-my-agent and Delete-to-Trash, and every handoff sheet gets a session selector listing the agents actually installed.
+**Goal:** Library items are born and raised by the user's own agent: ＋ new takes a name plus plain-words description and seeds a session that writes the real thing, every editable card gains Improve-with-my-agent and Delete-to-Trash, every handoff sheet gets a session selector listing the agents actually installed, and the Workspace tree gains a right-click menu (Reveal in Finder, New file, New folder, Move to…, Move to Trash) plus click-to-reveal file paths on tiles.
 
 **Architecture:** One small addition to `src/main/library.js` (`deleteItem` with injectable trash/exists so tests never touch the real Trash) plus one IPC + preload line. A new pure module `src/renderer/seed-text.mjs` builds the seed prompts (unit-tested like `peek-core.mjs`). Everything else is renderer work in the existing overlay idiom: a shared `agentOptionsHtml`/`chosenAgent` selector pair, the reworked ＋ new sheet, an `improve-item` overlay, card-foot buttons, and retrofits of the Part 3 built-for-you and guided sheets to use the selector. Spec: `docs/superpowers/specs/2026-08-08-agent-built-library-design.md`.
 
@@ -15,7 +15,7 @@
 - Do NOT touch `src/renderer/index.html`, assets, or header markup (logo session). Only ADD lines to `src/renderer/theme-operator.css` (theme session's uncommitted file; never commit it).
 - Shared dirty tree: `src/renderer/app.js`, `src/renderer/paper.css`, `src/main/main.js`, `src/main/preload.js` carry peer diffs. Every commit touching them uses the surgical index-staging pattern: apply exact-string replaces to the WORKING TREE and separately to the INDEX base (`git show :file`), assert each anchor appears exactly once in each, `git hash-object -w --stdin` the new index blob, `git update-index --cacheinfo 100644,<hash>,<path>`. Anchors can differ between worktree and index (peer edits); when an assert fails, read both versions and adjust that side's anchor only. `src/main/main.js` has a stray byte: grep with `grep -a`, python reads/writes with `errors='surrogateescape'`. `src/main/library.js` and all new files are clean: plain edits and `git add`.
 - Dual themes: paper styles via tokens in `paper.css`; operator overrides only in `theme-operator.css` scoped `body[data-theme="operator"]`, appended to the existing "Part 3, additive" region or a new appended block. Screenshot BOTH themes (`npx electron . --demo --theme=paper|operator --screenshot shots/x.png`, capture fires ~1400ms after boot) and actually look at the images. TEMP-SHOT seed lines are reverted before staging.
-- Verification: `npm test` (baseline 54 tests; this plan adds ~8, ending ~62), a boot screenshot after main-process changes, ui-polisher for visual work, and a final detached-worktree check of committed master.
+- Verification: `npm test` (baseline 54 tests; this plan adds ~13, ending ~67), a boot screenshot after main-process changes, ui-polisher for visual work, and a final detached-worktree check of committed master.
 - Existing code style: `q()` helper, `esc()` for all interpolated HTML, single quotes, semicolons, toasts for feedback.
 
 ## File Structure
@@ -25,7 +25,8 @@
 - Create `tests/library-delete.test.mjs`, `tests/seed-text.test.mjs`.
 - Modify `src/main/main.js` (one IPC handler), `src/main/preload.js` (one line).
 - Modify `src/renderer/app.js`: selector helpers, ＋ new rework, improve overlay, card buttons, connect-sheet retrofits, library rescan on tab switch.
-- Modify `src/renderer/paper.css` (selector + row styles), `src/renderer/theme-operator.css` (additive).
+- Create `src/main/fs-actions.js`: workspace file verbs with injectable fs; `tests/fs-actions.test.mjs`.
+- Modify `src/renderer/paper.css` (selector + row styles + context menu), `src/renderer/theme-operator.css` (additive).
 - Modify `README.md` (surgical: logo session holds a rewrite in the worktree).
 
 ---
@@ -593,15 +594,345 @@ git commit -m "feat: improve with your agent and delete to trash on every editab
 
 ---
 
-### Task 6: Screenshots, polish review, end-to-end, standalone verify
+### Task 6: Workspace file actions (context menu + reveal)
 
-- [ ] **Step 1:** TEMP-SHOT the full set in BOTH themes: reworked ＋ new sheet, improve sheet, card foot with the three buttons, retrofitted built-for-you and guided sheets. Look at every image. Revert temp lines.
+**Files:**
+- Create: `src/main/fs-actions.js`
+- Test: `tests/fs-actions.test.mjs`
+- Modify: `src/main/main.js` (five IPC handlers near `file:reveal`), `src/main/preload.js`
+- Modify: `src/renderer/app.js` (menu component, tree wiring in `renderTreeLevel`/`refreshWorkspaceRail`, `fs-name` overlay, `.ed-path` reveal in `mountEditor` and `mountCard`)
+- Modify: `src/renderer/paper.css`, `src/renderer/theme-operator.css` (ADDITIVE)
+
+**Interfaces:**
+- Produces (main): `newFile({ root, dir, name, ops })`, `newFolder({ root, dir, name, ops })`, `movePath({ root, src, destDir, ops })`, `trashPath({ root, path, trashFn, ops })`, each returning `{ ok: true, path }` or `{ ok: false, error }`; `ops` is `{ exists, mkdir, writeFile, rename }` with fs defaults. Renderer-visible: `api.fsNewFile/fsNewFolder/fsMove/fsTrash` (all take `root` = `S.project.path`) and `api.chooseFolder()` → dir path or null (plain dialog, does NOT touch recents).
+- Produces (renderer): `showMenu(x, y, items)` / `hideMenu()` where items are `{ label, run, danger? }` or `'-'` for a separator; overlay type `fs-name`.
+- Design note: the menu's Move to Trash is direct (no armed second click, unlike the library card's Delete button): a right-click plus a click under a separator is already deliberate, and Trash is recoverable. State this in the code comment.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/fs-actions.test.mjs`:
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { newFile, newFolder, movePath, trashPath } = require('../src/main/fs-actions.js');
+
+const ROOT = '/proj';
+function fakeOps(existing = []) {
+  const calls = { writes: [], mkdirs: [], renames: [] };
+  return {
+    calls,
+    exists: (p) => existing.includes(p),
+    mkdir: (p) => calls.mkdirs.push(p),
+    writeFile: (p) => calls.writes.push(p),
+    rename: (a, b) => calls.renames.push([a, b]),
+  };
+}
+
+test('newFile creates inside the root and refuses outside or existing', () => {
+  const ops = fakeOps(['/proj/docs/dup.md']);
+  assert.equal(newFile({ root: ROOT, dir: '/proj/docs', name: 'a.md', ops }).ok, true);
+  assert.deepEqual(ops.calls.writes, ['/proj/docs/a.md']);
+  assert.equal(newFile({ root: ROOT, dir: '/etc', name: 'a.md', ops }).ok, false);
+  assert.equal(newFile({ root: ROOT, dir: '/proj/docs', name: 'dup.md', ops }).ok, false);
+  assert.equal(newFile({ root: ROOT, dir: '/proj/docs', name: '../evil.md', ops }).ok, false);
+});
+
+test('newFolder mirrors the same guards', () => {
+  const ops = fakeOps();
+  assert.equal(newFolder({ root: ROOT, dir: '/proj', name: 'notes', ops }).ok, true);
+  assert.deepEqual(ops.calls.mkdirs, ['/proj/notes']);
+  assert.equal(newFolder({ root: ROOT, dir: '/outside', name: 'x', ops }).ok, false);
+});
+
+test('movePath moves within the root, refusing collisions and escapes', () => {
+  const ops = fakeOps(['/proj/a.md', '/proj/docs/a.md']);
+  const hit = movePath({ root: ROOT, src: '/proj/a.md', destDir: '/proj/docs', ops });
+  assert.equal(hit.ok, false); // dest exists
+  const ok = movePath({ root: ROOT, src: '/proj/a.md', destDir: '/proj/sub', ops });
+  assert.deepEqual(ok, { ok: true, path: '/proj/sub/a.md' });
+  assert.deepEqual(ops.calls.renames, [['/proj/a.md', '/proj/sub/a.md']]);
+  assert.equal(movePath({ root: ROOT, src: '/proj/a.md', destDir: '/tmp', ops }).ok, false);
+  assert.equal(movePath({ root: ROOT, src: '/etc/passwd', destDir: '/proj', ops }).ok, false);
+});
+
+test('trashPath trashes inside the root only, never the root itself', async () => {
+  const trashed = [];
+  const ops = fakeOps(['/proj/old.md']);
+  const trashFn = (p) => { trashed.push(p); return Promise.resolve(); };
+  const ok = await trashPath({ root: ROOT, path: '/proj/old.md', trashFn, ops });
+  assert.deepEqual(ok, { ok: true, path: '/proj/old.md' });
+  assert.deepEqual(trashed, ['/proj/old.md']);
+  assert.equal((await trashPath({ root: ROOT, path: ROOT, trashFn, ops })).ok, false);
+  assert.equal((await trashPath({ root: ROOT, path: '/etc/passwd', trashFn, ops })).ok, false);
+  assert.equal((await trashPath({ root: ROOT, path: '/proj/gone.md', trashFn, ops })).ok, false);
+});
+```
+
+- [ ] **Step 2: Run to verify failure** (`npm test`, new file errors, existing pass)
+
+- [ ] **Step 3: Implement `fs-actions.js`**
+
+```js
+// File verbs for the Workspace tree. Guarded: every path must resolve inside
+// the open project root. IO is injectable so tests never touch the disk.
+const fs = require('fs');
+const path = require('path');
+
+const fsOps = {
+  exists: (p) => fs.existsSync(p),
+  mkdir: (p) => fs.mkdirSync(p, { recursive: true }),
+  writeFile: (p) => fs.writeFileSync(p, '', { flag: 'wx' }),
+  rename: (a, b) => fs.renameSync(a, b),
+};
+
+function inside(root, p) {
+  if (!root) return null;
+  const r = path.resolve(root), abs = path.resolve(String(p || ''));
+  return abs === r || abs.startsWith(r + path.sep) ? abs : null;
+}
+function badName(name) { return !name || String(name).includes('/') || String(name).includes('\\'); }
+
+function newFile({ root, dir, name, ops = fsOps }) {
+  const d = inside(root, dir);
+  if (!d || badName(name)) return { ok: false, error: 'Bad target' };
+  const p = path.join(d, name);
+  if (ops.exists(p)) return { ok: false, error: 'Already exists: ' + name };
+  try { ops.writeFile(p); return { ok: true, path: p }; } catch (e) { return { ok: false, error: e.message }; }
+}
+function newFolder({ root, dir, name, ops = fsOps }) {
+  const d = inside(root, dir);
+  if (!d || badName(name)) return { ok: false, error: 'Bad target' };
+  const p = path.join(d, name);
+  if (ops.exists(p)) return { ok: false, error: 'Already exists: ' + name };
+  try { ops.mkdir(p); return { ok: true, path: p }; } catch (e) { return { ok: false, error: e.message }; }
+}
+function movePath({ root, src, destDir, ops = fsOps }) {
+  const s = inside(root, src), d = inside(root, destDir);
+  if (!s || !d) return { ok: false, error: 'Move stays inside the open folder' };
+  const dest = path.join(d, path.basename(s));
+  if (dest === s) return { ok: true, path: s };
+  if (ops.exists(dest)) return { ok: false, error: 'Something with that name is already there' };
+  try { ops.rename(s, dest); return { ok: true, path: dest }; } catch (e) { return { ok: false, error: e.message }; }
+}
+async function trashPath({ root, path: target, trashFn, ops = fsOps }) {
+  const abs = inside(root, target);
+  if (!abs || abs === path.resolve(root)) return { ok: false, error: 'Not inside the open folder' };
+  if (!ops.exists(abs)) return { ok: false, error: 'Already gone' };
+  try { await trashFn(abs); return { ok: true, path: abs }; } catch (e) { return { ok: false, error: e.message }; }
+}
+module.exports = { newFile, newFolder, movePath, trashPath };
+```
+
+- [ ] **Step 4: Run to verify pass**, then wire IPC + preload (surgical for main.js/preload.js)
+
+main.js, near the `file:reveal` handler:
+
+```js
+const fsActions = require('./fs-actions');
+ipcMain.handle('fs:newFile', (_e, a) => fsActions.newFile(a || {}));
+ipcMain.handle('fs:newFolder', (_e, a) => fsActions.newFolder(a || {}));
+ipcMain.handle('fs:move', (_e, a) => fsActions.movePath(a || {}));
+ipcMain.handle('fs:trash', (_e, a) => fsActions.trashPath({ ...(a || {}), trashFn: (p) => shell.trashItem(p) }));
+// Plain directory dialog for Move to…: unlike folder:pick it must NOT remember
+// the choice as a recent project.
+ipcMain.handle('folder:choose', async () => {
+  const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Move to which folder?' });
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
+});
+```
+
+(The require line goes with the other top requires. Check the window variable name used by `folder:pick`, `grep -an "showOpenDialog" src/main/main.js`, and match it.)
+
+preload.js after `libraryDelete:`:
+
+```js
+  fsNewFile: (args) => ipcRenderer.invoke('fs:newFile', args),
+  fsNewFolder: (args) => ipcRenderer.invoke('fs:newFolder', args),
+  fsMove: (args) => ipcRenderer.invoke('fs:move', args),
+  fsTrash: (args) => ipcRenderer.invoke('fs:trash', args),
+  chooseFolder: () => ipcRenderer.invoke('folder:choose'),
+```
+
+- [ ] **Step 5: Renderer: menu component + tree wiring (surgical)**
+
+Next to the tree functions in app.js add:
+
+```js
+// ---- workspace context menu ------------------------------------------------
+function showMenu(x, y, items) {
+  hideMenu();
+  const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
+  for (const it of items) {
+    if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
+    const row = document.createElement('div'); row.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    row.textContent = it.label;
+    row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(); };
+    m.appendChild(row);
+  }
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  setTimeout(() => {
+    window.addEventListener('click', hideMenu, { once: true });
+    window.addEventListener('contextmenu', hideMenu, { once: true });
+    window.addEventListener('keydown', escHideMenu);
+  }, 0);
+}
+function escHideMenu(e) { if (e.key === 'Escape') hideMenu(); }
+function hideMenu() { const m = document.getElementById('ctx-menu'); if (m) m.remove(); window.removeEventListener('keydown', escHideMenu); }
+async function refreshTreeDir(dir) {
+  S.tree[dir] = await api.listDir(dir, S.treeAll);
+  if (S.railTab === 'workspace') refreshRail();
+}
+function treeMenu(n, parentDir) {
+  const root = S.project.path;
+  const items = [{ label: 'Reveal in Finder', run: () => api.revealFile(n.path) }];
+  if (n.kind === 'dir') {
+    items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
+    items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
+  }
+  items.push({ label: 'Move to…', run: async () => {
+    const dest = await api.chooseFolder(); if (!dest) return;
+    const res = await api.fsMove({ root, src: n.path, destDir: dest });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(n.path);
+    await refreshTreeDir(parentDir); await refreshTreeDir(dest);
+    toast('Moved ' + n.name + '.');
+  } });
+  items.push('-');
+  // Direct to Trash: right-click plus a click below a separator is deliberate,
+  // and the Trash is recoverable. The library card's Delete keeps its armed
+  // second click because it sits next to Save.
+  items.push({ label: 'Move to Trash', danger: true, run: async () => {
+    const res = await api.fsTrash({ root, path: n.path });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(n.path);
+    refreshTreeDir(parentDir);
+    toast('Moved to Trash.');
+  } });
+  return items;
+}
+```
+
+In `renderTreeLevel`, after `row.onclick = ...` add:
+
+```js
+    row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
+```
+
+In `refreshWorkspaceRail`, after `head.appendChild(pathSpan); ...` wire the head:
+
+```js
+  head.oncontextmenu = (e) => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Reveal in Finder', run: () => api.revealFile(p.path) },
+      { label: 'New file…', run: () => openFsName('file', p.path) },
+      { label: 'New folder…', run: () => openFsName('folder', p.path) },
+    ]);
+  };
+```
+
+- [ ] **Step 6: Renderer: fs-name overlay + tile path reveal (surgical, same commit)**
+
+Next to the menu code:
+
+```js
+function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
+function renderFsName() {
+  const o = S.overlay;
+  const modal = overlay('picker-box', `
+    <div class="picker-input"><span class="prompt-mark">＋</span>
+      <span style="font-weight:700">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted)">${esc(shortHome(o.dir))}</span></div>
+    <div class="ni-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
+      <button class="btn btn--go" id="fs-go">Create</button></div>`, { top: true });
+  const input = q('#fs-name', modal); input.value = o.name; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.name = input.value; };
+  const go = async () => {
+    const name = input.value.trim();
+    if (!name) { toast('Give it a name first.'); return; }
+    const root = S.project.path;
+    const res = o.mode === 'file'
+      ? await api.fsNewFile({ root, dir: o.dir, name })
+      : await api.fsNewFolder({ root, dir: o.dir, name });
+    if (!res.ok) { toast(res.error || 'Could not create'); return; }
+    closeOverlay();
+    if (o.dir !== root) S.expanded.add(o.dir);
+    await refreshTreeDir(o.dir);
+    if (o.mode === 'file') openFile(res.path, { pin: true });
+    toast('Created ' + name);
+  };
+  q('#fs-go', modal).onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+}
+```
+
+`renderOverlay` gains, after the `improve-item` branch:
+
+```js
+  if (o.type === 'fs-name') return renderFsName();
+```
+
+Tile paths: `grep -n "ed-path" src/renderer/app.js` finds the template spans in `mountEditor` (editor bar) and `mountCard`. In each mount function, after the bar is in the DOM, add:
+
+```js
+  const pathEl = q('.ed-path', wrap);
+  if (pathEl) { pathEl.title = 'Reveal in Finder'; pathEl.onclick = () => api.revealFile(p.filePath); }
+```
+
+(In `mountEditor` the wrapper variable may differ; anchor on the existing save-button wiring in the same function and match its container variable.)
+
+- [ ] **Step 7: CSS**
+
+paper.css, after the `.card-del.armed` rule from Task 5:
+
+```css
+/* workspace context menu */
+.ctx-menu { position: fixed; z-index: 300; min-width: 170px; background: var(--paper); border: 1px solid var(--dash-dark);
+  box-shadow: 3px 3px 0 var(--shadow-mid); border-radius: 2px; padding: 4px; font-size: 12px; }
+.ctx-item { padding: 6px 10px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
+.ctx-item:hover { background: var(--paper-2); }
+.ctx-item.danger { color: var(--red-warn, #a04545); }
+.ctx-sep { border-top: 1px dashed var(--dash); margin: 4px 6px; }
+.ed-path { cursor: pointer; }
+.ed-path:hover { text-decoration: underline; }
+```
+
+(Same red-token check as Task 5: if paper.css already defines a warn/red token, use it and drop the fallback.)
+
+theme-operator.css ADDITIVE:
+
+```css
+body[data-theme="operator"] .ctx-menu { border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
+body[data-theme="operator"] .ctx-item { border-radius: 5px; }
+body[data-theme="operator"] .ctx-item:hover { background: var(--hover); }
+```
+
+- [ ] **Step 8: Verify + commit**
+
+`npm test` (67/67), parse check, TEMP-SHOT the tree with the context menu open (call `showMenu` from the demo seed on a fake node) in BOTH themes; LOOK: menu reads paper-ish, danger item legible, separator visible. Revert temp lines. Surgical staging for main.js/preload.js/app.js/paper.css; plain add for fs-actions.js + test. Commit:
+
+```bash
+git commit -m "feat: workspace file verbs, right-click menu and reveal from tiles"
+```
+
+---
+
+### Task 7: Screenshots, polish review, end-to-end, standalone verify
+
+- [ ] **Step 1:** TEMP-SHOT the full set in BOTH themes: reworked ＋ new sheet, improve sheet, card foot with the three buttons, retrofitted built-for-you and guided sheets, tree with the context menu open. Look at every image. Revert temp lines.
 - [ ] **Step 2:** Dispatch `ui-polisher` over the new CSS + screenshots; apply must-fixes; re-shot and look again.
 - [ ] **Step 3:** Real end-to-end on this Mac, headless where possible:
-  - Delete: call `deleteItem` via node against a scratch dir shaped like a project (create `/tmp-ish scratch/.claude/agents/junk.md`, real `trashFn` from a fake that records, or use Electron's shell in the running app for one real Trash round-trip on a throwaway file). Confirm refusal for a path outside the roots.
-  - Create-blank path still works: `api.libraryCreate` round-trip via `npm start` demo or direct `createItem` call; file appears, card opens.
+  - Delete: call `deleteItem` via node against a scratch dir shaped like a project (create a scratch `.claude/agents/junk.md`, `trashFn` fake that records). Confirm refusal for a path outside the roots.
+  - Workspace verbs: call `newFile`/`newFolder`/`movePath` via node with real fs against a scratch dir; confirm files land, collisions refuse, escapes refuse. One real `shell.trashItem` round-trip on a throwaway file via the running app if practical; the fake-trash tests otherwise cover the guard.
+  - Create-blank path still works: direct `createItem` call; file appears where expected.
   - Agent-build path: in the real app, ＋ new with a description and Create it for me opens a session tile whose terminal receives the seed text (visible in the tile) addressed to the SELECTED agent, not silently the first.
-- [ ] **Step 4:** `git worktree add --detach /tmp/verify-abl master`, symlink node_modules, `npm test` (expect ~62), demo-shot boot, remove worktree.
+- [ ] **Step 4:** `git worktree add --detach /tmp/verify-abl master`, symlink node_modules, `npm test` (expect ~67), demo-shot boot, remove worktree.
 - [ ] **Step 5:** Commit any polish with surgical staging:
 
 ```bash
@@ -610,7 +941,7 @@ git commit -m "polish: agent-built library after review, both themes verified"
 
 ---
 
-### Task 7: Docs
+### Task 8: Docs
 
 **Files:**
 - Modify: `README.md` (surgical staging; mirror the edit into the worktree so the logo session's later commit keeps it)
@@ -623,6 +954,14 @@ git commit -m "polish: agent-built library after review, both themes verified"
   whichever agent you choose, which writes the real thing (a quiet link still gives you
   an empty template). Every editable card can be improved by your agent or moved to the
   Trash from the app.
+```
+
+Also add, after the Peek-then-pin bullet:
+
+```markdown
+- **Files are yours to handle**: right-click anything in the Workspace tree to reveal
+  it in Finder, make a file or folder, move it somewhere else in the project, or send
+  it to the Trash. The path at the bottom of an open file reveals it in Finder too.
 ```
 
 - [ ] **Step 2:** Roadmap: under Standing decisions, add one line:
@@ -643,6 +982,6 @@ git commit -m "docs: agent-built library shipped"
 
 ## Self-review notes
 
-- Spec coverage: session selector everywhere including Part 3 retrofits (Task 3), name + describe with agent-build default and blank-file quiet link (Task 4), improve-with-agent on editable cards with dirty guard (Task 5), delete to Trash with root guard and plugin exclusion (Tasks 1, 5), library rescan on tab switch (Task 4), no-agent fallbacks on every sheet (Tasks 3, 4, 5).
+- Spec coverage: session selector everywhere including Part 3 retrofits (Task 3), name + describe with agent-build default and blank-file quiet link (Task 4), improve-with-agent on editable cards with dirty guard (Task 5), delete to Trash with root guard and plugin exclusion (Tasks 1, 5), library rescan on tab switch (Task 4), no-agent fallbacks on every sheet (Tasks 3, 4, 5), workspace context menu with reveal/new/move/trash and tile-path reveal (Task 6, spec section 5, including the no-recents Move dialog and menu-trash-without-arming rationale).
 - Type consistency: `o.workerId` + `chosenAgent(o)` shape flows Task 3 → 4 → 5; `deleteItem` result `{ ok, target }` flows Task 1 → 5; seed builders' signatures flow Task 2 → 4/5; overlay types `newitem` (reused) and `improve-item` (new) wired in `renderOverlay` and `refreshAgents`.
 - Known risks named: re-render of connect-form on `refreshAgents` relies on Part 3's save-keys-before-re-render rule (safe); `startGuidedSetup` keeps a `bestAgent()` fallback so old call sites cannot break; the red armed-delete color checks for an existing token before inventing one.
