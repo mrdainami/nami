@@ -7,6 +7,7 @@ import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
+import { resolveOpen } from './peek-core.mjs';
 
 const api = window.dainami;
 
@@ -177,9 +178,9 @@ function onGlobalKey(e) {
   if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
-  if (meta && (e.key === 'w' || e.key === 'W')) { if (S.activeId) { e.preventDefault(); closePanel(S.activeId); } return; }
-  if (meta && (e.key === 's' || e.key === 'S')) { const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } else if (p && p.kind === 'card') { e.preventDefault(); saveCard(p); } return; }
-  if (e.key === 'Escape') { if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
+  if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); if (S.overlay && S.overlay.type === 'peek') requestClosePeek(); else if (S.activeId) closePanel(S.activeId); return; }
+  if (meta && (e.key === 's' || e.key === 'S')) { const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel; if (pk && pk.kind === 'editor') { e.preventDefault(); saveEditor(pk); return; } if (pk && pk.kind === 'card') { e.preventDefault(); saveCard(pk); return; } const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } else if (p && p.kind === 'card') { e.preventDefault(); saveCard(p); } return; }
+  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
 // ===========================================================================
@@ -414,7 +415,13 @@ function mountTile(p) {
 }
 
 function refreshTileHead(p) {
-  const t = tileEls.get(p.id); if (!t) return;
+  const t = tileEls.get(p.id);
+  if (!t) {
+    if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel === p) {
+      const el = q('.pk-title'); if (el) el.textContent = p.title + (p.dirty ? ' •' : '');
+    }
+    return;
+  }
   const m = statusMeta(p);
   q('.t-title', t.head).textContent = p.title + (p.kind === 'editor' && p.dirty ? ' •' : '');
   q('.t-sub', t.head).textContent = kindLabel(p);
@@ -1121,12 +1128,53 @@ function renderBoard() {
 function renderOverlay() {
   els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
   if (o.type === 'launcher') return renderLauncher();
+  if (o.type === 'peek') return renderPeek();
   if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agents') return renderAgentPickerSheet();
   if (o.type === 'newitem') return renderNewItemSheet();
   if (o.type === 'board') return renderBoard();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
+
+// ---- peek: float a file or card above the desk without touching the tiles --
+function openPeek(p) {
+  const cur = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (cur && (cur.kind === 'editor' || cur.kind === 'card') && cur.dirty
+      && !confirm(`Discard unsaved changes to ${baseNameOf(cur.filePath)}?`)) return;
+  S.overlay = { type: 'peek', panel: p }; renderOverlay();
+}
+function renderPeek() {
+  const p = S.overlay.panel;
+  const wrap = document.createElement('div'); wrap.className = 'overlay'; wrap.onclick = requestClosePeek;
+  const box = document.createElement('div'); box.className = 'peek-box'; box.onclick = (e) => e.stopPropagation();
+  box.innerHTML = `<div class="peek-head">
+      <span class="code" style="background:${p.tint}">${esc(p.code)}</span>
+      <span class="col"><span class="pk-title">${esc(p.title)}${p.dirty ? ' •' : ''}</span><span class="pk-sub">${esc(shortHome(p.filePath))}</span></span>
+      <button class="btn btn--go pk-pin" title="Keep it open as a tile on the desk">Pin to desk</button>
+      <button class="t-btn pk-x" title="Close">✕</button>
+    </div><div class="peek-body"></div>`;
+  wrap.appendChild(box); els.overlayRoot.appendChild(wrap);
+  const rec = { body: q('.peek-body', box) };
+  if (p.kind === 'editor') mountEditor(p, rec);
+  else if (p.kind === 'card') mountCard(p, rec);
+  else mountViewer(p, rec);
+  q('.pk-pin', box).onclick = pinPeek;
+  q('.pk-x', box).onclick = requestClosePeek;
+}
+function pinPeek() {
+  const o = S.overlay; if (!o || o.type !== 'peek') return;
+  const p = o.panel;
+  S.overlay = null;
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  renderOverlay(); renderGrid(); renderRail(); renderHeader(); savePanels();
+}
+function requestClosePeek() {
+  const o = S.overlay; if (!o || o.type !== 'peek') { closeOverlay(); return; }
+  const p = o.panel;
+  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty
+      && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  closeOverlay();
+}
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;

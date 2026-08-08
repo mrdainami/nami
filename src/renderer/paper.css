@@ -510,6 +510,19 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .setup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .setup-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
 
+/* peek: a sheet held above the desk; pinning drops it onto the grid */
+.peek-box { width: min(860px, calc(100vw - 120px)); display: flex; flex-direction: column;
+  background: repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.02) 0 1px, transparent 1px 4px), var(--paper);
+  border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25);
+  transform: rotate(-0.4deg); animation: rise 0.18s ease both; }
+.peek-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 2px dashed var(--dash); }
+.peek-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.peek-head .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.peek-head .pk-title { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peek-head .pk-sub { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.peek-head .pk-pin { font-size: 11px; padding: 6px 12px; }
+.peek-body { position: relative; height: min(560px, calc(100vh - 220px)); }
+
 .ql-lines { background: repeating-linear-gradient(0deg, transparent 0 25px, rgba(120, 145, 180, 0.14) 25px 26px); }
 .ql-row { display: flex; gap: 14px; font-size: 12px; line-height: 26px; user-select: text; }
 .ql-row .n { color: #b3a894; width: 30px; text-align: right; flex: none; }
