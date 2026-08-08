@@ -8,6 +8,7 @@ import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
+import { buildCreateSeed, buildImproveSeed } from './seed-text.mjs';
 
 const api = window.dainami;
 
@@ -150,7 +151,7 @@ function buildShell() {
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
-  document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; renderAll(); }; });
+  document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderAll(); }; });
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; applyChrome(); };
   document.addEventListener('keydown', onGlobalKey);
@@ -1044,9 +1045,10 @@ const NEW_KINDS = [
   { key: 'claude:skill', name: 'Claude skill', sub: 'a .claude/skills folder with SKILL.md', chip: TYPE_CHIP.skill },
   { key: 'opencode:agent', name: 'OpenCode agent', sub: 'an .opencode/agent markdown agent', chip: TYPE_CHIP.agent },
 ];
-function openNewItem() { S.overlay = { type: 'newitem', kindKey: 'claude:agent', scope: S.project ? 'project' : 'user', name: '' }; renderOverlay(); }
+function openNewItem() { S.overlay = { type: 'newitem', kindKey: 'claude:agent', scope: S.project ? 'project' : 'user', name: '', desc: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
 function renderNewItemSheet() {
   const o = S.overlay;
+  const worker = chosenAgent(o);
   const modal = overlay('picker-box', `
     <div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New agent or skill</span></div>
     <div class="picker-list" id="ni-kinds"></div>
@@ -1055,33 +1057,53 @@ function renderNewItemSheet() {
       <button class="btn ni-scope" data-s="project" ${S.project ? '' : 'disabled'}>this project</button>
       <button class="btn ni-scope" data-s="user">your machine</button>
     </div>
-    <div class="ni-row"><input id="ni-name" placeholder="Name it (e.g. release scribe)…" value="${esc(o.name)}" />
-      <button class="btn btn--go" id="ni-create">Create</button></div>`, { top: true });
+    <div class="ni-row"><input id="ni-name" placeholder="name it (or leave blank, your agent will)…" value="${esc(o.name)}" /></div>
+    <div class="ni-row"><input id="ni-desc" placeholder="what should it do? e.g. turns git history into release notes people read" value="${esc(o.desc)}" /></div>
+    <div class="ni-agent" style="margin:2px 12px 8px">${worker
+      ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> creates it for you`
+      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
+    <div class="ni-row"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Create it for me</button>
+      <span class="action" id="ni-blank">just give me an empty file</span></div>`, { top: true });
   const kinds = q('#ni-kinds', modal);
+  const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
+  const keep = () => { o.name = nameInput.value; o.desc = descInput.value; };
   for (const k of NEW_KINDS) {
     const row = document.createElement('div'); row.className = 'picker-row' + (o.kindKey === k.key ? ' hilite' : '');
     row.innerHTML = `<span class="code" style="background:${k.chip.tint}">${k.chip.code}</span>
       <span class="col"><span class="name">${esc(k.name)}</span><span class="desc">${esc(k.sub)}</span></span>`;
-    row.onclick = () => { o.kindKey = k.key; o.name = q('#ni-name', modal).value; renderOverlay(); };
+    row.onclick = () => { keep(); o.kindKey = k.key; renderOverlay(); };
     kinds.appendChild(row);
   }
   modal.querySelectorAll('.ni-scope').forEach((b) => {
     b.classList.toggle('btn--go', b.dataset.s === o.scope);
-    b.onclick = () => { o.scope = b.dataset.s; o.name = q('#ni-name', modal).value; renderOverlay(); };
+    b.onclick = () => { keep(); o.scope = b.dataset.s; renderOverlay(); };
   });
-  const nameInput = q('#ni-name', modal); setTimeout(() => nameInput.focus(), 30);
-  const create = async () => {
-    const name = nameInput.value.trim();
-    if (!name) { toast('Give it a name first.'); return; }
+  const agentSel = q('#ni-agent-sel', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
+  setTimeout(() => descInput.focus(), 30);
+  q('#ni-create', modal).onclick = () => {
+    keep();
+    const w = chosenAgent(o);
+    if (!o.desc.trim()) { toast('Describe what it should do first.'); return; }
+    if (!w) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
     const [platform, type] = o.kindKey.split(':');
-    const res = await api.libraryCreate({ projectPath: S.project && S.project.path, type, platform, scope: o.scope, name });
+    const seed = buildCreateSeed({ type, platform, scope: o.scope, name: o.name, desc: o.desc, projectPath: S.project && S.project.path });
+    closeOverlay();
+    agentSession(w, { title: 'build: ' + (o.name.trim() || type), code: 'BD', seed });
+    toast('Your agent is writing it. It appears in the Library when it lands.');
+  };
+  q('#ni-blank', modal).onclick = async () => {
+    keep();
+    if (!o.name.trim()) { toast('Give it a name first.'); return; }
+    const [platform, type] = o.kindKey.split(':');
+    const res = await api.libraryCreate({ projectPath: S.project && S.project.path, type, platform, scope: o.scope, name: o.name.trim() });
     if (!res.ok) { toast(res.error || 'Could not create'); return; }
-    closeOverlay(); toast('Created ' + name);
+    closeOverlay(); toast('Created ' + o.name.trim());
     S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
     openCard(res.item);
   };
-  q('#ni-create', modal).onclick = create;
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); descInput.focus(); } });
+  descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); q('#ni-create', modal).onclick(); } });
 }
 
 // ---- overlays --------------------------------------------------------------
