@@ -1,0 +1,579 @@
+<meta charset="utf-8" />
+<title>Nami — glass + graphite themes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  /* ============ glass tokens — light is default, .dark remaps ============ */
+  :root {
+    --accent: #ef6461;
+    --accent-deep: #e0524f;
+    --accent-hi: #ff8b88;
+    --accent-dim: rgba(239, 100, 97, 0.14);
+    --r-tile: 22px;
+    --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', ui-monospace, Menlo, monospace;
+    --dot: 'Doto', var(--mono);
+    --pop: cubic-bezier(0.22, 1.28, 0.36, 1);
+
+    --ink: #1d1d22;
+    --muted: rgba(60, 60, 72, 0.62);
+    --faint: rgba(60, 60, 72, 0.34);
+    --body-ink: rgba(29, 29, 34, 0.82);
+    --sh: 45 52 90;
+    --frame: rgba(255, 255, 255, 0.22);
+    --frame-line: rgba(255, 255, 255, 0.55);
+    --frame-lip: rgba(255, 255, 255, 0.8);
+    --pane: rgba(255, 255, 255, 0.48);
+    --pane-strong: rgba(255, 255, 255, 0.62);
+    --pane-dim: rgba(255, 255, 255, 0.24);
+    --rim: rgba(255, 255, 255, 0.75);
+    --rim-hi: rgba(255, 255, 255, 0.95);
+    --rim-dim: rgba(255, 255, 255, 0.45);
+    --pill-line: rgba(255, 255, 255, 0.55);
+    --seg-track: rgba(120, 120, 138, 0.14);
+    --seg-line: rgba(255, 255, 255, 0.4);
+    --seg-active: rgba(255, 255, 255, 0.82);
+    --track: rgba(120, 120, 138, 0.22);
+    --well: rgba(255, 255, 255, 0.44);
+    --well-line: rgba(255, 255, 255, 0.65);
+    --well-lip: rgba(255, 255, 255, 0.6);
+    --term-ink: #34353d;
+    --term-dim: rgba(52, 53, 61, 0.48);
+    --ok-ink: #2e7d4f;
+    --need-ink: #9a6c14;
+    --need-bg: rgba(238, 190, 80, 0.2);
+    --work-ink: #d94a47;
+    --slab:
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+      inset 0 14px 30px rgba(255, 255, 255, 0.3),
+      inset 0 -14px 30px rgba(96, 108, 148, 0.12),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+    --a-red: #d6423e; --a-green: #2e7d4f; --a-yellow: #b07c10;
+    --a-blue: #3763c9; --a-magenta: #a4499d; --a-cyan: #1f7f86;
+    --a-fg: #34353d; --a-grey: #8b8c96;
+  }
+  .dark {
+    --ink: #ececf1;
+    --muted: rgba(230, 231, 240, 0.6);
+    --faint: rgba(230, 231, 240, 0.32);
+    --body-ink: rgba(236, 236, 243, 0.82);
+    --sh: 8 9 14;
+    --frame: rgba(64, 66, 76, 0.35);
+    --frame-line: rgba(255, 255, 255, 0.14);
+    --frame-lip: rgba(255, 255, 255, 0.18);
+    --pane: rgba(78, 80, 93, 0.44);
+    --pane-strong: rgba(92, 94, 109, 0.56);
+    --pane-dim: rgba(74, 76, 89, 0.22);
+    --rim: rgba(255, 255, 255, 0.16);
+    --rim-hi: rgba(255, 255, 255, 0.32);
+    --rim-dim: rgba(255, 255, 255, 0.09);
+    --pill-line: rgba(255, 255, 255, 0.18);
+    --seg-track: rgba(0, 0, 0, 0.26);
+    --seg-line: rgba(255, 255, 255, 0.08);
+    --seg-active: rgba(126, 128, 144, 0.55);
+    --track: rgba(255, 255, 255, 0.14);
+    --well: rgba(25, 26, 32, 0.42);
+    --well-line: rgba(255, 255, 255, 0.1);
+    --well-lip: rgba(255, 255, 255, 0.05);
+    --term-ink: #dcdde6;
+    --term-dim: rgba(220, 221, 230, 0.42);
+    --ok-ink: #63c68a;
+    --need-ink: #e6c05c;
+    --need-bg: rgba(238, 190, 80, 0.14);
+    --work-ink: #ff8b88;
+    --slab:
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.22),
+      inset 0 14px 30px rgba(255, 255, 255, 0.05),
+      inset 0 -14px 30px rgba(0, 0, 0, 0.3),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+    --a-red: #ff6b67; --a-green: #5fca8b; --a-yellow: #e8b33e;
+    --a-blue: #6f9dff; --a-magenta: #d580cc; --a-cyan: #4fc2cc;
+    --a-fg: #dcdde6; --a-grey: #7c7d88;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--sans); color: var(--ink);
+    -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+    background: #e8e9ee;
+    background-image:
+      radial-gradient(52% 34% at 12% 4%,  rgba(255, 158, 140, 0.45) 0%, transparent 62%),
+      radial-gradient(46% 30% at 92% 8%, rgba(140, 205, 220, 0.4)  0%, transparent 60%),
+      linear-gradient(165deg, #f6f4f2 0%, #e9e8ee 55%, #eceef0 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%231d1d22' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, default;
+  }
+  button, a, .sess, .rail-tab, .tile-acts span, .project-chip {
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%23ef6461' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, pointer;
+  }
+
+  .pix { width: 11px; height: 11px; display: inline-block; vertical-align: -1px; }
+  .pix path { fill: currentColor; shape-rendering: crispEdges; }
+  .dotty { font-family: var(--dot); font-weight: 800; letter-spacing: 0.08em; }
+
+  .page { max-width: 1380px; margin: 0 auto; padding: 46px 28px 90px; perspective: 1600px; }
+  .page h1 { font-family: var(--dot); font-weight: 900; font-size: 30px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 10px; }
+  .page .sub { color: var(--muted); font-size: 14.5px; margin: 0 0 30px; max-width: 800px; line-height: 1.55; }
+  .caption { font-family: var(--dot); font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 0.24em; color: var(--muted); margin: 40px 0 13px; }
+
+  /* ============ stages: each carries its own aurora desk ============ */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .stage {
+    border-radius: 26px; overflow: hidden; position: relative;
+    box-shadow: 0 30px 70px rgba(45, 52, 90, 0.18);
+  }
+  .stage.light {
+    background: #e8e9ee;
+    background-image:
+      radial-gradient(52% 44% at 12% 6%,  rgba(255, 158, 140, 0.55) 0%, transparent 62%),
+      radial-gradient(46% 40% at 92% 12%, rgba(140, 205, 220, 0.5)  0%, transparent 60%),
+      radial-gradient(60% 52% at 78% 88%, rgba(255, 190, 170, 0.42) 0%, transparent 64%),
+      radial-gradient(44% 40% at 8% 92%,  rgba(168, 190, 235, 0.4)  0%, transparent 60%),
+      linear-gradient(165deg, #f6f4f2 0%, #e9e8ee 55%, #eceef0 100%);
+  }
+  .stage.dark {
+    background: #26272c;
+    background-image:
+      radial-gradient(52% 44% at 12% 6%,  rgba(239, 100, 97, 0.22) 0%, transparent 62%),
+      radial-gradient(46% 40% at 92% 12%, rgba(86, 160, 175, 0.18) 0%, transparent 60%),
+      radial-gradient(60% 52% at 78% 88%, rgba(210, 120, 100, 0.14) 0%, transparent 64%),
+      radial-gradient(44% 40% at 8% 92%,  rgba(120, 140, 195, 0.15) 0%, transparent 60%),
+      linear-gradient(165deg, #2d2e34 0%, #242529 55%, #27282e 100%);
+  }
+  .stage-tag {
+    position: absolute; top: 14px; left: 18px; z-index: 20;
+    font-family: var(--dot); font-weight: 900; font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--muted); pointer-events: none;
+  }
+  .stage.small { padding: 40px 20px 20px; }
+  .scalewrap { height: 402px; overflow: hidden; }
+  .appholder { width: 1240px; transform: scale(0.478); transform-origin: 0 0; }
+  .stage.full { padding: 46px 24px 24px; }
+
+  /* ============ the app (markup cloned from template) ============ */
+  .app {
+    border-radius: 30px; overflow: hidden; min-height: 800px;
+    display: flex; flex-direction: column;
+    background: var(--frame);
+    -webkit-backdrop-filter: blur(8px) saturate(1.25);
+    backdrop-filter: blur(8px) saturate(1.25);
+    border: 1px solid var(--frame-line);
+    box-shadow: inset 0 1.5px 0 var(--frame-lip), inset 0 -18px 44px rgb(var(--sh) / 0.08), 0 40px 100px rgb(var(--sh) / 0.22);
+  }
+  .glass {
+    background: var(--pane);
+    -webkit-backdrop-filter: blur(26px) saturate(1.7);
+    backdrop-filter: blur(26px) saturate(1.7);
+    border: 1px solid var(--rim);
+    box-shadow: var(--slab), 0 24px 55px rgb(var(--sh) / 0.16), 0 2px 8px rgb(var(--sh) / 0.06);
+  }
+  [data-lens] {
+    transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
+    transition: transform 0.22s ease-out, box-shadow 0.35s var(--pop), background 0.3s ease, border-color 0.3s ease;
+    will-change: transform;
+    position: relative;
+  }
+  .tile[data-lens]:hover {
+    transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px) translateZ(14px);
+    background: var(--pane-strong);
+    border-color: var(--rim-hi);
+    box-shadow: var(--slab), 0 42px 90px rgb(var(--sh) / 0.22), 0 4px 14px rgb(var(--sh) / 0.08);
+  }
+  .tile.active[data-lens]:hover {
+    box-shadow: var(--slab), 0 0 0 1.5px rgba(239,100,97,.6), 0 42px 90px rgba(239, 100, 97, 0.25), 0 4px 14px rgb(var(--sh) / 0.08);
+  }
+  .sess[data-lens]:hover {
+    transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-4px) translateZ(10px);
+    background: var(--pane-strong);
+    border-color: var(--rim-hi);
+    box-shadow: var(--slab), 0 22px 48px rgb(var(--sh) / 0.2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-lens] { transition: none; transform: none !important; }
+  }
+
+  .topbar { display: flex; align-items: center; gap: 18px; padding: 16px 22px 12px; }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand-mark { display: inline-flex; align-items: baseline; gap: 9px; }
+  .nami-mascot { width: 21px; height: 26px; align-self: center; transition: transform .45s var(--pop); }
+  .brand:hover .nami-mascot { transform: translateY(-3px) rotate(-4deg); }
+  .brand-name { font-family: var(--dot); font-size: 21px; font-weight: 900; letter-spacing: 0.05em; color: var(--ink); }
+  .brand-sub { font-family: var(--dot); font-weight: 800; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.22em; color: var(--muted); }
+  .topbar-center { flex: 1; display: flex; justify-content: center; }
+  .project-chip {
+    border-radius: 999px; padding: 7px 16px; font-size: 12.5px; color: var(--muted);
+    display: flex; gap: 8px; align-items: center;
+    background: var(--pane); border: 1px solid var(--rim);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+    box-shadow: var(--slab), 0 6px 18px rgb(var(--sh) / 0.08);
+    transition: transform .35s var(--pop), box-shadow .35s var(--pop), background .3s ease;
+  }
+  .project-chip:hover { transform: translateY(-2px); background: var(--pane-strong); box-shadow: var(--slab), 0 12px 30px rgb(var(--sh) / 0.14); }
+  .project-chip b { color: var(--ink); font-weight: 600; }
+  .topbar-right { display: flex; gap: 9px; align-items: center; }
+  .live-badge { display: flex; align-items: center; gap: 7px; font-family: var(--dot); font-weight: 800; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+  .live-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim), 0 0 10px rgba(239,100,97,.6); }
+  .btn {
+    font-family: var(--dot); font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink);
+    border-radius: 999px; padding: 9px 16px;
+    background: var(--pane); border: 1px solid var(--rim);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+    box-shadow: var(--slab), 0 4px 14px rgb(var(--sh) / 0.07);
+    transition: transform .35s var(--pop), box-shadow .35s var(--pop), background .3s ease, border-color .3s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { transform: translateY(-2.5px); background: var(--pane-strong); border-color: var(--rim-hi); box-shadow: var(--slab), 0 12px 28px rgb(var(--sh) / 0.15); }
+  .btn:active, .btn-mini:active { transform: translateY(0) scale(0.96); transition-duration: .12s; }
+  .btn .kb { color: var(--faint); font-size: 10px; margin-left: 2px; letter-spacing: .06em; }
+  .btn--go {
+    color: #fff;
+    background: linear-gradient(150deg, rgba(255,142,136,.95) 0%, rgba(236,88,85,.92) 100%);
+    border: 1px solid rgba(255, 180, 175, 0.9);
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,.6), inset 0 -10px 22px rgba(160,30,30,.25), 0 8px 24px rgba(239,100,97,.4);
+  }
+  .btn--go:hover { transform: translateY(-2.5px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,.6), inset 0 -10px 22px rgba(160,30,30,.25), 0 14px 36px rgba(239,100,97,.55); background: linear-gradient(150deg, rgba(255,152,146,.98) 0%, rgba(240,95,92,.95) 100%); }
+  .btn--go .kb { color: rgba(255,255,255,.75); }
+
+  .split { flex: 1; display: flex; gap: 16px; padding: 8px 18px 0; min-height: 0; }
+  .rail { width: 258px; flex: none; display: flex; flex-direction: column; gap: 11px; }
+  .rail-tabs {
+    display: flex; gap: 2px; border-radius: 999px; padding: 3px;
+    background: var(--seg-track);
+    border: 1px solid var(--seg-line);
+    box-shadow: inset 0 1px 2px rgb(var(--sh) / 0.06);
+  }
+  .rail-tab {
+    flex: 1; border: none; background: none; font-family: var(--dot); font-size: 10px; font-weight: 800;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 7px 0; border-radius: 999px;
+    transition: color .25s ease, background .25s ease;
+  }
+  .rail-tab:hover { color: var(--ink); }
+  .rail-tab.active {
+    background: var(--seg-active); color: var(--ink); font-weight: 900;
+    box-shadow: inset 0 1px 0 var(--frame-lip), 0 2px 7px rgb(var(--sh) / 0.12);
+  }
+  .sess { border-radius: 17px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+  .sess.dim {
+    background: var(--pane-dim); border: 1px solid var(--rim-dim);
+    box-shadow: none;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  .sess-top { display: flex; align-items: center; gap: 8px; }
+  .sess-name { font-family: var(--dot); font-size: 12.5px; font-weight: 800; letter-spacing: 0.03em; flex: 1; color: var(--ink); }
+  .pill {
+    font-family: var(--dot); font-weight: 900; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--pill-line);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .pill--work { background: rgba(239,100,97,.16); color: var(--work-ink); }
+  .pill--need { background: var(--need-bg); color: var(--need-ink); }
+  .pill--done { background: rgba(70,180,120,.16); color: var(--ok-ink); }
+  .sess-meta { font-family: var(--mono); font-size: 10px; color: var(--muted); display: flex; gap: 10px; letter-spacing: 0; }
+  .sess .bar {
+    height: 5px; border-radius: 3px; margin-top: 5px; overflow: hidden;
+    background: repeating-linear-gradient(90deg, var(--track) 0 6px, transparent 6px 9px);
+  }
+  .sess .bar i {
+    display: block; height: 100%; width: 62%;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 9px);
+    filter: drop-shadow(0 0 5px rgba(239,100,97,.55));
+  }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .grid { flex: 1; display: grid; grid-template-columns: 1.35fr 1fr; grid-template-rows: 1.25fr 1fr; gap: 16px; min-height: 0; }
+  .tile { border-radius: var(--r-tile); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .tile.active { border-color: rgba(255, 170, 165, 0.75); box-shadow: var(--slab), 0 0 0 1.5px rgba(239,100,97,.55), 0 24px 55px rgba(239, 100, 97, 0.18), 0 2px 8px rgb(var(--sh) / 0.06); }
+  .tile-head { display: flex; align-items: center; gap: 10px; padding: 12px 15px; }
+  .tile-head .glyph {
+    width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--pane); border: 1px solid var(--rim);
+    box-shadow: inset 0 1px 0 var(--frame-lip); color: var(--ink);
+  }
+  .tile-title { font-family: var(--dot); font-size: 13px; font-weight: 800; letter-spacing: 0.03em; flex: 1; color: var(--ink); }
+  .tile-title small { display: block; font-family: var(--sans); font-weight: 400; font-size: 10.5px; color: var(--muted); margin-top: 2px; letter-spacing: 0; }
+  .tile-acts { display: flex; gap: 4px; color: var(--faint); }
+  .tile-acts span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 999px; transition: background .2s ease, color .2s ease, transform .3s var(--pop); }
+  .tile-acts span:hover { background: var(--pane-strong); color: var(--ink); transform: scale(1.12); }
+  .tile-body { flex: 1; margin: 0 11px 11px; border-radius: 15px; min-height: 0; overflow: hidden; }
+
+  .term {
+    background: var(--well);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
+    border: 1px solid var(--well-line);
+    box-shadow: inset 0 2px 8px rgb(var(--sh) / 0.12), inset 0 -1px 0 var(--well-lip);
+    padding: 14px 16px; font-family: var(--mono); font-size: 11.5px; line-height: 1.8;
+    color: var(--term-ink); letter-spacing: 0;
+  }
+  .term .p { color: var(--accent-deep); font-weight: 600; }
+  .dark .term .p { color: var(--accent-hi); }
+  .term .c { color: var(--term-dim); }
+  .term .ok { color: var(--ok-ink); }
+  .term .cursor { display: inline-block; width: 7px; height: 13px; background: var(--accent); vertical-align: -2px; border-radius: 1.5px; box-shadow: 0 0 6px rgba(239,100,97,.5); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .ansi { display: inline-flex; gap: 3px; vertical-align: -1px; }
+  .ansi i { width: 9px; height: 9px; border-radius: 2.5px; display: inline-block; }
+
+  .doc { padding: 4px 17px 14px; font-size: 12.5px; line-height: 1.65; color: var(--body-ink); overflow: hidden; }
+  .doc h3 { font-size: 14.5px; font-weight: 700; color: var(--ink); margin: 10px 0 6px; letter-spacing: -0.018em; }
+  .doc .tag {
+    font-family: var(--mono); font-size: 10px; border-radius: 6px; padding: 1.5px 7px; color: var(--muted);
+    background: var(--pane); border: 1px solid var(--rim); letter-spacing: 0;
+  }
+  .doc li { margin: 3px 0 3px -18px; }
+  .doc .check { color: var(--ok-ink); font-weight: 700; }
+
+  .ask { padding: 4px 17px; font-size: 12.5px; line-height: 1.6; color: var(--body-ink); }
+  .ask-banner {
+    border-radius: 12px; padding: 10px 13px; font-family: var(--dot); font-size: 10.5px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase;
+    display: flex; gap: 8px; align-items: center; margin-bottom: 11px; color: var(--need-ink);
+    background: var(--need-bg); border: 1px solid var(--pill-line);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+  .ask-actions { display: flex; gap: 9px; margin-top: 13px; }
+  .btn-mini { font-family: var(--dot); font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 9px 16px; transition: transform .35s var(--pop), box-shadow .35s var(--pop), background .3s ease; }
+  .btn-mini.yes {
+    color: #fff; border: 1px solid rgba(255,180,175,.9);
+    background: linear-gradient(150deg, rgba(255,142,136,.95), rgba(236,88,85,.92));
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,.6), inset 0 -8px 18px rgba(160,30,30,.25), 0 6px 18px rgba(239,100,97,.35);
+  }
+  .btn-mini.yes:hover { transform: translateY(-2px); box-shadow: inset 0 1.5px 0 rgba(255,255,255,.6), inset 0 -8px 18px rgba(160,30,30,.25), 0 12px 28px rgba(239,100,97,.5); }
+  .btn-mini.no {
+    color: var(--ink); background: var(--pane); border: 1px solid var(--rim);
+    box-shadow: var(--slab), 0 3px 10px rgb(var(--sh) / 0.07);
+  }
+  .btn-mini.no:hover { transform: translateY(-2px); background: var(--pane-strong); box-shadow: var(--slab), 0 8px 20px rgb(var(--sh) / 0.12); }
+
+  .footer { display: flex; gap: 20px; padding: 12px 10px 15px; font-family: var(--dot); font-weight: 800; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .footer .path { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: 0; text-transform: none; }
+
+  .spec { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .spec-card { border-radius: 20px; padding: 17px 19px; overflow: hidden; }
+  .spec-card h4 { font-family: var(--dot); font-weight: 900; margin: 0 0 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.22em; color: var(--muted); }
+  .swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+  .sw { width: 76px; }
+  .sw i { display: block; height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,.5); box-shadow: 0 3px 10px rgba(45,52,90,.08); }
+  .sw span { display: block; font-family: var(--mono); font-size: 8.5px; color: var(--muted); margin-top: 5px; letter-spacing: 0; }
+  .alt { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; font-size: 12.5px; line-height: 1.45; }
+  .alt .dot2 { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 4px; }
+</style>
+
+<!-- ============ the app, once — cloned into each stage ============ -->
+<template id="appT">
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <span class="brand-mark">
+          <svg class="nami-mascot" viewBox="474 285 1084 1400" aria-hidden="true">
+            <defs>
+              <pattern id="namidots" width="140" height="140" patternUnits="userSpaceOnUse">
+                <circle cx="70" cy="70" r="52" fill="#ef6461"/>
+              </pattern>
+            </defs>
+            <g transform="translate(0.000000,2048.000000) scale(1.000000,-1.000000)" fill="url(#namidots)">
+            <path d="M962 1762 c-201 -12 -357 -148 -373 -324 -12 -132 86 -235 207 -219 86 12 143 93 112 160 -16 34 -52 45 -65 19 -10 -20 -40 -17 -51 6 -20 38 18 94 74 111 70 20 128 -11 162 -88 12 -30 28 -41 62 -45 98 -11 126 -123 50 -199 -64 -64 -174 -70 -329 -20 -79 26 -119 31 -167 19 -105 -24 -166 -131 -170 -294 -3 -188 77 -322 226 -375 18 -7 50 -16 55 -16 3 0 3 -1 0 -14 -4 -15 -5 -46 -2 -59 11 -41 41 -61 90 -60 58 2 89 43 81 107 l-1 6 18 0 c10 -1 47 -1 82 -1 56 0 63 0 63 -1 -2 -5 -3 -25 -2 -36 5 -50 33 -74 87 -74 64 0 95 41 84 110 -2 12 -4 10 16 13 172 29 265 149 285 369 2 19 2 110 0 135 -28 397 -212 695 -469 757 -41 10 -90 15 -125 13z"/>
+            </g>
+            <g transform="translate(0.000000,2048.000000) scale(1.000000,-1.000000)" fill="#1d1d22">
+            <path d="M723 830 c-27 -3 -34 -14 -35 -55 -1 -59 8 -67 65 -66 47 1 55 14 51 77 -2 37 -13 45 -59 45 -9 0 -19 -1 -22 -1z M1263 830 c-28 -3 -35 -15 -35 -60 0 -54 9 -62 65 -61 34 1 45 8 50 29 2 11 1 63 -2 70 -8 20 -34 27 -78 22z"/>
+            </g>
+          </svg>
+          <span class="brand-name">NAMI</span>
+        </span>
+        <span class="brand-sub">AI agent workbench</span>
+      </div>
+      <div class="topbar-center">
+        <div class="project-chip">
+          <svg class="pix" viewBox="0 0 7 7" style="color:var(--muted)"><path d="M3 0h1v1H3z M2 1h1v1H2z M4 1h1v1H4z M1 2h1v1H1z M5 2h1v1H5z M0 3h1v1H0z M6 3h1v1H6z M1 4h1v1H1z M5 4h1v1H5z M2 5h1v1H2z M4 5h1v1H4z M3 6h1v1H3z"/></svg>
+          <b>dainami-cli</b> · master · 4 sessions
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="live-badge"><span class="dot"></span>2 working</div>
+        <button class="btn" title="Theme"><svg class="pix" viewBox="0 0 7 7"><path d="M2 0h3v1H2z M1 1h2v1H1z M4 1h1v1H4z M0 2h2v1H0z M0 3h2v1H0z M0 4h2v1H0z M5 2h1v1H5z M5 3h1v1H5z M5 4h1v1H5z M1 5h2v1H1z M4 5h1v1H4z M2 6h3v1H2z M2 2h1v1H2z M2 3h1v1H2z M2 4h1v1H2z"/></svg></button>
+        <button class="btn" title="Settings"><svg class="pix" viewBox="0 0 7 7"><path d="M3 0h1v1H3z M1 1h1v1H1z M3 1h1v1H3z M5 1h1v1H5z M0 3h1v1H0z M6 3h1v1H6z M2 2h3v1H2z M2 3h1v1H2z M4 3h1v1H4z M2 4h3v1H2z M1 5h1v1H1z M3 5h1v1H3z M5 5h1v1H5z M3 6h1v1H3z"/></svg></button>
+        <button class="btn">Agents<span class="kb">⌘K</span></button>
+        <button class="btn btn--go"><svg class="pix" viewBox="0 0 7 7"><path d="M3 0h1v2H3z M3 5h1v2H3z M0 3h2v1H0z M5 3h2v1H5z M3 2h1v1H3z M3 4h1v1H3z M2 3h1v1H2z M4 3h1v1H4z"/></svg>New session<span class="kb">⌘N</span></button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="rail">
+        <div class="rail-tabs">
+          <button class="rail-tab active">Sessions</button>
+          <button class="rail-tab">Workspace</button>
+          <button class="rail-tab">Library</button>
+        </div>
+        <div class="sess glass" data-lens>
+          <div class="sess-top"><span class="sess-name">Rebrand sweep</span><span class="pill pill--work">working</span></div>
+          <div class="sess-meta"><span>claude</span><span>12m</span><span>34 files</span></div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="sess glass" data-lens>
+          <div class="sess-top"><span class="sess-name">STT model picker</span><span class="pill pill--need">needs you</span></div>
+          <div class="sess-meta"><span>claude</span><span>2m</span><span>1 question</span></div>
+        </div>
+        <div class="sess dim" data-lens>
+          <div class="sess-top"><span class="sess-name">Icon tracing</span><span class="pill pill--done">done</span></div>
+          <div class="sess-meta"><span>claude</span><span>1h</span><span>merged</span></div>
+        </div>
+        <div class="sess dim" data-lens>
+          <div class="sess-top"><span class="sess-name">Release notes</span><span class="pill pill--done">done</span></div>
+          <div class="sess-meta"><span>scribe</span><span>3h</span></div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="grid">
+          <div class="tile glass active" style="grid-row: span 2" data-lens>
+            <div class="tile-head">
+              <span class="glyph"><svg class="pix" viewBox="0 0 7 7"><path d="M1 0h1v7H1z M2 1h1v5H2z M3 2h1v3H3z M4 3h1v1H4z"/></svg></span>
+              <span class="tile-title">Rebrand sweep<small>claude · dainami-cli</small></span>
+              <span class="pill pill--work">working</span>
+              <div class="tile-acts">
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M4 0h3v3H6V1H4z M0 4h1v2h2v1H0z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z"/></svg></span>
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M0 0h1v1H0z M6 0h1v1H6z M1 1h1v1H1z M5 1h1v1H5z M2 2h1v1H2z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z M4 4h1v1H4z M1 5h1v1H1z M5 5h1v1H5z M0 6h1v1H0z M6 6h1v1H6z"/></svg></span>
+              </div>
+            </div>
+            <div class="tile-body term">
+              <div><span class="p">●</span> Scanning renderer for legacy wordmarks…</div>
+              <div><span class="c">  src/renderer/app.js — 3 matches</span></div>
+              <div><span class="c">  src/renderer/index.html — 1 match</span></div>
+              <div><span class="ok">✓</span> Replaced 4 occurrences, tests pass (28/28)</div>
+              <div><span class="p">●</span> Updating brand-mark baseline alignment…</div>
+              <div><span class="c">  .brand-mark now aligns feet to cap height</span></div>
+              <div><span class="ok">✓</span> Screenshot verified in both themes</div>
+              <div><span class="p">●</span> Running full test suite…</div>
+              <div><span class="c">  tests/seed-text.test.mjs ......... 9 pass</span></div>
+              <div><span class="c">  tests/tree-icons.test.mjs ........ 6 pass</span></div>
+              <div><span class="c">  tests/settings.test.mjs .......... 7 pass</span></div>
+              <div><span class="c">  tests/claude-args.test.mjs ....... 6 pass</span></div>
+              <div><span class="ok">✓</span> 28/28 pass in 1.4s</div>
+              <div><span class="c">  ansi <span class="ansi"><i style="background:var(--a-red)"></i><i style="background:var(--a-green)"></i><i style="background:var(--a-yellow)"></i><i style="background:var(--a-blue)"></i><i style="background:var(--a-magenta)"></i><i style="background:var(--a-cyan)"></i><i style="background:var(--a-fg)"></i><i style="background:var(--a-grey)"></i></span> — theme-tuned palette</div>
+              <div><span class="p">●</span> Writing summary card<span class="cursor"></span></div>
+            </div>
+          </div>
+
+          <div class="tile glass" data-lens>
+            <div class="tile-head">
+              <span class="glyph"><svg class="pix" viewBox="0 0 7 7"><path d="M5 0h2v2H6V1H5z M4 1h1v1H4z M3 2h1v1H3z M2 3h1v1H2z M1 4h1v1H1z M0 5h1v2h2V6H1V5z M5 2h1v1H5z M4 3h1v1H4z M3 4h1v1H3z M2 5h1v1H2z"/></svg></span>
+              <span class="tile-title">summary.md<small>card · edited 1m ago</small></span>
+              <div class="tile-acts">
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M4 0h3v3H6V1H4z M0 4h1v2h2v1H0z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z"/></svg></span>
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M0 0h1v1H0z M6 0h1v1H6z M1 1h1v1H1z M5 1h1v1H5z M2 2h1v1H2z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z M4 4h1v1H4z M1 5h1v1H1z M5 5h1v1H5z M0 6h1v1H0z M6 6h1v1H6z"/></svg></span>
+              </div>
+            </div>
+            <div class="tile-body doc">
+              <h3>Rebrand sweep — status</h3>
+              <ul>
+                <li><span class="check">✓</span> Wordmark swapped in <span class="tag">app.js</span> and <span class="tag">index.html</span></li>
+                <li><span class="check">✓</span> Mascot baseline fixed, screenshots verified</li>
+                <li>Remaining: package .icns from <span class="tag">build/icon.png</span></li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="tile glass" data-lens>
+            <div class="tile-head">
+              <span class="glyph"><span class="dotty" style="font-size:12px;font-weight:900">?</span></span>
+              <span class="tile-title">STT model picker<small>claude · waiting 2m</small></span>
+              <span class="pill pill--need">needs you</span>
+              <div class="tile-acts">
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M4 0h3v3H6V1H4z M0 4h1v2h2v1H0z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z"/></svg></span>
+                <span><svg class="pix" viewBox="0 0 7 7"><path d="M0 0h1v1H0z M6 0h1v1H6z M1 1h1v1H1z M5 1h1v1H5z M2 2h1v1H2z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z M4 4h1v1H4z M1 5h1v1H1z M5 5h1v1H5z M0 6h1v1H0z M6 6h1v1H6z"/></svg></span>
+              </div>
+            </div>
+            <div class="tile-body ask">
+              <div class="ask-banner"><svg class="pix" viewBox="0 0 7 7"><path d="M1 0h1v7H1z M2 0h4v1H2z M2 3h4v1H2z M6 1h1v2H6z"/></svg>Decision needed to continue</div>
+              Download the 466&nbsp;MB <b>large-v3-turbo</b> model for better accuracy, or stay on <b>base</b> (74&nbsp;MB)?
+              <div class="ask-actions">
+                <button class="btn-mini yes">Download large-v3-turbo</button>
+                <button class="btn-mini no">Stay on base</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span><span>⌘W close pane</span>
+          <span class="path">~/Desktop/dainami-cli</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<div class="page">
+  <h1>Nami — <span style="color:var(--accent)">glass</span> + <span style="color:#8b8d99">graphite</span></h1>
+  <p class="sub">The same liquid-glass system in two finishes: <b>glass</b> (light, aurora desk) and <b>graphite</b> (dark grey, ember desk — not black). One markup, one physics engine, two token sets — exactly how the real themes will ship. Hover panes to feel the 3D; the full-size graphite frame is below for detail.</p>
+
+  <div class="caption">Side by side</div>
+  <div class="duo">
+    <div class="stage light small">
+      <span class="stage-tag">glass — light</span>
+      <div class="scalewrap"><div class="appholder" data-app></div></div>
+    </div>
+    <div class="stage dark small">
+      <span class="stage-tag">graphite — dark</span>
+      <div class="scalewrap"><div class="appholder" data-app></div></div>
+    </div>
+  </div>
+
+  <div class="caption">Graphite, full size</div>
+  <div class="stage dark full">
+    <span class="stage-tag">graphite — dark</span>
+    <div data-app></div>
+  </div>
+
+  <div class="caption">Token sheet — what differs</div>
+  <div class="spec">
+    <div class="spec-card glass" data-lens>
+      <h4>Glass — light tokens</h4>
+      <div class="swatches">
+        <div class="sw"><i style="background:rgba(255,255,255,.5)"></i><span>pane · white 48%</span></div>
+        <div class="sw"><i style="background:rgba(255,255,255,.44);box-shadow:inset 0 2px 6px rgba(45,52,90,.12)"></i><span>well · frost</span></div>
+        <div class="sw"><i style="background:radial-gradient(120% 120% at 20% 10%,rgba(255,158,140,.55),transparent 60%),radial-gradient(120% 120% at 85% 90%,rgba(140,205,220,.5),transparent 60%),#eceef0"></i><span>desk · aurora</span></div>
+        <div class="sw"><i style="background:#1d1d22"></i><span>ink #1d1d22</span></div>
+        <div class="sw"><i style="background:#d6423e"></i><span>ansi · deepened</span></div>
+        <div class="sw"><i style="background:#ef6461"></i><span>coral #ef6461</span></div>
+      </div>
+    </div>
+    <div class="spec-card glass dark" data-lens style="background:rgba(58,60,70,.9)">
+      <h4>Graphite — dark tokens</h4>
+      <div class="swatches">
+        <div class="sw"><i style="background:rgba(96,98,112,.6)"></i><span>pane · grey 44%</span></div>
+        <div class="sw"><i style="background:rgba(25,26,32,.6)"></i><span>well · smoke</span></div>
+        <div class="sw"><i style="background:radial-gradient(120% 120% at 20% 10%,rgba(239,100,97,.28),transparent 60%),radial-gradient(120% 120% at 85% 90%,rgba(86,160,175,.22),transparent 60%),#26272c"></i><span>desk · ember</span></div>
+        <div class="sw"><i style="background:#ececf1"></i><span>ink #ececf1</span></div>
+        <div class="sw"><i style="background:#ff6b67"></i><span>ansi · brightened</span></div>
+        <div class="sw"><i style="background:#ef6461"></i><span>coral #ef6461</span></div>
+      </div>
+    </div>
+    <div class="spec-card glass" data-lens>
+      <h4>Shared — the system</h4>
+      <div class="alt"><span class="dot2" style="background:#ef6461"></span>Same slab physics, 3D tilt, pixel cursor + icons, dotted mascot, Doto identity type.</div>
+      <div class="alt"><span class="dot2" style="background:rgba(120,120,138,.5)"></span>Coral is the only pigment in both; graphite brightens it slightly where it sits on grey.</div>
+      <div class="alt"><span class="dot2" style="background:#1d1d22"></span>Ships as one glass system + two token scopes — same wiring the paper/operator pair proved.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // clone the app into each stage, then bind the tilt engine
+  const tpl = document.getElementById('appT');
+  document.querySelectorAll('[data-app]').forEach((slot) => slot.appendChild(tpl.content.cloneNode(true)));
+
+  const MAX_TILT = { x: 5, y: 7 };
+  document.querySelectorAll('[data-lens]').forEach((el) => {
+    el.addEventListener('pointermove', (e) => {
+      const r = el.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width;
+      const y = (e.clientY - r.top) / r.height;
+      el.style.setProperty('--rx', ((0.5 - y) * MAX_TILT.x).toFixed(2) + 'deg');
+      el.style.setProperty('--ry', ((x - 0.5) * MAX_TILT.y).toFixed(2) + 'deg');
+    });
+    el.addEventListener('pointerleave', () => {
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+    });
+  });
+</script>
