@@ -1094,6 +1094,7 @@ function renderOverlay() {
   if (o.type === 'connect') return renderConnectCatalog();
   if (o.type === 'connect-form') return renderConnectForm();
   if (o.type === 'connect-done') return renderConnectDone();
+  if (o.type === 'connect-custom') return renderConnectCustom();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
@@ -1214,9 +1215,32 @@ function renderConnectForm() {
   });
   const pickBtn = q('#sv-pick-folder', modal);
   if (pickBtn) pickBtn.onclick = async () => { const info = await api.pickFolder(); if (info) { o.values.folder = info.path; q('#sv-folder-note', modal).textContent = info.pathShort; } };
+  // Install kind (kie): two honest clicks. First click installs in a visible
+  // terminal tile; reopening the sheet finds the build and offers Connect.
+  const install = svc.kind === 'install';
+  const installDirOf = () => '~/.nami/connectors/' + svc.docs.split('/').pop();
+  if (install && o.installed === undefined) {
+    q('#sv-connect', modal).textContent = 'Install first';
+    api.statPath({ token: installDirOf() + '/dist/index.js' }).then((st) => {
+      o.installed = !!(st && st.exists);
+      const b = q('#sv-connect', modal);
+      if (b && b.textContent !== 'Connecting…') b.textContent = o.installed ? 'Connect' : 'Install first';
+    });
+  } else if (install) {
+    q('#sv-connect', modal).textContent = o.installed ? 'Connect' : 'Install first';
+  }
   q('#sv-connect', modal).onclick = async () => {
     if (guided) return startGuidedSetup(svc);
+    if (install && !o.installed) {
+      const dir = installDirOf();
+      closeOverlay();
+      startPanel({ kind: 'run', title: 'install ' + svc.name, code: svc.code,
+        command: 'git clone ' + svc.docs + ' ' + dir + ' && cd ' + dir + ' && npm install && npm run build' });
+      toast('When the install finishes, open Connect again: one more click.');
+      return;
+    }
     saveKeys();
+    if (install) o.values.installDir = installDirOf();
     if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
     if (!o.platforms.length) { toast('Tick at least one platform under choices.'); return; }
     q('#sv-connect', modal).textContent = 'Connecting…';
@@ -1258,9 +1282,45 @@ function openServiceDetails(sv) {
     refreshServices(); closeOverlay(); toast(sv.name + ' disconnected.');
   };
 }
-// Task 7 replaces these two with the real built-for-you and guided flows.
-function openConnectCustom() { toast('The built-for-you door lands with the next commit.'); }
-function startGuidedSetup() { toast('Guided setup lands with the next commit.'); }
+// The factory is the user's own agent, whichever one they have installed.
+function bestAgent() {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready[0] || null; // registry order: claude, codex, opencode, gemini, hermes, kimi
+}
+function agentSession(worker, opts) {
+  startPanel(Object.assign({ kind: worker.kind === 'claude' ? 'claude' : 'run',
+    command: worker.kind === 'claude' ? undefined : worker.bin }, opts));
+}
+function openConnectCustom() { S.overlay = { type: 'connect-custom', text: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
+function renderConnectCustom() {
+  const o = S.overlay;
+  const worker = bestAgent();
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" style="background:${TINTS[1]}">✳</span>
+      <span class="col"><span class="name">Built for you</span><span class="desc">describe it like you would to a person</span></span></div>
+    <input class="text-input" id="svc-desc" placeholder="our internal wiki at wiki.acme.dev, read-only is fine" spellcheck="false" />
+    <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="svc-go" ${worker ? '' : 'disabled'}>Go</button></div>
+    <p class="setup-note">${worker
+      ? `A new session opens with the job written out, using ${esc(worker.name)}. Watch it work, talk to it if you want.`
+      : 'No agent is installed yet. Press ⌘N to add one first.'}</p>`);
+  const input = q('#svc-desc', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.text = input.value; };
+  q('#svc-go', modal).onclick = () => {
+    if (!o.text.trim() || !worker) return;
+    closeOverlay();
+    agentSession(worker, { title: 'build: connector', code: 'BC', seed:
+      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding it to .mcp.json (and opencode.json if OpenCode is installed), then tell me what tools it exposes.` });
+    toast('Your agent is on it. The service appears under Library when it lands.');
+  };
+}
+function startGuidedSetup(svc) {
+  const worker = bestAgent();
+  if (!worker) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
+  closeOverlay();
+  agentSession(worker, { title: 'set up ' + svc.name, code: svc.code, seed:
+    `Walk me through connecting ${svc.name} step by step (${svc.docs}). Do every step you can yourself, ask me only when a browser sign-in needs me, and when it works register it for this project.` });
+  toast('Your agent will walk you through it, right in the tile.');
+}
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
