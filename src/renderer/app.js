@@ -68,7 +68,7 @@ function droppedPaths(e) {
     .map((f) => api.droppedFilePath(f)).filter(Boolean);
 }
 function dropFilesOnPanel(p, paths) {
-  if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach(openFile); return; }
+  if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach((f) => openFile(f, { pin: true })); return; }
   injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
   toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
 }
@@ -161,7 +161,7 @@ function buildShell() {
   els.grid.addEventListener('dragover', (e) => { if (isFileDrag(e)) e.preventDefault(); });
   els.grid.addEventListener('drop', (e) => {
     const paths = droppedPaths(e); if (!paths.length) return;
-    e.preventDefault(); paths.forEach(openFile);
+    e.preventDefault(); paths.forEach((f) => openFile(f, { pin: true }));
   });
   applyChrome();
 }
@@ -601,10 +601,10 @@ function connectionsOf(item) {
   const inn = S.library.edges.filter((e) => e.to === item.id).map((e) => byId.get(e.from)).filter(Boolean);
   return { out, inn };
 }
-async function openCard(item) {
+async function openCard(item, opts) {
   await loadLibrary();
-  const existing = S.panels.find((x) => x.kind === 'card' && x.filePath === item.filePath);
-  if (existing) { focusPanel(existing.id); return; }
+  const r = resolveOpen(S.panels, 'card', item.filePath);
+  if (r.action === 'focus') { focusPanel(r.id); return; }
   const res = await api.rawFile(item.filePath);
   if (!res.ok) { toast(res.error || 'Could not open'); loadLibrary(true); return; }
   const doc = parseDoc(res.text);
@@ -614,9 +614,11 @@ async function openCard(item) {
     mode: doc.hasFrontmatter ? 'form' : 'raw', dirty: false, status: 'live',
     tint: chip.tint, code: chip.code, title: item.name, cwd: S.project && S.project.path,
   };
-  if (doc.malformed) toast('Frontmatter looks malformed — raw view only.');
-  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader(); savePanels();
+  if (doc.malformed) toast('Frontmatter looks malformed. Raw view only.');
+  if (opts && opts.pin) {
+    S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+    renderGrid(); renderRail(); renderHeader(); savePanels();
+  } else openPeek(p);
 }
 function mountCard(p, rec) {
   const ro = p.item.readOnly;
@@ -792,9 +794,9 @@ async function restorePanels(snaps) {
   // open* unshift; walk the list backwards so the restored order matches
   for (const s of [...snaps].reverse()) {
     try {
-      if (s.kind === 'editor') await openEditor(s.filePath);
-      else if (s.kind === 'viewer') await openFile(s.filePath);
-      else if (s.kind === 'card' && s.item) await openCard(s.item);
+      if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
+      else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
+      else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind) startPanel({ kind: s.kind, title: s.title, code: s.code, tint: s.tint, cwd: s.cwd, command: s.command, program: s.program, args: s.args, cont: s.kind === 'claude' });
     } catch (_) {}
   }
@@ -813,28 +815,28 @@ function startPanel(opts) {
   return p;
 }
 const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', other: 'FI' };
-// Open any path the right way: media/pdf → viewer tile, everything else → editor
-// (which falls back to an 'other' viewer card when the file is binary or too large).
-function openFile(filePath) {
+function viewerPanel(filePath, sub, note) {
+  return { id: uid('p_'), kind: 'viewer', sub, note, tint: TINTS[hashIdx(filePath)], code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
+}
+// Build the right panel for any path: media/pdf as viewer, text as editor,
+// unreadable/binary as an 'other' viewer card carrying the reason.
+async function buildFilePanel(filePath) {
   const kind = fileKind(filePath);
-  if (kind === 'text') return openEditor(filePath);
-  openViewer(filePath, kind);
-}
-function openViewer(filePath, sub, note) {
-  const existing = S.panels.find((x) => x.kind === 'viewer' && x.filePath === filePath);
-  if (existing) { focusPanel(existing.id); return; }
-  const p = { id: uid('p_'), kind: 'viewer', sub, note, tint: TINTS[hashIdx(filePath)], code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
-  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader(); savePanels();
-}
-async function openEditor(filePath) {
-  const existing = S.panels.find((p) => p.kind === 'editor' && p.filePath === filePath);
-  if (existing) { focusPanel(existing.id); return; }
+  if (kind !== 'text') return viewerPanel(filePath, kind);
   const res = await api.rawFile(filePath);
-  if (!res.ok) { openViewer(filePath, 'other', res.error || 'Could not open'); return; }
-  const p = { id: uid('p_'), kind: 'editor', tint: TINTS[hashIdx(filePath)], code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
-  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderGrid(); renderRail(); renderHeader(); savePanels();
+  if (!res.ok) return viewerPanel(filePath, 'other', res.error || 'Could not open');
+  return { id: uid('p_'), kind: 'editor', tint: TINTS[hashIdx(filePath)], code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
+}
+// Looking at a file floats it above the desk; only pinning (or an explicit
+// drop onto the desk, or restore-on-boot) makes it a tile.
+async function openFile(filePath, opts) {
+  const r = resolveOpen(S.panels, 'file', filePath);
+  if (r.action === 'focus') { focusPanel(r.id); return; }
+  const p = await buildFilePanel(filePath);
+  if (opts && opts.pin) {
+    S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+    renderGrid(); renderRail(); renderHeader(); savePanels();
+  } else openPeek(p);
 }
 function focusPanel(id, scroll = true) {
   S.activeId = id; renderRail();
@@ -972,6 +974,7 @@ function pickerAgents() {
   return S.library.items.filter((i) => i.type === 'agent' && i.platform === 'claude' && (i.scope === 'project' || i.scope === 'user'));
 }
 function useAgent(a) {
+  closeOverlay();
   startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), tint: TINTS[hashIdx(a.slug)], seed: `Use the ${a.slug} agent.` });
 }
 async function openAgentPicker() {
