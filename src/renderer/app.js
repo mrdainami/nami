@@ -26,13 +26,11 @@ const XTERM_THEME = {
   brightBlue: '#5a7fae', brightMagenta: '#a07aa0', brightCyan: '#5aa0a0', brightWhite: '#2f2b26',
 };
 
-// ---- harness profiles (extensible: Claude today, Hermes/others later) ------
-const HARNESSES = [
-  { id: 'claude', name: 'Claude Code', sub: 'your subscription · slash commands work', kind: 'claude', tint: TINTS[4], code: 'CC' },
-  { id: 'ai', name: 'Any AI model', sub: 'OpenAI-compatible endpoint — Hermes, Ollama, LM Studio, vLLM…', kind: 'ai', tint: TINTS[3], code: 'AI' },
+// ---- launcher rows ---------------------------------------------------------
+// Agents come from the detected registry (S.agents); only Terminal is static.
+// Big rows are things that run right now; small cards are things you could add.
+const EVERGREEN_ROWS = [
   { id: 'shell', name: 'Terminal', sub: 'a plain shell, ink on paper', kind: 'shell', tint: TINTS[5], code: '❯' },
-  { id: 'custom', name: 'Custom command…', sub: 'run any harness or program', kind: 'custom', tint: TINTS[0], code: '+' },
-  { id: 'ai-config', name: 'AI model settings…', sub: 'change the OpenAI-compatible endpoint, model or key', kind: 'ai-config', tint: TINTS[2], code: '⚙' },
 ];
 
 // ---- state -----------------------------------------------------------------
@@ -40,6 +38,7 @@ const S = {
   project: null, recents: [], claudeExe: null, demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0,
+  agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
   library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugin:claude']) },
   railCollapsed: false,
@@ -98,6 +97,7 @@ function dropFilesOnPanel(p, paths) {
   });
 
   if (S.demo) seedDemo();
+  refreshAgents();   // pre-detect so ⌘N is instant
   renderAll();
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
 })();
@@ -867,18 +867,59 @@ async function ensureFolder() {
   applyProject(info); return true;
 }
 
-function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); }
+async function refreshAgents() {
+  if (S.agentsLoading) return;
+  S.agentsLoading = true;
+  try { S.agents = await api.detectAgents(); } catch (_) { S.agents = S.agents || []; }
+  S.agentsLoading = false;
+  if (S.overlay && S.overlay.type === 'launcher') renderOverlay();
+}
+function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
 function renderLauncher() {
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
     <div class="picker-list" id="lc-list"></div>`, { top: true });
   const list = q('#lc-list', modal);
-  for (const h of HARNESSES) {
+  const ready = (S.agents || []).filter((a) => a.found);
+  const missing = (S.agents || []).filter((a) => !a.found);
+
+  if (!S.agents) {
+    const row = document.createElement('div'); row.className = 'picker-row';
+    row.innerHTML = `<span class="col"><span class="desc">looking for agents on this Mac…</span></span>`;
+    list.appendChild(row);
+  }
+  for (const a of ready) {
+    const tint = TINTS[hashIdx(a.id)];
+    const row = document.createElement('div'); row.className = 'picker-row';
+    row.innerHTML = `<span class="code" style="background:${tint}">${esc(code2(a.name))}</span>
+      <span class="col"><span class="name">${esc(a.name)}</span>
+      <span class="desc"><span class="ok">●</span> ready · ${esc(a.sub)}</span></span>`;
+    row.onclick = async () => {
+      closeOverlay(); if (!(await ensureFolder())) return;
+      if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', tint });
+      startPanel({ kind: 'run', title: a.name, code: code2(a.name), tint, command: a.bin });
+    };
+    list.appendChild(row);
+  }
+  for (const h of EVERGREEN_ROWS) {
     const row = document.createElement('div'); row.className = 'picker-row';
     row.innerHTML = `<span class="code" style="background:${h.tint}">${esc(h.code)}</span>
       <span class="col"><span class="name">${esc(h.name)}</span><span class="desc">${esc(h.sub)}</span></span>`;
     row.onclick = async () => { closeOverlay(); if (!(await ensureFolder())) return; launchHarness(h); };
     list.appendChild(row);
+  }
+  // add section: every not-yet-installed agent from the curated registry
+  if (missing.length) {
+    const div = document.createElement('div'); div.className = 'picker-divider';
+    div.textContent = 'add an agent to this Mac'; list.appendChild(div);
+    const grid = document.createElement('div'); grid.className = 'add-grid'; list.appendChild(grid);
+    for (const a of missing) {
+      const card = document.createElement('div'); card.className = 'add-card'; card.tabIndex = 0;
+      card.innerHTML = `<span class="code" style="background:${TINTS[hashIdx(a.id)]}">${esc(code2(a.name))}</span>
+        <span class="ac-name">${esc(a.name)}</span><span class="ac-desc">${esc(a.sub)}</span><span class="ac-go">set up →</span>`;
+      card.onclick = () => { closeOverlay(); openAgentSetup(a); };
+      grid.appendChild(card);
+    }
   }
 }
 async function configureAiModel(existing) {
@@ -892,24 +933,9 @@ async function configureAiModel(existing) {
   return cfg;
 }
 async function launchHarness(h) {
-  if (h.kind === 'ai-config') {
-    const cfg = await configureAiModel(await api.aiConfigGet());
-    return toast(cfg ? `Model set: ${cfg.model}` : 'Model unchanged.');
-  }
-  if (h.kind === 'ai') {
-    let cfg = await api.aiConfigGet();
-    if (!cfg || !cfg.baseUrl || !cfg.model) cfg = await configureAiModel(cfg);
-    if (!cfg) return;
-    return startPanel({ kind: 'ai', title: cfg.model, code: 'AI', tint: h.tint, aiConfig: cfg });
-  }
-  if (h.kind === 'custom') {
-    const cmd = prompt('Command to run (e.g. hermes, npm run dev, python x.py):');
-    if (!cmd || !cmd.trim()) return;
-    return startPanel({ kind: 'run', title: shorten(cmd.trim(), 24), code: code2(cmd), command: cmd.trim() });
-  }
-  if (h.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', tint: h.tint });
   return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: h.tint });
 }
+function openAgentSetup(agent) { toast(`${agent.name} setup coming in Task 4.`); }
 
 // ---- agent picker (⌘K) — fed by the library scan ---------------------------
 function pickerAgents() {
