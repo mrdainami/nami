@@ -7,6 +7,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
+const { detectAgents } = require('./agents-detect');
 const { scanLibrary, createItem, duplicateItem, extractEdges } = require('./library');
 const { OpenAISession } = require('./openai-driver');
 
@@ -183,6 +184,12 @@ ipcMain.handle('boot', () => ({
 
 // Renderer sends its panel layout after every change; restored on next boot.
 ipcMain.handle('panels:save', (_e, { panels }) => { persist({ panels: Array.isArray(panels) ? panels.slice(0, 12) : [] }); return { ok: true }; });
+
+// Which of the curated agent CLIs are on this Mac (via the user's login shell).
+ipcMain.handle('agents:detect', () => detectAgents());
+ipcMain.handle('url:open', (_e, url) => {
+  if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
+});
 
 ipcMain.handle('folder:pick', async () => {
   const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Open a folder' });
