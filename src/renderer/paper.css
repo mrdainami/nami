@@ -479,6 +479,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row .col { flex: 1; min-width: 0; }
 .picker-row .name { font-size: 13px; font-weight: 700; }
 .picker-row .desc { font-size: 11.5px; color: #7a6f5c; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-row .desc .ok { color: var(--green-ok); }
+
+/* launcher add-section: small cards for agents you could add */
+.picker-divider { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted); padding: 10px 12px 2px; border-top: 1px solid var(--dash); }
+.add-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 12px 12px; }
+.add-card { border: 1px dashed var(--dash); background: var(--paper); border-radius: 2px;
+  padding: 9px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.add-card:hover { border-style: solid; }
+.add-card .code { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); margin-bottom: 2px; }
+.add-card .ac-name { font-weight: 700; font-size: 12px; }
+.add-card .ac-desc { font-size: 10.5px; color: var(--muted); }
+.add-card .ac-go { font-size: 10.5px; color: var(--amber-ink); margin-top: 2px; }
 
 .ql-lines { background: repeating-linear-gradient(0deg, transparent 0 25px, rgba(120, 145, 180, 0.14) 25px 26px); }
 .ql-row { display: flex; gap: 14px; font-size: 12px; line-height: 26px; user-select: text; }
