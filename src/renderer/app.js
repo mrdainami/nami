@@ -640,7 +640,6 @@ function mountCard(p, rec) {
     <div class="card-links"></div>
     <div class="ed-bar">
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
-      <button class="btn card-map" style="display:none">Map</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
       ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>' : '<button class="btn btn--go card-save">Save ⌘S</button>'}
     </div>`;
@@ -687,7 +686,6 @@ function mountCard(p, rec) {
     linksEl.querySelectorAll('.link-chip').forEach((b) => {
       b.onclick = () => { const it = S.library.items.find((x) => x.id === b.dataset.id); if (it) openCard(it); };
     });
-    const mapBtn = q('.card-map', wrap); mapBtn.style.display = ''; mapBtn.onclick = () => openBoard(p.item);
   } else linksEl.style.display = 'none';
 
   const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
@@ -1048,85 +1046,6 @@ function renderNewItemSheet() {
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
 }
 
-// ---- corkboard map (neighborhood of one item, connected by yarn) -----------
-function openBoard(item) { S.overlay = { type: 'board', id: item.id }; renderOverlay(); }
-function boardNeighborhood(focusId) {
-  const byId = new Map(S.library.items.map((i) => [i.id, i]));
-  const near = (id) => {
-    const s = new Set();
-    for (const e of S.library.edges) { if (e.from === id) s.add(e.to); if (e.to === id) s.add(e.from); }
-    return [...s];
-  };
-  const hop1 = near(focusId).filter((id) => byId.has(id)).slice(0, 10);
-  const seen = new Set([focusId, ...hop1]);
-  const hop2 = [];
-  for (const h of hop1) {
-    for (const n of near(h)) {
-      if (seen.has(n) || !byId.has(n)) continue;
-      seen.add(n); hop2.push({ id: n, parent: h });
-      if (hop2.length >= 14) break;
-    }
-    if (hop2.length >= 14) break;
-  }
-  return { byId, hop1, hop2 };
-}
-function renderBoard() {
-  const o = S.overlay;
-  const focus = S.library.items.find((i) => i.id === o.id);
-  if (!focus) { closeOverlay(); return; }
-  const wrap = document.createElement('div'); wrap.className = 'overlay'; wrap.onclick = closeOverlay;
-  const board = document.createElement('div'); board.className = 'board'; board.onclick = (e) => e.stopPropagation();
-  board.innerHTML = `<div class="board-title">Connections · <b>${esc(focus.slug)}</b><span class="board-hint">click a card to open it · esc closes</span></div>
-    <svg class="board-svg"></svg>`;
-  wrap.appendChild(board); els.overlayRoot.appendChild(wrap);
-
-  const { byId, hop1, hop2 } = boardNeighborhood(o.id);
-  const W = board.clientWidth, H = board.clientHeight;
-  const cx = W / 2, cy = H / 2 + 10;
-  const pos = new Map([[o.id, { x: cx, y: cy }]]);
-  const r1 = Math.min(W, H) * 0.30, r2 = Math.min(W, H) * 0.46;
-  const angleOf = new Map();
-  hop1.forEach((id, i) => {
-    const a = (i / Math.max(hop1.length, 1)) * Math.PI * 2 - Math.PI / 2;
-    angleOf.set(id, a);
-    pos.set(id, { x: cx + Math.cos(a) * r1, y: cy + Math.sin(a) * r1 * 0.82 });
-  });
-  const spreadCount = {};
-  for (const { id, parent } of hop2) {
-    const base = angleOf.get(parent) || 0;
-    const n = (spreadCount[parent] = (spreadCount[parent] || 0) + 1);
-    const a = base + (n % 2 ? 1 : -1) * (0.28 + 0.13 * Math.floor(n / 2));
-    pos.set(id, { x: cx + Math.cos(a) * r2, y: cy + Math.sin(a) * r2 * 0.82 });
-  }
-  const clamp = (p) => ({ x: Math.max(90, Math.min(W - 90, p.x)), y: Math.max(70, Math.min(H - 50, p.y)) });
-
-  // yarn: every edge whose both ends are on the board
-  const svg = q('.board-svg', board);
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  let paths = '';
-  for (const e of S.library.edges) {
-    if (!pos.has(e.from) || !pos.has(e.to)) continue;
-    const a = clamp(pos.get(e.from)), b = clamp(pos.get(e.to));
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 + 26; // the sag of real string
-    paths += `<path d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" />`;
-  }
-  svg.innerHTML = paths;
-
-  for (const id of pos.keys()) {
-    const it = byId.get(id) || focus;
-    const p = clamp(pos.get(id));
-    const chip = TYPE_CHIP[it.type] || TYPE_CHIP.agent;
-    const node = document.createElement('div');
-    node.className = 'board-node' + (id === o.id ? ' focus' : '');
-    node.style.left = p.x + 'px'; node.style.top = p.y + 'px';
-    node.style.transform = `translate(-50%, -50%) rotate(${(hashIdx(it.slug) - 2.5) * 0.9}deg)`;
-    node.innerHTML = `<span class="pin"></span><span class="code" style="background:${chip.tint}">${chip.code}</span>
-      <span class="bn-name">${esc(it.slug)}</span><span class="bn-sub">${esc(it.scope)}</span>`;
-    node.onclick = () => { closeOverlay(); openCard(it); };
-    board.appendChild(node);
-  }
-}
-
 // ---- overlays --------------------------------------------------------------
 function renderOverlay() {
   els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
@@ -1135,7 +1054,6 @@ function renderOverlay() {
   if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agents') return renderAgentPickerSheet();
   if (o.type === 'newitem') return renderNewItemSheet();
-  if (o.type === 'board') return renderBoard();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
