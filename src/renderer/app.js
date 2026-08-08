@@ -249,6 +249,14 @@ function refreshWorkspaceRail(c) {
   const wrap = document.createElement('div'); wrap.className = 'tree';
   if (!p) { wrap.innerHTML = '<div class="rail-empty">Open a folder (⌘O) to browse and edit files.</div>'; c.appendChild(wrap); return; }
   const head = document.createElement('div'); head.className = 'tree-path'; head.textContent = p.pathShort; wrap.appendChild(head);
+  head.oncontextmenu = (e) => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Reveal in Finder', run: () => api.revealFile(p.path) },
+      { label: 'New file…', run: () => openFsName('file', p.path) },
+      { label: 'New folder…', run: () => openFsName('folder', p.path) },
+    ]);
+  };
   renderTreeLevel(wrap, p.path, 0);
   c.appendChild(wrap);
 }
@@ -263,6 +271,7 @@ function renderTreeLevel(container, dir, depth) {
     row.innerHTML = `<span class="tw">${glyph}</span><span class="icon" style="background:${n.kind === 'dir' ? '#e8dfc7' : '#f0e7d0'}"></span>
       <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
     row.onclick = () => { if (n.kind === 'dir') toggleDir(n.path); else openFile(n.path); };
+    row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
     container.appendChild(row);
     if (n.kind === 'dir' && isOpen) renderTreeLevel(container, n.path, depth + 1);
   }
@@ -271,6 +280,90 @@ async function toggleDir(dir) {
   if (S.expanded.has(dir)) { S.expanded.delete(dir); refreshRail(); return; }
   if (!S.tree[dir]) S.tree[dir] = await api.listDir(dir);
   S.expanded.add(dir); refreshRail();
+}
+
+// ---- workspace context menu ------------------------------------------------
+function showMenu(x, y, items) {
+  hideMenu();
+  const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
+  for (const it of items) {
+    if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
+    const row = document.createElement('div'); row.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    row.textContent = it.label;
+    row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(); };
+    m.appendChild(row);
+  }
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  setTimeout(() => {
+    window.addEventListener('click', hideMenu, { once: true });
+    window.addEventListener('contextmenu', hideMenu, { once: true });
+    window.addEventListener('keydown', escHideMenu);
+  }, 0);
+}
+function escHideMenu(e) { if (e.key === 'Escape') hideMenu(); }
+function hideMenu() { const m = document.getElementById('ctx-menu'); if (m) m.remove(); window.removeEventListener('keydown', escHideMenu); }
+async function refreshTreeDir(dir) {
+  S.tree[dir] = await api.listDir(dir, S.treeAll);
+  if (S.railTab === 'workspace') refreshRail();
+}
+function treeMenu(n, parentDir) {
+  const root = S.project.path;
+  const items = [{ label: 'Reveal in Finder', run: () => api.revealFile(n.path) }];
+  if (n.kind === 'dir') {
+    items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
+    items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
+  }
+  items.push({ label: 'Move to…', run: async () => {
+    const dest = await api.chooseFolder(); if (!dest) return;
+    const res = await api.fsMove({ root, src: n.path, destDir: dest });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(n.path);
+    await refreshTreeDir(parentDir); await refreshTreeDir(dest);
+    toast('Moved ' + n.name + '.');
+  } });
+  items.push('-');
+  // Direct to Trash: right-click plus a click below a separator is deliberate,
+  // and the Trash is recoverable. The library card's Delete keeps its armed
+  // second click because it sits next to Save.
+  items.push({ label: 'Move to Trash', danger: true, run: async () => {
+    const res = await api.fsTrash({ root, path: n.path });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(n.path);
+    refreshTreeDir(parentDir);
+    toast('Moved to Trash.');
+  } });
+  return items;
+}
+function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
+function renderFsName() {
+  const o = S.overlay;
+  const modal = overlay('picker-box', `
+    <div class="picker-input"><span class="prompt-mark">＋</span>
+      <span style="font-weight:700">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted)">${esc(shortHome(o.dir))}</span></div>
+    <div class="ni-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
+      <button class="btn btn--go" id="fs-go">Create</button></div>`, { top: true });
+  const input = q('#fs-name', modal); input.value = o.name; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.name = input.value; };
+  const go = async () => {
+    const name = input.value.trim();
+    if (!name) { toast('Give it a name first.'); return; }
+    const root = S.project.path;
+    const res = o.mode === 'file'
+      ? await api.fsNewFile({ root, dir: o.dir, name })
+      : await api.fsNewFolder({ root, dir: o.dir, name });
+    if (!res.ok) { toast(res.error || 'Could not create'); return; }
+    closeOverlay();
+    if (o.dir !== root) S.expanded.add(o.dir);
+    await refreshTreeDir(o.dir);
+    if (o.mode === 'file') openFile(res.path, { pin: true });
+    toast('Created ' + name);
+  };
+  q('#fs-go', modal).onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
 }
 
 // ---- library rail (agents & skills across platforms) -----------------------
@@ -535,6 +628,8 @@ function mountEditor(p, rec) {
     if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; p.text = ta.value; sync(); }
   });
   ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
+  const edPath = q('.ed-path', wrap);
+  if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
   q('.ed-save', wrap).onclick = () => saveEditor(p);
   sync();
 }
@@ -727,6 +822,8 @@ function mountCard(p, rec) {
     });
   } else linksEl.style.display = 'none';
 
+  const cardPath = q('.ed-path', wrap);
+  if (cardPath) { cardPath.title = 'Reveal in Finder'; cardPath.onclick = () => api.revealFile(p.filePath); }
   const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
   const saveBtn = q('.card-save', wrap); if (saveBtn) saveBtn.onclick = () => saveCard(p);
   const dupBtn = q('.card-dup', wrap);
@@ -1162,6 +1259,7 @@ function renderOverlay() {
   if (o.type === 'connect-done') return renderConnectDone();
   if (o.type === 'connect-custom') return renderConnectCustom();
   if (o.type === 'improve-item') return renderImproveItem();
+  if (o.type === 'fs-name') return renderFsName();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 

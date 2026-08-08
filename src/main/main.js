@@ -13,6 +13,7 @@ const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
+const fsActions = require('./fs-actions');
 const { OpenAISession } = require('./openai-driver');
 
 let pty = null;
@@ -327,6 +328,18 @@ ipcMain.handle('file:read', (_e, file) => {
   } catch (e) { return { kind: 'text', name: baseName(file), rows: [{ n: 1, t: 'Could not read: ' + e.message }] }; }
 });
 ipcMain.handle('file:reveal', (_e, file) => { try { shell.showItemInFolder(file); } catch (_) {} });
+// Workspace file verbs: guarded in fs-actions.js to stay inside the project root.
+ipcMain.handle('fs:newFile', (_e, a) => fsActions.newFile(a || {}));
+ipcMain.handle('fs:newFolder', (_e, a) => fsActions.newFolder(a || {}));
+ipcMain.handle('fs:move', (_e, a) => fsActions.movePath(a || {}));
+ipcMain.handle('fs:trash', (_e, a) => fsActions.trashPath({ ...(a || {}), trashFn: (p) => shell.trashItem(p) }));
+// Plain directory dialog for Move to…: unlike folder:pick it must NOT remember
+// the choice as a recent project.
+ipcMain.handle('folder:choose', async (e) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || win;
+  const res = await dialog.showOpenDialog(parent, { properties: ['openDirectory'], title: 'Move to which folder?' });
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
+});
 ipcMain.handle('clipboard:write', (_e, text) => { try { clipboard.writeText(String(text || '')); } catch (_) {} return true; });
 ipcMain.handle('clipboard:read', () => { try { return clipboard.readText(); } catch (_) { return ''; } });
 
