@@ -916,7 +916,8 @@ async function refreshAgents() {
   S.agentsLoading = true;
   try { S.agents = await api.detectAgents(); } catch (_) { S.agents = S.agents || []; }
   S.agentsLoading = false;
-  if (S.overlay && S.overlay.type === 'launcher') renderOverlay();
+  const ot = S.overlay && S.overlay.type;
+  if (['launcher', 'connect-form', 'connect-custom', 'newitem', 'improve-item'].includes(ot)) renderOverlay();
 }
 function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
 function renderLauncher() {
@@ -1140,7 +1141,7 @@ function requestClosePeek() {
 // ---- connect a service ------------------------------------------------------
 // Three small sheets: pick a card, paste one key, see it proven. Copy follows
 // the approved mockup and never assumes which agent the user runs.
-function openConnect() { S.overlay = { type: 'connect' }; renderOverlay(); refreshServices(); }
+function openConnect() { S.overlay = { type: 'connect' }; renderOverlay(); refreshServices(); refreshAgents(); }
 function renderConnectCatalog() {
   const cat = S.services.catalog;
   const connectedIds = new Set(S.services.connected.map((s) => s.id));
@@ -1187,7 +1188,9 @@ function renderConnectForm() {
     <div class="setup-head"><span class="code" style="background:${TINTS[hashIdx(svc.id)]}">${esc(svc.code)}</span>
       <span class="col"><span class="name">Connect ${esc(svc.name)}</span><span class="desc">${esc(svc.desc)}</span></span></div>
     ${guided
-      ? `<p class="setup-copy">${esc(svc.guide)}</p>`
+      ? `<p class="setup-copy">${esc(svc.guide)}</p><div class="ni-agent">${chosenAgent(o)
+          ? `a new session with <select class="agent-pick" id="sv-agent">${agentOptionsHtml(o.workerId)}</select> walks you through it`
+          : 'No agent is installed yet. Press ⌘N to add one first.'}</div>`
       : folder
         ? `<p class="setup-copy">Pick the one folder your agents may read and edit. Nothing outside it is reachable.</p><button class="btn" id="sv-pick-folder">Choose a folder…</button><div class="setup-note" id="sv-folder-note">${esc(o.values.folder ? shortHome(o.values.folder) : '')}</div>`
         : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on your Mac.</p>${keyRows}`}
@@ -1210,6 +1213,8 @@ function renderConnectForm() {
   const saveKeys = () => { modal.querySelectorAll('.sv-key').forEach((inp) => { o.values[inp.dataset.k] = inp.value.trim(); }); };
   modal.querySelectorAll('.sv-key').forEach((inp) => { inp.value = o.values[inp.dataset.k] || ''; });
   modal.querySelectorAll('.sv-help').forEach((el) => { el.onclick = () => api.openUrl(el.dataset.url); });
+  const guidedSel = q('#sv-agent', modal);
+  if (guidedSel) guidedSel.onchange = () => { o.workerId = guidedSel.value; };
   const fold = q('.sv-fold', modal); fold.ontoggle = () => { o.foldOpen = fold.open; };
   q('#sv-docs', modal).onclick = () => api.openUrl(svc.docs);
   q('#sv-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { saveKeys(); o.scope = chip.dataset.v; renderOverlay(); }; });
@@ -1233,7 +1238,7 @@ function renderConnectForm() {
     q('#sv-connect', modal).textContent = o.installed ? 'Connect' : 'Install first';
   }
   q('#sv-connect', modal).onclick = async () => {
-    if (guided) return startGuidedSetup(svc);
+    if (guided) return startGuidedSetup(svc, chosenAgent(o));
     if (install && !o.installed) {
       const dir = installDirOf();
       closeOverlay();
@@ -1290,6 +1295,16 @@ function bestAgent() {
   const ready = (S.agents || []).filter((a) => a.found);
   return ready[0] || null; // registry order: claude, codex, opencode, gemini, hermes, kimi
 }
+// Session selector shared by every handoff sheet: the user picks which
+// installed agent does the work; default is the first detected.
+function agentOptionsHtml(selectedId) {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready.map((a) => `<option value="${esc(a.id)}"${a.id === selectedId ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+}
+function chosenAgent(o) {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready.find((a) => a.id === (o && o.workerId)) || ready[0] || null;
+}
 function agentSession(worker, opts) {
   startPanel(Object.assign({ kind: worker.kind === 'claude' ? 'claude' : 'run',
     command: worker.kind === 'claude' ? undefined : worker.bin }, opts));
@@ -1297,27 +1312,31 @@ function agentSession(worker, opts) {
 function openConnectCustom() { S.overlay = { type: 'connect-custom', text: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
 function renderConnectCustom() {
   const o = S.overlay;
-  const worker = bestAgent();
+  const worker = chosenAgent(o);
   const modal = overlay('setup-box', `
     <div class="setup-head"><span class="code" style="background:${TINTS[1]}">✳</span>
       <span class="col"><span class="name">Built for you</span><span class="desc">describe it like you would to a person</span></span></div>
     <input class="text-input" id="svc-desc" placeholder="our internal wiki at wiki.acme.dev, read-only is fine" spellcheck="false" />
+    <div class="ni-agent">${worker
+      ? `a new session with <select class="agent-pick" id="svc-agent">${agentOptionsHtml(worker.id)}</select> builds it for you`
+      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
     <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="svc-go" ${worker ? '' : 'disabled'}>Go</button></div>
-    <p class="setup-note">${worker
-      ? `A new session opens with the job written out, using ${esc(worker.name)}. Watch it work, talk to it if you want.`
-      : 'No agent is installed yet. Press ⌘N to add one first.'}</p>`);
+    <p class="setup-note">Watch it work, talk to it if you want. The service appears under Library when it lands.</p>`);
+  const agentSel = q('#svc-agent', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
   const input = q('#svc-desc', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.text = input.value; };
   q('#svc-go', modal).onclick = () => {
-    if (!o.text.trim() || !worker) return;
+    const w = chosenAgent(o);
+    if (!o.text.trim() || !w) return;
     closeOverlay();
-    agentSession(worker, { title: 'build: connector', code: 'BC', seed:
+    agentSession(w, { title: 'build: connector', code: 'BC', seed:
       `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding it to .mcp.json (and opencode.json if OpenCode is installed), then tell me what tools it exposes.` });
     toast('Your agent is on it. The service appears under Library when it lands.');
   };
 }
-function startGuidedSetup(svc) {
-  const worker = bestAgent();
+function startGuidedSetup(svc, worker) {
+  worker = worker || bestAgent();
   if (!worker) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
   closeOverlay();
   agentSession(worker, { title: 'set up ' + svc.name, code: svc.code, seed:
