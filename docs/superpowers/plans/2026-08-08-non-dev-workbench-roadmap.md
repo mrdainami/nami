@@ -26,11 +26,17 @@ subsystem, each shipping working software on its own). Check parts off here as t
   38/38 tests green; both themes screenshot-verified; clean-master boot verified
   in an isolated worktree.**
 
-- [ ] **Part 2 — Calm desk: viewers & cards open as overlays**
-  Sessions stay as tiles pinned to the desk. File viewers and agent/skill cards open
-  as floating overlays above the desk by default (like the corkboard already does),
-  with a "pin to board" button to promote one to a tile. Peeking at a file must never
-  reshuffle running sessions. **Status: not planned yet — plan when Part 1 ships.**
+- [x] **Part 2 — Calm desk: viewers & cards open as overlays** ✅ shipped 2026-08-08
+  Plan: `2026-08-08-part2-calm-desk-peek.md`
+  Sessions stay as tiles pinned to the desk. Every look-at-a-file path (Workspace rail
+  click, ⌘-click in a terminal, Library click, card link chips, corkboard nodes) now
+  floats a peek sheet above the desk; tiles never reshuffle. "Pin to desk" promotes the
+  live panel (edits, dirty state, form mode intact) to a tile. Deliberate scope: canvas
+  drag-and-drop still makes tiles (placing paper on the desk), peeks are ephemeral
+  across restarts, sessions never peek. **Status: shipped — commits 42f8cee, ce31aef,
+  d9b2dc3, 3ec778b; 42/42 tests green; both themes screenshot-verified incl. corner
+  clipping; clean-master boot verified in an isolated worktree. Operator overrides for
+  .peek-box ride with the theme session's uncommitted theme-operator.css.**
 
 - [ ] **Part 3 — Connect-a-service: MCP picker for non-developers**
   A small catalog of popular MCP servers (Gmail, Notion, filesystem, database…) plus
