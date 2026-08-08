@@ -234,4 +234,22 @@ function extractEdges(items, { maxBytes = 65536 } = {}) {
   return edges;
 }
 
-module.exports = { scanLibrary, createItem, duplicateItem, extractEdges };
+// ---- delete to Trash --------------------------------------------------------
+// Guarded: only real library locations, never the plugin cache. Skills are
+// folders, so their SKILL.md maps to the folder that holds it.
+async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = fs.existsSync }) {
+  const home = homeDir || os.homedir();
+  const abs = path.resolve(String(filePath || ''));
+  const roots = [];
+  if (projectPath) roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
+  roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.claude', 'skills'), path.join(home, '.config', 'opencode'));
+  const inRoot = roots.some((r) => abs.startsWith(r + path.sep));
+  const inPluginCache = abs.includes(path.sep + path.join('.claude', 'plugins') + path.sep);
+  if (!inRoot || inPluginCache) return { ok: false, error: 'Not a deletable library item' };
+  const target = path.basename(abs) === 'SKILL.md' ? path.dirname(abs) : abs;
+  if (!existsFn(target)) return { ok: false, error: 'Already gone' };
+  try { await trashFn(target); return { ok: true, target }; }
+  catch (e) { return { ok: false, error: e.message }; }
+}
+
+module.exports = { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges };

@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('dainami', {
   libraryScan: (args) => ipcRenderer.invoke('library:scan', args),
   libraryCreate: (args) => ipcRenderer.invoke('library:create', args),
   libraryDuplicate: (args) => ipcRenderer.invoke('library:duplicate', args),
+  libraryDelete: (args) => ipcRenderer.invoke('library:delete', args),
 
   claudeStart: (args) => ipcRenderer.invoke('claude:start', args),
   claudeSend: (args) => ipcRenderer.invoke('claude:send', args),

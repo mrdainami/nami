@@ -12,7 +12,7 @@ const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
-const { scanLibrary, createItem, duplicateItem, extractEdges } = require('./library');
+const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
 const { OpenAISession } = require('./openai-driver');
 
 let pty = null;
@@ -310,6 +310,7 @@ ipcMain.handle('library:scan', (_e, { projectPath }) => {
 });
 ipcMain.handle('library:create', (_e, args) => createItem(args || {}));
 ipcMain.handle('library:duplicate', (_e, args) => duplicateItem(args || {}));
+ipcMain.handle('library:delete', (_e, args) => deleteItem({ ...(args || {}), trashFn: (p) => shell.trashItem(p) }));
 
 // ---- IPC: quick look / files ----------------------------------------------
 ipcMain.handle('file:read', (_e, file) => {
