@@ -45,9 +45,14 @@ subsystem, each shipping working software on its own). Check parts off here as t
   (a) the Library rail regroups by TYPE — Agents / Skills / Services / Plugins —
   with scope ("this project" vs "your Mac") as a tag on each row, replacing today's
   scope+platform groups; (b) a "build a custom connector" door in the catalog that
-  hands off to a Claude session with a seed prompt, exactly like ＋ new does for
-  agents and skills — the agent is the factory, the app is the landing pad and the
-  shelf it lands on. Mockup approved: parts-3-4 artifact, Part 3 journey.
+  hands off to a session with WHICHEVER agent the user has (never assume Claude;
+  pick from the detected agents) carrying a seed prompt, exactly like ＋ new does
+  for agents and skills — the agent is the factory, the app is the landing pad and
+  the shelf it lands on; (c) catalog reordered to everyday apps (Notion, Gmail,
+  Slack, Telegram, Google Drive) plus Creative models via Calvin's kie-mcp
+  (github.com/mrdainami/kie-mcp, KIE_API_KEY, images/video/music); (d) the
+  "what got written" receipt folds behind a disclosure, not its own screen.
+  Mockup approved: parts-3-4 artifact v3.
   **Status: approved direction, plan next.**
 
 - [x] **Part 4 — Graph: REMOVED, not rebuilt** (Calvin's call, 2026-08-08)
@@ -68,6 +73,10 @@ subsystem, each shipping working software on its own). Check parts off here as t
   code stays so restored sessions work). Hermes enters through its real CLI. Revisit
   only if users ask for CLI-less models (e.g. raw Ollama).
 - Plugin-cache items stay read-only + Duplicate-to-project.
+- Copy never assumes Claude (Calvin, 2026-08-08): users may run Codex, OpenCode,
+  Gemini, Hermes, Kimi. UI text says "agent" / "a new session"; only name a
+  specific agent where it is technically true (e.g. which config file gets
+  written for which platform).
 - Dual themes: paper styles in `paper.css` via tokens; operator overrides only in
   `theme-operator.css`; JS colors via `statusColors()` / `xtermTheme()`. Screenshot
   both themes for any visual change (see `.claude/skills/paper-design/SKILL.md`).
