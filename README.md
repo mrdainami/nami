@@ -31,11 +31,12 @@ npm start          # opens the app
 - Auth: it uses your **logged-in `claude`** (subscription), found at `~/.local/bin/claude`. No API
   key is set. If your `claude` lives elsewhere, set `CLAUDE_CODE_EXECUTABLE=/path/to/claude`.
 
-- **Any AI model** — ⌘N → "Any AI model" runs a session against any OpenAI-compatible
-  endpoint (Ollama, LM Studio, vLLM, OpenRouter, Hermes…): the model gets real tools
-  (run commands, read/write files), risky actions show the yellow **Needs your OK** card,
-  and the transcript renders as a paper chat. "AI model settings…" in ⌘N reconfigures the
-  endpoint.
+- **The honest launcher** — ⌘N shows the agents actually installed on your Mac (checked
+  through your own shell at startup: Claude Code, Codex, OpenCode, Gemini CLI, Hermes,
+  Kimi Code). Ready ones launch instantly as big rows with a green dot; missing ones are
+  small "add an agent to this Mac" cards that open a guided setup sheet: the verified
+  official install command, run for you inside a terminal tile, plus copy and an official
+  guide link. Nothing in the sheet can dead-end.
 - **Sessions survive restarts** — the layout is restored on launch: editors, viewers and
   cards reopen, terminals restart in their folder, and Claude sessions pick their
   conversation back up via `claude --continue`.
