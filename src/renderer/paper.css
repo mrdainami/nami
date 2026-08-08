@@ -692,6 +692,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .agent-pick { font-family: 'Courier Prime', monospace; font-size: 11.5px; color: var(--ink);
   background: var(--paper); border: 1px dashed var(--dash); border-radius: 2px; padding: 3px 6px; cursor: pointer; }
 .agent-pick:hover, .agent-pick:focus-visible { border-style: solid; outline: none; }
+.card-del { color: var(--red-ink); }
+.card-del.armed { color: #fff; background: var(--red-btn); border-color: transparent; }
 
 .card-ed { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .card-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px dashed var(--dash); }
