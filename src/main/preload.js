@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('dainami', {
   libraryCreate: (args) => ipcRenderer.invoke('library:create', args),
   libraryDuplicate: (args) => ipcRenderer.invoke('library:duplicate', args),
   libraryDelete: (args) => ipcRenderer.invoke('library:delete', args),
+  fsNewFile: (args) => ipcRenderer.invoke('fs:newFile', args),
+  fsNewFolder: (args) => ipcRenderer.invoke('fs:newFolder', args),
+  fsMove: (args) => ipcRenderer.invoke('fs:move', args),
+  fsTrash: (args) => ipcRenderer.invoke('fs:trash', args),
+  chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
   claudeStart: (args) => ipcRenderer.invoke('claude:start', args),
   claudeSend: (args) => ipcRenderer.invoke('claude:send', args),
