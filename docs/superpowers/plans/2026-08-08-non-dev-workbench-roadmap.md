@@ -89,6 +89,12 @@ subsystem, each shipping working software on its own). Check parts off here as t
   both themes for any visual change (see `.claude/skills/paper-design/SKILL.md`).
 - Verification pattern: `npm test`, `npm run shot`, and actually look at the screenshot.
 
+- Library items are agent-built (Calvin, 2026-08-08): ＋ new seeds a session with the
+  user's chosen agent (session selector on every handoff sheet); empty-template and
+  delete-to-Trash round it out. The Workspace tree carries the file verbs (right-click:
+  reveal, new, move, trash), guarded to the project root. Spec:
+  `../specs/2026-08-08-agent-built-library-design.md`.
+
 ## Sequencing constraint (multi-session)
 
 The operator-theme session's work must be committed before anything else moves master;
