@@ -483,11 +483,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* launcher add-section: small cards for agents you could add */
 .picker-divider { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--muted); padding: 10px 12px 2px; border-top: 1px solid var(--dash); }
+  color: var(--muted); padding: 10px 12px 2px; border-top: 1px dashed var(--dash); }
 .add-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 12px 12px; }
 .add-card { border: 1px dashed var(--dash); background: var(--paper); border-radius: 2px;
   padding: 9px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
-.add-card:hover { border-style: solid; }
+.add-card:hover { border-style: solid; box-shadow: 2px 2px 0 var(--shadow-mid); }
+.add-card:focus-visible { border-style: solid; outline: none; }
 .add-card .code { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); margin-bottom: 2px; }
 .add-card .ac-name { font-weight: 700; font-size: 12px; }
