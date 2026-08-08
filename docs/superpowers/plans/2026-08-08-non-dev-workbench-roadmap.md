@@ -41,16 +41,24 @@ subsystem, each shipping working software on its own). Check parts off here as t
 - [ ] **Part 3 — Connect-a-service: MCP picker for non-developers**
   A small catalog of popular MCP servers (Gmail, Notion, filesystem, database…) plus
   a form-style "connect" flow that writes the right settings entry for each platform
-  (Claude `.mcp.json`, OpenCode config). Creating brand-new MCPs stays the agent's
-  job ("ask Claude to build you a connector") — the app is the landing pad, not the
-  factory. **Status: not planned yet.**
+  (Claude `.mcp.json`, OpenCode config). Scope grown by Calvin's calls (2026-08-08):
+  (a) the Library rail regroups by TYPE — Agents / Skills / Services / Plugins —
+  with scope ("this project" vs "your Mac") as a tag on each row, replacing today's
+  scope+platform groups; (b) a "build a custom connector" door in the catalog that
+  hands off to a Claude session with a seed prompt, exactly like ＋ new does for
+  agents and skills — the agent is the factory, the app is the landing pad and the
+  shelf it lands on. Mockup approved: parts-3-4 artifact, Part 3 journey.
+  **Status: approved direction, plan next.**
 
-- [ ] **Part 4 — Graph repointed at real structure**
-  Keep the corkboard rendering; change what a connection *means* — from "one file's
-  text mentions another's name" to structural wiring: agent → allowed tools/skills,
-  project → connected agents/MCPs, skill → parent plugin. The map becomes "here is
-  your setup and how it fits together." Only start after Parts 1–3; it's the dessert,
-  not the meal. **Status: not planned yet.**
+- [x] **Part 4 — Graph: REMOVED, not rebuilt** (Calvin's call, 2026-08-08)
+  The name-matching corkboard was an honestly worse Obsidian graph, so it is gone
+  from the app (commit 824b574: Map button, board overlay, board CSS all removed;
+  the references/referenced-by chips on cards stay for hopping between cards).
+  The "structural wiring map" idea from the parts-3-4 mockup is PARKED, not
+  scheduled: revisit only after Part 3 has created real wiring worth drawing, and
+  only if users ask for it. Dead corkboard overrides still sit in the theme
+  session's uncommitted theme-operator.css; that session should drop them when it
+  commits.
 
 ## Standing decisions (don't re-litigate)
 
