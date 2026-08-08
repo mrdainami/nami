@@ -23,14 +23,19 @@ npm start          # opens the app
   on **Pin to desk** keeps it as a tile. Images, video, audio and PDFs preview in the peek;
   anything unviewable gets a card with a Reveal-in-Finder button; text opens in the paper
   editor. Drag a file from Finder onto the canvas to pin it directly.
+- **Files are yours to handle**: right-click anything in the Workspace tree to reveal
+  it in Finder, make a file or folder, move it somewhere else in the project, or send
+  it to the Trash. The path at the bottom of an open file reveals it in Finder too.
 - **Library** — the third rail tab reads like an inventory, grouped into Agents /
   Skills / Services / Plugins with a this-project or your-Mac tag on each row: this
   project's `.claude/` and `.opencode/`, your user-level `~/.claude/` and
   `~/.config/opencode/`, and installed Claude plugins. Click one to peek at it as a paper
   card (pin to desk to keep it): a **Form** view (name, description, tools, instructions; no frontmatter syntax needed) with
   a **Markdown** toggle for the raw file. Plugin items are read-only (their cache is
-  overwritten on updates) with one-click **Duplicate to project**. ＋ new scaffolds a Claude
-  agent, Claude skill, or OpenCode agent from a template.
+  overwritten on updates) with one-click **Duplicate to project**. ＋ new takes a name and a plain-words description and hands them
+  to a session with whichever agent you choose, which writes the real thing (a quiet
+  link still gives you an empty template). Every editable card can be improved by your
+  agent or moved to the Trash from the app.
 - Auth: it uses your **logged-in `claude`** (subscription), found at `~/.local/bin/claude`. No API
   key is set. If your `claude` lives elsewhere, set `CLAUDE_CODE_EXECUTABLE=/path/to/claude`.
 
