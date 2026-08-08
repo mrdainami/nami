@@ -651,6 +651,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .lib-group .lg-caret { width: 10px; font-size: 9px; color: var(--muted-3); }
 .lib-group .lg-count { margin-left: auto; font-weight: 700; color: var(--muted-3); letter-spacing: 0; }
 .lib-list .agent-row { margin-bottom: 5px; }
+.scope-tag { margin-left: auto; flex: none; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted-2); border: 1px dashed var(--dash); padding: 2px 6px; border-radius: 2px; white-space: nowrap; }
+.agent-row .tools .ok { color: var(--green-ok); }
 
 .card-ed { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .card-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px dashed var(--dash); }
