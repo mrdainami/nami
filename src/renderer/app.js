@@ -935,7 +935,30 @@ async function configureAiModel(existing) {
 async function launchHarness(h) {
   return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', tint: h.tint });
 }
-function openAgentSetup(agent) { toast(`${agent.name} setup coming in Task 4.`); }
+function openAgentSetup(agent) { S.overlay = { type: 'agent-setup', agent }; renderOverlay(); }
+function renderAgentSetup() {
+  const a = S.overlay.agent;
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" style="background:${TINTS[hashIdx(a.id)]}">${esc(code2(a.name))}</span>
+      <span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.sub)}</span></span></div>
+    <p class="setup-copy">${esc(a.name)} is not on this Mac yet. One command installs it, and I can run that
+      for you in a terminal right here. The first time it starts, it will ask you to sign in, right in the tile.</p>
+    <div class="setup-cmd">${esc(a.install)}</div>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="su-run">Install it for me</button>
+      <button class="btn" id="su-copy">Copy the command</button>
+      <button class="btn" id="su-docs">Read the guide</button>
+    </div>
+    <p class="setup-note">Install it for me opens a terminal tile and runs the line above. Copy puts it on
+      your clipboard. Read the guide opens the official ${esc(a.name)} page in your browser.</p>`);
+  q('#su-run', modal).onclick = async () => {
+    closeOverlay(); if (!(await ensureFolder())) return;
+    startPanel({ kind: 'run', title: `install ${a.name}`, code: code2(a.name), tint: TINTS[hashIdx(a.id)], command: a.install });
+    toast('When it finishes, press ⌘N. The button will be ready.');
+  };
+  q('#su-copy', modal).onclick = async () => { await api.copyText(a.install); toast('Copied.'); };
+  q('#su-docs', modal).onclick = () => api.openUrl(a.docs);
+}
 
 // ---- agent picker (⌘K) — fed by the library scan ---------------------------
 function pickerAgents() {
@@ -1098,6 +1121,7 @@ function renderBoard() {
 function renderOverlay() {
   els.overlayRoot.innerHTML = ''; const o = S.overlay; if (!o) return;
   if (o.type === 'launcher') return renderLauncher();
+  if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agents') return renderAgentPickerSheet();
   if (o.type === 'newitem') return renderNewItemSheet();
   if (o.type === 'board') return renderBoard();

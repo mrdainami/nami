@@ -494,6 +494,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .add-card .ac-desc { font-size: 10.5px; color: var(--muted); }
 .add-card .ac-go { font-size: 10.5px; color: var(--amber-ink); margin-top: 2px; }
 
+/* guided agent setup sheet */
+.setup-box { width: 460px; background: var(--paper); border: 1px solid var(--dash-dark);
+  box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); transform: rotate(-0.8deg);
+  animation: rise 0.18s ease both; padding: 18px 20px; }
+.setup-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.setup-head .code { width: 30px; height: 30px; flex: none; display: flex; align-items: center;
+  justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.setup-head .name { font-size: 14px; font-weight: 700; display: block; }
+.setup-head .desc { font-size: 11.5px; color: var(--muted); display: block; }
+.setup-copy { font-size: 13px; color: var(--ink); margin: 0 0 12px; line-height: 1.5; }
+.setup-cmd { font-size: 12px; border: 1px dashed var(--dash); padding: 8px 10px;
+  background: var(--paper-2); margin-bottom: 14px; user-select: all; overflow-x: auto; white-space: nowrap; }
+.setup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
+
 .ql-lines { background: repeating-linear-gradient(0deg, transparent 0 25px, rgba(120, 145, 180, 0.14) 25px 26px); }
 .ql-row { display: flex; gap: 14px; font-size: 12px; line-height: 26px; user-select: text; }
 .ql-row .n { color: #b3a894; width: 30px; text-align: right; flex: none; }
