@@ -292,6 +292,7 @@ async function refreshServices() {
   } catch (_) {}
   S.services.loading = false;
   if (S.railTab === 'library') refreshRail();
+  if (S.overlay && S.overlay.type === 'connect') renderOverlay();
 }
 // The library reads like an inventory: what you have, grouped by what it is.
 const LIB_TYPE_GROUPS = [
@@ -1090,6 +1091,9 @@ function renderOverlay() {
   if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agents') return renderAgentPickerSheet();
   if (o.type === 'newitem') return renderNewItemSheet();
+  if (o.type === 'connect') return renderConnectCatalog();
+  if (o.type === 'connect-form') return renderConnectForm();
+  if (o.type === 'connect-done') return renderConnectDone();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
@@ -1132,8 +1136,131 @@ function requestClosePeek() {
       && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
   closeOverlay();
 }
-function openConnect() { toast('Connect arrives with the next commit.'); }
-function openServiceDetails() { openConnect(); }
+// ---- connect a service ------------------------------------------------------
+// Three small sheets: pick a card, paste one key, see it proven. Copy follows
+// the approved mockup and never assumes which agent the user runs.
+function openConnect() { S.overlay = { type: 'connect' }; renderOverlay(); refreshServices(); }
+function renderConnectCatalog() {
+  const cat = S.services.catalog;
+  const connectedIds = new Set(S.services.connected.map((s) => s.id));
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">⚡</span>
+    <span style="font-weight:700">What should your agents reach?</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">pick one to start</span></div>
+    ${cat.length ? '' : '<div class="rail-empty" style="padding:14px">Loading the catalog…</div>'}
+    <div class="svc-grid">${cat.map((s) => `
+      <div class="svc-card${connectedIds.has(s.id) ? ' connected' : ''}" data-id="${esc(s.id)}" tabindex="0">
+        <span class="code" style="background:${TINTS[hashIdx(s.id)]}">${esc(s.code)}</span>
+        <span class="sv-name">${esc(s.name)}</span>
+        <span class="sv-desc">${esc(s.desc)}</span>
+        ${s.id === 'kie' ? '<span class="sv-by">by Dainami</span>' : ''}
+        <span class="sv-go">${connectedIds.has(s.id) ? '<span class="ok">●</span> connected' : 'connect →'}</span>
+      </div>`).join('')}</div>
+    <div class="svc-custom" id="svc-custom" tabindex="0">
+      <span class="code" style="background:${TINTS[1]}">✳</span>
+      <span class="col"><span class="sv-name">Something else? It gets built for you</span>
+      <span class="sv-desc">say it in plain words, watch it happen</span></span>
+      <span class="sv-go">build it →</span>
+    </div>`);
+  modal.querySelectorAll('.svc-card').forEach((el) => {
+    el.onclick = () => {
+      const svc = cat.find((s) => s.id === el.dataset.id);
+      const already = S.services.connected.find((s) => s.id === svc.id);
+      if (already) return openServiceDetails(already);
+      openConnectForm(svc);
+    };
+  });
+  q('#svc-custom', modal).onclick = () => openConnectCustom();
+}
+function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', platforms: ['claude', 'opencode'], values: {} }; renderOverlay(); }
+function renderConnectForm() {
+  const o = S.overlay, svc = o.svc;
+  const guided = svc.kind === 'guided';
+  const folder = svc.kind === 'folder';
+  const keyRows = (svc.keys || []).map((k) => `
+    <input class="text-input sv-key" data-k="${esc(k.id)}" placeholder="${esc(k.placeholder)}" spellcheck="false" />
+    ${svc.keyHelpUrl ? `<div class="sv-help" data-url="${esc(svc.keyHelpUrl)}">where do I find my key?</div>` : ''}`).join('');
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" style="background:${TINTS[hashIdx(svc.id)]}">${esc(svc.code)}</span>
+      <span class="col"><span class="name">Connect ${esc(svc.name)}</span><span class="desc">${esc(svc.desc)}</span></span></div>
+    ${guided
+      ? `<p class="setup-copy">${esc(svc.guide)}</p>`
+      : folder
+        ? `<p class="setup-copy">Pick the one folder your agents may read and edit. Nothing outside it is reachable.</p><button class="btn" id="sv-pick-folder">Choose a folder…</button><div class="setup-note" id="sv-folder-note">${esc(o.values.folder ? shortHome(o.values.folder) : '')}</div>`
+        : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on your Mac.</p>${keyRows}`}
+    <details class="sv-fold"${o.foldOpen ? ' open' : ''}><summary>choices (fine as they are)</summary>
+      <div class="sv-fold-body">
+        <div class="sv-lab">works in</div>
+        <div class="chip-row" id="sv-scope">
+          <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
+          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">everywhere on this Mac</span></div>
+        <div class="sv-lab">for</div>
+        <div class="chip-row" id="sv-plat">
+          <span class="pick-chip${o.platforms.includes('claude') ? ' picked' : ''}" data-v="claude">Claude Code</span>
+          <span class="pick-chip${o.platforms.includes('opencode') ? ' picked' : ''}" data-v="opencode">OpenCode</span></div>
+      </div></details>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>
+      <button class="btn" id="sv-docs">Guide</button></div>`);
+  // Re-renders rebuild the sheet, so typed keys are read into o.values before
+  // every re-render and written back into the inputs after.
+  const saveKeys = () => { modal.querySelectorAll('.sv-key').forEach((inp) => { o.values[inp.dataset.k] = inp.value.trim(); }); };
+  modal.querySelectorAll('.sv-key').forEach((inp) => { inp.value = o.values[inp.dataset.k] || ''; });
+  modal.querySelectorAll('.sv-help').forEach((el) => { el.onclick = () => api.openUrl(el.dataset.url); });
+  const fold = q('.sv-fold', modal); fold.ontoggle = () => { o.foldOpen = fold.open; };
+  q('#sv-docs', modal).onclick = () => api.openUrl(svc.docs);
+  q('#sv-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { saveKeys(); o.scope = chip.dataset.v; renderOverlay(); }; });
+  q('#sv-plat', modal).querySelectorAll('.pick-chip').forEach((chip) => {
+    chip.onclick = () => { saveKeys(); const v = chip.dataset.v; o.platforms = o.platforms.includes(v) ? o.platforms.filter((x) => x !== v) : [...o.platforms, v]; renderOverlay(); };
+  });
+  const pickBtn = q('#sv-pick-folder', modal);
+  if (pickBtn) pickBtn.onclick = async () => { const info = await api.pickFolder(); if (info) { o.values.folder = info.path; q('#sv-folder-note', modal).textContent = info.pathShort; } };
+  q('#sv-connect', modal).onclick = async () => {
+    if (guided) return startGuidedSetup(svc);
+    saveKeys();
+    if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
+    if (!o.platforms.length) { toast('Tick at least one platform under choices.'); return; }
+    q('#sv-connect', modal).textContent = 'Connecting…';
+    const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, platforms: o.platforms, projectPath: S.project && S.project.path });
+    refreshServices(); loadLibrary(true);
+    S.overlay = { type: 'connect-done', svc, result: res }; renderOverlay();
+  };
+}
+function renderConnectDone() {
+  const { svc, result } = S.overlay;
+  const okLine = result.ok
+    ? (result.checked ? `tested just now: ${esc(svc.name)} answers · ${result.tools} tools ready` : `written, but the test could not confirm it yet (${esc(result.checkError || 'no answer')})`)
+    : `something went wrong: ${esc(result.error || 'unknown')}`;
+  const extra = result.claudeUserScope && result.claudeUserScope !== 'written' ? `<div class="setup-note">${esc(result.claudeUserScope)}</div>` : '';
+  const modal = overlay('setup-box', `
+    <div class="sv-bigok"><div class="sv-bigok-t caveat">${result.ok ? esc(svc.name) + ' is connected!' : 'Not yet.'}</div>
+      <div class="sv-bigok-s">${result.ok ? 'your agents can use it from the very next session' : 'nothing broke, and nothing was half-written'}</div></div>
+    <div class="sv-okline"><span class="ok"${result.ok ? '' : ' style="color:var(--amber-ink)"'}>●</span> ${okLine}</div>
+    <details class="sv-fold"><summary>curious what got written? peek here</summary>
+      <div class="sv-fold-body"><div class="setup-note">${(result.files || []).map(esc).join(' · ') || 'nothing yet'}</div>${extra}</div></details>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="sv-done">Done</button>
+      <button class="btn" id="sv-more">Connect another</button></div>`);
+  q('#sv-done', modal).onclick = closeOverlay;
+  q('#sv-more', modal).onclick = openConnect;
+}
+function openServiceDetails(sv) {
+  const cat = S.services.catalog.find((s) => s.id === sv.id);
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" style="background:${TINTS[hashIdx(sv.id)]}">${esc((cat && cat.code) || 'SV')}</span>
+      <span class="col"><span class="name">${esc(sv.name)}</span>
+      <span class="desc"><span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))} · ${esc(sv.scopes.map((s) => s === 'project' ? 'this project' : 'your Mac').join(', '))}</span></span></div>
+    <div class="setup-actions">
+      <button class="btn" id="sv-disc">Disconnect</button>
+      <button class="btn btn--go" id="sv-ok">Done</button></div>`);
+  q('#sv-ok', modal).onclick = closeOverlay;
+  q('#sv-disc', modal).onclick = async () => {
+    await api.disconnectService({ id: sv.id, projectPath: S.project && S.project.path });
+    refreshServices(); closeOverlay(); toast(sv.name + ' disconnected.');
+  };
+}
+// Task 7 replaces these two with the real built-for-you and guided flows.
+function openConnectCustom() { toast('The built-for-you door lands with the next commit.'); }
+function startGuidedSetup() { toast('Guided setup lands with the next commit.'); }
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
