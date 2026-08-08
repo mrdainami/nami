@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('dainami', {
   transcribe: (args) => ipcRenderer.invoke('stt:transcribe', args),
 
   savePanels: (args) => ipcRenderer.invoke('panels:save', args),
+  detectAgents: () => ipcRenderer.invoke('agents:detect'),
+  openUrl: (url) => ipcRenderer.invoke('url:open', url),
 
   aiConfigGet: () => ipcRenderer.invoke('ai:config:get'),
   aiConfigSet: (cfg) => ipcRenderer.invoke('ai:config:set', cfg),
