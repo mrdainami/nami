@@ -196,10 +196,13 @@ function dropFilesOnPanel(p, paths) {
   });
 
   api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
-  api.onTermExit(({ id, code }) => {
+  api.onTermExit(({ id, code, note }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
     p.exited = true; p.status = 'exited';
-    const t = tileEls.get(id); if (t && t.term) t.term.write(`\r\n\x1b[38;2;141;128;101m[process exited · ${code}]\x1b[0m\r\n`);
+    // main writes the note, because only it knows whether Nami ended this
+    // session or the process did. `code` stays in the payload for older paths.
+    const said = note || `exited · ${code}`;
+    const t = tileEls.get(id); if (t && t.term) t.term.write(`\r\n\x1b[38;2;141;128;101m[${said}]\x1b[0m\r\n`);
     // A panel can care that its command finished — an agent sign-out re-reads
     // who is signed in, so the details sheet is never stale.
     if (p.onExit) { try { p.onExit(code); } catch (_) {} }
