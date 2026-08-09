@@ -64,6 +64,14 @@ asarUnpack:
   - '**/node_modules/@lydell/node-pty/**'
   - '**/*.node'
 
+# The dmg is what the user downloads, so it is what carries the quarantine flag
+# and what Gatekeeper judges first. electron-builder signs the app and leaves the
+# container unsigned, which reads as "unidentified developer" before anyone has
+# seen the app. Sign it here; notarize it in the hook below.
+dmg:
+  sign: true
+afterAllArtifactBuild: scripts/notarize-dmg.mjs
+
 mac:
   category: public.app-category.developer-tools
   target:
