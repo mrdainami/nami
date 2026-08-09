@@ -23,6 +23,7 @@ const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
 const { userPath } = require('./user-path');
+const { exitNote } = require('./exit-note');
 const stt = require('./stt');
 
 let pty = null;
@@ -56,6 +57,20 @@ const wins = new Set();           // every open window — each is its own proje
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
 const termSessions = new Map();   // id -> pty
+// Sessions Nami is ending on purpose — quit, window close, tile close. pty.kill()
+// sends SIGHUP, which surfaces as exit 129, and without this the tile cannot tell
+// "you closed me" from "I died". Recorded before the kill, read in onExit.
+const deliberateKills = new Set();
+
+// Every intentional teardown goes through here, so the exit note stays honest.
+function killSession(id) {
+  const p = termSessions.get(id);
+  if (!p) return false;
+  deliberateKills.add(id);
+  try { p.kill(); } catch (_) {}
+  termSessions.delete(id);
+  return true;
+}
 const claudeSessions = new Map(); // id -> ClaudeSession
 
 // ---- state (restart-proof) -------------------------------------------------
@@ -289,7 +304,7 @@ function reapSessions(wcId) {
   for (const [id, owner] of [...sessionOwners]) {
     if (owner !== wcId) continue;
     sessionOwners.delete(id);
-    const t = termSessions.get(id); if (t) { try { t.kill(); } catch (_) {} termSessions.delete(id); }
+    killSession(id);
     const c = claudeSessions.get(id); if (c) { try { c.close(); } catch (_) {} claudeSessions.delete(id); }
   }
 }
@@ -330,7 +345,7 @@ app.on('before-quit', () => {
     fs.writeFileSync(stateFile() + '.tmp', JSON.stringify(state, null, 2));
     fs.renameSync(stateFile() + '.tmp', stateFile());
   } catch (_) {}
-  for (const p of termSessions.values()) { try { p.kill(); } catch (_) {} }
+  for (const id of [...termSessions.keys()]) killSession(id);
   for (const c of claudeSessions.values()) { try { c.close(); } catch (_) {} }
 });
 
@@ -757,7 +772,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     const t = feedOscTitle(osc, data);
     if (t) sendWc(wc, 'session:title', { id, title: t });
   });
-  p.onExit(({ exitCode }) => { termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id); sendWc(wc, 'term:exit', { id, code: exitCode }); });
+  p.onExit(({ exitCode, signal }) => {
+    termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
+    // The note is built here rather than in the renderer because only main knows
+    // whether this teardown was Nami's own doing.
+    const deliberate = deliberateKills.delete(id);
+    sendWc(wc, 'term:exit', { id, code: exitCode, signal, deliberate, note: exitNote({ code: exitCode, signal, deliberate }) });
+  });
 
   // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
   if (afterStart && afterStart.indexOf('\u0000SEED\u0000') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
@@ -822,4 +843,4 @@ function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
 
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
 ipcMain.handle('term:resize', (_e, { id, cols, rows }) => { const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p }; });
-ipcMain.handle('term:kill', (_e, { id }) => { const p = termSessions.get(id); if (p) { try { p.kill(); } catch (_) {} termSessions.delete(id); } sessionOwners.delete(id); titleWatch.delete(id); return { ok: true }; });
+ipcMain.handle('term:kill', (_e, { id }) => { killSession(id); sessionOwners.delete(id); titleWatch.delete(id); return { ok: true }; });
