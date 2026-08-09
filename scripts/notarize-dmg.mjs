@@ -62,7 +62,9 @@ export default async function notarizeDmg(buildResult) {
       throw new Error(`notarizing ${name} failed:\n${detail}`);
     }
   }
-  refreshUpdateMetadata(dmgs);
+  // Deliberately does NOT fix latest-mac.yml here: electron-builder writes that
+  // file after this hook returns, so a correction made now is overwritten and
+  // looks like it worked. scripts/fix-update-metadata.mjs runs after the build.
   return [];
 }
 

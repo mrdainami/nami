@@ -15,7 +15,8 @@
     "pack": "electron-builder --dir",
     "//dist": "predist matters: npm runs pre<name> for any script, so `pack` picked up the weights via prepack while `dist` — the one that builds what users install — quietly shipped without them.",
     "predist": "npm run fetch-model",
-    "dist": "electron-builder",
+    "dist": "electron-builder && npm run fix-update-metadata",
+    "fix-update-metadata": "node scripts/fix-update-metadata.mjs",
     "install-local": "node scripts/install-local.mjs"
   },
   "dependencies": {
