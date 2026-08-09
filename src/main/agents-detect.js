@@ -87,11 +87,15 @@ function shellWhich(bin) {
   });
 }
 
-async function detectAgents({ exec = shellWhich } = {}) {
+async function detectAgents({ exec = shellWhich, home = os.homedir() } = {}) {
   return Promise.all(KNOWN_AGENTS.map(async (a) => {
     let p = '';
     try { p = String((await exec(a.bin)) || '').trim(); } catch (_) { p = ''; }
-    return { ...a, found: !!p, path: p };
+    // configFile is the ~-expanded twin of lifecycle.configPath, so the renderer
+    // can hand it straight to openFile() without knowing where home is.
+    const configFile = a.lifecycle && a.lifecycle.configPath
+      ? expandHome(a.lifecycle.configPath, home) : '';
+    return { ...a, found: !!p, path: p, pathShort: shortHome(p, home), configFile };
   }));
 }
 
@@ -105,6 +109,11 @@ function agentById(id) { return KNOWN_AGENTS.find((a) => a.id === id) || null; }
 
 function expandHome(p, home) {
   return String(p || '').replace(/^~(?=\/|$)/, home);
+}
+// The display twin: ~/.local/bin/hermes reads better than /Users/you/.local/...
+function shortHome(p, home) {
+  const s = String(p || '');
+  return home && s.startsWith(home + '/') ? '~' + s.slice(home.length) : s;
 }
 
 function shellRun(cmd) {
