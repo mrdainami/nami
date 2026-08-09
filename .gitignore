@@ -11,3 +11,14 @@ build/models/
 # here and never leaves this machine: scratch notes, screenshots, exports, keys
 # you are testing with. One rule, one folder — nothing to remember at commit time.
 _local/
+
+# Secrets, belt and braces. Nothing here should ever be in the repo — signing
+# material lives in ~/.appstoreconnect and in GitHub Secrets, never beside the
+# code. These lines exist for the day something lands here by accident, because
+# a key that reaches a commit has to be treated as burned even if the repo is
+# private: it is in the history, in every clone, and in every backup.
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision

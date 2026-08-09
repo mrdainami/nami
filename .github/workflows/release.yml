@@ -13,9 +13,13 @@
 #                       The built-in GITHUB_TOKEN cannot write to another repo.
 #   CSC_LINK            base64 of the Developer ID .p12  ) omit both and the
 #   CSC_KEY_PASSWORD    its export password               ) build is unsigned
-#   APPLE_API_KEY       base64 of the App Store Connect .p8  ) omit these and
-#   APPLE_API_KEY_ID    the key's ID                         ) it is not
-#   APPLE_API_ISSUER    the issuer UUID                      ) notarized
+#   APPLE_API_KEY_P8    base64 of the App Store Connect .p8  ) omit these and
+#   APPLE_API_KEY_ID    the key's ID                         ) it is signed
+#   APPLE_API_ISSUER    the issuer UUID                      ) but not notarized
+#
+# Note the name: electron-builder's APPLE_API_KEY is a PATH to the .p8, not its
+# contents, so the secret holds the bytes under a different name and the step
+# below writes them to a file and points APPLE_API_KEY at it.
 name: release
 
 on:
@@ -47,13 +51,21 @@ jobs:
       # The gate. A red test never becomes a download.
       - run: npm test
 
+      # The key has to exist as a file on disk — see the note at the top. Runner
+      # disks are destroyed with the job, so this never outlives the build.
+      - name: Stage the notarization key
+        if: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 --decode > "$HOME/private_keys/AuthKey.p8"
+          echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+
       # `predist` pulls the weights; the cache above usually makes it a no-op.
       - name: Build, sign, notarize and publish
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npm run dist -- --publish always
