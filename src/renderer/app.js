@@ -356,13 +356,14 @@ function buildShell() {
         </div>
         <div class="main">
           <div class="grid" id="grid"></div>
+          <div id="update-root"></div>
           <div class="footer">
             <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
             <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
           </div>
         </div>
       </div>
-      <div id="overlay-root"></div><div id="toast-root"></div><div id="update-root"></div>
+      <div id="overlay-root"></div><div id="toast-root"></div>
     </div></div>`;
 
   els = {
@@ -2820,13 +2821,12 @@ function offerUpdate(info) {
   // something already refused is how an update prompt becomes wallpaper.
   if (localStorage.getItem(SKIPPED_UPDATE) === info.version) return;
 
-  els.updateRoot.innerHTML = `<div class="update-card">
-    <div class="uc-head">Nami ${esc(info.version)} is out</div>
-    <p class="uc-note">Downloads in your browser. Quit Nami, drag the new one in, done.</p>
-    <div class="uc-acts">
-      <button class="btn btn--go" id="uc-get">Get it</button>
-      <button class="btn" id="uc-later">Not now</button>
-    </div>
+  els.updateRoot.innerHTML = `<div class="update-note">
+    <span class="un-dot"></span>
+    <span class="un-msg">Nami ${esc(info.version)} is out</span>
+    <button class="un-act" id="uc-get">download</button>
+    <span class="un-sep">·</span>
+    <button class="un-act un-quiet" id="uc-later">not now</button>
   </div>`;
 
   const close = () => { els.updateRoot.innerHTML = ''; };
