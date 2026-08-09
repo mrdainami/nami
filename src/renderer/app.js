@@ -869,6 +869,15 @@ function renderGrid() {
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
   for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
+  // Moving a node takes the keyboard with it: insertBefore below re-parents the
+  // tile, and the browser drops focus from whatever was inside it — for a
+  // session tile that is xterm's hidden textarea. Expanding a tile goes straight
+  // through here without focusPanel(), so nothing put the keyboard back and the
+  // terminal silently stopped accepting input until the tile was clicked again.
+  // Remember who had it, and give it back once the moves are done.
+  const focused = document.activeElement;
+  const focusedTile = focused && focused.closest ? focused.closest('.tile') : null;
+  const refocusId = focusedTile ? focusedTile.dataset.id : null;
   // Moving a DOM node restarts its CSS animation, so settled tiles stay put.
   let cursor = els.grid.firstElementChild;
   for (const p of S.panels) {
@@ -880,6 +889,13 @@ function renderGrid() {
     else els.grid.insertBefore(t.root, cursor);
     refreshTileHead(p);
     if (t.fit) requestAnimationFrame(() => safeFit(t));
+  }
+  // Only if the move actually cost us the keyboard — never steal it from a
+  // rename box, the rail, or an overlay that opened during the render.
+  const now = document.activeElement;
+  if (refocusId && !(now && now.closest && now.closest('.tile'))) {
+    const t = tileEls.get(refocusId);
+    if (t) { if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
   }
 }
 

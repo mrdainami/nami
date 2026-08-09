@@ -1125,6 +1125,28 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   .btn-set { display: none; }
 }
 
+/* Below here the window is narrower than half a laptop screen — a side-by-side
+   pane, not a desk. The same priority order applies inside a tile: the status
+   *word* goes first (its dot still says everything), then the text-size buttons,
+   which are the only controls a narrow tile can spare. The title never drops;
+   losing it leaves a row of anonymous buttons. */
+@media (max-width: 820px) {
+  .tile-head .t-status .lbl { display: none; }
+}
+@media (max-width: 700px) {
+  .tile-head { gap: 6px; padding: 9px 8px; }
+  .tile-head .t-zoom-in, .tile-head .t-zoom-out { display: none; }
+}
+
+/* The rail is 282px of a 560px window — more than half the desk given to a list.
+   Collapse it to its strip and let the session have the room; the ‹ toggle still
+   works, so widening the window or clicking it brings the list straight back. */
+@media (max-width: 760px) {
+  .sheet .rail { width: 46px; overflow: hidden; }
+  .sheet .rail-tabs, .sheet #rail-content { display: none; }
+  .sheet .rail-strip { display: flex; }
+}
+
 /* rail content layout (moved off inline style so collapse can override display) */
 #rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sheet.rail-collapsed .rail { width: 46px; overflow: hidden; }
