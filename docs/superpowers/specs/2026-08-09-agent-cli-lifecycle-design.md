@@ -112,7 +112,20 @@ they like, the tile closes, the sheet re-reads. Where a CLI holds several sign-i
 the button is labelled "Switch provider" and runs that CLI's own picker instead, without signing out.
 
 **Remove confirm.** Names the actual paths before touching anything, and says what survives — projects
-and files are untouched. Runs `uninstallCmd` where the CLI ships one, else deletes `removePaths`.
+and files are untouched.
+
+Removal follows three rules, in order:
+
+1. If the CLI ships its own uninstaller, run that. We are not better at removing someone else's program
+   than they are. (Hermes: `hermes uninstall`.)
+2. Otherwise delete the detected program plus the agent's *own auth file* — never a directory that can
+   hold user-authored content. `~/.claude` holds the user's skills, agents and history, so removing
+   Claude Code deletes the program alone and says so.
+3. Every deleted path must be absolute, inside `$HOME`, and not `$HOME` itself. A CLI installed to
+   `/usr/local` by a package manager is refused with an explanation, not force-deleted.
+
+Rule 2 is why `removePaths` is enumerated per agent rather than derived: "under `$HOME`" alone would
+authorise destroying the user's work.
 
 ## Data flow
 
@@ -142,8 +155,10 @@ is a pure function tested against captured real output — the `claude auth stat
 the Hermes/OpenCode/Codex `auth.json` shapes, all recorded from this machine. No CLI needed on the box
 running the tests, matching `tests/claude-args.test.mjs`.
 
-Registry integrity test: every entry with a `loginCmd` also has a `logoutCmd`, and every `removePaths`
-entry is absolute and under `$HOME`.
+Registry integrity test: every entry with a `loginCmd` also has a `logoutCmd`, every entry with
+lifecycle fields has a way to read status, and every `statusFiles` path is `~`-relative. Removal has its
+own guard tests — paths outside `$HOME`, `$HOME` itself, traversal, and prefix collisions
+(`/Users/develop` against `/Users/dev`) are all refused.
 
 ## Security
 
