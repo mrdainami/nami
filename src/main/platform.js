@@ -19,17 +19,62 @@
 
 const WIN = 'win32';
 
+// A shell so locked down it cannot run a startup file, so it can never tell us
+// where anything is. These are real login shells for service and locked
+// accounts, and picking one would silently break every probe.
+const DEAD_SHELLS = new Set(['/usr/bin/false', '/bin/false', '/usr/sbin/nologin', '/sbin/nologin', '/usr/bin/true', '/bin/true']);
+
 // The shell used to ask the user's own environment a question — "is claude on
-// your PATH", "add this MCP server". It must be a *login* shell: the whole
-// point is to see the PATH the user actually has, which on macOS is assembled
-// by .zshrc/.zprofile and is not inherited by a GUI-launched Electron app.
-function loginShell(platform = process.platform) {
+// your PATH", "add this MCP server". It must be a login shell AND an
+// interactive one. Login alone is not enough: zsh reads .zshrc only when
+// interactive, and .zshrc is where installers write their PATH lines — bun,
+// opencode and nvm among them. With `-lc` those lines are never read, so a
+// Dock-launched Nami (which inherits no PATH at all) reported perfectly
+// well-installed agents as missing. Started from a terminal it looked fine,
+// because the inherited PATH was covering for it.
+function loginShell(platform = process.platform, env = process.env) {
   if (platform === WIN) {
     // -NoProfile is deliberate and differs from the Unix branch: PowerShell
     // profiles are slow and are not where PATH comes from on Windows.
     return { file: 'powershell.exe', args: (cmd) => ['-NoProfile', '-Command', cmd] };
   }
-  return { file: '/bin/zsh', args: (cmd) => ['-lc', cmd] };
+  // Ask people in their own shell — a bash user's PATH lives in .bashrc, and
+  // zsh would never read it. Anything that is not plainly an absolute path to a
+  // usable shell falls back, since launchd does not always set SHELL for a GUI
+  // app and a wrong guess costs every detection.
+  const shell = String((env && env.SHELL) || '');
+  const file = shell.startsWith('/') && !DEAD_SHELLS.has(shell) ? shell : '/bin/zsh';
+  return { file, args: (cmd) => ['-l', '-i', '-c', cmd] };
+}
+
+// Where to look when the shell probe comes back empty — a .zshrc that prints a
+// banner, refuses to run without a tty, or does not exist must degrade to a
+// worse answer, never to "you have no agents installed". The running PATH goes
+// first (it is the truth when Nami *was* started from a terminal), then the
+// documented install location of each CLI we know about.
+function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}) {
+  const win = platform === WIN;
+  const sep = win ? '\\' : '/';
+  const join = (...parts) => parts.filter(Boolean).join(sep);
+  const fromPath = String((env && env.PATH) || '').split(win ? ';' : ':');
+  const known = win ? [
+    join(home, '.local', 'bin'),
+    join(env.APPDATA, 'npm'),
+    join(env.LOCALAPPDATA, 'Programs'),
+    join(home, '.bun', 'bin'),
+  ] : [
+    join(home, '.local/bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    join(home, '.opencode/bin'),   // opencode.ai/install
+    join(home, '.bun/bin'),        // bun-installed CLIs
+    join(home, '.cargo/bin'),
+    join(home, '.npm-global/bin'),
+    join(home, '.volta/bin'),
+    join(home, '.claude/local'),
+    '/usr/bin',
+  ];
+  return [...new Set([...fromPath, ...known].filter(Boolean))];
 }
 
 // "Is this command installed, and where?" — printing the resolved path or
@@ -75,4 +120,4 @@ function windowChrome(platform = process.platform) {
   return { titleBarStyle: 'hiddenInset' };
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome };
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs };

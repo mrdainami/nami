@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { KNOWN_AGENTS, detectAgents } = require('../src/main/agents-detect.js');
+const { KNOWN_AGENTS, detectAgents, pathFromShellOutput, findOnDisk } = require('../src/main/agents-detect.js');
 
 test('registry carries the curated six with everything the launcher needs', () => {
   const ids = KNOWN_AGENTS.map((a) => a.id);
@@ -44,6 +44,61 @@ test('detectAgents survives an exec that always throws', async () => {
 test('detectAgents treats empty output as not found', async () => {
   const out = await detectAgents({ exec: async () => '   \n' });
   assert.ok(out.every((a) => a.found === false));
+});
+
+// ---- reading a real shell's answer ----------------------------------------
+// The probe now runs an *interactive* login shell, because that is the only
+// kind that reads .zshrc. The cost is that anything the user's rc file prints —
+// a greeting, a version manager, an nvm warning — arrives on stdout ahead of
+// the answer we asked for.
+
+test('the path is picked out of a chatty rc file', () => {
+  const noisy = 'nvm: using v22\nWelcome back!\n/Users/x/.opencode/bin/opencode\n';
+  assert.equal(pathFromShellOutput(noisy), '/Users/x/.opencode/bin/opencode');
+});
+
+test('a shell that prints only a greeting reads as not installed', () => {
+  assert.equal(pathFromShellOutput('Welcome back!\nno agent here\n'), '');
+  assert.equal(pathFromShellOutput(''), '');
+  assert.equal(pathFromShellOutput(undefined), '');
+});
+
+test('the answer wins over an rc line that also looks like a path', () => {
+  // command -v runs after every startup file, so the last path is ours
+  const out = '/some/banner/path\n/opt/homebrew/bin/claude\n';
+  assert.equal(pathFromShellOutput(out), '/opt/homebrew/bin/claude');
+});
+
+test('a windows drive letter counts as a path', () => {
+  assert.equal(pathFromShellOutput('C:\\Users\\x\\claude.exe\n', 'win32'), 'C:\\Users\\x\\claude.exe');
+});
+
+// ---- the fallback when the shell tells us nothing --------------------------
+
+test('findOnDisk locates a binary the shell never mentioned', async () => {
+  const seen = [];
+  const access = async (p) => { seen.push(p); if (p !== '/Users/x/.opencode/bin/opencode') throw new Error('nope'); };
+  const found = await findOnDisk('opencode', { home: '/Users/x', env: {}, platform: 'darwin', access });
+  assert.equal(found, '/Users/x/.opencode/bin/opencode');
+  assert.ok(seen.length > 1, 'it should have tried earlier directories first');
+});
+
+test('findOnDisk returns empty rather than throwing when nothing is installed', async () => {
+  const found = await findOnDisk('kimi', {
+    home: '/Users/x', env: {}, platform: 'darwin',
+    access: async () => { throw new Error('nope'); },
+  });
+  assert.equal(found, '');
+});
+
+test('findOnDisk tries the windows extensions, since bare names are not executable there', async () => {
+  const tried = [];
+  await findOnDisk('claude', {
+    home: 'C:\\Users\\x', env: {}, platform: 'win32',
+    access: async (p) => { tried.push(p); throw new Error('nope'); },
+  });
+  assert.ok(tried.some((p) => p.endsWith('claude.exe')), 'must try .exe');
+  assert.ok(tried.some((p) => p.endsWith('claude.cmd')), 'must try .cmd (npm -g)');
 });
 
 // ---- lifecycle: who is signed in, and what we can do about it --------------
