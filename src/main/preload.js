@@ -75,4 +75,10 @@ contextBridge.exposeInMainWorld('dainami', {
   // Claude moved this tile to a different conversation (the user ran /resume).
   // The panel has to store the new id or the next launch resumes the wrong one.
   onSessionSid: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:sid', h); return () => ipcRenderer.removeListener('session:sid', h); },
+
+  // A newer Nami exists — { version, url }. Only ever fires when there is one;
+  // silence is the normal case and means nothing went wrong.
+  onUpdateAvailable: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:available', h); return () => ipcRenderer.removeListener('update:available', h); },
+  openUpdate: (url) => ipcRenderer.invoke('update:open', url),
+  appVersion: () => ipcRenderer.invoke('app:version'),
 });

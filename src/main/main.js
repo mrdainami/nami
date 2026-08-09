@@ -24,6 +24,7 @@ const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom }
 const { loginShell, windowChrome } = require('./platform');
 const { userPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
+const { checkForUpdate } = require('./update-check');
 const stt = require('./stt');
 
 let pty = null;
@@ -213,6 +214,30 @@ function broadcastRecents() {
   for (const w of wins) sendWc(w.webContents, 'recents:changed', rows);
 }
 
+// ---- updates ---------------------------------------------------------------
+// Ask GitHub what the latest release is; if it beats what is running, tell the
+// windows so they can offer it. Notify-only — see update-check.js for why.
+//
+// Never runs in development: the version in package.json is always behind the
+// last published release while working, so every launch would nag about an
+// update you are in the middle of building.
+const UPDATE_EVERY = 6 * 60 * 60 * 1000;
+let lastOffered = null;
+
+async function pollForUpdate() {
+  const found = await checkForUpdate({ currentVersion: app.getVersion() });
+  if (!found) return;
+  lastOffered = found;
+  for (const w of wins) sendWc(w.webContents, 'update:available', found);
+}
+
+function startUpdatePolling() {
+  if (!app.isPackaged) return;
+  // A beat after launch, not during it — the first seconds belong to the window.
+  setTimeout(pollForUpdate, 8000).unref?.();
+  setInterval(pollForUpdate, UPDATE_EVERY).unref?.();
+}
+
 // ---- window ----------------------------------------------------------------
 // Quit used to restore `state.currentFolder` — one slot, so three open windows
 // came back as one and which one you got was "whichever folder was touched
@@ -333,6 +358,7 @@ app.whenReady().then(() => {
   if (restore) for (const w of restore) createWindow(w.folder || null, w.bounds);
   else createWindow();
   if (process.argv.includes('--second-window')) createWindow(null); // dev: multi-window smoke test
+  startUpdatePolling();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -376,6 +402,9 @@ ipcMain.handle('boot', (e) => {
   bootSeq += 1;
   return {
     winId: bootSeq,
+    // A window opened after the check already ran would otherwise never hear
+    // about the update — the event has been and gone.
+    update: lastOffered,
     demo: DEMO,
     collapsed: process.argv.includes('--collapsed'),
     // --theme=operator forces a theme for this run (screenshots); not persisted
@@ -418,6 +447,16 @@ ipcMain.handle('recents:remove', (_e, p) => {
 });
 
 ipcMain.handle('window:new', (_e, args) => { createWindow((args && args.folder) || null); return { ok: true }; });
+
+ipcMain.handle('app:version', () => app.getVersion());
+// The one line Phase 5 replaces: today it hands the dmg to the browser, later
+// it will download and install in place. Only http(s) — the url arrives from a
+// network response, and shell.openExternal will happily run other schemes.
+ipcMain.handle('update:open', (_e, url) => {
+  const ok = /^https:\/\//i.test(String(url || ''));
+  if (ok) shell.openExternal(String(url));
+  return { ok };
+});
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
 ipcMain.handle('agents:detect', () => detectAgents());

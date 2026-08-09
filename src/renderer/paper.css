@@ -710,6 +710,19 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .toast .dot { width: 7px; height: 7px; border-radius: 50%; background: #6f8f5f; }
 .toast .msg { font-size: 12px; font-weight: 700; color: #4a3f24; }
 
+/* A note left in the corner of the desk. Dashed at rest like every other
+   resting surface, and low enough in the stack that any sheet or popover
+   covers it — an update is never the most important thing on screen. */
+.update-card {
+  position: absolute; right: 22px; bottom: 26px; z-index: 60; width: 268px;
+  padding: 13px 15px 14px; background: var(--paper);
+  border: 1px dashed var(--dash-dark); box-shadow: 5px 6px 0 var(--shadow-mid);
+  animation: rise 0.22s ease both;
+}
+.update-card .uc-head { font-family: 'Caveat', cursive; font-size: 21px; color: var(--ink); line-height: 1.1; }
+.update-card .uc-note { margin: 5px 0 11px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+.update-card .uc-acts { display: flex; gap: 8px; }
+
 /* ===== terminal-first grid + tiles ===================================== */
 .main { display: flex; flex-direction: column; }
 .grid {
