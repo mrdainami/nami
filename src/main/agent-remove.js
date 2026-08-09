@@ -33,7 +33,8 @@ function planRemoval({ id, binPath, home }) {
     return {
       mode: 'uninstall',
       command: lc.uninstall,
-      describe: [`runs ${lc.uninstall}, which ${agent.name} provides for exactly this`],
+      // The sheet prefixes this with "This runs:", so don't repeat the verb.
+      describe: [`${lc.uninstall} — the uninstaller ${agent.name} ships for exactly this`],
     };
   }
 

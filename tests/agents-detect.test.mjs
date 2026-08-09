@@ -109,3 +109,9 @@ test('agentStatus returns unknown for an id that is not in the registry', async 
   const s = await agentStatus('nope', { exec: async () => 'x', readFile: async () => null, home: '/h' });
   assert.equal(s.signedIn, null);
 });
+
+test('detectAgents expands configPath so the renderer never needs $HOME', async () => {
+  const out = await detectAgents({ exec: async () => '/bin/x', home: '/h' });
+  assert.equal(out.find((a) => a.id === 'hermes').configFile, '/h/.hermes/config.yaml');
+  assert.equal(out.find((a) => a.id === 'gemini').configFile, '', 'no lifecycle, no config file');
+});
