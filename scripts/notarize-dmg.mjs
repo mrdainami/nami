@@ -14,12 +14,20 @@
 // Runs as afterAllArtifactBuild. No credentials → skipped in silence, because
 // an unsigned local build is a normal thing to want and must not fail here.
 //
-// Note for Phase 5: stapling rewrites the dmg, so the .blockmap electron-builder
-// wrote a moment earlier no longer matches. That only costs electron-updater its
-// differential download — it falls back to fetching the whole dmg, which is what
-// it does today anyway.
+// Stapling rewrites the dmg — it grew by 2110 bytes when measured — and
+// electron-builder has already written latest-mac.yml describing the file as it
+// was a moment earlier. That file is what an auto-updater checks a download
+// against, so leaving it stale does not degrade the update, it breaks it: every
+// download fails its checksum and the app can never update itself. So the
+// entries are rewritten here from the bytes that actually shipped.
+//
+// The .blockmap is left stale on purpose. It only drives differential downloads,
+// and a mismatch there costs a full download rather than a broken one.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 
 const KEY = process.env.APPLE_API_KEY;
 const KEY_ID = process.env.APPLE_API_KEY_ID;
@@ -54,5 +62,41 @@ export default async function notarizeDmg(buildResult) {
       throw new Error(`notarizing ${name} failed:\n${detail}`);
     }
   }
+  refreshUpdateMetadata(dmgs);
   return [];
+}
+
+// sha512-base64 over the file, which is the shape electron-updater compares
+// against. Verified by recomputing electron-builder's own value for an
+// un-stapled dmg and getting a byte-identical string back.
+function digest(file) {
+  return createHash('sha512').update(fs.readFileSync(file)).digest('base64');
+}
+
+export function refreshUpdateMetadata(dmgs) {
+  const byName = new Map(dmgs.map((p) => [path.basename(p), p]));
+  const dirs = new Set(dmgs.map((p) => path.dirname(p)));
+  for (const dir of dirs) {
+    const ymlPath = path.join(dir, 'latest-mac.yml');
+    let doc;
+    try { doc = yaml.load(fs.readFileSync(ymlPath, 'utf8')); } catch (_) { continue; }
+    if (!doc || !Array.isArray(doc.files)) continue;
+
+    let changed = false;
+    for (const entry of doc.files) {
+      const file = byName.get(entry.url);
+      if (!file) continue;
+      const sha512 = digest(file);
+      const size = fs.statSync(file).size;
+      if (entry.sha512 === sha512 && entry.size === size) continue;
+      // the top-level path/sha512 mirror whichever file `path` names
+      if (doc.path === entry.url) { doc.sha512 = sha512; }
+      entry.sha512 = sha512;
+      entry.size = size;
+      changed = true;
+    }
+    if (!changed) continue;
+    fs.writeFileSync(ymlPath, yaml.dump(doc, { lineWidth: -1 }));
+    console.log(`  • ${path.basename(ymlPath)} rewritten for the stapled dmg(s)`);
+  }
 }
