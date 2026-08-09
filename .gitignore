@@ -1,5 +1,8 @@
 node_modules/
 dist/
+release/
 shots/
+# 42MB of Whisper weights, fetched by `npm run fetch-model` at package time
+build/models/
 .DS_Store
 .claude/worktrees/

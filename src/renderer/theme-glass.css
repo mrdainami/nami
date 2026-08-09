@@ -66,6 +66,8 @@ body[data-theme="glass"] {
   --gl-pane: rgba(255, 255, 255, 0.48);
   --gl-pane-strong: rgba(255, 255, 255, 0.62);
   --gl-pane-dim: rgba(255, 255, 255, 0.24);
+  /* modals sit over live terminal text — a pane-strong fill lets it read through */
+  --gl-pane-modal: rgba(255, 255, 255, 0.86);
   --gl-rim: rgba(255, 255, 255, 0.75);
   --gl-rim-hi: rgba(255, 255, 255, 0.95);
   --gl-rim-dim: rgba(255, 255, 255, 0.45);
@@ -74,9 +76,9 @@ body[data-theme="glass"] {
   --gl-seg-track: rgba(120, 120, 138, 0.14);
   --gl-seg-active: rgba(255, 255, 255, 0.82);
   --gl-bar-track: rgba(120, 120, 138, 0.22);
-  --gl-well: rgba(255, 255, 255, 0.44);
-  --gl-well-line: rgba(255, 255, 255, 0.65);
-  --gl-well-lip: rgba(255, 255, 255, 0.6);
+  --gl-well: rgba(226, 228, 237, 0.6);
+  --gl-well-line: rgba(255, 255, 255, 0.8);
+  --gl-well-lip: rgba(255, 255, 255, 0.75);
   --gl-slab:
     inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
     inset 0 14px 30px rgba(255, 255, 255, 0.3),
@@ -107,6 +109,9 @@ body[data-glass] {
   --gl-mono: 'SF Mono', ui-monospace, Menlo, monospace;
   --gl-dot: 'Doto', 'SF Mono', ui-monospace, monospace;
   --gl-pop: cubic-bezier(0.22, 1.28, 0.36, 1);
+  /* the sheet's corner, named once: the overlay scrim has to trace the same
+     curve or it reads as a square dropped on a rounded workbench */
+  --gl-sheet-r: 26px;
   font-family: var(--gl-sans);
   letter-spacing: -0.01em;
   /* pixel cursor — ink arrow at rest */
@@ -137,7 +142,7 @@ body[data-glass] .sheet {
   -webkit-backdrop-filter: blur(8px) saturate(1.25);
   backdrop-filter: blur(8px) saturate(1.25);
   border: 1px solid var(--gl-rim-dim);
-  border-radius: 26px;
+  border-radius: var(--gl-sheet-r);
   box-shadow: inset 0 1.5px 0 var(--gl-lip), inset 0 -18px 44px rgb(var(--gl-sh) / 0.08), 0 40px 100px rgb(var(--gl-sh) / 0.22);
 }
 
@@ -158,7 +163,7 @@ body[data-glass] .sv-bigok-t { font-family: var(--gl-dot); font-weight: 800; }
 body[data-glass] .say--user { font-family: var(--gl-sans); font-size: 13px; line-height: 1.6; border-left-color: var(--gl-accent); }
 
 body[data-glass] .brand-name { font-size: 19px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
-body[data-glass] .brand-sub { font-family: var(--gl-dot); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; align-self: center; padding-bottom: 0; }
+body[data-glass] .brand-sub { font-family: var(--gl-dot); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; align-self: flex-end; padding-bottom: 4px; }
 body[data-glass] .nami-mascot {
   --nami-foam: transparent;
   height: 25px;
@@ -191,14 +196,16 @@ body[data-glass] .tile,
 body[data-glass] .card,
 body[data-glass] .nav-card {
   background: var(--gl-pane);
-  -webkit-backdrop-filter: blur(26px) saturate(1.7);
-  backdrop-filter: blur(26px) saturate(1.7);
+  /* blur is the perf budget: panes only, kept moderate — buttons/chips are
+     translucent without live blur so moving glass stays cheap */
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
   border: 1px solid var(--gl-rim);
   border-radius: 22px;
   box-shadow: var(--gl-slab), 0 24px 55px rgb(var(--gl-sh) / 0.16), 0 2px 8px rgb(var(--gl-sh) / 0.06);
   transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
-  transition: transform 0.22s ease-out, box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
-  will-change: transform;
+  /* 90ms: the tilt tracks the hand instead of dragging behind it */
+  transition: transform 0.09s ease-out, box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
 }
 body[data-glass] .nav-card { border-radius: 17px; }
 body[data-glass] .tile:hover, body[data-glass] .card:hover {
@@ -213,12 +220,19 @@ body[data-glass] .nav-card:hover {
   border-color: var(--gl-rim-hi);
   box-shadow: var(--gl-slab), 0 22px 48px rgb(var(--gl-sh) / 0.2);
 }
+/* Terminal tiles stay perfectly flat: a 3D transform makes Chromium rasterize
+   the terminal's DOM text as a texture, and the hover lift's translateZ scale
+   then stretches it. Terminals keep the slab shadows; depth without geometry. */
+body[data-glass] .tile:has(.term-body),
+body[data-glass] .tile:has(.term-body):hover {
+  transform: none;
+}
 body[data-glass] .tile.active {
   border-color: rgba(255, 170, 165, 0.85);
-  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.55), 0 24px 55px rgba(239, 100, 97, 0.18), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.55), 0 20px 40px rgba(239, 100, 97, 0.14), 0 2px 8px rgb(var(--gl-sh) / 0.06);
 }
 body[data-glass] .tile.active:hover {
-  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.6), 0 42px 90px rgba(239, 100, 97, 0.25), 0 4px 14px rgb(var(--gl-sh) / 0.08);
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.6), 0 32px 70px rgba(239, 100, 97, 0.2), 0 4px 14px rgb(var(--gl-sh) / 0.08);
 }
 body[data-glass] .tile.attention { border-color: var(--gl-accent); animation: gl-breathe 1.8s ease-in-out infinite; }
 @keyframes gl-breathe {
@@ -238,13 +252,21 @@ body[data-glass] .tile-head { border-bottom: none; background: none; padding-top
 body[data-glass] .tile-head .t-title, body[data-glass] .peek-head .pk-title { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
 body[data-glass] .nav-card .goal { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
 body[data-glass] .nav-card .sid { font-family: var(--gl-mono); }
-body[data-glass] .nav-card .status { font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em; }
+body[data-glass] .nav-card .status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: color-mix(in srgb, currentColor 13%, transparent);
+}
+body[data-glass] .t-status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: var(--gl-pane-dim);
+}
 body[data-glass] .t-btn { border-radius: 999px; }
 body[data-glass] .t-btn:hover { background: var(--gl-pane-strong); }
 body[data-glass] .status-chip {
   transform: none; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
   font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.1em;
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
 
 /* ---- topbar ----------------------------------------------------------------- */
@@ -252,7 +274,6 @@ body[data-glass] .topbar { border-bottom: none; }
 body[data-glass] .project-chip {
   transform: none; border-radius: 999px;
   background: var(--gl-pane); border: 1px solid var(--gl-rim);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
   box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.08);
   transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease;
 }
@@ -264,7 +285,16 @@ body[data-glass] .projects-pop {
   border: 1px solid var(--gl-rim);
   box-shadow: var(--gl-slab), 0 30px 80px rgb(var(--gl-sh) / 0.28);
 }
-body[data-glass] .project-row { border-bottom-color: var(--dash); }
+body[data-glass] .projects-pop { padding: 10px; }
+body[data-glass] .pop-label { font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.2em; color: var(--muted); }
+body[data-glass] .project-row { border: none; border-radius: 12px; margin: 1px 0; }
+body[data-glass] .project-row:hover { background: var(--hover); }
+body[data-glass] .project-row .row-newwin { border-radius: 8px; }
+body[data-glass] .project-row .row-newwin:hover { border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .project-open-other {
+  border: 1px solid var(--gl-rim-dim); border-radius: 12px; background: var(--gl-pane-dim); margin-top: 6px;
+}
+body[data-glass] .project-open-other:hover { background: var(--gl-pane); border-color: var(--gl-rim); }
 body[data-glass] .live-badge {
   transform: none; border-radius: 999px; color: var(--muted);
   border: 1px solid var(--gl-rim); background: var(--gl-pane);
@@ -278,26 +308,61 @@ body[data-glass] .btn {
   font-family: var(--gl-dot); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
   border-radius: 999px;
   background: var(--gl-pane); border: 1px solid var(--gl-rim);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
   box-shadow: var(--gl-slab), 0 4px 14px rgb(var(--gl-sh) / 0.07);
   transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
 }
 body[data-glass] .btn:hover { transform: translateY(-2.5px); background: var(--gl-pane-strong); border-color: var(--gl-rim-hi); box-shadow: var(--gl-slab), 0 12px 28px rgb(var(--gl-sh) / 0.15); }
 body[data-glass] .btn:active { transform: translateY(0) scale(0.96); transition-duration: 0.12s; }
+body[data-glass] #btn-theme, body[data-glass] #btn-settings {
+  width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+}
+body[data-glass] #btn-theme .uni-i, body[data-glass] #btn-settings .uni-i { display: none; }
+body[data-glass] #btn-theme .pix-i, body[data-glass] #btn-settings .pix-i { margin: 0; }
+body[data-glass] #btn-theme .pix-glyph, body[data-glass] #btn-settings .pix-glyph { width: 14px; height: 14px; }
+/* tile buttons: capsule glass, mic in ink, zoom pair reads as one control */
+body[data-glass] .t-btn { border-radius: 999px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .t-btn .pix-glyph { width: 12px; height: 12px; }
+body[data-glass] .t-mic { color: var(--ink); }
+body[data-glass] .t-mic:hover { color: var(--gl-accent-deep); }
+/* The primary action glows, it doesn't cast. A single offset drop shadow
+   (0 8px 24px) pooled below the pill and hit .topbar's overflow clip 23px down,
+   so it read as a rectangle with a straight edge cut under the button. Every
+   outer layer here is zero-offset, so the halo follows the 999px radius all the
+   way round, and the widest stays under that 23px of headroom. */
 body[data-glass] .btn--go {
   color: #fff;
   background: linear-gradient(150deg, rgba(255, 142, 136, 0.95) 0%, rgba(236, 88, 85, 0.92) 100%);
   border-color: rgba(255, 180, 175, 0.9);
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.6), inset 0 -10px 22px rgba(160, 30, 30, 0.25), 0 8px 24px rgba(239, 100, 97, 0.4);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(160, 30, 30, 0.25),
+    0 0 0 1px rgba(239, 100, 97, 0.3),
+    0 0 9px rgba(239, 100, 97, 0.45),
+    0 0 20px rgba(239, 100, 97, 0.28);
 }
 body[data-glass] .btn--go:hover {
   background: linear-gradient(150deg, rgba(255, 152, 146, 0.98) 0%, rgba(240, 95, 92, 0.95) 100%);
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.6), inset 0 -10px 22px rgba(160, 30, 30, 0.25), 0 14px 36px rgba(239, 100, 97, 0.55);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(160, 30, 30, 0.25),
+    0 0 0 1px rgba(239, 100, 97, 0.45),
+    0 0 11px rgba(239, 100, 97, 0.55),
+    0 0 22px rgba(239, 100, 97, 0.38);
 }
 body[data-glass] .btn--amber, body[data-glass] .btn--red { box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.1); border-radius: 999px; }
 
 /* ---- rail --------------------------------------------------------------------- */
 body[data-glass] .rail { border-right: none; background: none; }
+/* the segmented pill needs outer margins (paper spaced with padding we replaced),
+   and the scroller needs headroom so a lifted card never clips under the header */
+body[data-glass] .rail-tabs { margin: 12px 16px 8px; }
+body[data-glass] .rail-head { padding: 4px 20px 6px; }
+body[data-glass] .rail-list {
+  padding: 10px 16px 18px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+body[data-glass] .nav-card:hover { z-index: 3; }
 body[data-glass] .rail-tabs, body[data-glass] .card-tabs {
   border-radius: 999px; padding: 3px; gap: 2px;
   background: var(--gl-seg-track);
@@ -336,17 +401,35 @@ body[data-glass] .code, body[data-glass] .swatch, body[data-glass] .artifact .ki
 
 /* ---- main canvas ---------------------------------------------------------------- */
 body[data-glass] .main { background: none; }
-body[data-glass] .grid { background: none; }
+body[data-glass] .grid {
+  background: none;
+  /* the grid is a scroller, so pane glows would slice flat at its bounds —
+     the exact "separator line" against the rail and the shortcut bar.
+     Fade the edges instead: glass melts into the frame. */
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  mask-composite: intersect;
+}
 body[data-glass] .lane-empty .hint { color: var(--muted); }
 
-/* terminals, editors, logs: the frosted well — same glass, sunk not floating */
-body[data-glass] .term-wrap {
-  background: var(--gl-well);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
-  border: 1px solid var(--gl-well-line);
-  border-radius: 15px;
-  box-shadow: inset 0 2px 8px rgb(var(--gl-sh) / 0.12), inset 0 -1px 0 var(--gl-well-lip);
-}
+/* terminals sit flush on the glass pane — no inner box, so any CLI's own TUI
+   (claude, opencode, …) reads as the tile's content instead of a box-in-a-box.
+   All horizontal breathing room lives on .xterm because FitAddon only subtracts
+   that element's padding when computing columns; the parent stays at zero. */
+/* The glass body sets letter-spacing: -0.01em for tight premium tracking, and it
+   inherits into xterm's hidden char-measuring element — xterm then sizes a cell
+   0.16px narrower than the font really paints, computes too many columns, and
+   every line runs past the pane and loses its tail. Terminals opt out of
+   tracking entirely so measured width == painted width. */
+body[data-glass] .term-body,
+body[data-glass] .term-body .xterm { letter-spacing: normal; }
+body[data-glass] .term-body { padding: 0; }
+body[data-glass] .term-body .xterm { padding: 8px 14px 8px 12px; }
 body[data-glass] .ed-gutter { color: var(--faint); background: none; }
 body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
 body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }
@@ -378,7 +461,6 @@ body[data-glass] .md-read blockquote { border-left-color: var(--gl-accent); }
 body[data-glass] .approval, body[data-glass] .stopped {
   transform: none; border-radius: 14px; box-shadow: none;
   background: var(--amber-bg); border: 1px solid var(--gl-rim-dim);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
 body[data-glass] .step .box { border-color: rgba(46, 125, 79, 0.5); border-radius: 6px; }
 body[data-glass] .step.done .box { background: rgba(46, 125, 79, 0.15); border-color: rgba(46, 125, 79, 0.5); }
@@ -393,16 +475,38 @@ body[data-glass] .viewer .vw-stage img { border-color: var(--gl-rim); box-shadow
 
 /* ---- footer ---------------------------------------------------------------------- */
 body[data-glass] .footer {
-  border-top: none;
+  border-top: none; background: none; padding: 12px 22px 15px;
   font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
 }
 body[data-glass] .footer .path { font-family: var(--gl-mono); text-transform: none; letter-spacing: 0; }
 
 /* ---- overlays ---------------------------------------------------------------------- */
-body[data-glass] .overlay { background: rgb(var(--gl-sh) / 0.3); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+/* The scrim rides on a pseudo, not on .overlay itself, so it can be rounded and
+   masked without touching the modal sitting on it. .overlay is inset:0 inside the
+   sheet, so a square scrim puts hard corners across the sheet's 26px curve and the
+   dim reads as a rectangle dropped on the workbench. It traces the sheet instead,
+   and fades in over the last 20px so no side starts on a line.
+   ::before is first in DOM order and .overlay > * is position:relative
+   (paper.css), so the modal paints on top without any z-index. */
+body[data-glass] .overlay { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-glass] .overlay::before {
+  content: ''; position: absolute; inset: 0;
+  /* inset:0 lands on the sheet's PADDING box, inside its 1px border */
+  border-radius: calc(var(--gl-sheet-r) - 1px);
+  background: rgb(var(--gl-sh) / 0.3);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  mask-composite: intersect;
+}
 body[data-glass] .modal, body[data-glass] .picker-box,
 body[data-glass] .setup-box, body[data-glass] .peek-box {
-  background: var(--gl-pane-strong);
+  background: var(--gl-pane-modal);
   -webkit-backdrop-filter: blur(34px) saturate(1.7); backdrop-filter: blur(34px) saturate(1.7);
   border: 1px solid var(--gl-rim);
   border-radius: 24px; --rest: scale(1); transform: var(--rest);

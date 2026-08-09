@@ -1,23 +1,31 @@
 {
-  "name": "dainami-cli",
-  "productName": "Dainami CLI",
+  "name": "nami",
+  "productName": "Nami",
   "version": "0.1.0",
-  "description": "Dainami CLI — the paper agent workbench. Open a folder, run Claude Code and terminal sessions as paper session cards.",
+  "description": "Nami — AI agent workbench, by Dainami. Open a folder, run Claude Code and terminal sessions as paper session cards.",
   "main": "src/main/main.js",
   "author": "Calvin Hia",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.mjs",
-    "shot": "electron . --demo --screenshot shots/app.png"
+    "shot": "electron . --demo --screenshot shots/app.png",
+    "fetch-model": "node scripts/fetch-model.mjs",
+    "prepack": "npm run fetch-model",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.224",
     "@lydell/node-pty": "^1.2.0-beta.14",
     "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0"
+    "@xterm/xterm": "^6.0.0",
+    "@huggingface/transformers": "3.8.1",
+    "onnxruntime-node": "1.21.0"
   },
   "devDependencies": {
-    "electron": "^43.3.0"
-  }
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "//deps": "transformers and onnxruntime-node are pinned exactly on purpose: a v3→v4 transformers bump swaps the tokenizer and the wasm-vendoring story, and onnxruntime-node's prebuilt-binary layout moves between napi generations. Re-pin deliberately, never by caret drift. Packaging lives in electron-builder.yml."
 }
