@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { claudeCandidates } = require('./platform.js');
 
 // The SDK is ESM; main is CJS — load it once via dynamic import.
 let sdkPromise = null;
@@ -15,13 +16,7 @@ function loadSdk() {
 
 // Find the user's logged-in claude binary so the session runs on their subscription, not an API key.
 function resolveClaudeExecutable() {
-  const candidates = [
-    process.env.CLAUDE_CODE_EXECUTABLE,
-    path.join(os.homedir(), '.local/bin/claude'),
-    '/opt/homebrew/bin/claude',
-    '/usr/local/bin/claude',
-    path.join(os.homedir(), '.claude/local/claude'),
-  ];
+  const candidates = claudeCandidates({ home: os.homedir(), env: process.env });
   for (const c of candidates) {
     try { if (c && fs.existsSync(c)) return c; } catch (_) {}
   }
