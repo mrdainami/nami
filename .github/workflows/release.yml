@@ -1,0 +1,71 @@
+# Tag a version, get an installer. Nothing else publishes.
+#
+# This is the wall between working and shipping: master moves as freely as you
+# like and nobody downloads it. Only a `v*` tag becomes something a user can
+# install, and it is built from a clean checkout by a machine that has never
+# seen your desk — so what ships is exactly what is committed, never what
+# happened to be lying around locally.
+#
+#   npm version patch && git push --follow-tags
+#
+# Secrets this needs, all set in the SOURCE repo's settings:
+#   RELEASES_TOKEN      PAT with `repo` scope on mrdainami/nami-releases.
+#                       The built-in GITHUB_TOKEN cannot write to another repo.
+#   CSC_LINK            base64 of the Developer ID .p12  ) omit both and the
+#   CSC_KEY_PASSWORD    its export password               ) build is unsigned
+#   APPLE_API_KEY       base64 of the App Store Connect .p8  ) omit these and
+#   APPLE_API_KEY_ID    the key's ID                         ) it is not
+#   APPLE_API_ISSUER    the issuer UUID                      ) notarized
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 44 MB of Whisper weights, gitignored and fetched at pack time. Keyed on
+      # the fetch script so a model change busts the cache and nothing else does.
+      - name: Cache Whisper weights
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/fetch-model.mjs', 'src/main/stt-model.js') }}
+
+      - run: npm ci
+
+      # The gate. A red test never becomes a download.
+      - run: npm test
+
+      # `predist` pulls the weights; the cache above usually makes it a no-op.
+      - name: Build, sign, notarize and publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run dist -- --publish always
+
+      # A dmg that Gatekeeper rejects is worse than no dmg, and the failure is
+      # silent at build time — so say plainly what came out.
+      - name: Report what shipped
+        if: always()
+        run: |
+          for app in release/mac*/Nami.app; do
+            [ -d "$app" ] || continue
+            echo "== $app"
+            codesign -dv "$app" 2>&1 | grep -E 'Identifier|TeamIdentifier' || echo "  unsigned"
+            spctl -a -vvv -t install "$app" 2>&1 | tail -2 || true
+          done

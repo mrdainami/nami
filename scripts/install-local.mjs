@@ -6,7 +6,7 @@
 // point of this script — the copying is the easy part.
 //
 // Until the update bar lands (Phase 3), this is the loop: pack, install, relaunch.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,13 +43,10 @@ fs.cpSync(built, target, { recursive: true, verbatimSymlinks: true });
 const version = execFileSync('/usr/libexec/PlistBuddy',
   ['-c', 'Print CFBundleShortVersionString', path.join(target, 'Contents', 'Info.plist')],
   { encoding: 'utf8' }).trim();
-let signed = 'unsigned';
-try {
-  const out = execFileSync('/usr/bin/codesign', ['-dv', target], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  signed = /TeamIdentifier=(\S+)/.exec(out)?.[1] || 'unsigned';
-} catch (e) {
-  const err = String(e.stderr || '');
-  signed = /TeamIdentifier=(\S+)/.exec(err)?.[1] || 'unsigned';
-}
+// codesign writes its report to stderr even when it succeeds, so read both
+// streams. Reading only stdout called a correctly signed app "unsigned" — the
+// one line here you'd actually check before handing the build to anyone.
+const cs = spawnSync('/usr/bin/codesign', ['-dv', target], { encoding: 'utf8' });
+const signed = /TeamIdentifier=(\S+)/.exec(String(cs.stdout || '') + String(cs.stderr || ''))?.[1] || 'unsigned';
 console.log(`installed ${target}`);
 console.log(`  version ${version}  ·  built ${builtAt.toLocaleString()}  ·  team ${signed}`);

@@ -4,6 +4,22 @@ directories:
   output: release
   buildResources: build
 
+# Releases go to a DIFFERENT repo from the source, and that is the point.
+#
+# The source repo is private and stays private — it holds specs, plans and
+# working notes that are nobody's business. But an app that updates itself has
+# to read its update feed from somewhere public: pointing it at a private repo
+# would mean shipping a GitHub token inside every copy, which makes the repo
+# public in the worst possible way. So the installer and its update metadata
+# live alone in nami-releases, with no source beside them.
+#
+# CI therefore needs a token that can write to nami-releases; the repo's own
+# GITHUB_TOKEN only reaches its own repo. See .github/workflows/release.yml.
+publish:
+  provider: github
+  owner: mrdainami
+  repo: nami-releases
+
 files:
   - src/**/*
   - package.json
