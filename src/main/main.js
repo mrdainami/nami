@@ -251,7 +251,12 @@ function lockNavigation(wc) {
 // omit it for the last-used folder, pass null for an empty window.
 function createWindow(folder, bounds) {
   const w = new BrowserWindow({
-    width: 1360, height: 940, minWidth: 1040, minHeight: 700,
+    // The floor is what the layout survives, not what looks best: below 560 the
+    // tile head runs out of room even with its controls dropped. Nami is often a
+    // side pane next to an editor, so the old 1040 floor — wider than half a
+    // laptop screen — made that impossible. See the narrow-window media queries
+    // at the foot of paper.css.
+    width: 1360, height: 940, minWidth: 560, minHeight: 480,
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
     ...windowChrome(),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
