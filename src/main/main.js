@@ -700,7 +700,7 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
     if (transcript) watchTitle(id, wc, transcript);
     if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
     else { file = shellPath; afterStart = ['claude', ...claudeArgs].join(' '); }
-    if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + ' SEED '; // handled below
+    if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + '\u0000SEED\u0000'; // handled below
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
@@ -724,7 +724,7 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
   p.onExit(({ exitCode }) => { termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id); sendWc(wc, 'term:exit', { id, code: exitCode }); });
 
   // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
-  if (afterStart && afterStart.indexOf(' SEED ') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
+  if (afterStart && afterStart.indexOf('\u0000SEED\u0000') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
   else if (afterStart) setTimeout(() => { try { p.write('claude\r'); } catch (_) {} }, 200);
 
   // Seed a first message into an interactive session once it's ready
