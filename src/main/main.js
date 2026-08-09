@@ -39,6 +39,14 @@ if (SHOT_PATH) {
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
 }
 
+// `productName: Nami` resolves the same packaged and unpackaged, so a dev run and the
+// installed Nami.app would otherwise share one userData — the same state.json (recents,
+// open windows) and settings.json (theme, API keys, mode 0600). That makes the shipped
+// app impossible to daily-drive while developing, and makes a clean first launch
+// impossible to see at all without deleting your own config. Development gets its own
+// directory instead. Must run before anything reads userData, hence module scope.
+if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
+
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
 const winFolders = new Map();     // webContents.id -> folder that window works in
