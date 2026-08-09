@@ -6,3 +6,8 @@ shots/
 build/models/
 .DS_Store
 .claude/worktrees/
+
+# Your desk. Anything personal, half-finished, or nobody-else's-business goes
+# here and never leaves this machine: scratch notes, screenshots, exports, keys
+# you are testing with. One rule, one folder — nothing to remember at commit time.
+_local/
