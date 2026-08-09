@@ -3,10 +3,12 @@
 // from .zshrc/.zprofile count; exec is injectable for tests.
 // Install commands and docs links verified against official sources 2026-08-08.
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
+const path = require('node:path');
 const { parseAgentStatus } = require('./agent-status.js');
-const { loginShell, whichCommand } = require('./platform.js');
+const { loginShell, whichCommand, binSearchDirs } = require('./platform.js');
 
 const KNOWN_AGENTS = [
   { id: 'claude', name: 'Claude Code', bin: 'claude', kind: 'claude',
@@ -79,14 +81,49 @@ const KNOWN_AGENTS = [
     docs: 'https://moonshotai.github.io/kimi-code/en/' },
 ];
 
-function shellWhich(bin) {
+// An interactive shell reads the user's rc file — which is the point — but that
+// also means anything the rc file prints lands on stdout before our answer.
+// `command -v` runs last, so the last path-shaped line is the one we asked for.
+function pathFromShellOutput(stdout, platform = process.platform) {
+  const looksAbsolute = platform === 'win32' ? /^[a-zA-Z]:\\/ : /^\//;
+  const lines = String(stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) if (looksAbsolute.test(lines[i])) return lines[i];
+  return '';
+}
+
+// Last resort. The shell probe is better — it knows about PATH edits we could
+// never guess — but it can come back empty for reasons that have nothing to do
+// with whether the agent is installed: an rc file that needs a tty, a shell we
+// mis-guessed, a timeout. Walking the known install directories is a worse
+// answer that is still far better than telling someone their agent is missing.
+async function findOnDisk(bin, { home = os.homedir(), env = process.env, platform = process.platform, access } = {}) {
+  const canRun = access || ((p) => fsp.access(p, fs.constants.X_OK));
+  const exts = platform === 'win32' ? ['.exe', '.cmd', '.bat'] : [''];
+  for (const dir of binSearchDirs({ home, env, platform })) {
+    for (const ext of exts) {
+      const p = path.join(dir, bin + ext);
+      try { await canRun(p); return p; } catch (_) { /* keep looking */ }
+    }
+  }
+  return '';
+}
+
+function runLoginShell(cmd) {
   const sh = loginShell();
   return new Promise((resolve, reject) => {
-    execFile(sh.file, sh.args(whichCommand(bin)), { timeout: 8000 }, (err, stdout) => {
+    // stdin is closed deliberately: an interactive shell that decides to prompt
+    // would otherwise sit there until the timeout with the launcher waiting.
+    execFile(sh.file, sh.args(cmd), { timeout: 8000, stdio: ['ignore', 'pipe', 'pipe'] }, (err, stdout) => {
       if (err) return reject(err);
-      resolve(String(stdout || '').trim());
+      resolve(String(stdout || ''));
     });
   });
+}
+
+async function shellWhich(bin) {
+  let out = '';
+  try { out = await runLoginShell(whichCommand(bin)); } catch (_) { out = ''; }
+  return pathFromShellOutput(out) || findOnDisk(bin);
 }
 
 async function detectAgents({ exec = shellWhich, home = os.homedir() } = {}) {
@@ -118,15 +155,7 @@ function shortHome(p, home) {
   return home && s.startsWith(home + '/') ? '~' + s.slice(home.length) : s;
 }
 
-function shellRun(cmd) {
-  const sh = loginShell();
-  return new Promise((resolve, reject) => {
-    execFile(sh.file, sh.args(cmd), { timeout: 8000 }, (err, stdout) => {
-      if (err) return reject(err);
-      resolve(String(stdout || ''));
-    });
-  });
-}
+const shellRun = runLoginShell;
 async function readIfPresent(p) {
   try { return await fsp.readFile(p, 'utf8'); } catch (_) { return null; }
 }
@@ -156,4 +185,4 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
   }
 }
 
-module.exports = { KNOWN_AGENTS, detectAgents, agentStatus, agentById, expandHome };
+module.exports = { KNOWN_AGENTS, detectAgents, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };

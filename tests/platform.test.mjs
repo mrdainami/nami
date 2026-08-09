@@ -3,16 +3,36 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { loginShell, whichCommand, claudeCandidates, windowChrome } = require('../src/main/platform.js');
+const { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs } = require('../src/main/platform.js');
 
 // The point of this module is that platform is a parameter, so the win32 branch
 // can be exercised from a Mac. Every test passes it explicitly; none of them
 // depend on where they run.
 
-test('detection runs through a login shell, so PATH from .zshrc counts', () => {
-  const sh = loginShell('darwin');
+// zsh reads .zshrc only for *interactive* shells. `-lc` is login but not
+// interactive, so every PATH line in .zshrc — which is where installers write,
+// opencode and bun included — was invisible. It only ever worked when the app
+// was started from a terminal and inherited that PATH; launched from the Dock
+// there is nothing to inherit and the agent reads as "not installed".
+test('detection runs an interactive login shell, so PATH from .zshrc counts', () => {
+  const sh = loginShell('darwin', {});
   assert.equal(sh.file, '/bin/zsh');
-  assert.deepEqual(sh.args('command -v claude'), ['-lc', 'command -v claude']);
+  // separate flags, not a combined -lic: zsh and bash accept the bundle but
+  // fish parses each flag on its own, and a fish user is a real user
+  assert.deepEqual(sh.args('command -v claude'), ['-l', '-i', '-c', 'command -v claude']);
+});
+
+test('a bash or fish user is asked in their own shell, not zsh', () => {
+  assert.equal(loginShell('darwin', { SHELL: '/bin/bash' }).file, '/bin/bash');
+  assert.equal(loginShell('darwin', { SHELL: '/opt/homebrew/bin/fish' }).file, '/opt/homebrew/bin/fish');
+});
+
+test('an unusable $SHELL falls back to zsh rather than failing every probe', () => {
+  // launchd does not always set SHELL for a GUI app, and /usr/bin/false is a
+  // real login shell for locked accounts — neither may take the app down
+  assert.equal(loginShell('darwin', {}).file, '/bin/zsh');
+  assert.equal(loginShell('darwin', { SHELL: '/usr/bin/false' }).file, '/bin/zsh');
+  assert.equal(loginShell('darwin', { SHELL: 'relative/zsh' }).file, '/bin/zsh');
 });
 
 test('windows runs powershell without a profile', () => {
@@ -65,6 +85,39 @@ test('a missing APPDATA drops that candidate instead of producing a bogus path',
 
 test('claudeCandidates survives being called with nothing', () => {
   assert.doesNotThrow(() => claudeCandidates());
+});
+
+// The shell probe is the primary answer, but a .zshrc that prints a banner,
+// errors without a tty, or is simply absent must not turn into "no agents
+// installed". These are the places the six CLIs actually put themselves.
+test('the fallback knows where each installer drops its binary', () => {
+  const dirs = binSearchDirs({ home: '/Users/x', env: {}, platform: 'darwin' });
+  for (const d of ['/Users/x/.local/bin', '/opt/homebrew/bin', '/usr/local/bin',
+                   '/Users/x/.opencode/bin', '/Users/x/.bun/bin']) {
+    assert.ok(dirs.includes(d), `${d} must be searched`);
+  }
+});
+
+test('the fallback searches the running PATH first, then the known locations', () => {
+  const dirs = binSearchDirs({ home: '/Users/x', env: { PATH: '/first:/second' }, platform: 'darwin' });
+  assert.equal(dirs[0], '/first');
+  assert.equal(dirs[1], '/second');
+  assert.ok(dirs.includes('/opt/homebrew/bin'));
+});
+
+test('the fallback never returns the same directory twice', () => {
+  const dirs = binSearchDirs({ home: '/Users/x', env: { PATH: '/opt/homebrew/bin' }, platform: 'darwin' });
+  assert.equal(dirs.filter((d) => d === '/opt/homebrew/bin').length, 1);
+});
+
+test('windows splits PATH on semicolons, not colons', () => {
+  const dirs = binSearchDirs({ home: 'C:\\Users\\x', env: { PATH: 'C:\\a;C:\\b' }, platform: 'win32' });
+  assert.ok(dirs.includes('C:\\a') && dirs.includes('C:\\b'),
+    'a colon split would turn C:\\a into "C" and "\\a"');
+});
+
+test('binSearchDirs survives being called with nothing', () => {
+  assert.doesNotThrow(() => binSearchDirs());
 });
 
 test('mac keeps the traffic lights inset over our own header', () => {

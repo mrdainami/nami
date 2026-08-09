@@ -22,6 +22,7 @@ const fsActions = require('./fs-actions');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
+const { userPath } = require('./user-path');
 const stt = require('./stt');
 
 let pty = null;
@@ -295,6 +296,10 @@ function reapSessions(wcId) {
 
 app.whenReady().then(() => {
   loadState();
+  // Ask the login shell for the real PATH now, so the answer is already waiting
+  // when the first session spawns. Deliberately not awaited: a slow .zshrc must
+  // delay a terminal, never the window.
+  userPath();
   // point the on-device engine at its weights, then warm the session in the
   // background so the first dictation isn't the slow one
   try {
@@ -671,8 +676,15 @@ ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id
 
 // Every session inherits the saved Keys as env vars. A key saved in Nami wins
 // over the shell's own export — what you set in the app is what runs.
-function sessionEnv() {
+//
+// `path` is the user's real login PATH, not the one this process was handed.
+// Launched from the Dock that difference is everything: launchd gives an app
+// four directories, so an agent spawned with it cannot find node, git, or any
+// tool the user installed. A shell tile papers over this by sourcing .zshrc on
+// its way up, but anything spawned directly — claude, a harness — does not.
+function sessionEnv(path) {
   const env = Object.assign({}, process.env, { TERM: 'xterm-256color', FORCE_COLOR: '1' });
+  if (path) env.PATH = path;
   // TUIs that check COLORFGBG (vim, htop, some harnesses) pick palettes that
   // suit the theme's ground: "fg;bg" where bg 15=light desk, 0=dark desk.
   const theme = settingsStore.normalizeTheme(readSettings().theme);
@@ -684,9 +696,13 @@ function sessionEnv() {
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
-ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name }) => {
+ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name }) => {
   const wc = e.sender;
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
+  // Primed at startup, so by the time anyone opens a tile this is already
+  // settled; the await only ever bites on a session created within the first
+  // second of launch.
+  const envPath = await userPath();
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
@@ -722,7 +738,7 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
     p = pty.spawn(file, spawnArgs, {
       name: 'xterm-256color', cols: cols || 100, rows: rows || 30,
       cwd: (cwd && fs.existsSync(cwd)) ? cwd : os.homedir(),
-      env: sessionEnv(),
+      env: sessionEnv(envPath),
     });
   } catch (err) { sendWc(wc, 'term:data', { id, data: '\r\n[could not start: ' + err.message + ']\r\n' }); return { ok: false }; }
 

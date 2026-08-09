@@ -16,9 +16,17 @@
 const UNKNOWN = () => ({ signedIn: null, label: '', rows: [] });
 const SIGNED_OUT = () => ({ signedIn: false, label: 'signed out', rows: [] });
 
+// Tolerant on purpose. Status commands run through an interactive login shell
+// (the only kind that reads .zshrc, where PATH lives), so a version manager or
+// a shell greeting can print ahead of the JSON we asked for. A strict parse
+// would read that greeting as "signed out".
 function readJson(text) {
   if (typeof text !== 'string' || !text.trim()) return null;
-  try { return JSON.parse(text); } catch (_) { return null; }
+  try { return JSON.parse(text); } catch (_) { /* fall through to the salvage */ }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try { return JSON.parse(text.slice(start, end + 1)); } catch (_) { return null; }
 }
 function onlyFile(payload) {
   const files = (payload && payload.files) || {};
