@@ -1002,7 +1002,7 @@ function mountTerminal(p, rec) {
 const LINK_STAT_TTL = 10000;
 const linkStats = new Map(); // `${cwd}\0${token}` -> { at, st }
 async function statLink(token, cwd) {
-  const key = `${cwd || ''} ${token}`;
+  const key = `${cwd || ''}\u0000${token}`;
   const hit = linkStats.get(key);
   if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
   const st = await api.statPath({ token, cwd });
