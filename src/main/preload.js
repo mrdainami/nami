@@ -72,4 +72,7 @@ contextBridge.exposeInMainWorld('dainami', {
   onTermExit: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
   // claude worked out a name for this conversation — { id, title }
   onSessionTitle: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:title', h); return () => ipcRenderer.removeListener('session:title', h); },
+  // Claude moved this tile to a different conversation (the user ran /resume).
+  // The panel has to store the new id or the next launch resumes the wrong one.
+  onSessionSid: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:sid', h); return () => ipcRenderer.removeListener('session:sid', h); },
 });

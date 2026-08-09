@@ -9,6 +9,8 @@ const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
 const { claudeSpawnArgs, projectSlug } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { feedOscTitle } = require('./osc-title');
+const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { detectAgents, agentStatus } = require('./agents-detect');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
@@ -688,7 +690,7 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
-  let file = shellPath, spawnArgs = [], afterStart = null;
+  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null;
   if (kind === 'claude') {
     // sid: the panel's own conversation id, minted in the renderer at first spawn.
     // A fresh spawn pins it with --session-id; a restored panel resumes it with
@@ -700,7 +702,10 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
     const hasTranscript = !!transcript && fs.existsSync(transcript);
     const claudeArgs = claudeSpawnArgs({ cont, sid, hasTranscript, name });
     // From here on, claude's own title for this conversation drives the label.
-    if (transcript) watchTitle(id, wc, transcript);
+    // The pinned id is only a starting guess: /resume moves claude to another
+    // conversation, so the watcher re-reads the live id and follows it. Started
+    // after the spawn below, because following it needs the pty's pid.
+    if (transcript) claudeWatch = { transcript, sid, cwd };
     if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
     else { file = shellPath; afterStart = ['claude', ...claudeArgs].join(' '); }
     if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + '\u0000SEED\u0000'; // handled below
@@ -723,7 +728,19 @@ ipcMain.handle('term:create', (e, { id, cwd, cols, rows, kind, command, program,
 
   termSessions.set(id, p);
   sessionOwners.set(id, wc.id);
-  p.onData((data) => sendWc(wc, 'term:data', { id, data }));
+  if (claudeWatch) watchTitle(id, wc, claudeWatch.transcript, { pid: p.pid, sid: claudeWatch.sid, cwd: claudeWatch.cwd });
+  // Claude publishes its name for the LIVE conversation as an OSC 0 title on
+  // nearly every frame. Reading it out of the stream costs nothing and, unlike
+  // the transcript, it is still right after the user runs /resume inside the
+  // tile and lands in a different conversation. feedOscTitle reports only when
+  // the name changes, so the spinner glyph never re-renders the rail.
+  const osc = { last: null };
+  p.onData((data) => {
+    sendWc(wc, 'term:data', { id, data });
+    if (kind !== 'claude') return;
+    const t = feedOscTitle(osc, data);
+    if (t) sendWc(wc, 'session:title', { id, title: t });
+  });
   p.onExit(({ exitCode }) => { termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id); sendWc(wc, 'term:exit', { id, code: exitCode }); });
 
   // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
@@ -754,6 +771,20 @@ let titleTimer = null;
 function sweepTitles() {
   for (const [id, w] of titleWatch) {
     if (w.wc.isDestroyed()) { titleWatch.delete(id); continue; } // window went away
+    // Follow the conversation, not the id we guessed. /resume inside a tile
+    // moves claude to another conversation and never writes a line to the
+    // pinned one, so without this the stat below fails forever, in silence.
+    if (w.pid) {
+      const live = readLiveSession(w.pid);
+      if (live && liveSessionChanged(w.sid, live.sessionId)) {
+        w.sid = live.sessionId;
+        w.file = path.join(os.homedir(), '.claude', 'projects', projectSlug(w.cwd), w.sid + '.jsonl');
+        w.mtime = 0;
+        // The renderer persists this, so the next launch resumes the conversation
+        // the user is actually in rather than starting a blank one.
+        sendWc(w.wc, 'session:sid', { id, sid: w.sid });
+      }
+    }
     let stat = null;
     try { stat = fs.statSync(w.file); } catch (_) { continue; } // not written yet
     if (stat.mtimeMs === w.mtime) continue;
@@ -766,8 +797,8 @@ function sweepTitles() {
   if (!titleWatch.size) { clearInterval(titleTimer); titleTimer = null; }
 }
 
-function watchTitle(id, wc, file) {
-  titleWatch.set(id, { file, wc, mtime: 0, title: null });
+function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
+  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd });
   if (titleTimer) return;
   titleTimer = setInterval(sweepTitles, 4000);
   if (titleTimer.unref) titleTimer.unref(); // never hold the app open

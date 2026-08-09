@@ -214,6 +214,15 @@ function dropFilesOnPanel(p, paths) {
     applyTitle(p, title, 'agent');
   });
 
+  // /resume inside a tile lands claude in a different conversation than the one
+  // nami pinned at spawn. Storing the id it actually moved to is what makes the
+  // tile come back as that conversation next launch instead of an empty one.
+  api.onSessionSid(({ id, sid }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p || !sid || p.sid === sid) return;
+    p.sid = sid;
+    savePanels();
+  });
+
   if (S.demo) seedDemo();
   refreshAgents();   // pre-detect so ⌘N is instant
   refreshServices(); // services group in the library + connect sheets
