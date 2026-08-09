@@ -195,6 +195,11 @@ function dropFilesOnPanel(p, paths) {
 
   // One window opening a folder reorders the list for every window; without this
   // the other windows' popovers keep showing a stale order until they reboot.
+  // Either the check already ran before this window existed (boot carries it),
+  // or it lands later while the window is open.
+  if (b.update) offerUpdate(b.update);
+  api.onUpdateAvailable(offerUpdate);
+
   api.onRecentsChanged((rows) => {
     S.recents = rows || [];
     if (q('.projects-pop')) { q('.projects-pop').remove(); toggleProjectsPop(); }
@@ -256,6 +261,12 @@ function showScene(name) {
     });
   }
   if (what === 'projects') return toggleProjectsPop();
+  // The update card only appears when a newer release exists, which is exactly
+  // the state you cannot arrange on demand — so the scene fakes the payload.
+  if (what === 'update') {
+    localStorage.removeItem(SKIPPED_UPDATE);
+    return offerUpdate({ version: step || '0.2.0', url: 'https://example.test/Nami.dmg' });
+  }
   // rename:tile / rename:rail — the in-place name editor, which you can only
   // otherwise reach by double-clicking a live session
   if (what === 'rename') {
@@ -351,13 +362,14 @@ function buildShell() {
           </div>
         </div>
       </div>
-      <div id="overlay-root"></div><div id="toast-root"></div>
+      <div id="overlay-root"></div><div id="toast-root"></div><div id="update-root"></div>
     </div></div>`;
 
   els = {
     topbarCenter: q('#topbar-center'), liveBadge: q('#live-badge'), liveLabel: q('#live-label'),
     railContent: q('#rail-content'), grid: q('#grid'),
     footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
+    updateRoot: q('#update-root'),
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
@@ -2792,6 +2804,41 @@ function applyProject(info) {
 // ---- toast -----------------------------------------------------------------
 let toastTimer = null;
 function toast(msg) { els.toastRoot.innerHTML = `<div class="toast"><span class="dot"></span><span class="msg">${esc(msg)}</span></div>`; clearTimeout(toastTimer); toastTimer = setTimeout(() => { els.toastRoot.innerHTML = ''; }, 2200); }
+
+// ===========================================================================
+//  Update bar
+// ===========================================================================
+// A card in the corner, never a modal. Someone mid-sentence with an agent does
+// not want the app in front of them, and an update is the least urgent thing
+// Nami has to say — so it waits, and "Not now" means not this version, ever.
+
+const SKIPPED_UPDATE = 'nami-skipped-update';
+
+function offerUpdate(info) {
+  if (!info || !info.version || !els.updateRoot) return;
+  // Dismissing is per version, and it sticks. Re-asking every six hours for
+  // something already refused is how an update prompt becomes wallpaper.
+  if (localStorage.getItem(SKIPPED_UPDATE) === info.version) return;
+
+  els.updateRoot.innerHTML = `<div class="update-card">
+    <div class="uc-head">Nami ${esc(info.version)} is out</div>
+    <p class="uc-note">Downloads in your browser. Quit Nami, drag the new one in, done.</p>
+    <div class="uc-acts">
+      <button class="btn btn--go" id="uc-get">Get it</button>
+      <button class="btn" id="uc-later">Not now</button>
+    </div>
+  </div>`;
+
+  const close = () => { els.updateRoot.innerHTML = ''; };
+  q('#uc-get', els.updateRoot).onclick = async () => {
+    await api.openUpdate(info.url);
+    close();
+  };
+  q('#uc-later', els.updateRoot).onclick = () => {
+    localStorage.setItem(SKIPPED_UPDATE, info.version);
+    close();
+  };
+}
 
 // ===========================================================================
 //  Demo seed (screenshot / preview)
