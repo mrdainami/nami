@@ -355,11 +355,27 @@ app.on('before-quit', () => {
 });
 
 // ---- IPC: boot + folders ---------------------------------------------------
+
+// Every session map in main (termSessions, sessionOwners, titleWatch) is keyed
+// by the panel id the renderer chose — and each renderer numbers its panels from
+// 1. Two windows therefore both call their first tile p_1, and main, having no
+// way to tell them apart, hands window A's keystrokes to window B's pty and
+// reaps A's sessions when B closes a folder. Handing every renderer a unique
+// prefix at boot makes the names it invents globally unique, which is all the
+// bookkeeping below ever needed.
+//
+// Counted per boot rather than per window on purpose: webContents.id survives a
+// reload while the renderer's counter restarts, so a reloaded window would
+// collide with the sessions it just left behind.
+let bootSeq = 0;
+
 ipcMain.handle('boot', (e) => {
   // each window boots with its own folder; fresh windows fall back to the last-used one
   const folder = winFolders.has(e.sender.id) ? winFolders.get(e.sender.id) : state.currentFolder;
   const ok = folder && fs.existsSync(folder);
+  bootSeq += 1;
   return {
+    winId: bootSeq,
     demo: DEMO,
     collapsed: process.argv.includes('--collapsed'),
     // --theme=operator forces a theme for this run (screenshots); not persisted

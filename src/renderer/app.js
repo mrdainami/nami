@@ -134,7 +134,7 @@ const EVERGREEN_ROWS = [
 const S = {
   project: null, recents: [], claudeExe: null, demo: false,
   panels: [], activeId: null, expandedId: null,
-  railTab: 'sessions', overlay: null, toast: null, seq: 0,
+  railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
@@ -147,7 +147,11 @@ const S = {
 let els = {};
 const tileEls = new Map(); // panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
 
-function uid(p) { S.seq += 1; return `${p}${S.seq}`; }
+// w<winId> makes the name unique across every open window: main keys its session
+// maps by whatever id we invent here, and on its own S.seq restarts at 1 in each
+// window. See the boot handler in main.js. Ids are opaque everywhere (nothing
+// parses one, none is written to state.json), so the prefix is free.
+function uid(p) { S.seq += 1; return `w${S.winId}_${p}${S.seq}`; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function shorten(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 function code2(str) {
@@ -183,6 +187,7 @@ function dropFilesOnPanel(p, paths) {
 (async function boot() {
   buildShell();
   const b = await api.boot();
+  S.winId = b.winId || 0;
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
