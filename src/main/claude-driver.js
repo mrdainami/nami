@@ -25,7 +25,9 @@ function resolveClaudeExecutable() {
   for (const c of candidates) {
     try { if (c && fs.existsSync(c)) return c; } catch (_) {}
   }
-  return null; // fall back to the SDK's bundled binary
+  // No fallback on purpose: packaged builds drop the SDK's own 265 MB copy of
+  // Claude Code (see electron-builder.yml), and start() explains what to do.
+  return null;
 }
 
 // An async-iterable input channel we can push user turns into over the life of the session.
@@ -77,6 +79,20 @@ class ClaudeSession {
     const { query } = await loadSdk();
     const exe = resolveClaudeExecutable();
 
+    // Packaged builds do not ship the SDK's own 265 MB copy of Claude Code: this
+    // app runs on the user's logged-in `claude`, and a bundled binary with no
+    // login could not sign in anyway. Say so plainly rather than letting the SDK
+    // fail somewhere deeper looking for a file that isn't there.
+    if (!exe) {
+      this.emit('error', {
+        message: 'Claude Code isn\'t installed on this Mac yet. Press ⌘N and pick "Claude Code". '
+          + 'Nami runs it on your own subscription, so it has to be installed and logged in. '
+          + 'Already have it somewhere unusual? Set CLAUDE_CODE_EXECUTABLE to its path.',
+      });
+      this.emit('result', { ok: false });
+      return;
+    }
+
     const options = {
       cwd: this.cwd,
       permissionMode: 'default',
@@ -86,7 +102,7 @@ class ClaudeSession {
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
     };
     if (this.model) options.model = this.model;
-    if (exe) options.pathToClaudeCodeExecutable = exe;
+    options.pathToClaudeCodeExecutable = exe;
     if (resumeId) options.resume = resumeId;
 
     // Seed the first user turn.

@@ -1,4 +1,4 @@
-/* Dainami CLI — the paper design system, ported from docs/reference/Dainami CLI.dc.html */
+/* Nami (formerly Dainami CLI) — the paper design system, ported from docs/reference/Dainami CLI.dc.html */
 
 :root {
   --desk: #cfc3ac;
@@ -39,6 +39,11 @@
   --tint-ops: #dfa287;
   --tint-vision: #c0b3dc;
   --tint-neutral: #c3bba8;
+  /* workspace tree icons (treeIcon in icons.mjs) */
+  --tree-ink: rgba(96, 78, 50, 0.85);
+  --tree-fill: #e8dfc7;
+  --tree-fill-open: #f1e9d4;
+  --tree-fill-file: #f0e7d0;
   --shadow-soft: rgba(90, 72, 44, 0.16);
   --shadow-mid: rgba(90, 72, 44, 0.2);
   --shadow-hard: rgba(90, 72, 44, 0.25);
@@ -68,14 +73,20 @@ a { color: #2f5c8a; }
 input, textarea { font: inherit; color: inherit; background: none; border: none; outline: none; }
 input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
-@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+/* A surface with a resting transform keeps it in --rest, because a filled animation outranks
+   the rule that set `transform` — a keyframe ending in `transform: none` silently cancels the
+   tilt for as long as the animation is on the element, then the tilt snaps back the moment it
+   is removed. `toastin` below restates its rotation by hand for the same reason.
+   scale(1) is the identity, for the surfaces that sit square. */
+@keyframes rise { from { opacity: 0; transform: translateY(8px) var(--rest, scale(1)); }
+                  to   { opacity: 1; transform: var(--rest, scale(1)); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-@keyframes toastin { from { opacity: 0; transform: translate(-50%, 12px) rotate(-1.2deg); } to { opacity: 1; transform: translate(-50%, 0) rotate(-1.2deg); } }
+@keyframes toastin { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 .caveat { font-family: 'Caveat', cursive; }
 
 /* stacked label columns are built with spans — force vertical stacking + truncation */
-.project-chip .swatch, .project-chip .caret { flex: none; }
+.project-chip .folder-glyph, .project-chip .caret { flex: none; }
 .card-head .col, .nav-card .col, .agent-row .col, .who-tile .col,
 .project-row .col, .picker-row .col, .artifact .col, .modal-head .col {
   display: flex; flex-direction: column; min-width: 0;
@@ -88,10 +99,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   position: absolute; inset: 0;
   display: flex; align-items: stretch; justify-content: center;
   padding: 34px 26px 22px;
+  /* The window is frameless, so the desk's padding is the only bare edge left
+     to grab it by — without this the margin around the sheet is dead space. */
+  -webkit-app-region: drag;
 }
 .sheet {
   flex: 1; max-width: 1560px; min-width: 0;
   display: flex; flex-direction: column; position: relative;
+  /* drag is inherited, so the sheet has to opt back out or every control
+     inside it would move the window instead of being clickable */
+  -webkit-app-region: no-drag;
   background:
     repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.028) 0 1px, transparent 1px 4px),
     linear-gradient(170deg, var(--sheet-hi) 0%, var(--sheet-lo) 100%);
@@ -99,64 +116,105 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-radius: 3px;
   box-shadow: 0 30px 70px -22px rgba(60, 45, 25, 0.55), 0 2px 0 rgba(255, 255, 255, 0.7) inset, 0 0 0 8px rgba(255, 255, 255, 0.35);
 }
-.tape {
-  position: absolute; height: 30px;
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.35) 0 3px, transparent 3px 6px), rgba(214, 206, 170, 0.85);
-  box-shadow: 0 2px 5px rgba(60, 45, 25, 0.18);
-  pointer-events: none;
-}
-.tape--left { top: -14px; left: 92px; width: 128px; transform: rotate(-2.4deg); }
-.tape--right { top: -12px; right: 118px; width: 104px; height: 28px; transform: rotate(1.8deg); background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.4) 0 3px, transparent 3px 6px), rgba(198, 176, 178, 0.8); }
-
 /* ---- header ------------------------------------------------------------- */
 
 .topbar {
   height: 76px; flex: none;
   display: flex; align-items: center; gap: 16px;
-  padding: 0 22px;
+  /* The desk's 34px top padding already floats the sheet clear of the macOS
+     traffic lights, so the header needs no gutter for them — the lockup hugs
+     the sheet's left edge in every theme. */
+  padding: 0 18px 0 19px;
   border-bottom: 2px dashed var(--dash);
   -webkit-app-region: drag;
-  padding-left: 84px; /* clear the macOS traffic lights */
+  overflow: hidden;   /* backstop: zooming in must never paint past the sheet */
 }
 .topbar .btn, .topbar .project-chip, .topbar .live-badge,
 .topbar input, .topbar button { -webkit-app-region: no-drag; }
-.brand { display: flex; align-items: baseline; gap: 12px; }
-.brand-name { font-family: 'Caveat', cursive; font-size: 34px; font-weight: 700; line-height: 1; }
-.brand-sub { font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
-.topbar-center { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
-.topbar-right { display: flex; align-items: center; gap: 10px; }
+/* One lockup, one optical height, in both themes. An SVG has no baseline to
+   align to, so the mark and the wordmark share a centre line instead. */
+.brand { display: flex; align-items: center; gap: 12px; height: 26px; flex: none; }
+.brand-mark { display: inline-flex; align-items: center; gap: 8px; height: 26px; }
+.nami-mascot {
+  --nami-fill: #ee6a6c; --nami-foam: #fdf7e6; --nami-eye: #33302c;
+  height: 24px; width: auto; flex: none;
+}
+.brand-name { font-family: 'Caveat', cursive; font-size: 34px; font-weight: 700; line-height: 1; flex: none; }
+/* the tagline sits on Nami's baseline, not the row's centre — Caveat's lowercase
+   hangs low, so a centred tagline reads as floating high next to it */
+.brand-sub { font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+  align-self: flex-end; padding-bottom: 1px; }
+/* the centre is the only part allowed to give ground; min-width:0 lets it */
+.topbar-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; position: relative; }
+.topbar-right { flex: none; display: flex; align-items: center; gap: 10px; }
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 14px;
   background: var(--paper); border: 1px solid var(--line);
   box-shadow: 2px 2px 0 rgba(90, 72, 44, 0.18);
-  transform: rotate(-0.6deg); cursor: pointer;
+  cursor: pointer;
 }
 .project-chip:hover { box-shadow: 3px 3px 0 rgba(90, 72, 44, 0.28); }
-.project-chip .swatch { width: 14px; height: 14px; border: 1px solid rgba(60, 45, 25, 0.25); }
+/* the same hand-cut folder the workspace tree wears, sized up for the chrome */
+.folder-glyph { display: flex; color: var(--tree-ink); }
+.project-chip .folder-glyph svg { width: 17px; height: 15px; }
 .project-chip .name { font-size: 13px; font-weight: 700; }
 .project-chip .path { font-size: 11.5px; color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chip .caret { font-size: 10px; color: var(--muted-3); }
 
 .projects-pop {
-  position: absolute; top: 46px; left: 50%; transform: translateX(-50%) rotate(-0.5deg);
-  width: 400px; z-index: 60; padding: 8px;
+  /* fixed, placed by JS from the chip's rect — absolute-in-topbar gets clipped
+     by the topbar's zoom-backstop overflow */
+  position: fixed; --rest: translateX(-50%); transform: var(--rest);
+  /* pins + eight recents + two footers can outgrow a short window */
+  width: 400px; z-index: 60; padding: 8px; max-height: 74vh; overflow-y: auto;
   background: var(--paper); border: 1px solid var(--line);
   box-shadow: 5px 6px 0 var(--shadow-mid);
   animation: rise 0.15s ease both;
 }
 .pop-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-3); padding: 4px 10px 8px; }
 .project-row {
-  display: flex; align-items: center; gap: 11px; padding: 9px 10px;
+  /* width:100% because a <button> shrink-wraps its content even as a flex
+     container — without it a long path stretches the row past the popover
+     instead of ellipsing inside it. */
+  display: flex; width: 100%; align-items: center; gap: 11px; padding: 9px 10px;
   cursor: pointer; border-bottom: 1px dashed #e0d5bd; text-align: left;
 }
 .project-row:hover { background: var(--hover); }
-.project-row .swatch { width: 22px; height: 22px; flex: none; border: 1px solid rgba(60, 45, 25, 0.25); }
+.project-row .folder-glyph { flex: none; }
+.project-row .folder-glyph svg { width: 21px; height: 18px; }
 .project-row .col { flex: 1; min-width: 0; }
 .project-row .name { font-size: 13px; font-weight: 700; }
 .project-row .summary { font-size: 11px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-row .mark { font-size: 10px; color: var(--muted-3); }
+.project-row .row-newwin { font-size: 12px; padding: 2px 6px; border: 1px solid transparent; }
+.project-row .row-newwin:hover { border-color: var(--dash-dark); background: var(--paper-2); color: var(--ink); }
+/* Row furniture: the age is always readable (it explains the order), while the
+   destructive ✕ and the ⧉ stay out of the way until the row is under the
+   cursor. A pin is state, so it shows whenever it is on. */
+.project-row .row-age {
+  font-size: 10.5px; color: var(--faint); flex: none; min-width: 28px;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.project-row .row-pin {
+  flex: none; width: 14px; text-align: center; font-size: 9px; line-height: 1;
+  color: var(--faint); opacity: 0; transition: opacity 0.12s ease;
+}
+.project-row .row-pin.on { opacity: 1; color: var(--green); }
+.project-row .row-forget { font-size: 11px; padding: 2px 5px; opacity: 0; transition: opacity 0.12s ease; }
+.project-row:hover .row-pin, .project-row:hover .row-forget { opacity: 1; }
+.project-row .row-pin:hover { color: var(--green-dark); }
+.project-row .row-forget:hover { color: var(--red-ink); }
+/* A folder that has moved is a state, not a row that silently does nothing. */
+.project-row.dead { background: var(--red-bg); border-bottom-color: var(--red-line); }
+.project-row.dead .name, .project-row.dead .summary { color: var(--red-ink); }
+.project-row.dead .folder-glyph { opacity: 0.55; }
+.project-row.dead .row-forget { opacity: 1; }
+
+/* Empty desk with no folder open: one live control instead of an action that
+   would have to stop and ask for a folder anyway. */
+.lane-empty .lane-cta { margin-top: 14px; }
 .project-open-other {
   display: flex; align-items: center; gap: 10px; padding: 11px 10px; margin-top: 6px;
   cursor: pointer; border: 1px dashed var(--dash-dark); font-size: 12.5px; font-weight: 700;
@@ -168,7 +226,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .live-badge {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px;
   font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #7a5d3a;
-  border: 1.5px solid #c2a273; background: rgba(226, 205, 164, 0.4); transform: rotate(1.2deg);
+  border: 1.5px solid #c2a273; background: rgba(226, 205, 164, 0.4);
   white-space: nowrap;
 }
 .live-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #6f8f5f; animation: pulse 1.8s ease-in-out infinite; }
@@ -180,6 +238,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   font-family: inherit; color: var(--ink); white-space: nowrap;
 }
 .btn:hover { box-shadow: 3px 3px 0 rgba(90, 72, 44, 0.28); }
+/* a disabled button reads as pressed flat into the page: no lift, no shadow */
+.btn:disabled, .btn:disabled:hover {
+  opacity: 0.45; cursor: default; box-shadow: none; transform: none;
+}
 .btn--go {
   padding: 7px 14px; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--paper); background: var(--green); border: 1px solid var(--green-dark);
@@ -209,8 +271,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .rail-tabs { display: flex; gap: 6px; padding: 14px 16px 10px; }
 .rail-tab {
-  flex: 1; text-align: center; padding: 7px 0;
-  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+  /* 0.05em + 2px side padding: WORKSPACE has to fit a ~79px track without
+     kissing the border — check there before widening either value */
+  flex: 1; text-align: center; padding: 7px 2px; min-width: 0;
+  font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 700;
   cursor: pointer; color: var(--muted); background: transparent; border: 1px solid var(--line);
   font-family: inherit;
 }
@@ -236,18 +300,33 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .nav-card .col { min-width: 0; flex: 1; }
 .nav-card .goal { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-card .sid { font-size: 10px; color: var(--muted-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nav-card .status { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.nav-card .status { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+
+/* Renaming a session, in the rail row or the tile head. The input inherits the
+   label's own type so nothing shifts when it appears — it is only ever on
+   screen while focused, so it takes the solid border, never the dashed one. */
+.name-edit {
+  font: inherit; color: var(--ink); background: var(--paper);
+  width: 100%; box-sizing: border-box; padding: 1px 4px; margin: -2px 0;
+  border: 1px solid var(--ink); border-radius: 0; outline: none;
+}
 
 .rail-empty { padding: 8px 18px; font-size: 11.5px; color: var(--muted-2); line-height: 1.6; }
 
 .tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 14px; }
-.tree-path { padding: 2px 6px 10px; font-size: 11px; color: var(--muted); word-break: break-all; }
+.tree-path { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 10px; font-size: 11px; color: var(--muted); }
+.tree-path .path { flex: 1; min-width: 0; word-break: break-all; }
+.tree-path .action { flex: none; color: var(--muted-2); cursor: pointer; text-decoration: underline; white-space: nowrap; }
+.tree-path .action:hover { color: var(--ink); }
 .tree-row {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px;
   cursor: pointer; border-bottom: 1px dotted rgba(120, 95, 60, 0.22);
 }
 .tree-row:hover { background: rgba(255, 253, 246, 0.9); }
-.tree-row .icon { width: 13px; height: 11px; flex: none; border: 1px solid rgba(60, 45, 25, 0.3); }
+/* hand-cut folder faces from treeIcon() in icons.mjs — ink + fills are tokens
+   so the operator theme re-colours the whole set without new drawings */
+.tree-row .icon { flex: none; display: flex; color: var(--tree-ink); }
+.tree-row .icon svg { display: block; }
 .tree-row .name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .meta { margin-left: auto; font-size: 10px; color: var(--muted-2); white-space: nowrap; }
 
@@ -256,10 +335,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   cursor: pointer; background: var(--paper); border: 1px solid #d9cdb4;
 }
 .agent-row:hover { box-shadow: 2px 2px 0 var(--shadow-mid); transform: translateY(-1px); }
-.agent-row .code { width: 22px; height: 22px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.agent-row .code { width: 22px; height: 22px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
 .agent-row .col { min-width: 0; flex: 1; }
-.agent-row .name { font-size: 12px; font-weight: 700; }
-.agent-row .tools { font-size: 10px; color: var(--muted-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-row .name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-row .tools { font-size: 11px; color: var(--muted-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-row .chev { font-size: 11px; color: var(--faint); }
 
 /* ---- main lane ---------------------------------------------------------- */
@@ -271,7 +350,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .lane-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; text-align: center; }
 .lane-empty .polaroid {
   width: 200px; height: 130px; background: var(--paper); border: 1px solid var(--line);
-  box-shadow: 4px 5px 0 var(--shadow-mid); transform: rotate(-2deg);
+  box-shadow: 4px 5px 0 var(--shadow-mid);
   display: flex; align-items: center; justify-content: center;
   font-family: 'Caveat', cursive; font-size: 26px; color: var(--muted);
 }
@@ -287,11 +366,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   box-shadow: 5px 6px 0 var(--shadow-soft);
   animation: rise 0.3s ease both;
 }
-.card-tape {
-  position: absolute; top: -11px; left: 26px; width: 96px; height: 24px; transform: rotate(-2deg);
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.4) 0 3px, transparent 3px 6px);
-  opacity: 0.85; box-shadow: 0 2px 4px rgba(60, 45, 25, 0.2); pointer-events: none;
-}
 .card-head { display: flex; align-items: center; gap: 14px; padding: 20px 18px 14px; cursor: pointer; }
 .card-head .code {
   width: 40px; height: 40px; flex: none; display: flex; align-items: center; justify-content: center;
@@ -304,7 +378,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .status-chip {
   display: flex; align-items: center; gap: 7px; padding: 5px 11px;
   font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
-  border: 1.5px solid currentColor; transform: rotate(-1.5deg); opacity: 0.9; white-space: nowrap;
+  border: 1.5px solid currentColor; opacity: 0.9; white-space: nowrap;
 }
 .status-chip.working { animation: pulse 1.8s ease-in-out infinite; }
 .card-head .mark { font-size: 12px; color: var(--faint); width: 14px; text-align: center; }
@@ -339,7 +413,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .approval {
   margin-top: 6px; padding: 14px 15px;
   background: var(--amber-bg); border: 1px dashed var(--amber-line);
-  box-shadow: 3px 3px 0 rgba(150, 120, 40, 0.18); transform: rotate(0.5deg);
+  box-shadow: 3px 3px 0 rgba(150, 120, 40, 0.18);
   display: flex; align-items: center; gap: 16px;
 }
 .approval .col { flex: 1; min-width: 0; }
@@ -350,7 +424,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .stopped {
   margin-top: 6px; padding: 14px 15px;
   background: var(--red-bg); border: 1px dashed var(--red-line);
-  box-shadow: 3px 3px 0 rgba(150, 70, 50, 0.16); transform: rotate(-0.5deg);
+  box-shadow: 3px 3px 0 rgba(150, 70, 50, 0.16);
   display: flex; align-items: center; gap: 16px;
 }
 .stopped .col { flex: 1; min-width: 0; }
@@ -368,7 +442,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .artifact:hover { box-shadow: 4px 5px 0 rgba(90, 72, 44, 0.26); transform: translateY(-2px); }
 .artifact .kind {
   width: 30px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center;
-  font-size: 8px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.35);
+  font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.35);
 }
 .artifact .col { min-width: 0; flex: 1; }
 .artifact .label { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -468,8 +542,29 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .scan-row .label2 { font-weight: 700; }
 .scan-row .value { margin-left: auto; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 
-.picker-box { width: 560px; background: var(--paper); border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); transform: rotate(-0.8deg); animation: rise 0.18s ease both; }
-.picker-input { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 2px dashed var(--dash); }
+/* every overlay box gets a corner close button (appended by overlay()) */
+.overlay > * { position: relative; }
+.ov-x { position: absolute; top: 9px; right: 9px; z-index: 2; }
+
+/* brand/type glyphs inside the tinted code chips (icons.mjs), inked in currentColor */
+.code--icon svg { width: 62%; height: 62%; max-width: 18px; max-height: 18px; display: block; }
+
+/* ---- colour means kind ----------------------------------------------------
+   One hue per kind of thing, never per id. Learn these seven once and every
+   chip, swatch and tile in the app is legible at a glance. */
+.code[data-kind="agent"],   .swatch[data-kind="agent"]   { background: var(--tint-code); }
+.code[data-kind="skill"],   .swatch[data-kind="skill"]   { background: var(--tint-vision); }
+.code[data-kind="command"], .swatch[data-kind="command"] { background: var(--tint-research); }
+.code[data-kind="service"], .swatch[data-kind="service"] { background: var(--tint-scrape); }
+.code[data-kind="editor"],  .swatch[data-kind="editor"]  { background: var(--tint-write); }
+.code[data-kind="viewer"],  .swatch[data-kind="viewer"]  { background: var(--tint-ops); }
+.code[data-kind="shell"],   .swatch[data-kind="shell"]   { background: var(--tint-neutral); }
+.code[data-kind="harness"], .swatch[data-kind="harness"] { background: var(--tint-neutral); }
+.code[data-kind="folder"],  .swatch[data-kind="folder"]  { background: var(--tint-research); }
+.code[data-kind="neutral"], .swatch[data-kind="neutral"] { background: var(--tint-neutral); }
+
+.picker-box { width: 560px; background: var(--paper); border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); animation: rise 0.18s ease both; }
+.picker-input { display: flex; align-items: center; gap: 12px; padding: 16px 44px 16px 18px; border-bottom: 2px dashed var(--dash); }
 .picker-input .prompt-mark { font-size: 14px; font-weight: 700; color: var(--green); }
 .picker-input input { flex: 1; font-size: 14px; user-select: text; }
 .picker-list { max-height: 340px; overflow-y: auto; padding: 8px; }
@@ -480,6 +575,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row .name { font-size: 13px; font-weight: 700; }
 .picker-row .desc { font-size: 11.5px; color: #7a6f5c; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-row .desc .ok { color: var(--green-ok); }
+/* installed but signed out — a state the launcher could not show before.
+   --amber-btn is the one solid amber every theme defines, so this needs no
+   per-theme override; operator maps the whole amber family to its red. */
+.picker-row .desc .ok--warn { color: var(--amber-btn); }
+/* the chevron manages the agent; the rest of the row still launches it */
+.picker-row .chev { flex: none; font-size: 14px; color: var(--faint); padding: 0 2px 0 6px; }
+.picker-row:hover .chev { color: var(--muted); }
 
 /* launcher add-section: small cards for agents you could add */
 .picker-divider { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
@@ -497,9 +599,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* guided agent setup sheet */
 .setup-box { width: 460px; background: var(--paper); border: 1px solid var(--dash-dark);
-  box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); transform: rotate(-0.8deg);
+  box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25);
   animation: rise 0.18s ease both; padding: 18px 20px; }
-.setup-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.setup-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding-right: 22px; }
 .setup-head .code { width: 30px; height: 30px; flex: none; display: flex; align-items: center;
   justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
 .setup-head .name { font-size: 14px; font-weight: 700; display: block; }
@@ -510,11 +612,49 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .setup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .setup-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
 
+/* installed-agent sheet: where identity came from, the links row, and the
+   danger zone kept below a rule wearing the quietest button on the sheet */
+.scan-box .label { display: flex; align-items: center; gap: 8px; }
+.scan-box .scan-src { margin-left: auto; font-size: 10.5px; letter-spacing: 0; text-transform: none; color: var(--muted-3); }
+/* identity values are read, not scanned past — a wrapped model slug or path
+   beats an ellipsis that hides which account a session would actually run as */
+.ag-scan .scan-row { align-items: baseline; }
+.ag-scan .value { max-width: none; white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; text-align: right; }
+.ag-links { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; margin-top: 11px; }
+.ag-links .action { color: var(--muted-2); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ag-links .action:hover { color: var(--ink); }
+.ag-links .action:focus-visible { color: var(--ink); outline: 1px solid var(--dash-dark); outline-offset: 2px; }
+.ag-danger { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--dash); }
+.ag-danger .why { flex: 1; min-width: 150px; font-size: 10.5px; color: var(--muted); line-height: 1.45; }
+.btn--ghost { box-shadow: none; border-style: dashed; color: var(--muted); }
+.btn--ghost:hover { border-style: solid; color: var(--ink); }
+
+/* removal confirm — names the real paths before anything is touched */
+.warn-box { background: var(--red-bg); border: 1px solid var(--red-line); padding: 11px 13px; margin-bottom: 13px; }
+.warn-box .wb-head { font-size: 11.5px; font-weight: 700; color: var(--red-ink); margin-bottom: 7px; }
+.warn-box ul { margin: 0; padding-left: 16px; font-size: 11.5px; color: var(--red-body); line-height: 1.65; }
+.warn-box li { margin: 1px 0; }
+
+/* Switching folders while sessions are live. Not a warning sheet — neither exit
+   destroys anything, so it reads as a plain choice with a recommended default. */
+.switch-box { width: 470px; background: var(--paper); border: 1px solid var(--dash-dark);
+  box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25);
+  animation: rise 0.18s ease both; padding: 0 0 20px; }
+.switch-box .modal-head { border-bottom: none; padding: 20px 20px 4px; }
+.switch-box .modal-head .title { font-size: 27px; }
+.sw-body { font-size: 13px; line-height: 1.55; color: var(--ink); padding: 0 20px 14px; }
+.sw-list { margin: 0 20px 16px; border: 1px solid var(--amber-line); background: var(--amber-bg);
+  padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; }
+.sw-live { font-size: 11.5px; color: var(--amber-body); display: flex; gap: 8px; align-items: baseline; }
+.sw-live .mark { color: var(--amber-btn); flex: none; width: 10px; }
+.sw-acts { display: flex; gap: 8px; padding: 0 20px; flex-wrap: wrap; }
+.sw-hint { font-size: 11px; color: var(--muted); padding: 12px 20px 0; line-height: 1.5; }
+
 /* peek: a sheet held above the desk; pinning drops it onto the grid */
 .peek-box { width: min(860px, calc(100vw - 120px)); display: flex; flex-direction: column;
   background: repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25);
-  transform: rotate(-0.4deg); animation: rise 0.18s ease both; overflow: hidden; }
+  animation: rise 0.18s ease both; overflow: hidden; }
 .peek-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 2px dashed var(--dash); }
 .peek-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
 .peek-head .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -534,7 +674,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   display: flex; align-items: center; gap: 10px; padding: 10px 18px;
   background: var(--amber-bg); border: 1px solid var(--amber-line);
   box-shadow: 4px 5px 0 var(--shadow-hard);
-  transform: translateX(-50%) rotate(-1.2deg); animation: toastin 0.2s ease both;
+  transform: translateX(-50%); animation: toastin 0.2s ease both;
 }
 .toast .dot { width: 7px; height: 7px; border-radius: 50%; background: #6f8f5f; }
 .toast .msg { font-size: 12px; font-weight: 700; color: #4a3f24; }
@@ -543,7 +683,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .main { display: flex; flex-direction: column; }
 .grid {
   flex: 1; min-height: 0; display: grid; gap: 20px; padding: 22px 26px 24px;
-  grid-template-columns: repeat(auto-fill, minmax(470px, 1fr));
+  /* min() so a zoomed-in (narrow) lane shrinks the track instead of pushing
+     the tile past the sheet edge, where overflow-x would clip it */
+  grid-template-columns: repeat(auto-fill, minmax(min(470px, 100%), 1fr));
   align-content: start; overflow-y: auto; overflow-x: hidden;
   background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,145,180,0.12) 27px 28px);
 }
@@ -557,8 +699,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   display: flex; flex-direction: column; min-width: 0; height: 440px;
   background: repeating-linear-gradient(0deg, rgba(120,95,60,0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
-  animation: rise 0.25s ease both; position: relative;
+  position: relative;
 }
+/* entrance only — .enter is dropped after the animation so reorders don't replay it */
+.tile.enter { animation: rise 0.25s ease both; }
 .tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; }
 .tile.active { box-shadow: 5px 6px 0 var(--shadow-mid), 0 0 0 1.5px #b8c9ad; }
 .tile.attention { border-color: var(--amber-line); box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); animation: breathe 1.8s ease-in-out infinite; }
@@ -576,27 +720,107 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tile-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60,45,25,0.3); }
 .tile-head .col { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .tile-head .t-title { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile-head .t-sub { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.tile-head .t-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .tile-head .t-status { display: flex; align-items: center; gap: 6px; margin-right: 4px; }
 .tile-head .t-status .dot { width: 7px; height: 7px; border-radius: 50%; background: #4a7a4a; }
 .tile.attention .t-status .dot { animation: pulse 1.2s ease-in-out infinite; }
-.tile-head .t-status .lbl { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
-.t-btn { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
+.tile-head .t-status .lbl { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
+.t-btn { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
 .t-btn:hover { background: var(--hover); color: var(--ink); }
+.t-btn svg { width: 15px; height: 15px; }
+/* the mic is a feature, not chrome — full ink at rest, action colour on hover */
+.t-mic { color: var(--ink); }
+.t-mic:hover { color: var(--green); }
+/* icon-only topbar buttons: glyph bumped and dead-centred */
+#btn-theme, #btn-settings { line-height: 1; }
+#btn-theme .uni-i, #btn-settings .uni-i { font-size: 15px; line-height: 1; }
 
 .tile-body { flex: 1; min-height: 0; position: relative; padding: 8px 10px; overflow: hidden; }
 .tile-body .xterm { height: 100%; }
 .tile-body .xterm .xterm-viewport { background: transparent !important; }
 
-/* ---- paper editor ---- */
-.editor { position: absolute; inset: 0; display: grid; grid-template-columns: 48px 1fr; grid-template-rows: 1fr auto; }
-.ed-gutter { grid-row: 1; grid-column: 1; overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
+/* Scroll gutter: addon-fit already reserves 14px for the scrollbar, so the
+   thumb only needs to be narrower than that to sit in clear space. The global
+   10px bar left ~4px; an 8px bar inset by 2px leaves a real gutter. */
+.xterm .xterm-viewport::-webkit-scrollbar { width: 8px; }
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(90, 72, 44, 0.22); border: 2px solid transparent;
+  background-clip: content-box; border-radius: 8px;
+}
+.xterm .xterm-viewport:hover::-webkit-scrollbar-thumb { background: rgba(90, 72, 44, 0.4); background-clip: content-box; }
+.xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- paper editor ----
+   Read and Edit are two panes in one column; only one is ever displayed. */
+.editor { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.ed-tabs { flex: none; }
+.editor[data-mode="read"] .ed-pane { display: none; }
+.editor[data-mode="edit"] .ed-read { display: none; }
+.ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
+.ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
   font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: #b3a894;
   border-right: 1px dashed var(--dash); background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
-.ed-area { grid-row: 1; grid-column: 2; resize: none; padding: 10px 12px; border: none; outline: none;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); white-space: pre; overflow: auto; user-select: text; }
-.ed-bar { grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.6); }
+/* the underlay and the textarea are the same box, stacked; the textarea's own
+   glyphs stay visible and the layer behind only supplies colour and weight */
+.ed-stack { position: relative; min-width: 0; background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+.ed-hl, .ed-area {
+  position: absolute; inset: 0; margin: 0; padding: 10px 12px; border: none; outline: none;
+  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px;
+  white-space: pre; overflow: auto; tab-size: 2;
+}
+.ed-hl { color: var(--ink); pointer-events: none; overflow: hidden; background: none; }
+.ed-area { resize: none; color: var(--ink); background: none; user-select: text; }
+/* with markdown, the underlay carries the colour and the textarea only carries
+   the caret and selection — so bold really looks bold while you type */
+.editor--md .ed-area { color: transparent; caret-color: var(--ink); }
+.editor--md .ed-area::selection { background: rgba(120,145,180,0.32); }
+.ed-hl .hl-mark { color: var(--faint); }
+.ed-hl .hl-h { font-weight: 700; }
+.ed-hl .hl-h1 { font-size: 15px; }
+.ed-hl .hl-strong { font-weight: 700; }
+.ed-hl .hl-em { font-style: italic; }
+.ed-hl .hl-code, .ed-hl .hl-fence { color: var(--amber-btn); }
+.ed-hl .hl-link { color: #2f5c8a; }
+.ed-hl .hl-quote { color: var(--muted); }
+.ed-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.6); }
+
+/* ---- rendered markdown (editor Read tab) ---- */
+/* prose gets a reading measure — a full-width tile would otherwise run past
+   100 characters a line, which is the thing that made these files tiring */
+.md-read {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 16px 22px 24px; font-size: 13px; line-height: 1.72; color: var(--ink); user-select: text;
+}
+.md-read > * { max-width: 76ch; }
+.md-read > .md-pre { max-width: 100%; }
+.md-read > :first-child { margin-top: 0; }
+.md-read h1, .md-read h2, .md-read h3, .md-read h4, .md-read h5, .md-read h6 {
+  font-family: 'Caveat', cursive; font-weight: 700; line-height: 1.15; margin: 22px 0 6px;
+}
+.md-read h1 { font-size: 30px; }
+.md-read h2 { font-size: 25px; }
+.md-read h3 { font-size: 21px; }
+.md-read h4, .md-read h5, .md-read h6 { font-size: 18px; color: var(--muted); }
+.md-read p { margin: 0 0 11px; overflow-wrap: break-word; }
+.md-read ul, .md-read ol { margin: 0 0 11px; padding-left: 22px; }
+.md-read li { margin-bottom: 3px; }
+.md-read code {
+  font-family: 'Courier Prime', monospace; font-size: 12px;
+  background: var(--paper-2); border: 1px dashed var(--dash); padding: 1px 5px; border-radius: 2px;
+}
+.md-read .md-pre {
+  margin: 0 0 12px; padding: 10px 12px; overflow-x: auto;
+  background: #f6efdd; border: 1px dashed var(--dash);
+  font-family: 'Courier Prime', monospace; font-size: 12px; line-height: 20px;
+}
+.md-read .md-pre code { background: none; border: none; padding: 0; font-size: inherit; }
+.md-read blockquote {
+  margin: 0 0 11px; padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--dash-dark); color: var(--muted);
+}
+.md-read hr { border: none; border-top: 1px dashed var(--dash); margin: 20px 0; }
+.md-read a { text-decoration: underline; }
+.md-read strong { font-weight: 700; }
 .ed-bar .ed-path { flex: 1; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-bar .ed-save { font-size: 11px; padding: 6px 12px; }
 
@@ -615,7 +839,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .viewer .vw-bar-btn, .viewer .vw-finder, .viewer .vw-reveal { font-size: 11px; padding: 6px 12px; }
 
 /* ---- explorer twist + rail attention ---- */
-.tree-row .tw { width: 12px; flex: none; font-size: 9px; color: var(--muted-2); text-align: center; }
+.tree-row .tw { width: 12px; flex: none; font-size: 10px; color: var(--muted-2); text-align: center; }
 .tree-row { align-items: center; }
 .nav-card.attn { border-color: var(--amber-line); box-shadow: 0 0 0 1.5px rgba(201,169,78,0.55); }
 .live-badge.attn { border-color: var(--amber-line); background: rgba(253,242,207,0.6); color: var(--amber-btn); }
@@ -643,15 +867,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .lib-group {
   position: sticky; top: 0; z-index: 1; background: var(--rail);
   display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
-  font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted-2);
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
   padding: 8px 0 6px; margin-top: 10px; border-top: 1px dashed var(--dash);
 }
 .lib-group:first-child { margin-top: 0; border-top: none; }
 .lib-group:hover { color: var(--ink); }
-.lib-group .lg-caret { width: 10px; font-size: 9px; color: var(--muted-3); }
+.lib-group .lg-caret { width: 10px; font-size: 10px; color: var(--muted-3); }
 .lib-group .lg-count { margin-left: auto; font-weight: 700; color: var(--muted-3); letter-spacing: 0; }
 .lib-list .agent-row { margin-bottom: 5px; }
-.scope-tag { margin-left: auto; flex: none; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+.scope-tag { margin-left: auto; flex: none; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted-2); border: 1px dashed var(--dash); padding: 2px 6px; border-radius: 2px; white-space: nowrap; }
 .agent-row .tools .ok { color: var(--green-ok); }
 
@@ -663,7 +887,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .svc-card .code { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); margin-bottom: 2px; }
 .svc-card .sv-name { font-weight: 700; font-size: 12px; }
 .svc-card .sv-desc { font-size: 10.5px; color: var(--muted); }
-.svc-card .sv-by { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-ok); }
+.svc-card .sv-by { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-ok); }
 .svc-card .sv-go { font-size: 10.5px; color: var(--amber-ink); margin-top: 2px; }
 .svc-card.connected .sv-go { color: var(--green-ok); }
 .svc-card.connected .sv-go .ok { color: var(--green-ok); }
@@ -730,39 +954,112 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ni-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
 .ni-row:last-child { padding-bottom: 14px; }
 .ni-row input { flex: 1; padding: 8px 10px; border: 1px dashed var(--dash-dark); background: var(--paper); font-family: 'Courier Prime', monospace; font-size: 12.5px; color: var(--ink); outline: none; }
+.ni-row input:focus { border-style: solid; }
 .ni-row .btn { font-size: 11px; padding: 7px 12px; }
+.ni-row .lbl { flex: none; width: 44px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 
-/* ---- AI chat tiles (any-model sessions) ---- */
-.ai-chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-.ai-log { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px 14px;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
-.ai-log > div { margin-bottom: 8px; }
-.ai-user { font-weight: 700; color: #4a6b52; white-space: pre-wrap; }
-.ai-msg { white-space: pre-wrap; }
-.ai-step { color: var(--muted); font-size: 12px; }
-.ai-step.done { color: #4a7a4a; }
-.ai-step.done::after { content: ''; }
-.ai-step.err { color: #a8482f; }
-.ai-err { color: #a8482f; font-size: 12px; }
-.ai-perm { border: 1.5px solid var(--amber-line); background: rgba(253,242,207,0.75); padding: 10px 12px; box-shadow: 3px 4px 0 rgba(150,120,40,0.18); max-width: 480px; }
-.ai-perm .ap-title { font-family: 'Caveat', cursive; font-size: 18px; font-weight: 700; color: var(--amber-btn, #8a6d1e); margin-bottom: 2px; }
-.ai-perm .ap-sum { font-size: 12px; margin-bottom: 8px; word-break: break-word; }
-.ai-perm .ap-row { display: flex; gap: 8px; }
-.ai-perm .btn { font-size: 11px; padding: 6px 12px; }
-.ai-perm .ap-done { font-size: 11px; font-weight: 700; color: var(--muted); }
-.ai-inputrow { flex: none; display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.6); }
-.ai-inputrow .prompt-mark { margin-top: 4px; }
-.ai-input { flex: 1; resize: none; border: none; outline: none; background: transparent; max-height: 96px;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 20px; color: var(--ink); }
+/* ---- create wizard: three steps, one decision each ---- */
+/* the three ＋ cards under the Library title */
+.lib-new-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 14px 10px; }
+.lib-new-grid .add-card { padding: 8px 8px 9px; gap: 2px; }
+.lib-new-grid .add-card .code { width: 22px; height: 22px; }
+.lib-new-grid .ac-name { font-size: 11.5px; }
+.lib-new-grid .ac-desc { font-size: 9.5px; line-height: 1.35; }
+
+.ni-step { margin-left: auto; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.ni-ask { padding: 13px 18px 0; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.ni-back { margin: 10px 0 0 18px; padding: 0; font-family: inherit; font-size: 11px; color: var(--muted-2);
+  background: none; border: 0; cursor: pointer; text-decoration: underline; }
+.ni-back:hover { color: var(--ink); }
+.ni-back:focus-visible { color: var(--ink); outline: 1px solid var(--dash-dark); outline-offset: 2px; }
+.ni-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 18px 16px; }
+.ni-choice.on { border-style: solid; border-color: var(--green); box-shadow: 3px 3px 0 var(--shadow-mid); }
+.ni-choice.off { opacity: 0.45; cursor: default; }
+.ni-choice.off:hover { border-style: dashed; box-shadow: none; }
+/* the ✕ button is the box's last child, so :last-child padding never reaches this row */
+.ni-actions { padding: 14px 18px 16px; }
+.ni-where { margin: 12px 18px 0; padding: 8px 10px; border: 1px dashed var(--dash);
+  background: var(--paper-2); font-size: 11.5px; color: var(--muted); }
+.ni-where b { color: var(--ink); font-weight: 700; }
 
 /* ---- card connections ---- */
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 7px 12px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.55); }
-.card-links .lk-lbl { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted-2); margin-right: 2px; }
+.card-links .lk-lbl { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted-2); margin-right: 2px; }
 .card-links .lk-lbl:not(:first-child) { margin-left: 10px; }
 .link-chip { padding: 3px 8px; font-family: 'Courier Prime', monospace; font-size: 10.5px; font-weight: 700; color: var(--ink); background: var(--paper); border: 1px dashed var(--dash-dark); cursor: pointer; }
 .link-chip:hover { border-style: solid; box-shadow: 2px 2px 0 var(--shadow-mid); }
 
+
+/* ---- settings: Keys — named secrets, one row per key ---- */
+.key-row { display: flex; align-items: center; gap: 9px; border: 1px dashed var(--dash);
+  background: var(--paper); padding: 8px 10px; margin-bottom: 8px; }
+.key-row .k-name { flex: none; width: 168px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-row .k-val { flex: 1; min-width: 0; font-size: 11.5px; letter-spacing: 0.08em; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-row .k-val.k-sub { color: var(--muted-2); letter-spacing: 0; }
+.key-row .k-act { flex: none; padding: 0; font-family: inherit; font-size: 10.5px; color: var(--muted-2);
+  background: none; border: 0; cursor: pointer; text-decoration: underline; }
+.key-row .k-act:hover { color: var(--ink); }
+.key-row .k-act.k-save { color: var(--green); font-weight: 700; }
+.key-row .k-input { flex: 1; min-width: 0; border: 1px dashed var(--dash-dark); background: var(--paper);
+  font-size: 11.5px; padding: 4px 8px; }
+.key-row .k-input:focus { border-style: solid; }
+.key-row .k-name-input { flex: none; width: 168px; text-transform: uppercase; }
+.key-note { font-size: 10.5px; color: var(--muted); border: 1px dashed var(--dash);
+  background: var(--paper-2); padding: 7px 9px; margin-top: 4px; }
+.key-note .k-open { color: var(--ink); font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+/* ---- theme switcher (topbar) ---- */
+.theme-zone { position: relative; }
+.theme-pop {
+  /* fixed, placed by JS from the button's rect — see .projects-pop */
+  position: fixed; z-index: 60; width: 230px; padding: 8px;
+  background: var(--paper); border: 1px solid var(--line);
+  box-shadow: 5px 6px 0 var(--shadow-mid);
+  animation: rise 0.15s ease both;
+}
+.theme-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px;
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; color: var(--ink); text-align: left;
+}
+.theme-opt:hover { background: var(--hover); }
+.theme-opt.picked { border-color: var(--dash-dark); background: var(--paper-2); }
+.theme-opt .theme-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted-3); }
+.theme-opt.picked .theme-dot { border-color: var(--green); background: radial-gradient(circle, var(--green) 0 3.5px, transparent 4px); }
+.theme-opt .theme-name { font-weight: 700; }
+.theme-opt .theme-desc { margin-left: auto; font-size: 10.5px; color: var(--muted-2); }
+
+/* ---- settings sheet ----
+   Uses the .modal shell; the radio rows are .theme-opt so the picker in here
+   and the one in the topbar popover stay the same object. */
+.modal--settings { width: 720px; max-width: calc(100% - 60px); }
+.set-wrap { display: flex; gap: 20px; align-items: flex-start; }
+.set-nav { flex: 0 0 118px; display: flex; flex-direction: column; gap: 5px; padding: 0; }
+/* left-aligned words need their own side padding — the base rule has almost none */
+.set-nav .rail-tab { text-align: left; padding: 7px 10px; }
+.set-pane { flex: 1; min-width: 0; }
+.set-opt-wrap + .set-opt-wrap { margin-top: 2px; }
+.set-opt { border: 1px dashed transparent; align-items: flex-start; padding: 8px 10px; }
+.set-opt:hover { border-color: var(--dash); }
+.set-opt.picked { border-style: solid; border-color: var(--dash-dark); }
+.set-opt .theme-dot { margin-top: 2px; }
+.set-opt-col { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.set-opt-desc { font-size: 10.5px; color: var(--muted-2); }
+.set-flag { margin-left: auto; padding-left: 12px; font-size: 10.5px; white-space: nowrap; }
+.set-flag.ok { color: var(--green-ok); }
+.set-flag.wait { color: var(--muted-2); }
+/* the open body hangs off the picked row, so the rule ties them together */
+.set-opt-body { display: flex; flex-direction: column; gap: 7px;
+  margin: 0 0 10px 21px; padding: 9px 0 2px 11px; border-left: 1px dashed var(--dash-dark); }
+.set-opt-body .setup-note { margin: 0; }
+.modal-foot .btn.rec { color: var(--red-btn); border-color: var(--red-line); background: var(--red-bg); }
+.set-result { flex: 1; min-width: 0; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere;
+  max-height: 34px; overflow-y: auto; }
+/* .ni-row carries the create sheet's 14px gutter; the pane supplies its own */
+.set-pane .ni-row { padding-left: 0; padding-right: 0; }
+.set-pane .setup-actions { margin-top: 16px; }
 
 /* link hint for cmd-clickable paths */
 .xterm .xterm-link-layer { pointer-events: auto; }
@@ -772,6 +1069,30 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .t-mic.rec { color: var(--red-btn); border-color: var(--red-line); background: var(--red-bg); }
 .t-mic.rec .rec-square { width: 9px; height: 9px; background: var(--red-btn); display: inline-block; border-radius: 1px; animation: pulse 1s ease-in-out infinite; }
 .t-mic.busy { color: var(--amber-btn); }
+
+/* ---- chrome under pressure ------------------------------------------------
+   Electron zoom shrinks the viewport in CSS px, so these fire on ⌘+ exactly
+   as they do on a narrow window. Things drop in priority order: tagline,
+   then the ⌘ hints, then the folder path, then the wordmark. */
+.footer { overflow: hidden; }
+
+@media (max-width: 1180px) {
+  .brand-sub { display: none; }
+  .topbar .kb { display: none; }
+}
+@media (max-width: 1020px) {
+  .project-chip .path { display: none; }
+  .footer > span:not(.path) { display: none; }
+  .topbar .kb2 { display: none; }
+}
+@media (max-width: 900px) {
+  .brand-name { display: none; }
+}
+/* last to go: ⚙ is still reachable on ⌘, so it can drop before anything with
+   no keyboard equivalent does */
+@media (max-width: 820px) {
+  .btn-set { display: none; }
+}
 
 /* rail content layout (moved off inline style so collapse can override display) */
 #rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }

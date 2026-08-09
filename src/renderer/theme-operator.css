@@ -1,0 +1,332 @@
+/* Nami — "operator" theme: dark ops console, one coral accent.
+   Every rule is scoped under body[data-theme="operator"] so the paper theme
+   (paper.css) stays byte-identical. Strategy: remap the paper token names to
+   dark values, then patch the rules that hard-code paper-only literals
+   (grad  textures, tape, offset shadows, Caveat headings). */
+
+body[data-theme="operator"] {
+  /* token remap — same names paper.css already consumes.
+     "Instrument grey": neutral-warm greys (no blue cast), borders raised so
+     panel edges read on their own, coral accent instead of pure crimson. */
+  --desk: #0d0d0d;
+  --sheet-hi: #131313;
+  --sheet-lo: #131313;
+  --paper: #171717;
+  --paper-2: #1c1c1c;
+  --paper-3: #1a1a1a;
+  --ink: #d8d5d0;
+  --muted: #8f8c85;
+  --muted-2: #7c7a74;
+  --muted-3: #706e68;
+  --faint: #4e4c48;
+  --line: #333333;
+  --dash: #282828;
+  --dash-dark: #3d3d3d;
+  --rail: #121212;
+  --hover: #212121;
+  --green: #ef6461;          /* primary action → coral in operator */
+  --green-dark: #c14f4d;
+  --green-ok: #5aa06e;
+  --amber-bg: #2a1a19;       /* "needs you" family → red in operator */
+  --amber-line: #ef6461;
+  --amber-ink: #ff9d9a;
+  --amber-body: #d59391;
+  --amber-btn: #ef6461;
+  --amber-btn-line: #ff8b88;
+  --red-bg: #2a1a19;
+  --red-line: #ef6461;
+  --red-ink: #ff9d9a;
+  --red-body: #d59391;
+  --red-btn: #ef6461;
+  --red-btn-line: #ff8b88;
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --shadow-mid: rgba(0, 0, 0, 0.45);
+  --shadow-hard: rgba(0, 0, 0, 0.55);
+  /* operator-only helpers */
+  --op-accent: #ef6461;
+  --op-accent-hi: #ff8b88;
+  --op-accent-dim: rgba(239, 100, 97, 0.12);
+  --op-glow: 0 0 0 1px var(--op-accent), 0 0 14px rgba(239, 100, 97, 0.16);
+  --op-grid: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1.4px);
+}
+
+/* ---- ground ------------------------------------------------------------- */
+body[data-theme="operator"] { background: #0d0d0d; }
+body[data-theme="operator"] a { color: #6ea8ff; }
+body[data-theme="operator"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border: 3px solid transparent; background-clip: content-box; }
+body[data-theme="operator"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); background-clip: content-box; }
+body[data-theme="operator"] .xterm .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); background-clip: content-box; }
+body[data-theme="operator"] .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.26); background-clip: content-box; }
+
+body[data-theme="operator"] .sheet {
+  background: var(--sheet-hi);
+  border: 1px solid var(--dash);
+  border-radius: 8px;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+}
+
+/* ---- type: cursive → uppercase mono ------------------------------------- */
+body[data-theme="operator"] .caveat,
+body[data-theme="operator"] .brand-name,
+body[data-theme="operator"] .rail-head .title,
+body[data-theme="operator"] .lane-empty .polaroid,
+body[data-theme="operator"] .lane-empty .big,
+body[data-theme="operator"] .card-head .goal,
+body[data-theme="operator"] .say--user,
+body[data-theme="operator"] .approval .title,
+body[data-theme="operator"] .stopped .title,
+body[data-theme="operator"] .artifacts .title,
+body[data-theme="operator"] .modal-head .title,
+body[data-theme="operator"] .card-lbl,
+body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
+
+/* 18px uppercase mono matches the cap height of paper's Caveat 34px, and the
+   mark keeps paper's 24px, so the lockup reads at one size across themes. */
+body[data-theme="operator"] .brand-name { font-size: 18px; letter-spacing: 0.14em; text-transform: uppercase; }
+body[data-theme="operator"] .nami-mascot {
+  --nami-fill: var(--op-accent); --nami-foam: var(--paper); --nami-eye: var(--paper);
+  height: 24px;
+  filter: drop-shadow(0 0 4px rgba(239, 100, 97, 0.4));
+  /* the blob's visual weight sits in its lower half; nudge it up so the
+     18px NAMI wordmark centres on the body, not the whole bounding box */
+  transform: translateY(-2px);
+}
+/* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
+   lowercase, so operator keeps it centred */
+body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; }
+body[data-theme="operator"] .brand::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center;
+  background: var(--op-accent); box-shadow: 0 0 8px var(--op-accent);
+  animation: pulse 2.2s ease-in-out infinite; /* .brand's 12px gap does the spacing */
+}
+body[data-theme="operator"] .rail-head .title { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+body[data-theme="operator"] .lane-empty .big { font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase; }
+body[data-theme="operator"] .lane-empty .polaroid { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; transform: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); border-radius: 6px; }
+body[data-theme="operator"] .card-head .goal { font-size: 14px; letter-spacing: 0.06em; }
+body[data-theme="operator"] .say--user { font-size: 13px; line-height: 1.6; color: #c9c7cf; border-left-color: var(--op-accent); }
+body[data-theme="operator"] .approval .title,
+body[data-theme="operator"] .stopped .title,
+body[data-theme="operator"] .artifacts .title,
+body[data-theme="operator"] .modal-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-theme="operator"] .card-lbl { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+body[data-theme="operator"] .board-title { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* ---- topbar -------------------------------------------------------------- */
+body[data-theme="operator"] .topbar { border-bottom: 1px solid var(--dash); }
+body[data-theme="operator"] .project-chip { transform: none; box-shadow: none; border-radius: 6px; }
+body[data-theme="operator"] .project-chip:hover { box-shadow: none; border-color: var(--dash-dark); }
+body[data-theme="operator"] .projects-pop { --rest: translateX(-50%); transform: var(--rest); border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
+body[data-theme="operator"] .project-row { border-bottom-color: var(--dash); }
+body[data-theme="operator"] .project-open-other .plus { color: var(--muted); }
+body[data-theme="operator"] .live-badge {
+  transform: none; border-radius: 6px; color: var(--op-accent-hi);
+  border: 1px solid var(--op-accent); background: var(--op-accent-dim);
+}
+body[data-theme="operator"] .live-badge .dot { background: var(--op-accent); box-shadow: 0 0 7px var(--op-accent); }
+body[data-theme="operator"] .live-badge.attn { border-color: var(--op-accent); background: var(--op-accent-dim); color: var(--op-accent-hi); }
+body[data-theme="operator"] .live-badge.attn .dot { background: var(--op-accent); }
+
+body[data-theme="operator"] .btn { box-shadow: none; border-radius: 6px; }
+body[data-theme="operator"] .btn:hover { box-shadow: none; background: var(--hover); }
+body[data-theme="operator"] .btn--go { border-color: var(--op-accent-hi); box-shadow: 0 0 10px rgba(239, 100, 97, 0.18); }
+body[data-theme="operator"] .btn--go:hover { background: var(--op-accent); box-shadow: 0 0 14px rgba(239, 100, 97, 0.28); }
+body[data-theme="operator"] .btn--amber, body[data-theme="operator"] .btn--red { box-shadow: none; }
+
+/* ---- rail ----------------------------------------------------------------- */
+body[data-theme="operator"] .rail { border-right: 1px solid var(--dash); background: var(--rail); }
+body[data-theme="operator"] .rail-tab { border-radius: 6px; }
+body[data-theme="operator"] .rail-tab.active { box-shadow: none; color: var(--op-accent-hi); border-color: var(--op-accent); background: var(--op-accent-dim); }
+body[data-theme="operator"] .nav-card { border-radius: 6px; }
+body[data-theme="operator"] .nav-card.active { box-shadow: none; border-color: var(--op-accent); }
+body[data-theme="operator"] .nav-card.attn { border-color: var(--op-accent); box-shadow: 0 0 0 1.5px rgba(239, 100, 97, 0.4); }
+body[data-theme="operator"] .tree-row { border-bottom-color: rgba(255, 255, 255, 0.07); }
+body[data-theme="operator"] .tree-row:hover { background: var(--hover); }
+body[data-theme="operator"] .agent-row { border-color: var(--dash); border-radius: 6px; }
+body[data-theme="operator"] .agent-row:hover { box-shadow: none; border-color: var(--dash-dark); }
+body[data-theme="operator"] .rail-collapse, body[data-theme="operator"] .rail-strip { border-radius: 6px; }
+body[data-theme="operator"] .rail-tab.active, body[data-theme="operator"] .rail-collapse, body[data-theme="operator"] .rail-strip { box-shadow: none; }
+
+/* Kind chips: the same seven meanings as paper, desaturated onto the dark
+   ground. Colour still answers "what kind of thing is this?" — no !important
+   needed now that nothing sets an inline background. */
+body[data-theme="operator"] .code,
+body[data-theme="operator"] .swatch,
+body[data-theme="operator"] .artifact .kind {
+  border-color: rgba(255, 255, 255, 0.14); border-radius: 4px;
+}
+body[data-theme="operator"] .code[data-kind="agent"],
+body[data-theme="operator"] .swatch[data-kind="agent"]   { background: #2c3a2d; color: #9ec79a; }
+body[data-theme="operator"] .code[data-kind="skill"],
+body[data-theme="operator"] .swatch[data-kind="skill"]   { background: #332e40; color: #b6a8d6; }
+body[data-theme="operator"] .code[data-kind="command"],
+body[data-theme="operator"] .swatch[data-kind="command"] { background: #28323f; color: #9fbada; }
+body[data-theme="operator"] .code[data-kind="service"],
+body[data-theme="operator"] .swatch[data-kind="service"] { background: #3d2a30; color: #dda7b5; }
+body[data-theme="operator"] .code[data-kind="editor"],
+body[data-theme="operator"] .swatch[data-kind="editor"]  { background: #3c3323; color: #e6c287; }
+body[data-theme="operator"] .code[data-kind="viewer"],
+body[data-theme="operator"] .swatch[data-kind="viewer"]  { background: #3a2a22; color: #d99b80; }
+body[data-theme="operator"] .code[data-kind="shell"],
+body[data-theme="operator"] .swatch[data-kind="shell"],
+body[data-theme="operator"] .code[data-kind="harness"],
+body[data-theme="operator"] .swatch[data-kind="harness"],
+body[data-theme="operator"] .code[data-kind="neutral"],
+body[data-theme="operator"] .swatch[data-kind="neutral"] { background: #2e2e2b; color: #b9b1a0; }
+body[data-theme="operator"] .code[data-kind="folder"],
+body[data-theme="operator"] .swatch[data-kind="folder"]  { background: #28323f; color: #9fbada; }
+body[data-theme="operator"] .artifact .kind { background: #2e2e2b; color: #b9b1a0; }
+/* settings Keys rows: only the square corners are paper literals */
+body[data-theme="operator"] .key-row, body[data-theme="operator"] .key-note { border-radius: 6px; }
+body[data-theme="operator"] .key-row .k-input { border-radius: 5px; }
+body[data-theme="operator"] .key-row .k-act.k-save { color: var(--op-accent-hi); }
+
+/* tree icons: same drawings, instrument-grey ink and fills */
+body[data-theme="operator"] {
+  --tree-ink: #8f8c85;
+  --tree-fill: #26262b;
+  --tree-fill-open: #2d2d33;
+  --tree-fill-file: #202024;
+}
+
+/* ---- main canvas ---------------------------------------------------------- */
+body[data-theme="operator"] .main { background: var(--sheet-hi); }
+body[data-theme="operator"] .grid { background: var(--op-grid) 0 0 / 22px 22px, var(--sheet-hi); }
+body[data-theme="operator"] .lane-empty .hint { color: var(--muted); }
+
+/* ---- tiles + cards -------------------------------------------------------- */
+body[data-theme="operator"] .tile,
+body[data-theme="operator"] .card {
+  background: var(--paper); border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+body[data-theme="operator"] .tile.active { box-shadow: var(--op-glow); }
+body[data-theme="operator"] .tile.attention { border-color: var(--op-accent); animation: op-breathe 1.8s ease-in-out infinite; }
+@keyframes op-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(239, 100, 97, 0.5), 0 0 18px rgba(239, 100, 97, 0.18); }
+  50% { box-shadow: 0 0 0 2px rgba(239, 100, 97, 0.85), 0 0 30px rgba(239, 100, 97, 0.35); }
+}
+body[data-theme="operator"] .tile.drop-hint { outline-color: var(--op-accent); }
+body[data-theme="operator"] .tile.file-hint { outline-color: var(--op-accent); box-shadow: 0 0 0 3px rgba(239, 100, 97, 0.25); }
+body[data-theme="operator"] .tile-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 8px 8px 0 0; }
+body[data-theme="operator"] .t-btn { border-radius: 5px; }
+body[data-theme="operator"] .cmd-strip { background: var(--paper-2); }
+body[data-theme="operator"] .step .box { border-color: rgba(74, 158, 99, 0.5); border-radius: 4px; }
+body[data-theme="operator"] .step.done .box { background: rgba(74, 158, 99, 0.15); border-color: rgba(74, 158, 99, 0.5); }
+body[data-theme="operator"] .approval, body[data-theme="operator"] .stopped { transform: none; box-shadow: none; border-radius: 6px; }
+body[data-theme="operator"] .artifact { border-radius: 6px; box-shadow: none; }
+body[data-theme="operator"] .artifact:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+body[data-theme="operator"] .reply-row { box-shadow: none; border-radius: 6px; }
+body[data-theme="operator"] .status-chip { transform: none; border-radius: 4px; border-width: 1px; }
+
+/* terminals, editors, logs: flat dark insets, no ruled lines */
+body[data-theme="operator"] .term-wrap { background: var(--rail); border-radius: 6px; }
+body[data-theme="operator"] .ed-gutter { color: #55535c; background: none; }
+body[data-theme="operator"] .ed-stack { background: none; }
+body[data-theme="operator"] .editor--md .ed-area { caret-color: var(--op-accent); }
+body[data-theme="operator"] .editor--md .ed-area::selection { background: rgba(239, 100, 97, 0.28); }
+body[data-theme="operator"] .ed-hl .hl-code, body[data-theme="operator"] .ed-hl .hl-fence { color: #e8b45a; }
+body[data-theme="operator"] .ed-hl .hl-link { color: #6ea8ff; }
+
+/* rendered markdown: cursive headings → mono uppercase, like every other title */
+body[data-theme="operator"] .md-read h1, body[data-theme="operator"] .md-read h2,
+body[data-theme="operator"] .md-read h3, body[data-theme="operator"] .md-read h4,
+body[data-theme="operator"] .md-read h5, body[data-theme="operator"] .md-read h6 {
+  font-family: 'Courier Prime', 'Courier New', monospace;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+body[data-theme="operator"] .md-read h1 { font-size: 16px; }
+body[data-theme="operator"] .md-read h2 { font-size: 14px; }
+body[data-theme="operator"] .md-read h3 { font-size: 12.5px; }
+body[data-theme="operator"] .md-read h4, body[data-theme="operator"] .md-read h5,
+body[data-theme="operator"] .md-read h6 { font-size: 11.5px; }
+body[data-theme="operator"] .md-read code { background: var(--paper-2); border-color: var(--dash-dark); }
+body[data-theme="operator"] .md-read .md-pre { background: var(--rail); border-color: var(--dash); border-radius: 6px; }
+body[data-theme="operator"] .md-read blockquote { border-left-color: var(--op-accent); }
+body[data-theme="operator"] .ed-area, body[data-theme="operator"] .card-body,
+body[data-theme="operator"] .card-raw .raw-area { background: none; caret-color: var(--op-accent); }
+body[data-theme="operator"] .ed-bar { border-top: 1px solid var(--dash); background: var(--paper-2); }
+body[data-theme="operator"] .card-links { background: var(--paper-2); border-radius: 0 0 8px 8px; }
+body[data-theme="operator"] .card-tab { border-radius: 5px; }
+body[data-theme="operator"] .card-tab.active { background: var(--hover); }
+body[data-theme="operator"] .link-chip { border-radius: 4px; }
+body[data-theme="operator"] .link-chip:hover { box-shadow: none; border-color: var(--op-accent); color: var(--op-accent-hi); }
+body[data-theme="operator"] .card-in, body[data-theme="operator"] .lib-search,
+body[data-theme="operator"] .ni-row input { border-radius: 5px; }
+body[data-theme="operator"] .card-in:focus, body[data-theme="operator"] .lib-search:focus { border-color: var(--op-accent); }
+
+/* viewers */
+body[data-theme="operator"] .viewer .vw-stage { background: var(--rail); }
+body[data-theme="operator"] .viewer .vw-stage--dark { background: #000; }
+body[data-theme="operator"] .viewer .vw-stage img { border-color: rgba(255, 255, 255, 0.15); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+
+/* ---- footer ---------------------------------------------------------------- */
+body[data-theme="operator"] .footer { border-top: 1px solid var(--dash); }
+
+/* ---- overlays -------------------------------------------------------------- */
+body[data-theme="operator"] .overlay { background: rgba(0, 0, 0, 0.6); }
+body[data-theme="operator"] .modal, body[data-theme="operator"] .picker-box,
+body[data-theme="operator"] .setup-box, body[data-theme="operator"] .peek-box {
+  background: var(--paper); border-radius: 10px; --rest: scale(1); transform: var(--rest);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+body[data-theme="operator"] .peek-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 10px 10px 0 0; }
+body[data-theme="operator"] .peek-head .pk-pin:focus-visible, body[data-theme="operator"] .peek-head .pk-x:focus-visible { outline-color: var(--op-accent); }
+body[data-theme="operator"] .modal-head { border-bottom: 1px solid var(--dash); }
+body[data-theme="operator"] .modal-head .sub, body[data-theme="operator"] .picker-row .desc { color: var(--muted); }
+body[data-theme="operator"] .modal-foot { border-top: 1px solid var(--dash); }
+body[data-theme="operator"] .modal-x { border-radius: 5px; }
+body[data-theme="operator"] .picker-input { border-bottom: 1px solid var(--dash); }
+body[data-theme="operator"] .picker-row { border-bottom-color: var(--dash); }
+body[data-theme="operator"] .text-input { box-shadow: none; border-radius: 6px; }
+body[data-theme="operator"] .pick-chip, body[data-theme="operator"] .who-tile, body[data-theme="operator"] .add-card { border-radius: 6px; }
+body[data-theme="operator"] .pick-chip:hover, body[data-theme="operator"] .who-tile:hover, body[data-theme="operator"] .add-card:hover { box-shadow: none; border-color: var(--dash-dark); }
+
+/* create wizard: the only paper literals are the offset shadow on a picked card
+   and the square corners on the "it lands in" strip. Everything else is tokens. */
+body[data-theme="operator"] .ni-choice.on { box-shadow: none; border-color: var(--op-accent); background: var(--op-accent-dim); }
+body[data-theme="operator"] .ni-choice.off:hover { border-color: var(--dash); }
+body[data-theme="operator"] .ni-where { border-radius: 5px; border-style: solid; }
+body[data-theme="operator"] .pick-chip .check { border-color: rgba(74, 158, 99, 0.5); }
+body[data-theme="operator"] .sheet-cmd, body[data-theme="operator"] .scan-box { background: var(--paper-2); color: var(--muted); }
+body[data-theme="operator"] .ql-lines { background: none; }
+body[data-theme="operator"] .ql-row .n { color: #55535c; }
+
+/* corkboard map */
+body[data-theme="operator"] .board {
+  background: var(--op-grid) 0 0 / 22px 22px, var(--sheet-hi);
+  border: 1px solid var(--dash-dark); border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+body[data-theme="operator"] .board-svg path { stroke: var(--op-accent); stroke-dasharray: 5 4; opacity: 0.7; }
+body[data-theme="operator"] .board-node { border-radius: 6px; border-color: var(--dash-dark); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); transform: translate(-50%, -50%) !important; /* no paper tilt — JS sets an inline rotate */ }
+body[data-theme="operator"] .board-node:hover { box-shadow: var(--op-glow); }
+body[data-theme="operator"] .board-node .pin { background: var(--op-accent); border-color: rgba(239, 100, 97, 0.6); box-shadow: 0 0 8px rgba(239, 100, 97, 0.6); }
+body[data-theme="operator"] .board-node.focus { box-shadow: var(--op-glow); }
+
+/* toast */
+body[data-theme="operator"] .toast { transform: translateX(-50%); border-radius: 6px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
+body[data-theme="operator"] .toast .dot { background: var(--op-accent); }
+body[data-theme="operator"] .toast .msg { color: var(--amber-ink); }
+
+/* theme popover (shared markup; paper look lives in paper.css) */
+/* settings sheet: paper cuts its rows square, the console rounds them like the
+   rail tabs. Colour comes from the .theme-opt rules below, which already win. */
+body[data-theme="operator"] .set-opt { border-radius: 6px; }
+body[data-theme="operator"] .set-test { border-top-color: var(--dash); }
+body[data-theme="operator"] .set-flag.ok { color: var(--green-ok); }
+
+body[data-theme="operator"] .theme-pop { border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
+body[data-theme="operator"] .theme-opt.picked { border-color: var(--op-accent); background: var(--op-accent-dim); }
+body[data-theme="operator"] .theme-opt.picked .theme-dot { border-color: var(--op-accent); background: radial-gradient(circle, var(--op-accent) 0 3.5px, transparent 4px); }
+
+/* ---- connect a service (Part 3, additive) --------------------------------- */
+/* svc chips carry data-kind like every other chip; nothing extra needed */
+body[data-theme="operator"] .svc-card, body[data-theme="operator"] .svc-custom, body[data-theme="operator"] .sv-fold { border-radius: 6px; }
+body[data-theme="operator"] .svc-card:hover, body[data-theme="operator"] .svc-custom:hover { box-shadow: none; border-color: var(--dash-dark); }
+body[data-theme="operator"] .svc-card:focus-visible, body[data-theme="operator"] .svc-custom:focus-visible { box-shadow: none; border-color: var(--op-accent); }
+body[data-theme="operator"] .sv-bigok-t { font-family: 'Courier Prime', 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; font-size: 18px; }
+body[data-theme="operator"] .agent-pick { border-radius: 5px; background: var(--paper-2); }
+body[data-theme="operator"] .agent-pick:focus-visible { border-color: var(--op-accent); }
+body[data-theme="operator"] .ctx-menu { border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
+body[data-theme="operator"] .ctx-item { border-radius: 5px; }
+body[data-theme="operator"] .ctx-item:hover { background: var(--hover); }

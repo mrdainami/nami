@@ -44,3 +44,7 @@ A small hand-drawn wave-blob creature in brand coral (sampled from `dainami-mark
 ## Not doing (YAGNI)
 
 Animated mascot, per-theme poses, app icon redesign (separate task), renaming the git repo/remote.
+
+## Addendum (same day): flat redesign
+
+Calvin reviewed the ink-style mascot and pivoted the style: **flat Clawd-grammar** — no outlines, no keyline, one continuous coral silhouette (teardrop body → leftward spiral curl, cream foam swirl in the notch, dark rounded-square eyes, two connected feet). Flat icon designed FIRST, header/scene variants derive from it. Sub line is "AI agent workbench". The in-app SVG is potrace-traced from the master PNG per color layer and token-bound; the mascot sits beside the wordmark (baseline-aligned, cap-height), not draped over it. App icon composed at `build/icon.png`.

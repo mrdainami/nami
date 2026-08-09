@@ -1,4 +1,6 @@
-# Dainami CLI — the paper agent workbench
+# Nami — the agent workbench
+
+> Formerly "Dainami CLI". Nami (波, "wave" — from Dainami, 大波 "big wave") is the product and its mascot: a small coral wave-blob who lounges on the wordmark. By Dainami.
 
 Open a folder, run **Claude Code** and **terminal** sessions as paper session cards.
 Everything is in the paper aesthetic: cream sheet, washi tape, Caveat handwriting, Courier Prime,
@@ -10,7 +12,12 @@ pastel-tinted cards, hard offset shadows.
 cd ~/Desktop/dainami-cli
 npm install        # already done
 npm start          # opens the app
+npm test           # node --test, no network and no ONNX needed
 ```
+
+Building a `.app` or `.dmg` (`npm run pack` / `npm run dist`) first runs
+`npm run fetch-model`, which pulls `whisper-tiny.en` (~44 MB) into `build/models` so the
+shipped app can transcribe offline. Packaging config lives in `electron-builder.yml`.
 
 - **Claude sessions** are driven through the Claude Agent SDK and render as cards — the goal in
   handwriting, tool calls as steps that strike through as they finish, todos as a checklist, the
@@ -57,9 +64,23 @@ npm start          # opens the app
 - **Connections** — agents and skills that reference each other are linked: cards show
   references/referenced-by chips, and **Map** opens a corkboard of the item's neighborhood,
   cards joined by red yarn.
+- **Talk to it, out of the box.** Every session card has a mic. Whisper runs **on your
+  Mac**, so dictation works on a fresh install with no account, no API key and no network:
+  the app ships `whisper-tiny.en` and transcribes a sentence in well under a second.
+  Settings › Voice can point it at OpenAI Whisper, ElevenLabs Scribe, your own
+  OpenAI-shaped server (Speaches or faster-whisper-server, **not** Ollama, which has no
+  speech-to-text), or keep pasting from Echo. "Test the mic" proves whichever you picked
+  without leaving the sheet.
+
+## Settings
+⌘, or the ⚙ in the topbar. **Voice** picks how Nami hears you, **Look** switches paper and
+operator, **Models** configures the OpenAI-compatible endpoint behind "any AI model"
+sessions. Everything lands in `settings.json` under the app's userData, on this Mac only:
+nothing syncs. API keys typed here beat `OPENAI_API_KEY` / `ELEVENLABS_API_KEY` from your
+shell; a key that came from the environment is shown as read-only.
 
 ## Keys
-⌘N new session · ⌘O open folder · ⌘K agents · ⌘W close pane · ⌘S save · esc close
+⌘N new session · ⌘O open folder · ⌘K agents · ⌘W close pane · ⌘S save · ⌘, settings · esc close
 
 ## Preview
 `npm run shot` renders a demo-seeded screenshot to `shots/app.png` (no live sessions).
@@ -67,6 +88,9 @@ npm start          # opens the app
 ## Layout
 - `src/main/main.js` — Electron main: window, PTYs, folder + `.claude` scan, state, IPC
 - `src/main/claude-driver.js` — one Claude Code session → paper-card events
+- `src/main/settings.js` : settings.json, read-merge-rename so writers can't clobber
+- `src/main/stt.js` : transcription providers as one registry (local, openai, elevenlabs, custom)
+- `src/main/stt-local.js` / `stt-model.js` : Whisper on onnxruntime-node, and its weights
 - `src/main/preload.js` — contextBridge IPC surface
 - `src/renderer/` — the paper UI (`app.js`, `paper.css`, vendored xterm)
 - `docs/design.md` — the approved design · `docs/reference/` — the source mockup
