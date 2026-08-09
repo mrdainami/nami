@@ -19,6 +19,11 @@ publish:
   provider: github
   owner: mrdainami
   repo: nami-releases
+  # Drafts, deliberately. A build lands where it can be looked at and the notes
+  # written before anyone can download it, and pressing Publish stays a human
+  # decision — the moment it goes live is the moment every installed Nami starts
+  # offering it. Set releaseType: release here if that ever becomes tedious.
+  releaseType: draft
 
 files:
   - src/**/*

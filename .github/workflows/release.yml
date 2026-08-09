@@ -28,6 +28,10 @@ on:
 
 jobs:
   build:
+    # Without a token this cannot publish, and a run that spends half an hour
+    # building and notarizing only to fail at the last step is worse than not
+    # running: it reports a red tag for a release that was made by hand.
+    if: ${{ secrets.RELEASES_TOKEN != '' }}
     runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
     timeout-minutes: 60
     steps:
