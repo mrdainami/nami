@@ -1,5 +1,36 @@
 /* Nami (formerly Dainami CLI) — the paper design system, ported from docs/reference/Dainami CLI.dc.html */
 
+/* The two faces the paper aesthetic is made of. These used to be fetched from
+   fonts.googleapis.com on every launch, which cost two things: offline the whole
+   look collapsed — `'Caveat', cursive` resolves to Apple Chancery on macOS, and
+   neither family is installed on any stock Mac — and every user's machine
+   announced each launch to Google, in an app that bundles its own speech model
+   precisely so it never has to reach the network. Latin subset, same files
+   Google served. SIL Open Font License; see vendor/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  /* variable weight axis — one file covers the 500/600/700 the UI asks for */
+  font-weight: 500 700;
+  font-display: swap;
+  src: url(./vendor/fonts/caveat-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url(./vendor/fonts/courier-prime-400-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: normal; font-weight: 700; font-display: swap;
+  src: url(./vendor/fonts/courier-prime-700-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Courier Prime';
+  font-style: italic; font-weight: 400; font-display: swap;
+  src: url(./vendor/fonts/courier-prime-400i-latin.woff2) format('woff2');
+}
+
 :root {
   --desk: #cfc3ac;
   --sheet-hi: #faf5e8;
