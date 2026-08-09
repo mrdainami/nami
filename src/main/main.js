@@ -19,6 +19,7 @@ const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = req
 const fsActions = require('./fs-actions');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
+const { loginShell, windowChrome } = require('./platform');
 const stt = require('./stt');
 
 let pty = null;
@@ -234,7 +235,7 @@ function createWindow(folder, bounds) {
   const w = new BrowserWindow({
     width: 1360, height: 940, minWidth: 1040, minHeight: 700,
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
-    titleBarStyle: 'hiddenInset',
+    ...windowChrome(),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, plugins: true },
   });
@@ -395,7 +396,8 @@ function catalogForRenderer() {
 function claudeUserScopeAdd(id, entry) {
   return new Promise((resolve) => {
     const json = JSON.stringify(entry);
-    execFile('/bin/zsh', ['-lc', `claude mcp add-json --scope user ${id} ${JSON.stringify(json)}`], { timeout: 20000 }, (err) => {
+    const sh = loginShell();
+    execFile(sh.file, sh.args(`claude mcp add-json --scope user ${id} ${JSON.stringify(json)}`), { timeout: 20000 }, (err) => {
       resolve(err ? 'skipped: ' + err.message.split('\n')[0] : 'written');
     });
   });
@@ -434,7 +436,8 @@ ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
   const files = knownFiles(projectPath, os.homedir()).filter(([f]) => f.indexOf('.claude.json') < 0).map(([f]) => f);
   const changed = removeService({ files, id });
   const viaCli = await new Promise((resolve) => {
-    execFile('/bin/zsh', ['-lc', `claude mcp remove --scope user ${id}`], { timeout: 20000 }, (err) => resolve(!err));
+    const sh = loginShell();
+    execFile(sh.file, sh.args(`claude mcp remove --scope user ${id}`), { timeout: 20000 }, (err) => resolve(!err));
   });
   if (viaCli) changed.push('claude user settings');
   return { changed };

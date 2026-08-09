@@ -6,6 +6,7 @@ const { execFile } = require('node:child_process');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const { parseAgentStatus } = require('./agent-status.js');
+const { loginShell, whichCommand } = require('./platform.js');
 
 const KNOWN_AGENTS = [
   { id: 'claude', name: 'Claude Code', bin: 'claude', kind: 'claude',
@@ -79,8 +80,9 @@ const KNOWN_AGENTS = [
 ];
 
 function shellWhich(bin) {
+  const sh = loginShell();
   return new Promise((resolve, reject) => {
-    execFile('/bin/zsh', ['-lc', `command -v ${bin}`], { timeout: 8000 }, (err, stdout) => {
+    execFile(sh.file, sh.args(whichCommand(bin)), { timeout: 8000 }, (err, stdout) => {
       if (err) return reject(err);
       resolve(String(stdout || '').trim());
     });
@@ -117,8 +119,9 @@ function shortHome(p, home) {
 }
 
 function shellRun(cmd) {
+  const sh = loginShell();
   return new Promise((resolve, reject) => {
-    execFile('/bin/zsh', ['-lc', cmd], { timeout: 8000 }, (err, stdout) => {
+    execFile(sh.file, sh.args(cmd), { timeout: 8000 }, (err, stdout) => {
       if (err) return reject(err);
       resolve(String(stdout || ''));
     });
