@@ -80,13 +80,12 @@ body[data-theme="operator"] .modal-head .title,
 body[data-theme="operator"] .card-lbl,
 body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
 
-/* The update card's heading is Caveat on paper; operator says it in mono, and
-   the card loses paper's offset shadow for a plain raised edge. */
-body[data-theme="operator"] .update-card .uc-head {
-  font-family: 'Courier Prime', 'Courier New', monospace;
-  font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
-}
-body[data-theme="operator"] .update-card { box-shadow: none; }
+/* The update note is already mono; operator only drops paper's offset shadow
+   and takes the accent for the action, since paper's green reads as dead here. */
+body[data-theme="operator"] .update-note { box-shadow: none; }
+body[data-theme="operator"] .update-note .un-act { color: var(--op-accent); }
+body[data-theme="operator"] .update-note .un-act:hover { color: var(--paper); }
+body[data-theme="operator"] .update-note .un-quiet { color: var(--muted); }
 
 /* 18px uppercase mono matches the cap height of paper's Caveat 34px, and the
    mark keeps paper's 24px, so the lockup reads at one size across themes. */

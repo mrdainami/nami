@@ -374,7 +374,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* ---- main lane ---------------------------------------------------------- */
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120, 145, 180, 0.16) 27px 28px); }
+/* position: relative so the update note anchors to the work area, not the sheet */
+.main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120, 145, 180, 0.16) 27px 28px); }
 .lane { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 26px 30px 30px; }
 .lane-stack { display: flex; flex-direction: column; gap: 22px; }
 
@@ -710,18 +711,33 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .toast .dot { width: 7px; height: 7px; border-radius: 50%; background: #6f8f5f; }
 .toast .msg { font-size: 12px; font-weight: 700; color: #4a3f24; }
 
-/* A note left in the corner of the desk. Dashed at rest like every other
-   resting surface, and low enough in the stack that any sheet or popover
-   covers it — an update is never the most important thing on screen. */
-.update-card {
-  position: absolute; right: 22px; bottom: 26px; z-index: 60; width: 268px;
-  padding: 13px 15px 14px; background: var(--paper);
-  border: 1px dashed var(--dash-dark); box-shadow: 5px 6px 0 var(--shadow-mid);
-  animation: rise 0.22s ease both;
+/* One line in the bottom-left of the work area, sitting just above the keyboard
+   hints — the quietest place on the desk. It was a card with a heading and two
+   buttons first, and at that weight it read as something you had to deal with.
+   An update is the least urgent thing Nami has to say, so it says it once, in
+   the same voice as the hints, and gets out of the way.
+
+   Anchored inside .main rather than the sheet so it can never sit on top of the
+   rail when the sidebar is open. */
+.update-note {
+  /* clear of the footer, not on top of it: at full width the hints are all
+     showing and sitting on the footer row buried four of the five */
+  position: absolute; left: 14px; bottom: 38px; z-index: 60;
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 10px; background: var(--paper);
+  border: 1px dashed var(--dash-dark); box-shadow: 2px 2px 0 var(--shadow-mid);
+  font-size: 11px; animation: rise 0.22s ease both;
 }
-.update-card .uc-head { font-family: 'Caveat', cursive; font-size: 21px; color: var(--ink); line-height: 1.1; }
-.update-card .uc-note { margin: 5px 0 11px; font-size: 11px; line-height: 1.45; color: var(--muted); }
-.update-card .uc-acts { display: flex; gap: 8px; }
+.update-note .un-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber-line); flex: none; }
+.update-note .un-msg { color: var(--ink); }
+.update-note .un-sep { color: var(--faint); }
+.update-note .un-act {
+  padding: 0; border: 0; background: none; cursor: pointer; font: inherit;
+  color: var(--green); text-decoration: underline; text-underline-offset: 2px;
+}
+.update-note .un-act:hover { color: var(--green-dark); }
+.update-note .un-quiet { color: var(--muted); }
+.update-note .un-quiet:hover { color: var(--ink); }
 
 /* ===== terminal-first grid + tiles ===================================== */
 .main { display: flex; flex-direction: column; }
