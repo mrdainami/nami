@@ -15,9 +15,10 @@
     "pack": "electron-builder --dir",
     "//dist": "predist matters: npm runs pre<name> for any script, so `pack` picked up the weights via prepack while `dist` — the one that builds what users install — quietly shipped without them.",
     "predist": "npm run fetch-model",
-    "dist": "electron-builder && npm run fix-update-metadata",
+    "dist": "electron-builder --publish never && npm run fix-update-metadata",
     "fix-update-metadata": "node scripts/fix-update-metadata.mjs",
-    "install-local": "node scripts/install-local.mjs"
+    "install-local": "node scripts/install-local.mjs",
+    "//dist2": "publish never is baked in, not passed: npm appends `-- args` to the end of the whole script string, so with a chained script the flag lands on fix-update-metadata and electron-builder tries to publish anyway. Uploading is a separate step so the update metadata can be corrected first."
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.224",
