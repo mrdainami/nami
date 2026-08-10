@@ -17,6 +17,27 @@ npm test        # node --test, no network and no model download needed
 npm run shot    # renders a demo-seeded screenshot to shots/app.png
 ```
 
+## Two copies, and why
+
+Nami is comfortable to build Nami in, so you will end up running two of it.
+Keep them apart.
+
+- **`npm start`** runs this checkout. It is what you look at while working:
+  no build, no wait, and Electron gives it its own `userData` (`Nami-dev`), so
+  your real settings, keys and open projects are never touched.
+- **`/Applications/Nami.app`** is the version other people have. Leave it alone
+  and it stays an honest answer to "what does a user see?", which nothing else
+  can tell you.
+
+Installing your own build over it is a deliberate act, not the daily loop:
+
+```bash
+npm run pack && npm run install-local
+```
+
+`install-local` refuses to overwrite a running app, because doing so leaves it
+reading a bundle that no longer exists.
+
 Building a `.app` or `.dmg` (`npm run pack` / `npm run dist`) first runs
 `npm run fetch-model`, which pulls `whisper-tiny.en` (~44 MB) into `build/models`
 so the shipped app can transcribe offline. Packaging config lives in
