@@ -429,7 +429,10 @@ body[data-glass] .lane-empty .hint { color: var(--muted); }
 body[data-glass] .term-body,
 body[data-glass] .term-body .xterm { letter-spacing: normal; }
 body[data-glass] .term-body { padding: 0; }
-body[data-glass] .term-body .xterm { padding: 8px 14px 8px 12px; }
+/* same breathing room as the other themes, but on .xterm rather than the body:
+   the glass panes bleed their blur to the tile edge, so padding the body would
+   punch a hard-edged frame out of it */
+body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
 body[data-glass] .ed-gutter { color: var(--faint); background: none; }
 body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
 body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }

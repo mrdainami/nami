@@ -5,6 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
+import { WebglAddon } from './vendor/addon-webgl.mjs';
 import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
@@ -93,11 +94,18 @@ function currentTheme() {
 }
 function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
 function statusColors() { return STATUS_COLORS[currentTheme()]; }
-// the glass themes read as sleek SF Mono; paper/operator keep their typewriter
+// SF Mono in every theme's terminal, Courier Prime everywhere else.
+//
+// Courier Prime is a typewriter face: thin strokes, low x-height, wide letters.
+// It is what makes Nami's chrome look hand-made and it is the worst thing about
+// reading a dense terminal — an agent's output is small, dense, and rarely
+// re-read carefully, which is the opposite of what that face is for. The glass
+// themes already made this trade; the rest now follow.
+//
+// The UI keeps Courier Prime, so the desk still reads as paper. Only the
+// terminals change.
 function termFontFamily() {
-  return GLASS_FAMILY.has(currentTheme())
-    ? "'SF Mono', ui-monospace, Menlo, monospace"
-    : "'Courier Prime','Courier New',monospace";
+  return "'SF Mono', ui-monospace, Menlo, monospace";
 }
 function applyThemeAttrs(name) {
   if (name !== 'paper' && THEME_NAMES.includes(name)) document.body.dataset.theme = name;
@@ -924,11 +932,38 @@ const TERM_FONT_KEY = 'dainami-term-fontsize';
 function termFontSize() {
   const saved = Number(localStorage.getItem(TERM_FONT_KEY));
   if (saved >= 10 && saved <= 18) return saved;
-  // glass stays on whole pixels: SF Mono at fractional sizes yields fractional
-  // cell widths, and xterm then paints wider than fit measured (right-edge clip)
-  return GLASS_FAMILY.has(currentTheme()) ? 12 : 13.5;
+  // Whole pixels, every theme: SF Mono at a fractional size yields a fractional
+  // cell width, xterm then computes more columns than it can paint, and every
+  // line loses its tail off the right edge. This was a glass-only rule while
+  // glass was the only theme on SF Mono.
+  return 12;
 }
-function termLetterSpacing() { return GLASS_FAMILY.has(currentTheme()) ? 0 : 0.2; }
+// Zero, every theme. Tracking inherits into xterm's hidden measuring element,
+// which then reports a cell narrower than the font actually paints — same
+// right-edge clipping as a fractional size. Courier Prime wanted 0.2; SF Mono
+// does not need it.
+function termLetterSpacing() { return 0; }
+
+// Paint the terminal on the GPU instead of building a DOM node per character.
+// Sharper glyph edges, and the difference is largest exactly when it matters —
+// an agent dumping hundreds of lines at once.
+//
+// Must be called after term.open(): the addon needs a canvas in the document.
+// If the GPU context is lost (a display change, sleep, or a driver reset) the
+// addon cannot recover, so it is disposed and xterm falls back to the DOM
+// renderer on its own. Losing sharpness is fine; a blank terminal is not, and
+// that is what leaving a dead addon attached would give.
+function useGpu(term) {
+  let addon;
+  try { addon = new WebglAddon(); } catch (_) { return; }
+  try {
+    addon.onContextLoss(() => { try { addon.dispose(); } catch (_) {} });
+    term.loadAddon(addon);
+  } catch (_) {
+    // no WebGL on this machine — the DOM renderer is already in place
+    try { addon.dispose(); } catch (_) {}
+  }
+}
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
@@ -1019,8 +1054,22 @@ function safeFit(rec) {
 }
 
 function mountTerminal(p, rec) {
-  const term = new Terminal({ fontFamily: termFontFamily(), fontSize: termFontSize(), lineHeight: 1.35, letterSpacing: termLetterSpacing(), theme: xtermTheme(), cursorBlink: true, allowTransparency: true, allowProposedApi: true, scrollback: 6000, minimumContrastRatio: 6, linkHandler: oscLinkHandler(p) });
+  const term = new Terminal({
+    fontFamily: termFontFamily(), fontSize: termFontSize(), letterSpacing: termLetterSpacing(),
+    // 1.45 rather than 1.35: an agent writes paragraphs, not log lines, and at
+    // 1.35 a long answer reads as one block of grey.
+    lineHeight: 1.45,
+    theme: xtermTheme(), cursorBlink: true, allowTransparency: true, allowProposedApi: true,
+    scrollback: 6000,
+    // Bold is the one weight distinction the stream actually carries — Claude
+    // uses it for headings and emphasis — so let it be properly bold, and let
+    // bold text take the bright half of the palette.
+    fontWeight: 400, fontWeightBold: 700, drawBoldTextInBrightColors: true,
+    minimumContrastRatio: 6,
+    linkHandler: oscLinkHandler(p),
+  });
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
+  useGpu(term);
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => { safeFit(rec); startProcess(p, term.cols, term.rows); });
   term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });
@@ -1107,6 +1156,11 @@ function registerTerminalLinks(term, p) {
           links.push({
             text: row.link.text,
             range: { start, end },
+            // Without this xterm decorates nothing: a path that opens on
+            // ⌘-click looked exactly like a path that does not, and the only
+            // way to find out was to try. Now the cursor and the underline say
+            // so before you commit to the click.
+            decorations: { pointerCursor: true, underline: true },
             activate: (ev) => { if (ev.metaKey || ev.ctrlKey) openTermLink(row.link, row.st, ev); },
           });
         }

@@ -31,7 +31,8 @@
   "devDependencies": {
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
-    "js-yaml": "^4.3.1"
+    "js-yaml": "^4.3.1",
+    "@xterm/addon-webgl": "^0.19.0"
   },
   "//deps": "transformers and onnxruntime-node are pinned exactly on purpose: a v3→v4 transformers bump swaps the tokenizer and the wasm-vendoring story, and onnxruntime-node's prebuilt-binary layout moves between napi generations. Re-pin deliberately, never by caret drift. Packaging lives in electron-builder.yml."
 }
