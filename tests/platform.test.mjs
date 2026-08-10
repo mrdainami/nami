@@ -42,7 +42,14 @@ test('windows runs powershell without a profile', () => {
 });
 
 test('linux takes the unix branch rather than falling through to windows', () => {
-  assert.equal(loginShell('linux').file, '/bin/zsh');
+  // Explicit env, because the default is process.env: this read the machine's
+  // own $SHELL and so asserted zsh on a Mac and bash on a Linux CI runner. It
+  // passed here for two months and failed the first time it ran anywhere else.
+  assert.equal(loginShell('linux', {}).file, '/bin/zsh');
+});
+
+test('the unix branch prefers the shell the user actually has', () => {
+  assert.equal(loginShell('linux', { SHELL: '/bin/bash' }).file, '/bin/bash');
 });
 
 test('"is it installed" asks each platform in its own dialect', () => {
