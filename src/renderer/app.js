@@ -5,7 +5,6 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
-import { WebglAddon } from './vendor/addon-webgl.mjs';
 import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
@@ -944,26 +943,17 @@ function termFontSize() {
 // does not need it.
 function termLetterSpacing() { return 0; }
 
-// Paint the terminal on the GPU instead of building a DOM node per character.
-// Sharper glyph edges, and the difference is largest exactly when it matters —
-// an agent dumping hundreds of lines at once.
+// The terminal draws with the DOM renderer, not the GPU one. The WebGL addon
+// is sharper and much faster on a wall of output, but it repaints by damage and
+// leaves the undamaged canvas alone — so anything it fails to mark dirty stays
+// on screen. In practice that was a block of stale pixels lying across live
+// text, and Claude's welcome banner surviving five redraws stacked on itself.
+// Same command, same build, the addon the only difference.
 //
-// Must be called after term.open(): the addon needs a canvas in the document.
-// If the GPU context is lost (a display change, sleep, or a driver reset) the
-// addon cannot recover, so it is disposed and xterm falls back to the DOM
-// renderer on its own. Losing sharpness is fine; a blank terminal is not, and
-// that is what leaving a dead addon attached would give.
-function useGpu(term) {
-  let addon;
-  try { addon = new WebglAddon(); } catch (_) { return; }
-  try {
-    addon.onContextLoss(() => { try { addon.dispose(); } catch (_) {} });
-    term.loadAddon(addon);
-  } catch (_) {
-    // no WebGL on this machine — the DOM renderer is already in place
-    try { addon.dispose(); } catch (_) {}
-  }
-}
+// It is a real gain when it works, and worth trying again: what made it fire so
+// often was the column count being wrong, which resized the terminal ten times
+// in the first tenth of a second. That is fixed now (see .term-body in
+// paper.css). The vendored addon stays in ./vendor for that attempt.
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
@@ -1069,7 +1059,6 @@ function mountTerminal(p, rec) {
     linkHandler: oscLinkHandler(p),
   });
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
-  useGpu(term);
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => { safeFit(rec); startProcess(p, term.cols, term.rows); });
   term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });

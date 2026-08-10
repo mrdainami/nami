@@ -823,10 +823,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 .tile-body { flex: 1; min-height: 0; position: relative; padding: 8px 10px; overflow: hidden; }
 /* Terminals get more room than an editor does: agent output runs to the edge
-   of the pane and, flush against the tile border, reads as a wall. The fit
-   addon measures clientWidth, which excludes padding, so the column count
-   stays honest. */
-.tile-body.term-body { padding: 12px 14px; }
+   of the pane and, flush against the tile border, reads as a wall.
+   The room lives on .xterm, never on the body: addon-fit reads the body's
+   computed width — which on a border-box element includes its padding — and
+   only subtracts the padding it finds on .xterm itself. Padding the body
+   therefore buys breathing room the column count cannot see, and every line is
+   laid out ~4 columns wider than the pane can paint. Same rule the glass themes
+   have always followed; see theme-glass.css. */
+.tile-body.term-body { padding: 0; }
+.tile-body.term-body .xterm { padding: 12px 14px; }
 .tile-body .xterm { height: 100%; }
 .tile-body .xterm .xterm-viewport { background: transparent !important; }
 
