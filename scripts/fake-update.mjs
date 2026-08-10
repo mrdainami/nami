@@ -112,23 +112,61 @@ if (serveApp) {
 
 if (pointApp) {
   const target = path.resolve(pointApp);
-  const feed = path.join(target, 'Contents', 'Resources', 'app-update.yml');
-  if (!fs.existsSync(feed)) {
-    console.error(`no app-update.yml inside ${target} — is that a packaged Nami?`);
+  const res = path.join(target, 'Contents', 'Resources');
+  if (!fs.existsSync(res)) {
+    console.error(`no Contents/Resources inside ${target} — is that a packaged Nami?`);
     process.exit(1);
   }
+  const feed = path.join(res, 'app-update.yml');
+
+  // A `--dir` build has no app-update.yml at all: electron-builder only writes
+  // one when it builds a real target. So this creates the file as often as it
+  // replaces one, and only keeps a copy when there was something to keep.
   const backup = feed + '.real';
-  if (!fs.existsSync(backup)) fs.copyFileSync(feed, backup);
+  if (fs.existsSync(feed) && !fs.existsSync(backup)) fs.copyFileSync(feed, backup);
   fs.writeFileSync(feed, `provider: generic\nurl: http://localhost:${PORT}\nupdaterCacheDirName: nami-updater\n`);
-  console.log(`  ${path.basename(target)} now asks localhost:${PORT} (original saved as app-update.yml.real)`);
+
+  // Writing into Resources breaks the seal — codesign records what is in there,
+  // and Squirrel will not swap an app whose signature does not verify. Re-sign
+  // the outer bundle so the copy under test is as real as the one users get.
+  // Only the top level: the frameworks and helpers inside keep the signatures
+  // electron-builder already gave them, which is what --deep would trample.
+  const identity = arg('--sign') || defaultIdentity();
+  if (identity) {
+    const ents = path.join(ROOT, 'build', 'entitlements.mac.plist');
+    execFileSync('codesign', ['--force', '--sign', identity, '--options', 'runtime',
+      ...(fs.existsSync(ents) ? ['--entitlements', ents] : []), target]);
+    execFileSync('codesign', ['--verify', '--strict', target]);
+    console.log(`  re-signed ${path.basename(target)} as ${identity}`);
+  } else {
+    console.log('  ! no signing identity found — Squirrel will refuse the swap, so the');
+    console.log('    happy path cannot be tested. Pass --sign "Developer ID Application: …".');
+  }
+  console.log(`  ${path.basename(target)} now asks localhost:${PORT}`);
+}
+
+// The one Developer ID on this machine, if there is exactly one to be sure about.
+function defaultIdentity() {
+  try {
+    const out = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' });
+    const names = [...out.matchAll(/"(Developer ID Application: [^"]+)"/g)].map((m) => m[1]);
+    return names.length === 1 ? names[0] : null;
+  } catch (_) { return null; }
 }
 
 if (serveApp) {
   http.createServer((req, res) => {
     const name = path.basename(decodeURIComponent((req.url || '').split('?')[0]));
     const file = path.join(OUT, name);
-    if (!name || !fs.existsSync(file)) { res.writeHead(404).end('no'); return; }
-    console.log(`  → ${name}`);
+    // Misses are logged too, and loudly. A request that 404s silently is how an
+    // updater looks like it is doing nothing when it is in fact asking for
+    // something that was never served — a blockmap, a differently named zip.
+    if (!name || !fs.existsSync(file)) {
+      console.log(`  ✗ 404 ${name || '(root)'}`);
+      res.writeHead(404).end('no');
+      return;
+    }
+    console.log(`  → ${name}${req.headers.range ? ` [range ${req.headers.range}]` : ''}`);
     res.writeHead(200, { 'Content-Length': fs.statSync(file).size });
     fs.createReadStream(file).pipe(res);
   }).listen(PORT, () => {
