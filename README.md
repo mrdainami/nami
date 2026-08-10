@@ -6,9 +6,10 @@
 
 One workspace for all of them. Say what you need in plain English and watch it get done.
 
-**[↓ Download for Mac](https://github.com/mrdainami/nami/releases/latest)**
+**[↓ Download for Mac](https://github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg)**
 
-macOS 13 or later · Apple Silicon and Intel · free and open source
+macOS 13 or later · free and open source
+On an older Intel Mac? [Get the Intel build](https://github.com/mrdainami/nami/releases/latest/download/Nami-x64.dmg).
 
 </div>
 
@@ -66,7 +67,7 @@ security warning.
 
 ## Get started
 
-1. **[Download it](https://github.com/mrdainami/nami/releases/latest)** and drag Nami into your Applications folder.
+1. **[Download it](https://github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg)** and drag Nami into your Applications folder.
 2. **Point it at one folder** you work in. It never looks outside it.
 3. **Ask for something.** It finds the agents you already have.
 

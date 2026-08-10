@@ -76,6 +76,16 @@ dmg:
   sign: true
 afterAllArtifactBuild: scripts/notarize-dmg.mjs
 
+# No version in the installer's name, on purpose. The download button on
+# nami.dainami.ai points at
+#   github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg
+# and that path can only resolve if the newest release holds an asset with
+# exactly that name. Put the version back in and the site's link dies at the
+# next release — silently, because GitHub answers a missing asset with its own
+# 404 page rather than anything the site could notice.
+# The version is still in the release title, the tag, and the app's About.
+artifactName: ${productName}-${arch}.${ext}
+
 mac:
   category: public.app-category.developer-tools
   target:
