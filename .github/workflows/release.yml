@@ -28,13 +28,27 @@ on:
 
 jobs:
   build:
-    # Without a token this cannot publish, and a run that spends half an hour
-    # building and notarizing only to fail at the last step is worse than not
-    # running: it reports a red tag for a release that was made by hand.
-    if: ${{ secrets.RELEASES_TOKEN != '' }}
     runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
+    # Secrets are lifted into env here because `if:` conditions cannot read the
+    # secrets context — a workflow that tries fails validation before any job
+    # starts, with "this run likely failed because of a workflow file issue" and
+    # no log to read. env is readable from a step-level `if`, so the checks below
+    # go through these.
+    env:
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     timeout-minutes: 60
     steps:
+      # Stop in the first seconds rather than after half an hour of building and
+      # notarizing something that cannot then be uploaded.
+      - name: Check we can publish before doing any work
+        run: |
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::error::RELEASES_TOKEN is not set — nothing could be published, so not building."
+            exit 1
+          fi
+          echo "publishing token present"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -58,10 +72,10 @@ jobs:
       # The key has to exist as a file on disk — see the note at the top. Runner
       # disks are destroyed with the job, so this never outlives the build.
       - name: Stage the notarization key
-        if: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+        if: env.APPLE_API_KEY_P8 != ''
         run: |
           mkdir -p "$HOME/private_keys"
-          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" | base64 --decode > "$HOME/private_keys/AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$HOME/private_keys/AuthKey.p8"
           echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
 
       # Build only — publishing is a separate step below, deliberately.
