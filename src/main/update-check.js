@@ -63,7 +63,7 @@ function releaseFromApi(doc, arch = process.arch) {
   return { version, url };
 }
 
-const LATEST = 'https://api.github.com/repos/mrdainami/nami-releases/releases/latest';
+const LATEST = 'https://api.github.com/repos/mrdainami/nami/releases/latest';
 
 async function fetchLatest(url = LATEST) {
   const res = await fetch(url, {

@@ -8,9 +8,7 @@
 #
 #   npm version patch && git push --follow-tags
 #
-# Secrets this needs, all set in the SOURCE repo's settings:
-#   RELEASES_TOKEN      PAT with `repo` scope on mrdainami/nami-releases.
-#                       The built-in GITHUB_TOKEN cannot write to another repo.
+# Secrets this needs:
 #   CSC_LINK            base64 of the Developer ID .p12  ) omit both and the
 #   CSC_KEY_PASSWORD    its export password               ) build is unsigned
 #   APPLE_API_KEY_P8    base64 of the App Store Connect .p8  ) omit these and
@@ -29,13 +27,16 @@ on:
 jobs:
   build:
     runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
+    # The release lands on this same repo, so the built-in token can create it —
+    # no hand-made PAT to rotate. It only needs to be told it may write.
+    permissions:
+      contents: write
     # Secrets are lifted into env here because `if:` conditions cannot read the
     # secrets context — a workflow that tries fails validation before any job
     # starts, with "this run likely failed because of a workflow file issue" and
     # no log to read. env is readable from a step-level `if`, so the checks below
     # go through these.
     env:
-      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     timeout-minutes: 60
     steps:
@@ -46,7 +47,6 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
         run: |
           missing=
-          [ -z "$RELEASES_TOKEN" ]    && missing="$missing RELEASES_TOKEN"
           [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
           [ -z "$APPLE_API_KEY_P8" ]  && missing="$missing APPLE_API_KEY_P8"
           if [ -n "$missing" ]; then
@@ -119,10 +119,10 @@ jobs:
 
       - name: Publish the draft release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --repo mrdainami/nami-releases \
+            --repo mrdainami/nami \
             --draft \
             --title "Nami ${GITHUB_REF_NAME#v}" \
             --notes "Signed and notarized for macOS. Apple Silicon and Intel builds attached." \
