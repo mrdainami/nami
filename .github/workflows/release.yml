@@ -1,0 +1,139 @@
+# Tag a version, get an installer. Nothing else publishes.
+#
+# This is the wall between working and shipping: master moves as freely as you
+# like and nobody downloads it. Only a `v*` tag becomes something a user can
+# install, and it is built from a clean checkout by a machine that has never
+# seen your desk — so what ships is exactly what is committed, never what
+# happened to be lying around locally.
+#
+#   npm version patch && git push --follow-tags
+#
+# Secrets this needs, all set in the SOURCE repo's settings:
+#   RELEASES_TOKEN      PAT with `repo` scope on mrdainami/nami-releases.
+#                       The built-in GITHUB_TOKEN cannot write to another repo.
+#   CSC_LINK            base64 of the Developer ID .p12  ) omit both and the
+#   CSC_KEY_PASSWORD    its export password               ) build is unsigned
+#   APPLE_API_KEY_P8    base64 of the App Store Connect .p8  ) omit these and
+#   APPLE_API_KEY_ID    the key's ID                         ) it is signed
+#   APPLE_API_ISSUER    the issuer UUID                      ) but not notarized
+#
+# Note the name: electron-builder's APPLE_API_KEY is a PATH to the .p8, not its
+# contents, so the secret holds the bytes under a different name and the step
+# below writes them to a file and points APPLE_API_KEY at it.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
+    # Secrets are lifted into env here because `if:` conditions cannot read the
+    # secrets context — a workflow that tries fails validation before any job
+    # starts, with "this run likely failed because of a workflow file issue" and
+    # no log to read. env is readable from a step-level `if`, so the checks below
+    # go through these.
+    env:
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+    timeout-minutes: 60
+    steps:
+      # Stop in the first seconds rather than after half an hour of building and
+      # notarizing something that cannot then be uploaded.
+      - name: Check we can publish before doing any work
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        run: |
+          missing=
+          [ -z "$RELEASES_TOKEN" ]    && missing="$missing RELEASES_TOKEN"
+          [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
+          [ -z "$APPLE_API_KEY_P8" ]  && missing="$missing APPLE_API_KEY_P8"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing — a release must be signed, notarized and publishable, so stopping now rather than after 45 minutes of building."
+            exit 1
+          fi
+          echo "all release credentials present"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 44 MB of Whisper weights, gitignored and fetched at pack time. Keyed on
+      # the fetch script so a model change busts the cache and nothing else does.
+      - name: Cache Whisper weights
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/fetch-model.mjs', 'src/main/stt-model.js') }}
+
+      - run: npm ci
+
+      # The gate. A red test never becomes a download.
+      - run: npm test
+
+      # The key has to exist as a file on disk — see the note at the top. Runner
+      # disks are destroyed with the job, so this never outlives the build.
+      - name: Stage the notarization key
+        if: env.APPLE_API_KEY_P8 != ''
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$HOME/private_keys/AuthKey.p8"
+          echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # Build only — publishing is a separate step below, deliberately.
+      #
+      # `--publish always` would upload latest-mac.yml as electron-builder wrote
+      # it, which is before the notarization staple changes the dmg and before
+      # fix-update-metadata corrects the recorded hash. The release would install
+      # fine and every later auto-update would fail its checksum. Uploading after
+      # the build has fully finished is the only way that file can be true.
+      #
+      # `predist` pulls the weights; the cache above usually makes it a no-op.
+      - name: Build, sign and notarize
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run dist
+
+      # Refuse to publish something Gatekeeper would reject. This is the check a
+      # user performs by double-clicking, and it is silent at build time.
+      - name: Check what Gatekeeper makes of it
+        run: |
+          set -e
+          for dmg in release/*.dmg; do
+            echo "== $dmg"
+            spctl -a -vvv -t open --context context:primary-signature "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+
+      # Prove the update metadata describes the bytes being uploaded, not the
+      # bytes that existed before stapling.
+      - name: Check the update metadata
+        run: node scripts/check-update-metadata.mjs
+
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo mrdainami/nami-releases \
+            --draft \
+            --title "Nami ${GITHUB_REF_NAME#v}" \
+            --notes "Signed and notarized for macOS. Apple Silicon and Intel builds attached." \
+            release/*.dmg release/*.blockmap release/latest-mac.yml
+
+      - name: Report what shipped
+        if: always()
+        run: |
+          for app in release/mac*/Nami.app; do
+            [ -d "$app" ] || continue
+            echo "== $app"
+            codesign -dv "$app" 2>&1 | grep -E 'Identifier|TeamIdentifier' || echo "  unsigned"
+            spctl -a -vvv -t install "$app" 2>&1 | tail -2 || true
+          done

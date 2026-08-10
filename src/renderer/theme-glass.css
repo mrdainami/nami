@@ -1,0 +1,576 @@
+/* Nami — the liquid-glass system: "glass" (light) + shared structure.
+   Spec: docs/superpowers/specs/2026-08-09-glass-graphite-themes-design.md
+   Approved mockup: docs/reference/glass-graphite-mockup.html
+
+   Layout of the system, mirroring the paper/operator pattern:
+   - body[data-theme="glass"]     → light token remap (this file)
+   - body[data-theme="graphite"]  → dark token remap (theme-graphite.css)
+   - body[data-glass]             → every structural rule, written ONCE for both
+     (setTheme() sets data-glass for either glass-family theme).
+   paper.css stays byte-identical; operator is untouched. */
+
+/* Doto — the dot-matrix identity face (vendored; no network) */
+@font-face {
+  font-family: 'Doto';
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+  src: url(./vendor/doto/doto-latin.woff2) format('woff2');
+}
+
+/* ---- glass (light) token remap ------------------------------------------- */
+body[data-theme="glass"] {
+  --desk: #e8e9ee;
+  --sheet-hi: rgba(255, 255, 255, 0.22);
+  --sheet-lo: rgba(255, 255, 255, 0.22);
+  --paper: rgba(255, 255, 255, 0.48);
+  --paper-2: rgba(255, 255, 255, 0.38);
+  --paper-3: rgba(255, 255, 255, 0.3);
+  --ink: #1d1d22;
+  --muted: #6f7079;
+  --muted-2: #7d7e88;
+  --muted-3: #8a8b94;
+  --faint: #b4b5be;
+  --line: rgba(29, 29, 34, 0.16);
+  --dash: rgba(29, 29, 34, 0.1);
+  --dash-dark: rgba(29, 29, 34, 0.2);
+  --rail: rgba(255, 255, 255, 0.18);
+  --hover: rgba(255, 255, 255, 0.55);
+  --green: #ef6461;            /* primary action → coral, like operator */
+  --green-dark: #d95350;
+  --green-ok: #2e7d4f;
+  --amber-bg: rgba(238, 190, 80, 0.2);
+  --amber-line: rgba(201, 152, 44, 0.55);
+  --amber-ink: #9a6c14;
+  --amber-body: #8a6520;
+  --amber-btn: #c98d1a;
+  --amber-btn-line: #a87613;
+  --red-bg: rgba(239, 100, 97, 0.14);
+  --red-line: #ef6461;
+  --red-ink: #b2322f;
+  --red-body: #a94643;
+  --red-btn: #e0524f;
+  --red-btn-line: #c8433f;
+  --shadow-soft: rgba(45, 52, 90, 0.12);
+  --shadow-mid: rgba(45, 52, 90, 0.16);
+  --shadow-hard: rgba(45, 52, 90, 0.22);
+  --tree-ink: rgba(60, 60, 72, 0.72);
+  --tree-fill: rgba(255, 255, 255, 0.65);
+  --tree-fill-open: rgba(255, 255, 255, 0.85);
+  --tree-fill-file: rgba(255, 255, 255, 0.55);
+  /* glass helpers — shared names, per-theme values */
+  --gl-accent: #ef6461;
+  --gl-accent-hi: #ff8b88;
+  --gl-accent-deep: #e0524f;
+  --gl-accent-dim: rgba(239, 100, 97, 0.14);
+  --gl-pane: rgba(255, 255, 255, 0.48);
+  --gl-pane-strong: rgba(255, 255, 255, 0.62);
+  --gl-pane-dim: rgba(255, 255, 255, 0.24);
+  /* modals sit over live terminal text — a pane-strong fill lets it read through */
+  --gl-pane-modal: rgba(255, 255, 255, 0.86);
+  --gl-rim: rgba(255, 255, 255, 0.75);
+  --gl-rim-hi: rgba(255, 255, 255, 0.95);
+  --gl-rim-dim: rgba(255, 255, 255, 0.45);
+  --gl-sh: 45 52 90;
+  --gl-lip: rgba(255, 255, 255, 0.8);
+  --gl-seg-track: rgba(120, 120, 138, 0.14);
+  --gl-seg-active: rgba(255, 255, 255, 0.82);
+  --gl-bar-track: rgba(120, 120, 138, 0.22);
+  --gl-well: rgba(226, 228, 237, 0.6);
+  --gl-well-line: rgba(255, 255, 255, 0.8);
+  --gl-well-lip: rgba(255, 255, 255, 0.75);
+  --gl-slab:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+    inset 0 14px 30px rgba(255, 255, 255, 0.3),
+    inset 0 -14px 30px rgba(96, 108, 148, 0.12),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  --nami-fill: #ef6461;
+  --nami-foam: #ffffff;
+  --nami-eye: #1d1d22;
+}
+/* the aurora desk — glass is only alive with light behind it */
+body[data-theme="glass"] {
+  background: #e8e9ee;
+  background-image:
+    radial-gradient(52% 44% at 12% 6%,  rgba(255, 158, 140, 0.55) 0%, transparent 62%),
+    radial-gradient(46% 40% at 92% 12%, rgba(140, 205, 220, 0.5)  0%, transparent 60%),
+    radial-gradient(60% 52% at 78% 88%, rgba(255, 190, 170, 0.42) 0%, transparent 64%),
+    radial-gradient(44% 40% at 8% 92%,  rgba(168, 190, 235, 0.4)  0%, transparent 60%),
+    linear-gradient(165deg, #f6f4f2 0%, #e9e8ee 55%, #eceef0 100%);
+}
+body[data-theme="glass"] a { color: #3763c9; }
+
+/* =========================================================================
+   The glass system — every rule below serves BOTH glass-family themes.
+   ========================================================================= */
+
+body[data-glass] {
+  --gl-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  --gl-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  --gl-dot: 'Doto', 'SF Mono', ui-monospace, monospace;
+  --gl-pop: cubic-bezier(0.22, 1.28, 0.36, 1);
+  /* the sheet's corner, named once: the overlay scrim has to trace the same
+     curve or it reads as a square dropped on a rounded workbench */
+  --gl-sheet-r: 26px;
+  font-family: var(--gl-sans);
+  letter-spacing: -0.01em;
+  /* pixel cursor — ink arrow at rest */
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%231d1d22' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, default;
+}
+body[data-glass] button, body[data-glass] a,
+body[data-glass] .nav-card, body[data-glass] .agent-row, body[data-glass] .tree-row,
+body[data-glass] .project-chip, body[data-glass] .picker-row, body[data-glass] .artifact,
+body[data-glass] .svc-card, body[data-glass] .svc-custom, body[data-glass] .ctx-item {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%23ef6461' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, pointer;
+}
+
+/* pixel-glyph twins: unicode hides, dots show */
+.pix-i { display: none; }
+body[data-glass] .pix-i { display: inline-flex; align-items: center; }
+body[data-glass] .uni-i { display: none; }
+body[data-glass] .btn .pix-i { margin-right: 5px; }
+.pix-glyph { width: 11px; height: 11px; }
+.pix-glyph path { fill: currentColor; shape-rendering: crispEdges; }
+
+/* scrollbars */
+body[data-glass] ::-webkit-scrollbar-thumb { background: rgb(var(--gl-sh) / 0.28); border: 3px solid transparent; background-clip: content-box; border-radius: 10px; }
+body[data-glass] ::-webkit-scrollbar-thumb:hover { background: rgb(var(--gl-sh) / 0.45); background-clip: content-box; }
+
+/* ---- the sheet: a glass frame floating on the aurora ---------------------- */
+body[data-glass] .sheet {
+  background: var(--sheet-hi);
+  -webkit-backdrop-filter: blur(8px) saturate(1.25);
+  backdrop-filter: blur(8px) saturate(1.25);
+  border: 1px solid var(--gl-rim-dim);
+  border-radius: var(--gl-sheet-r);
+  box-shadow: inset 0 1.5px 0 var(--gl-lip), inset 0 -18px 44px rgb(var(--gl-sh) / 0.08), 0 40px 100px rgb(var(--gl-sh) / 0.22);
+}
+
+/* ---- type: identity in dots, reading in SF Pro ----------------------------- */
+body[data-glass] .caveat,
+body[data-glass] .brand-name,
+body[data-glass] .rail-head .title,
+body[data-glass] .lane-empty .polaroid,
+body[data-glass] .lane-empty .big,
+body[data-glass] .card-head .goal,
+body[data-glass] .approval .title,
+body[data-glass] .stopped .title,
+body[data-glass] .artifacts .title,
+body[data-glass] .modal-head .title,
+body[data-glass] .card-lbl,
+body[data-glass] .board-title,
+body[data-glass] .sv-bigok-t { font-family: var(--gl-dot); font-weight: 800; }
+body[data-glass] .say--user { font-family: var(--gl-sans); font-size: 13px; line-height: 1.6; border-left-color: var(--gl-accent); }
+
+body[data-glass] .brand-name { font-size: 19px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
+body[data-glass] .brand-sub { font-family: var(--gl-dot); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; align-self: flex-end; padding-bottom: 4px; }
+body[data-glass] .nami-mascot {
+  --nami-foam: transparent;
+  height: 25px;
+  filter: drop-shadow(0 2px 4px rgba(239, 100, 97, 0.35));
+  transform: translateY(-1px);
+  transition: transform 0.45s var(--gl-pop);
+}
+/* the dot-lattice body — same silhouette, built from dots like the type */
+body[data-glass] .nami-mascot .nami-body { fill: url(#nami-dot-lattice); }
+body[data-glass] .brand:hover .nami-mascot { transform: translateY(-3px) rotate(-4deg); }
+body[data-glass] .rail-head .title { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+body[data-glass] .lane-empty .big { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .lane-empty .polaroid {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; transform: none;
+  border-radius: 14px; box-shadow: var(--gl-slab), 0 18px 44px rgb(var(--gl-sh) / 0.16);
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+}
+body[data-glass] .card-head .goal { font-size: 13px; letter-spacing: 0.03em; }
+body[data-glass] .approval .title, body[data-glass] .stopped .title,
+body[data-glass] .artifacts .title, body[data-glass] .modal-head .title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .card-lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
+body[data-glass] .board-title { font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-glass] .sv-bigok-t { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* ---- the slab + physics ---------------------------------------------------- */
+/* Panes tilt toward the cursor (app.js feeds --rx/--ry, glass themes only),
+   lift on hover, compress on press. The slab's light bands are real shadows,
+   so the tilt moves them — nothing painted on. */
+body[data-glass] .tile,
+body[data-glass] .card,
+body[data-glass] .nav-card {
+  background: var(--gl-pane);
+  /* blur is the perf budget: panes only, kept moderate — buttons/chips are
+     translucent without live blur so moving glass stays cheap */
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--gl-rim);
+  border-radius: 22px;
+  box-shadow: var(--gl-slab), 0 24px 55px rgb(var(--gl-sh) / 0.16), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
+  /* 90ms: the tilt tracks the hand instead of dragging behind it */
+  transition: transform 0.09s ease-out, box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+body[data-glass] .nav-card { border-radius: 17px; }
+body[data-glass] .tile:hover, body[data-glass] .card:hover {
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-5px) translateZ(12px);
+  background: var(--gl-pane-strong);
+  border-color: var(--gl-rim-hi);
+  box-shadow: var(--gl-slab), 0 42px 90px rgb(var(--gl-sh) / 0.22), 0 4px 14px rgb(var(--gl-sh) / 0.08);
+}
+body[data-glass] .nav-card:hover {
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px) translateZ(8px);
+  background: var(--gl-pane-strong);
+  border-color: var(--gl-rim-hi);
+  box-shadow: var(--gl-slab), 0 22px 48px rgb(var(--gl-sh) / 0.2);
+}
+/* Terminal tiles stay perfectly flat: a 3D transform makes Chromium rasterize
+   the terminal's DOM text as a texture, and the hover lift's translateZ scale
+   then stretches it. Terminals keep the slab shadows; depth without geometry. */
+body[data-glass] .tile:has(.term-body),
+body[data-glass] .tile:has(.term-body):hover {
+  transform: none;
+}
+body[data-glass] .tile.active {
+  border-color: rgba(255, 170, 165, 0.85);
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.55), 0 20px 40px rgba(239, 100, 97, 0.14), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+}
+body[data-glass] .tile.active:hover {
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.6), 0 32px 70px rgba(239, 100, 97, 0.2), 0 4px 14px rgb(var(--gl-sh) / 0.08);
+}
+body[data-glass] .tile.attention { border-color: var(--gl-accent); animation: gl-breathe 1.8s ease-in-out infinite; }
+@keyframes gl-breathe {
+  0%, 100% { box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.5), 0 0 24px rgba(239, 100, 97, 0.2); }
+  50% { box-shadow: var(--gl-slab), 0 0 0 2px rgba(239, 100, 97, 0.85), 0 0 40px rgba(239, 100, 97, 0.38); }
+}
+body[data-glass] .nav-card.active { border-color: rgba(255, 170, 165, 0.85); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.5), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
+body[data-glass] .nav-card.attn { border-color: var(--amber-line); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(238, 190, 80, 0.6); }
+body[data-glass] .tile.drop-hint, body[data-glass] .tile.file-hint { outline-color: var(--gl-accent); }
+body[data-glass] .tile.file-hint { box-shadow: var(--gl-slab), 0 0 0 3px rgba(239, 100, 97, 0.25); }
+@media (prefers-reduced-motion: reduce) {
+  body[data-glass] .tile, body[data-glass] .card, body[data-glass] .nav-card { transition: none; transform: none !important; }
+}
+
+/* dot-matrix titles on tiles + rail cards */
+body[data-glass] .tile-head { border-bottom: none; background: none; padding-top: 11px; }
+body[data-glass] .tile-head .t-title, body[data-glass] .peek-head .pk-title { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
+body[data-glass] .nav-card .goal { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
+body[data-glass] .nav-card .sid { font-family: var(--gl-mono); }
+body[data-glass] .nav-card .status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: color-mix(in srgb, currentColor 13%, transparent);
+}
+body[data-glass] .t-status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: var(--gl-pane-dim);
+}
+body[data-glass] .t-btn { border-radius: 999px; }
+body[data-glass] .t-btn:hover { background: var(--gl-pane-strong); }
+body[data-glass] .status-chip {
+  transform: none; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.1em;
+}
+
+/* ---- topbar ----------------------------------------------------------------- */
+body[data-glass] .topbar { border-bottom: none; }
+body[data-glass] .project-chip {
+  transform: none; border-radius: 999px;
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.08);
+  transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease;
+}
+body[data-glass] .project-chip:hover { transform: translateY(-2px); background: var(--gl-pane-strong); box-shadow: var(--gl-slab), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
+body[data-glass] .projects-pop {
+  --rest: translateX(-50%); transform: var(--rest); border-radius: 18px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7); backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 30px 80px rgb(var(--gl-sh) / 0.28);
+}
+body[data-glass] .projects-pop { padding: 10px; }
+body[data-glass] .pop-label { font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.2em; color: var(--muted); }
+body[data-glass] .project-row { border: none; border-radius: 12px; margin: 1px 0; }
+body[data-glass] .project-row:hover { background: var(--hover); }
+body[data-glass] .project-row .row-newwin { border-radius: 8px; }
+body[data-glass] .project-row .row-newwin:hover { border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .project-open-other {
+  border: 1px solid var(--gl-rim-dim); border-radius: 12px; background: var(--gl-pane-dim); margin-top: 6px;
+}
+body[data-glass] .project-open-other:hover { background: var(--gl-pane); border-color: var(--gl-rim); }
+body[data-glass] .live-badge {
+  transform: none; border-radius: 999px; color: var(--muted);
+  border: 1px solid var(--gl-rim); background: var(--gl-pane);
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+body[data-glass] .live-badge .dot { background: var(--gl-accent); box-shadow: 0 0 0 3px var(--gl-accent-dim), 0 0 10px rgba(239, 100, 97, 0.6); }
+body[data-glass] .live-badge.attn { border-color: var(--gl-accent); background: var(--gl-accent-dim); color: var(--gl-accent-deep); }
+body[data-glass] .live-badge.attn .dot { background: var(--gl-accent); }
+
+body[data-glass] .btn {
+  font-family: var(--gl-dot); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 4px 14px rgb(var(--gl-sh) / 0.07);
+  transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+body[data-glass] .btn:hover { transform: translateY(-2.5px); background: var(--gl-pane-strong); border-color: var(--gl-rim-hi); box-shadow: var(--gl-slab), 0 12px 28px rgb(var(--gl-sh) / 0.15); }
+body[data-glass] .btn:active { transform: translateY(0) scale(0.96); transition-duration: 0.12s; }
+body[data-glass] #btn-theme, body[data-glass] #btn-settings {
+  width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+}
+body[data-glass] #btn-theme .uni-i, body[data-glass] #btn-settings .uni-i { display: none; }
+body[data-glass] #btn-theme .pix-i, body[data-glass] #btn-settings .pix-i { margin: 0; }
+body[data-glass] #btn-theme .pix-glyph, body[data-glass] #btn-settings .pix-glyph { width: 14px; height: 14px; }
+/* tile buttons: capsule glass, mic in ink, zoom pair reads as one control */
+body[data-glass] .t-btn { border-radius: 999px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .t-btn .pix-glyph { width: 12px; height: 12px; }
+body[data-glass] .t-mic { color: var(--ink); }
+body[data-glass] .t-mic:hover { color: var(--gl-accent-deep); }
+/* The primary action glows, it doesn't cast. A single offset drop shadow
+   (0 8px 24px) pooled below the pill and hit .topbar's overflow clip 23px down,
+   so it read as a rectangle with a straight edge cut under the button. Every
+   outer layer here is zero-offset, so the halo follows the 999px radius all the
+   way round, and the widest stays under that 23px of headroom. */
+body[data-glass] .btn--go {
+  color: #fff;
+  background: linear-gradient(150deg, rgba(255, 142, 136, 0.95) 0%, rgba(236, 88, 85, 0.92) 100%);
+  border-color: rgba(255, 180, 175, 0.9);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(160, 30, 30, 0.25),
+    0 0 0 1px rgba(239, 100, 97, 0.3),
+    0 0 9px rgba(239, 100, 97, 0.45),
+    0 0 20px rgba(239, 100, 97, 0.28);
+}
+body[data-glass] .btn--go:hover {
+  background: linear-gradient(150deg, rgba(255, 152, 146, 0.98) 0%, rgba(240, 95, 92, 0.95) 100%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(160, 30, 30, 0.25),
+    0 0 0 1px rgba(239, 100, 97, 0.45),
+    0 0 11px rgba(239, 100, 97, 0.55),
+    0 0 22px rgba(239, 100, 97, 0.38);
+}
+body[data-glass] .btn--amber, body[data-glass] .btn--red { box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.1); border-radius: 999px; }
+
+/* ---- rail --------------------------------------------------------------------- */
+body[data-glass] .rail { border-right: none; background: none; }
+/* the segmented pill needs outer margins (paper spaced with padding we replaced),
+   and the scroller needs headroom so a lifted card never clips under the header */
+body[data-glass] .rail-tabs { margin: 12px 16px 8px; }
+body[data-glass] .rail-head { padding: 4px 20px 6px; }
+body[data-glass] .rail-list {
+  padding: 10px 16px 18px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+body[data-glass] .nav-card:hover { z-index: 3; }
+body[data-glass] .rail-tabs, body[data-glass] .card-tabs {
+  border-radius: 999px; padding: 3px; gap: 2px;
+  background: var(--gl-seg-track);
+  border: 1px solid var(--gl-rim-dim);
+  box-shadow: inset 0 1px 2px rgb(var(--gl-sh) / 0.06);
+}
+body[data-glass] .rail-tab, body[data-glass] .card-tab {
+  border: none; border-radius: 999px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+body[data-glass] .rail-tab.active, body[data-glass] .card-tab.active {
+  background: var(--gl-seg-active); color: var(--ink); font-weight: 900;
+  box-shadow: inset 0 1px 0 var(--gl-lip), 0 2px 7px rgb(var(--gl-sh) / 0.12);
+  border: none;
+}
+body[data-glass] .rail-collapse, body[data-glass] .rail-strip { border-radius: 999px; box-shadow: none; background: var(--gl-pane); border: 1px solid var(--gl-rim); }
+body[data-glass] .tree-row { border-bottom-color: rgb(var(--gl-sh) / 0.08); border-radius: 8px; }
+body[data-glass] .tree-row:hover { background: var(--hover); }
+body[data-glass] .agent-row { border-color: var(--gl-rim-dim); border-radius: 14px; background: var(--gl-pane-dim); }
+body[data-glass] .agent-row:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+
+/* segmented progress ticks (paper's solid bars go dotted, Nothing-style) */
+body[data-glass] .bar, body[data-glass] .progress {
+  background: repeating-linear-gradient(90deg, var(--gl-bar-track) 0 6px, transparent 6px 9px);
+  border-radius: 3px;
+}
+body[data-glass] .bar > i, body[data-glass] .progress > i {
+  background: repeating-linear-gradient(90deg, var(--gl-accent) 0 6px, transparent 6px 9px);
+  filter: drop-shadow(0 0 5px rgba(239, 100, 97, 0.55));
+}
+
+/* chips: frosted capsules; kind still answers "what kind of thing is this?" */
+body[data-glass] .code, body[data-glass] .swatch, body[data-glass] .artifact .kind {
+  border-color: var(--gl-rim-dim); border-radius: 8px;
+}
+
+/* ---- main canvas ---------------------------------------------------------------- */
+body[data-glass] .main { background: none; }
+body[data-glass] .grid {
+  background: none;
+  /* the grid is a scroller, so pane glows would slice flat at its bounds —
+     the exact "separator line" against the rail and the shortcut bar.
+     Fade the edges instead: glass melts into the frame. */
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  mask-composite: intersect;
+}
+body[data-glass] .lane-empty .hint { color: var(--muted); }
+
+/* terminals sit flush on the glass pane — no inner box, so any CLI's own TUI
+   (claude, opencode, …) reads as the tile's content instead of a box-in-a-box.
+   All horizontal breathing room lives on .xterm because FitAddon only subtracts
+   that element's padding when computing columns; the parent stays at zero. */
+/* The glass body sets letter-spacing: -0.01em for tight premium tracking, and it
+   inherits into xterm's hidden char-measuring element — xterm then sizes a cell
+   0.16px narrower than the font really paints, computes too many columns, and
+   every line runs past the pane and loses its tail. Terminals opt out of
+   tracking entirely so measured width == painted width. */
+body[data-glass] .term-body,
+body[data-glass] .term-body .xterm { letter-spacing: normal; }
+body[data-glass] .term-body { padding: 0; }
+body[data-glass] .term-body .xterm { padding: 8px 14px 8px 12px; }
+body[data-glass] .ed-gutter { color: var(--faint); background: none; }
+body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
+body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }
+body[data-glass] .editor--md .ed-area::selection { background: rgba(239, 100, 97, 0.24); }
+body[data-glass] .ed-area, body[data-glass] .card-body, body[data-glass] .card-raw .raw-area { background: none; caret-color: var(--gl-accent); }
+body[data-glass] .ed-bar { border-top: 1px solid var(--dash); background: none; }
+body[data-glass] .cmd-strip { background: var(--gl-pane-dim); border-radius: 0 0 22px 22px; }
+body[data-glass] .card-links { background: none; border-radius: 0 0 22px 22px; }
+body[data-glass] .link-chip { border-radius: 999px; background: var(--gl-pane); border-color: var(--gl-rim-dim); }
+body[data-glass] .link-chip:hover { box-shadow: none; border-color: var(--gl-accent); color: var(--gl-accent-deep); }
+body[data-glass] .card-in, body[data-glass] .lib-search, body[data-glass] .ni-row input, body[data-glass] .agent-pick {
+  border-radius: 12px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim);
+}
+body[data-glass] .card-in:focus, body[data-glass] .lib-search:focus, body[data-glass] .agent-pick:focus-visible { border-color: var(--gl-accent); }
+
+/* reading content stays a text face — markdown headings in SF Pro, not dots */
+body[data-glass] .md-read h1, body[data-glass] .md-read h2, body[data-glass] .md-read h3,
+body[data-glass] .md-read h4, body[data-glass] .md-read h5, body[data-glass] .md-read h6 {
+  font-family: var(--gl-sans); letter-spacing: -0.015em; text-transform: none;
+}
+body[data-glass] .md-read h1 { font-size: 17px; font-weight: 700; }
+body[data-glass] .md-read h2 { font-size: 15px; font-weight: 700; }
+body[data-glass] .md-read h3 { font-size: 13.5px; font-weight: 600; }
+body[data-glass] .md-read code { background: var(--gl-pane); border-color: var(--gl-rim-dim); border-radius: 6px; font-family: var(--gl-mono); }
+body[data-glass] .md-read .md-pre { background: var(--gl-well); border-color: var(--gl-well-line); border-radius: 12px; }
+body[data-glass] .md-read blockquote { border-left-color: var(--gl-accent); }
+
+/* approvals + steps */
+body[data-glass] .approval, body[data-glass] .stopped {
+  transform: none; border-radius: 14px; box-shadow: none;
+  background: var(--amber-bg); border: 1px solid var(--gl-rim-dim);
+}
+body[data-glass] .step .box { border-color: rgba(46, 125, 79, 0.5); border-radius: 6px; }
+body[data-glass] .step.done .box { background: rgba(46, 125, 79, 0.15); border-color: rgba(46, 125, 79, 0.5); }
+body[data-glass] .artifact { border-radius: 14px; box-shadow: none; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .artifact:hover { box-shadow: 0 10px 26px rgb(var(--gl-sh) / 0.14); background: var(--gl-pane); }
+body[data-glass] .reply-row { box-shadow: none; border-radius: 999px; }
+
+/* viewers */
+body[data-glass] .viewer .vw-stage { background: var(--gl-well); }
+body[data-glass] .viewer .vw-stage--dark { background: #1a1b20; }
+body[data-glass] .viewer .vw-stage img { border-color: var(--gl-rim); box-shadow: 0 12px 34px rgb(var(--gl-sh) / 0.22); border-radius: 10px; }
+
+/* ---- footer ---------------------------------------------------------------------- */
+body[data-glass] .footer {
+  border-top: none; background: none; padding: 12px 22px 15px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+body[data-glass] .footer .path { font-family: var(--gl-mono); text-transform: none; letter-spacing: 0; }
+
+/* ---- overlays ---------------------------------------------------------------------- */
+/* The scrim rides on a pseudo, not on .overlay itself, so it can be rounded and
+   masked without touching the modal sitting on it. .overlay is inset:0 inside the
+   sheet, so a square scrim puts hard corners across the sheet's 26px curve and the
+   dim reads as a rectangle dropped on the workbench. It traces the sheet instead,
+   and fades in over the last 20px so no side starts on a line.
+   ::before is first in DOM order and .overlay > * is position:relative
+   (paper.css), so the modal paints on top without any z-index. */
+body[data-glass] .overlay { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-glass] .overlay::before {
+  content: ''; position: absolute; inset: 0;
+  /* inset:0 lands on the sheet's PADDING box, inside its 1px border */
+  border-radius: calc(var(--gl-sheet-r) - 1px);
+  background: rgb(var(--gl-sh) / 0.3);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  mask-composite: intersect;
+}
+body[data-glass] .modal, body[data-glass] .picker-box,
+body[data-glass] .setup-box, body[data-glass] .peek-box {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(34px) saturate(1.7); backdrop-filter: blur(34px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  border-radius: 24px; --rest: scale(1); transform: var(--rest);
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.32);
+}
+body[data-glass] .peek-head { border-bottom: 1px solid var(--dash); background: none; border-radius: 24px 24px 0 0; }
+body[data-glass] .peek-head .pk-pin:focus-visible, body[data-glass] .peek-head .pk-x:focus-visible { outline-color: var(--gl-accent); }
+body[data-glass] .modal-head { border-bottom: 1px solid var(--dash); }
+body[data-glass] .modal-foot { border-top: 1px solid var(--dash); }
+body[data-glass] .modal-x { border-radius: 999px; }
+body[data-glass] .picker-input { border-bottom: 1px solid var(--dash); }
+body[data-glass] .picker-row { border-bottom-color: var(--dash); border-radius: 12px; }
+body[data-glass] .text-input { box-shadow: none; border-radius: 12px; background: var(--gl-pane-dim); }
+body[data-glass] .pick-chip, body[data-glass] .who-tile, body[data-glass] .add-card { border-radius: 14px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .pick-chip:hover, body[data-glass] .who-tile:hover, body[data-glass] .add-card:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .ni-choice.on { box-shadow: none; border-color: var(--gl-accent); background: var(--gl-accent-dim); }
+body[data-glass] .ni-choice.off:hover { border-color: var(--gl-rim); }
+body[data-glass] .ni-where { border-radius: 10px; border-style: solid; }
+body[data-glass] .pick-chip .check { border-color: rgba(46, 125, 79, 0.5); }
+body[data-glass] .sheet-cmd, body[data-glass] .scan-box { background: var(--gl-pane-dim); color: var(--muted); border-radius: 10px; }
+body[data-glass] .ql-row .n { color: var(--faint); }
+body[data-glass] .key-row, body[data-glass] .key-note { border-radius: 14px; background: var(--gl-pane-dim); }
+body[data-glass] .key-row .k-input { border-radius: 10px; }
+body[data-glass] .key-row .k-act.k-save { color: var(--gl-accent-deep); }
+body[data-glass] .set-opt { border-radius: 14px; }
+body[data-glass] .set-test { border-top-color: var(--dash); }
+body[data-glass] .set-flag.ok { color: var(--green-ok); }
+body[data-glass] .svc-card, body[data-glass] .svc-custom, body[data-glass] .sv-fold { border-radius: 14px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .svc-card:hover, body[data-glass] .svc-custom:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .svc-card:focus-visible, body[data-glass] .svc-custom:focus-visible { box-shadow: none; border-color: var(--gl-accent); }
+
+/* corkboard map */
+body[data-glass] .board {
+  background: var(--gl-pane-dim);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid var(--gl-rim); border-radius: 22px;
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.3);
+}
+body[data-glass] .board-svg path { stroke: var(--gl-accent); stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.8; }
+body[data-glass] .board-node { border-radius: 14px; border-color: var(--gl-rim); background: var(--gl-pane-strong); box-shadow: var(--gl-slab), 0 10px 26px rgb(var(--gl-sh) / 0.18); transform: translate(-50%, -50%) !important; }
+body[data-glass] .board-node:hover, body[data-glass] .board-node.focus { box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.55), 0 16px 40px rgba(239, 100, 97, 0.2); }
+body[data-glass] .board-node .pin { background: var(--gl-accent); border-color: rgba(239, 100, 97, 0.6); box-shadow: 0 0 8px rgba(239, 100, 97, 0.6); }
+
+/* toast */
+body[data-glass] .toast {
+  transform: translateX(-50%); border-radius: 999px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 18px 44px rgb(var(--gl-sh) / 0.24);
+}
+body[data-glass] .toast .dot { background: var(--gl-accent); }
+body[data-glass] .toast .msg { color: var(--ink); }
+
+/* theme + context popovers */
+body[data-glass] .theme-pop, body[data-glass] .ctx-menu {
+  border-radius: 18px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7); backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 24px 70px rgb(var(--gl-sh) / 0.28);
+}
+body[data-glass] .theme-opt { border-radius: 12px; }
+body[data-glass] .theme-opt.picked { border-color: var(--gl-accent); background: var(--gl-accent-dim); }
+body[data-glass] .theme-opt.picked .theme-dot { border-color: var(--gl-accent); background: radial-gradient(circle, var(--gl-accent) 0 3.5px, transparent 4px); }
+body[data-glass] .ctx-item { border-radius: 10px; }
+body[data-glass] .ctx-item:hover { background: var(--hover); }

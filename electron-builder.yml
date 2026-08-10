@@ -1,0 +1,91 @@
+appId: ai.dainami.nami
+productName: Nami
+directories:
+  output: release
+  buildResources: build
+
+# Releases go to a DIFFERENT repo from the source, and that is the point.
+#
+# The source repo is private and stays private — it holds specs, plans and
+# working notes that are nobody's business. But an app that updates itself has
+# to read its update feed from somewhere public: pointing it at a private repo
+# would mean shipping a GitHub token inside every copy, which makes the repo
+# public in the worst possible way. So the installer and its update metadata
+# live alone in nami-releases, with no source beside them.
+#
+# CI therefore needs a token that can write to nami-releases; the repo's own
+# GITHUB_TOKEN only reaches its own repo. See .github/workflows/release.yml.
+publish:
+  provider: github
+  owner: mrdainami
+  repo: nami-releases
+  # Drafts, deliberately. A build lands where it can be looked at and the notes
+  # written before anyone can download it, and pressing Publish stays a human
+  # decision — the moment it goes live is the moment every installed Nami starts
+  # offering it. Set releaseType: release here if that ever becomes tedious.
+  releaseType: draft
+
+files:
+  - src/**/*
+  - package.json
+  - '!**/*.map'
+
+  # --- weight, in descending order of how much it saves -------------------
+  # 265 MB: the agent SDK vendors a whole copy of Claude Code as a fallback for
+  # machines that don't have it. Nami never wants that copy — it runs sessions on
+  # the user's own logged-in `claude` (claude-driver.js resolveClaudeExecutable),
+  # and a bundled binary with no login couldn't authenticate anyway. Without a
+  # `claude` on the machine, claude-driver now says so and points at ⌘N.
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
+
+  # 170 MB: the ORT tarball carries every platform. win32 + linux is DirectML and
+  # CUDA that a Mac build can never load.
+  - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
+  # 34 MB: and of the two Mac slices, keep only the one being built.
+  - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/!(${arch})/**'
+
+  # 68 MB: transformers declares onnxruntime-web as a hard dependency, but the
+  # build we actually load (dist/transformers.node.mjs) imports only node:*,
+  # onnxruntime-common, onnxruntime-node and sharp. Nothing reaches for -web.
+  - '!node_modules/onnxruntime-web/**'
+
+  # 28 MB: of that dist we need exactly one file. The rest is the browser build,
+  # its 21.6 MB ORT wasm, and source maps — none of it reachable from main.
+  - '!node_modules/@huggingface/transformers/dist/!(transformers.node.mjs)'
+
+# whisper-tiny.en, so a fresh install transcribes with no network and no
+# account. main.js copies this into userData on first launch: the app bundle is
+# read-only, and a later model upgrade has to land somewhere writable.
+# Populated by `npm run fetch-model` (wired to prepack).
+extraResources:
+  - from: build/models
+    to: models
+    filter: ['**/*']
+
+# Native binaries cannot be dlopen'd from inside an asar archive.
+asarUnpack:
+  - '**/node_modules/onnxruntime-node/bin/**'
+  - '**/node_modules/@lydell/node-pty/**'
+  - '**/*.node'
+
+# The dmg is what the user downloads, so it is what carries the quarantine flag
+# and what Gatekeeper judges first. electron-builder signs the app and leaves the
+# container unsigned, which reads as "unidentified developer" before anyone has
+# seen the app. Sign it here; notarize it in the hook below.
+dmg:
+  sign: true
+afterAllArtifactBuild: scripts/notarize-dmg.mjs
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: >-
+      Nami uses your microphone so you can dictate into a session instead of
+      typing.
