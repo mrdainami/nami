@@ -277,12 +277,12 @@ function showScene(name) {
   // the state you cannot arrange on demand — so the scene fakes the payload.
   // A download in flight and one waiting for a quit are two more states nobody
   // can arrange on demand, and they are the two the user stares at longest.
-  //   --scene=update  ·  --scene=update:downloading  ·  --scene=update:ready
+  //   --scene=update  ·  update:downloading  ·  update:ready  ·  update:confirm
   if (what === 'update') {
     localStorage.removeItem(SKIPPED_UPDATE);
-    const staged = step === 'downloading' || step === 'ready';
+    const staged = step === 'downloading' || step === 'ready' || step === 'confirm';
     offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
-    if (staged) paintUpdate(step, { percent: 58, version: '0.2.0' });
+    if (staged) paintUpdate(step, { percent: 58, version: '0.2.0', live: 3 });
     return undefined;
   }
   // rename:tile / rename:rail — the in-place name editor, which you can only
@@ -2964,7 +2964,15 @@ function offerUpdate(info, initial) {
   offered = info;
   // A window opened while a download was already running joins it in progress
   // rather than offering to start a second one.
-  const at = (initial && initial.state) || 'idle';
+  //
+  // `staged` is the case that used to be lost entirely: a download finished in
+  // some earlier run and was never installed, and nothing in the app knew it
+  // was there — so the bar offered to fetch 166 MB that was already on disk,
+  // and quitting did nothing, forever. A file waiting is a ready update.
+  // `state` is always set, so staged has to be asked about on its own — as a
+  // fallback for the idle case, never as an override of a live download.
+  let at = (initial && initial.state) || 'idle';
+  if (at === 'idle' && initial && initial.staged) at = 'ready';
   paintUpdate(at === 'downloading' ? 'downloading' : at === 'ready' ? 'ready' : 'idle', {});
 }
 
@@ -2989,15 +2997,45 @@ function paintUpdate(state, ev) {
   }
 
   if (state === 'ready') {
-    // No Restart button, on purpose. Quitting is the user's decision to make
-    // for their own reasons, and Nami ends every agent session when it goes —
-    // so the update waits for a quit rather than asking for one.
+    // There is a button now, and there did not used to be. Waiting for a quit
+    // was the whole design — an update should never end a session somebody is
+    // in the middle of — but on a real machine it lost every time: the app
+    // takes its time closing, Squirrel waits for it, and reopening Nami inside
+    // that window cancels the install with nothing said. So the wait stays as
+    // the quiet default and this is the way to make it happen on purpose.
     els.updateRoot.innerHTML = `<div class="update-note">
       <span class="un-dot un-done"></span>
-      <span class="un-msg">Nami ${version} is ready — it installs when you quit</span>
-      <button class="un-act un-quiet" id="uc-ok">ok</button>
+      <span class="un-msg">Nami ${version} is ready</span>
+      <button class="un-act" id="uc-now">install now</button>
+      <span class="un-sep">·</span>
+      <button class="un-act un-quiet" id="uc-ok">on quit</button>
     </div>`;
     q('#uc-ok', els.updateRoot).onclick = close;
+    q('#uc-now', els.updateRoot).onclick = async () => {
+      // Ask main rather than counting tiles: sessions belong to other windows
+      // too, and this window can only see its own.
+      let live = 0;
+      try { live = await api.liveSessions(); } catch (_) {}
+      if (live > 0) return paintUpdate('confirm', { version: (ev && ev.version) || offered.version, live });
+      await api.installUpdate();
+    };
+    return;
+  }
+
+  // The one warning this feature owes anybody. Installing restarts Nami, and
+  // restarting ends every session — so when there is work in flight, say what
+  // will be lost and make them say yes to it.
+  if (state === 'confirm') {
+    const live = Number((ev && ev.live) || 0);
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot"></span>
+      <span class="un-msg">${live} session${live === 1 ? '' : 's'} running — installing stops ${live === 1 ? 'it' : 'them'}</span>
+      <button class="un-act" id="uc-yes">install anyway</button>
+      <span class="un-sep">·</span>
+      <button class="un-act un-quiet" id="uc-no">not now</button>
+    </div>`;
+    q('#uc-yes', els.updateRoot).onclick = async () => { await api.installUpdate(); };
+    q('#uc-no', els.updateRoot).onclick = () => paintUpdate('ready', ev);
     return;
   }
 

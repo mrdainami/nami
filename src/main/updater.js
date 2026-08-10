@@ -22,6 +22,9 @@
 // browser and let the user install it. A broken updater must degrade into the
 // app we shipped last week, never into a dead end.
 
+const fs = require('fs');
+const path = require('path');
+
 // The states the bar can be in, and the only moves between them.
 //
 // Written as a table because the rules are all in the gaps: 'ready' accepts
@@ -130,4 +133,60 @@ async function downloadUpdate({ isPackaged, emit }) {
   return updaterState();
 }
 
-module.exports = { downloadUpdate, updaterState, nextState, percentOf };
+// Is there a download sitting in the cache from a previous run?
+//
+// electron-updater writes the file and an update-info.json beside it, and then
+// forgets both the moment the app closes: the handler that installs on quit is
+// registered when a download finishes and lives in memory only, so a staged
+// update that misses its moment is never installed by anything, ever. Nami
+// reads the cache itself at launch so it can offer it again.
+//
+// update-info.json records the file name and its hash but not the version, so
+// this answers "is something waiting" and nothing more. Which version it is
+// comes from update-check.js, as it always has.
+function hasStagedFile(cacheRoot, io = fs) {
+  try {
+    const dir = path.join(cacheRoot, 'pending');
+    const info = JSON.parse(io.readFileSync(path.join(dir, 'update-info.json'), 'utf8'));
+    const name = info && typeof info.fileName === 'string' ? info.fileName : '';
+    return Boolean(name) && io.existsSync(path.join(dir, name));
+  } catch (_) {
+    return false;
+  }
+}
+
+// Install it now, rather than hoping to win a race at quit time.
+//
+// The quit handler was the whole plan once, and it lost four times in a row on
+// a real machine: it fires as the app is closing, Squirrel then waits for the
+// process to actually go, and anyone who reopens Nami inside that window — 30
+// seconds on a laptop with sessions to tear down, sometimes two minutes — gets
+// "App Still Running Error" and no update, with nothing to say why. Quitting on
+// purpose, through electron-updater, has no window to lose.
+//
+// The download comes first even when the file is already there. install() reads
+// downloadedFileInfo, which only exists after a download has run in this
+// process, so a cached file has to be claimed before it can be installed —
+// validating one takes milliseconds, and a missing one is simply fetched.
+async function installNow({ isPackaged, emit }) {
+  if (!isPackaged) { log('not packaged — refusing to install'); return updaterState(); }
+
+  if (state !== 'ready') await downloadUpdate({ isPackaged, emit });
+  if (state !== 'ready') return updaterState();   // the download failed; the bar has already said so
+
+  // Out of this tick: quitAndInstall tears the app down, and doing that inside
+  // an IPC handler leaves the renderer waiting on a reply that can never come.
+  setImmediate(() => {
+    try {
+      log('installing and restarting');
+      autoUpdater().quitAndInstall(true, true);
+    } catch (err) {
+      log('install failed:', (err && err.message) || err);
+      state = 'failed';
+      emit('update:failed', {});
+    }
+  });
+  return updaterState();
+}
+
+module.exports = { downloadUpdate, installNow, hasStagedFile, updaterState, nextState, percentOf };
