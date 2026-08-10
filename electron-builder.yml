@@ -89,7 +89,15 @@ artifactName: ${productName}-${arch}.${ext}
 mac:
   category: public.app-category.developer-tools
   target:
+    # What a person downloads. Carries the quarantine flag, gets judged by
+    # Gatekeeper, and is what the website links to.
     - target: dmg
+      arch: [arm64, x64]
+    # What the updater installs, and the only thing it can install: on macOS
+    # electron-updater hands the swap to Squirrel.Mac, which unpacks a zip of
+    # the .app. A release with only dmgs on it has nothing an update can use.
+    # Nobody clicks this file; it exists for latest-mac.yml to point at.
+    - target: zip
       arch: [arm64, x64]
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist

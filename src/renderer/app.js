@@ -206,8 +206,11 @@ function dropFilesOnPanel(p, paths) {
   // the other windows' popovers keep showing a stale order until they reboot.
   // Either the check already ran before this window existed (boot carries it),
   // or it lands later while the window is open.
-  if (b.update) offerUpdate(b.update);
+  if (b.update) offerUpdate(b.update, b.updater);
   api.onUpdateAvailable(offerUpdate);
+  api.onUpdateProgress((ev) => paintUpdate('downloading', ev));
+  api.onUpdateReady((ev) => paintUpdate('ready', ev));
+  api.onUpdateFailed(() => paintUpdate('failed', {}));
 
   api.onRecentsChanged((rows) => {
     S.recents = rows || [];
@@ -272,9 +275,15 @@ function showScene(name) {
   if (what === 'projects') return toggleProjectsPop();
   // The update card only appears when a newer release exists, which is exactly
   // the state you cannot arrange on demand — so the scene fakes the payload.
+  // A download in flight and one waiting for a quit are two more states nobody
+  // can arrange on demand, and they are the two the user stares at longest.
+  //   --scene=update  ·  --scene=update:downloading  ·  --scene=update:ready
   if (what === 'update') {
     localStorage.removeItem(SKIPPED_UPDATE);
-    return offerUpdate({ version: step || '0.2.0', url: 'https://example.test/Nami.dmg' });
+    const staged = step === 'downloading' || step === 'ready';
+    offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
+    if (staged) paintUpdate(step, { percent: 58, version: '0.2.0' });
+    return undefined;
   }
   // rename:tile / rename:rail — the in-place name editor, which you can only
   // otherwise reach by double-clicking a live session
@@ -2454,7 +2463,15 @@ function wireAboutPane(modal) {
   if (!act) return;
   act.onclick = async () => {
     const a = o.about;
-    if (a && a.state === 'update' && a.url) { await api.openUpdate(a.url); return; }
+    // Downloading from here is the same download as the bar's, not a second
+    // one: re-arm the bar with what the pane is showing and let the progress
+    // land there, so closing Settings does not lose sight of it.
+    if (a && a.state === 'update' && a.url) {
+      offered = { version: a.latest, url: a.url };
+      paintUpdate('downloading', { percent: 0, version: a.latest });
+      await api.downloadUpdate();
+      return;
+    }
     o.about = { ...(a || {}), state: 'checking' };
     renderOverlay();
     const res = await api.updateStatus();
@@ -2934,27 +2951,76 @@ function toast(msg) { els.toastRoot.innerHTML = `<div class="toast"><span class=
 
 const SKIPPED_UPDATE = 'nami-skipped-update';
 
-function offerUpdate(info) {
+// What the bar is currently saying. `offered` is what update-check found, and
+// survives every repaint — the failure state needs its url to fall back to a
+// browser, and the progress events do not carry one.
+let offered = null;
+
+function offerUpdate(info, initial) {
   if (!info || !info.version || !els.updateRoot) return;
   // Dismissing is per version, and it sticks. Re-asking every six hours for
   // something already refused is how an update prompt becomes wallpaper.
   if (localStorage.getItem(SKIPPED_UPDATE) === info.version) return;
+  offered = info;
+  // A window opened while a download was already running joins it in progress
+  // rather than offering to start a second one.
+  const at = (initial && initial.state) || 'idle';
+  paintUpdate(at === 'downloading' ? 'downloading' : at === 'ready' ? 'ready' : 'idle', {});
+}
 
+// One function, four states, because they are the same card saying different
+// things — and because a repaint from an event that arrives after the user
+// dismissed the bar must not bring it back. `offered` being null means the bar
+// is closed, and every state respects that.
+function paintUpdate(state, ev) {
+  if (!offered || !els.updateRoot) return;
+  const version = esc((ev && ev.version) || offered.version);
+  const close = () => { els.updateRoot.innerHTML = ''; offered = null; };
+
+  if (state === 'downloading') {
+    const pct = Math.max(0, Math.min(100, Number((ev && ev.percent) || 0)));
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot"></span>
+      <span class="un-msg">getting Nami ${version}…</span>
+      <span class="un-bar"><span class="un-fill" style="width:${pct}%"></span></span>
+      <span class="un-pct">${pct}%</span>
+    </div>`;
+    return;
+  }
+
+  if (state === 'ready') {
+    // No Restart button, on purpose. Quitting is the user's decision to make
+    // for their own reasons, and Nami ends every agent session when it goes —
+    // so the update waits for a quit rather than asking for one.
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot un-done"></span>
+      <span class="un-msg">Nami ${version} is ready — it installs when you quit</span>
+      <button class="un-act un-quiet" id="uc-ok">ok</button>
+    </div>`;
+    q('#uc-ok', els.updateRoot).onclick = close;
+    return;
+  }
+
+  // idle, and failed. They differ only in what the button does: before anything
+  // has gone wrong it downloads in place, and afterwards it hands the dmg to a
+  // browser, which is exactly what 0.1.3 did.
+  const broke = state === 'failed';
   els.updateRoot.innerHTML = `<div class="update-note">
     <span class="un-dot"></span>
-    <span class="un-msg">Nami ${esc(info.version)} is out</span>
+    <span class="un-msg">${broke ? `Nami ${version} has to be installed by hand` : `Nami ${version} is out`}</span>
     <button class="un-act" id="uc-get">download</button>
     <span class="un-sep">·</span>
     <button class="un-act un-quiet" id="uc-later">not now</button>
   </div>`;
 
-  const close = () => { els.updateRoot.innerHTML = ''; };
   q('#uc-get', els.updateRoot).onclick = async () => {
-    await api.openUpdate(info.url);
-    close();
+    if (broke) { await api.openUpdate(offered.url); close(); return; }
+    // Everything after this arrives as an event: progress, then ready, or
+    // failed — at which point this same bar comes back offering the browser.
+    await api.downloadUpdate();
   };
   q('#uc-later', els.updateRoot).onclick = () => {
-    localStorage.setItem(SKIPPED_UPDATE, info.version);
+    localStorage.setItem(SKIPPED_UPDATE, offered.version);
     close();
   };
 }

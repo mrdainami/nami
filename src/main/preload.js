@@ -81,5 +81,13 @@ contextBridge.exposeInMainWorld('dainami', {
   onUpdateAvailable: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:available', h); return () => ipcRenderer.removeListener('update:available', h); },
   openUpdate: (url) => ipcRenderer.invoke('update:open', url),
   updateStatus: () => ipcRenderer.invoke('update:status'),
+
+  // Downloading one. All three fire on every window, because one download
+  // serves the whole app — see main's update:download.
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  updaterState: () => ipcRenderer.invoke('update:state'),
+  onUpdateProgress: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:progress', h); return () => ipcRenderer.removeListener('update:progress', h); },
+  onUpdateReady: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:ready', h); return () => ipcRenderer.removeListener('update:ready', h); },
+  onUpdateFailed: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:failed', h); return () => ipcRenderer.removeListener('update:failed', h); },
   appVersion: () => ipcRenderer.invoke('app:version'),
 });

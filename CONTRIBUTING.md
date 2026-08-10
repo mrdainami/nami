@@ -126,3 +126,49 @@ npm version patch && git push --follow-tags
 That builds from a clean checkout, signs and notarises, and creates a **draft**
 release. Publishing it is a deliberate human step — the moment it goes live is
 the moment every installed Nami starts offering it.
+
+Each release carries two Mac builds of each architecture. The `.dmg` is what a
+person downloads; the `.zip` is what an update installs, because on macOS the
+swap is done by Squirrel, which can only unpack a zip. A release with no zip on
+it is a release nothing can update to.
+
+## Testing an update without publishing one
+
+An updater is the one feature that can leave somebody with a broken install, so
+the interesting case is not the one where it works. `scripts/fake-update.mjs`
+serves a pretend newer Nami from this machine so both cases can be tried in
+minutes instead of in releases.
+
+The signature is the catch: Squirrel refuses an app whose code signature does
+not match the one running, so both copies have to be real `npm run pack` builds
+— editing the version inside an existing `.app` breaks its signature and the
+update then fails for a reason that has nothing to do with your change.
+
+```bash
+npm run pack                                    # the old one
+cp -R release/mac-arm64/Nami.app /Applications/Nami-test.app
+# bump "version" in package.json
+npm run pack                                    # the new one
+
+node scripts/fake-update.mjs \
+  --serve release/mac-arm64/Nami.app \
+  --point /Applications/Nami-test.app
+```
+
+`--point` rewrites the installed copy's `Contents/Resources/app-update.yml` to
+ask localhost instead of GitHub, keeping the original as `app-update.yml.real`.
+Open `/Applications/Nami-test.app`, click **download** in the bar, quit it, and
+open it again: it should come back as the new version.
+
+Then the test that matters. Add `--corrupt`, which serves bytes that do not
+match the hash in the metadata:
+
+```bash
+node scripts/fake-update.mjs --serve release/mac-arm64/Nami.app --corrupt
+```
+
+The download must fail and the bar must fall back to offering the dmg, and the
+installed app must still be the old one, still working. If a corrupt download
+ever installs, nothing else about the updater matters.
+
+Put `package.json` back when you are done, and delete `/Applications/Nami-test.app`.

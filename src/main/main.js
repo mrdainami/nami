@@ -26,6 +26,7 @@ const { loginShell, windowChrome } = require('./platform');
 const { userPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
+const { downloadUpdate, updaterState } = require('./updater');
 const stt = require('./stt');
 
 let pty = null;
@@ -406,6 +407,9 @@ ipcMain.handle('boot', (e) => {
     // A window opened after the check already ran would otherwise never hear
     // about the update — the event has been and gone.
     update: lastOffered,
+    // And a window opened mid-download, or after one finished, would otherwise
+    // offer to start a download that is already running or already done.
+    updater: updaterState(),
     // For the About pane. Sent at boot rather than fetched when the tab opens,
     // so opening it costs nothing and shows the truth instantly; the button is
     // the only thing that touches the network.
@@ -494,14 +498,28 @@ ipcMain.handle('update:status', async () => {
   };
 });
 
-// The one line Phase 5 replaces: today it hands the dmg to the browser, later
-// it will download and install in place. Only http(s) — the url arrives from a
-// network response, and shell.openExternal will happily run other schemes.
+// Still here, and still the fallback rather than the plan. The updater below
+// installs in place; when it cannot, this is what the bar goes back to offering,
+// so the worst outcome of a failed update is the app we shipped in 0.1.3.
+// Only https — the url arrives from a network response, and shell.openExternal
+// will happily run other schemes.
 ipcMain.handle('update:open', (_e, url) => {
   const ok = /^https:\/\//i.test(String(url || ''));
   if (ok) shell.openExternal(String(url));
   return { ok };
 });
+
+// Download the update the user just accepted, and tell every window how it is
+// going. All the windows share one copy of Nami on disk, so they share one
+// download and see the same progress — a second window opened halfway through
+// asks for the current state at boot rather than starting its own.
+ipcMain.handle('update:download', () => downloadUpdate({
+  isPackaged: app.isPackaged,
+  emit: (channel, payload) => {
+    for (const w of wins) sendWc(w.webContents, channel, payload);
+  },
+}));
+ipcMain.handle('update:state', () => updaterState());
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
 ipcMain.handle('agents:detect', () => detectAgents());

@@ -112,6 +112,27 @@ jobs:
             xcrun stapler validate "$dmg"
           done
 
+      # The zip is what an update installs, and it is built from the .app rather
+      # than from the dmg — so it is stapled only if the staple reached the .app
+      # before the zip was written. That ordering is electron-builder's, not
+      # ours, and it is invisible: an unstapled app installs perfectly on the
+      # machine that downloaded it and then fails Gatekeeper on the first launch
+      # that happens offline. Unpack what was actually built and look.
+      - name: Check the zip an update would install
+        run: |
+          set -e
+          for zip in release/*.zip; do
+            echo "== $zip"
+            work="$(mktemp -d)"
+            ditto -x -k "$zip" "$work"
+            app="$work/Nami.app"
+            [ -d "$app" ] || { echo "no Nami.app inside $zip"; exit 1; }
+            codesign --verify --deep --strict "$app"
+            spctl -a -vvv -t exec "$app"
+            xcrun stapler validate "$app"
+            rm -rf "$work"
+          done
+
       # Prove the update metadata describes the bytes being uploaded, not the
       # bytes that existed before stapling.
       - name: Check the update metadata
@@ -132,7 +153,7 @@ jobs:
             --draft \
             --title "Nami ${GITHUB_REF_NAME#v}" \
             --notes "Signed and notarized for macOS. Apple Silicon and Intel builds attached." \
-            release/*.dmg release/*.blockmap release/latest-mac.yml
+            release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
 
       - name: Report what shipped
         if: always()

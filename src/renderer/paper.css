@@ -764,6 +764,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .update-note .un-act:hover { color: var(--green-dark); }
 .update-note .un-quiet { color: var(--muted); }
 .update-note .un-quiet:hover { color: var(--ink); }
+/* Downloaded and waiting for a quit: the amber "there is something to do"
+   turns green, because there is nothing left to do. */
+.update-note .un-done { background: var(--green); }
+/* A ruled trough rather than a rounded pill — the same drawn-by-hand line as
+   the dashed borders it sits inside. */
+.update-note .un-bar {
+  width: 78px; height: 5px; flex: none;
+  border: 1px solid var(--dash-dark); background: var(--paper);
+}
+.update-note .un-fill {
+  display: block; height: 100%; background: var(--green);
+  transition: width 0.18s linear;
+}
+.update-note .un-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ===== terminal-first grid + tiles ===================================== */
 .main { display: flex; flex-direction: column; }
