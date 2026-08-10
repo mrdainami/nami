@@ -44,6 +44,6 @@ test('an unnamed tile spawns exactly as before — no empty --name', () => {
 });
 
 test('projectSlug matches claude transcript folder naming', () => {
-  assert.equal(projectSlug('/Users/calvinhia/Desktop/dainami-cli'), '-Users-calvinhia-Desktop-dainami-cli');
+  assert.equal(projectSlug('/Users/dev/code/nami'), '-Users-dev-code-nami');
   assert.equal(projectSlug('/tmp/a.b_c'), '-tmp-a-b-c');
 });

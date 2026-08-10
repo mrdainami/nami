@@ -117,6 +117,12 @@ jobs:
       - name: Check the update metadata
         run: node scripts/check-update-metadata.mjs
 
+      # And prove the app itself carries only what it needs to run. npm test
+      # already checked that electron-builder.yml still says so; this opens the
+      # bundle that was actually produced and looks.
+      - name: Check what is inside the app
+        run: node scripts/check-bundle.mjs
+
       - name: Publish the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

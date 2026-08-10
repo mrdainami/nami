@@ -142,6 +142,7 @@ const S = {
   project: null, recents: [], claudeExe: null, demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
+  version: '', updatedAt: null,        // shown in Settings → About, filled at boot
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
@@ -195,6 +196,7 @@ function dropFilesOnPanel(p, paths) {
   buildShell();
   const b = await api.boot();
   S.winId = b.winId || 0;
+  S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
@@ -2202,6 +2204,7 @@ const SET_SECTIONS = [
   { id: 'voice', name: 'Voice', lead: 'how Nami hears you' },
   { id: 'look', name: 'Look', lead: 'how Nami looks on this desk' },
   { id: 'keys', name: 'Keys', lead: 'keys every session can use' },
+  { id: 'about', name: 'About', lead: 'about this copy of Nami' },
 ];
 function openSettings(section) {
   S.overlay = { type: 'settings', section: section || 'voice', draft: {}, test: null };
@@ -2223,7 +2226,9 @@ function renderSettings() {
       <div class="set-nav">${SET_SECTIONS.map((s) =>
         `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}">${esc(s.name)}</button>`).join('')}</div>
       <div class="set-pane" id="set-pane">${
-        sec.id === 'voice' ? voicePaneHtml() : sec.id === 'look' ? lookPaneHtml() : keysPaneHtml()}</div>
+        sec.id === 'voice' ? voicePaneHtml()
+          : sec.id === 'look' ? lookPaneHtml()
+            : sec.id === 'about' ? aboutPaneHtml() : keysPaneHtml()}</div>
     </div></div>
     <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
@@ -2235,6 +2240,7 @@ function renderSettings() {
   if (sec.id === 'voice') wireVoicePane(modal);
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
+  if (sec.id === 'about') wireAboutPane(modal);
 }
 
 // ---- Voice -----------------------------------------------------------------
@@ -2387,6 +2393,76 @@ function wireLookPane(modal) {
   modal.querySelectorAll('[data-theme-id]').forEach((b) => {
     b.onclick = () => { setTheme(b.dataset.themeId); renderOverlay(); };
   });
+}
+
+// ---- About — which copy is this, and is it behind? -------------------------
+// The version was nowhere in the app, which made two builds of the same number
+// indistinguishable from inside it. The date is when this copy landed in
+// Applications, not when it was compiled: the same release installs on two
+// machines weeks apart, and "when did I last update" is the question people
+// actually ask.
+//
+// Checking by hand matters beyond reassurance. Dismissing the update bar writes
+// that version off for good (see SKIPPED_UPDATE below), and until now there was
+// no way back to it. Pressing the button clears the mark.
+const REPO_URL = 'https://github.com/mrdainami/nami';
+function updatedOn(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  // hour12 forced: the machine's locale decides otherwise, and "18:55" next to a
+  // handwritten heading reads as a log line rather than a date on a page.
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLowerCase().replace(/\s+/g, '');
+  return `updated ${day} at ${time}`;
+}
+// Four states, and the difference between the last two is the whole point:
+// GitHub said no, versus GitHub never answered.
+function aboutLine(a) {
+  if (!a || !a.state) return { dot: 'off', text: 'Not checked yet', act: 'Check now' };
+  if (a.state === 'checking') return { dot: 'off', text: 'Checking…', act: 'Check now', busy: true };
+  // a.latest is the one on offer; a.version stays the one running
+  if (a.state === 'update') return { dot: 'new', text: `Nami ${a.latest} is out`, act: 'Download', get: a.url };
+  if (a.state === 'offline') return { dot: 'off', text: "Couldn't reach GitHub", act: 'Try again' };
+  return { dot: 'ok', text: 'Up to date', act: 'Check now' };
+}
+function aboutPaneHtml() {
+  const a = (S.overlay && S.overlay.about) || null;
+  const version = (a && a.version) || S.version || '';
+  const line = aboutLine(a);
+  const notes = version ? `${REPO_URL}/releases/tag/v${encodeURIComponent(version)}` : `${REPO_URL}/releases`;
+  return `<div class="ab-name">Nami${version ? ' ' + esc(version) : ''}</div>
+    <div class="ab-built">${esc(updatedOn((a && a.updatedAt) || S.updatedAt) || 'this copy')}</div>
+    <hr class="ab-rule" />
+    <div class="ab-state">
+      <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
+      <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
+    </div>
+    <div class="ab-links">
+      <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">MIT licence <span class="arr">↗</span></a>
+    </div>`;
+}
+function wireAboutPane(modal) {
+  const o = S.overlay;
+  modal.querySelectorAll('.ab-link[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+  const act = q('#ab-act', modal);
+  if (!act) return;
+  act.onclick = async () => {
+    const a = o.about;
+    if (a && a.state === 'update' && a.url) { await api.openUpdate(a.url); return; }
+    o.about = { ...(a || {}), state: 'checking' };
+    renderOverlay();
+    const res = await api.updateStatus();
+    // Asking by hand un-dismisses: whatever was waved away before is fair game
+    // again, or the bar could never come back for that version.
+    if (res && res.state === 'update') localStorage.removeItem(SKIPPED_UPDATE);
+    if (isSettingsOpen()) { S.overlay.about = res || { state: 'offline' }; renderOverlay(); }
+  };
 }
 
 // ---- Models ----------------------------------------------------------------

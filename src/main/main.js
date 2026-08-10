@@ -1,4 +1,4 @@
-// Dainami CLI — Electron main process.
+// Nami — Electron main process.
 // Owns: the window, PTY terminal sessions, Claude Code sessions (via claude-driver),
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
@@ -11,6 +11,7 @@ const { claudeSpawnArgs, projectSlug } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { feedOscTitle } = require('./osc-title');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
+const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
@@ -24,7 +25,7 @@ const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom }
 const { loginShell, windowChrome } = require('./platform');
 const { userPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
-const { checkForUpdate } = require('./update-check');
+const { checkForUpdate, updateStatus } = require('./update-check');
 const stt = require('./stt');
 
 let pty = null;
@@ -405,6 +406,11 @@ ipcMain.handle('boot', (e) => {
     // A window opened after the check already ran would otherwise never hear
     // about the update — the event has been and gone.
     update: lastOffered,
+    // For the About pane. Sent at boot rather than fetched when the tab opens,
+    // so opening it costs nothing and shows the truth instantly; the button is
+    // the only thing that touches the network.
+    version: app.getVersion(),
+    updatedAt: appUpdatedAt(),
     demo: DEMO,
     collapsed: process.argv.includes('--collapsed'),
     // --theme=operator forces a theme for this run (screenshots); not persisted
@@ -449,6 +455,45 @@ ipcMain.handle('recents:remove', (_e, p) => {
 ipcMain.handle('window:new', (_e, args) => { createWindow((args && args.folder) || null); return { ok: true }; });
 
 ipcMain.handle('app:version', () => app.getVersion());
+// What the About pane shows: which copy this is, and whether it is behind.
+//
+// `updatedAt` is the app bundle's own timestamp, which macOS stamps when the
+// bundle lands in Applications, so it answers "when did I last update this"
+// rather than "when was this built" — the same version number can sit on two
+// machines that installed it weeks apart. Running from source there is no
+// bundle, so the folder's own date stands in.
+//
+// The check runs even in development, unlike the background poll: the poll is
+// switched off there because it would nag about a version you are in the middle
+// of writing, but a button somebody pressed should always answer.
+function appUpdatedAt() {
+  try {
+    // .../Nami.app/Contents/MacOS/Nami → .../Nami.app
+    const bundle = app.isPackaged
+      ? path.resolve(app.getPath('exe'), '..', '..', '..')
+      : app.getAppPath();
+    return fs.statSync(bundle).mtime.toISOString();
+  } catch (_) { return null; }
+}
+
+ipcMain.handle('update:status', async () => {
+  const st = await updateStatus({ currentVersion: app.getVersion() });
+  // A manual check that finds something also re-arms the bar: the renderer
+  // clears its "skipped" mark off the back of this, so a version somebody once
+  // waved away can be found again.
+  if (st.state === 'update') lastOffered = { version: st.version, url: st.url };
+  // `version` is always the one running and `latest` the one on offer. They were
+  // one field to begin with, and the pane duly announced "Nami 0.1.3, updated
+  // tonight" about a copy the user did not have.
+  return {
+    state: st.state,
+    version: app.getVersion(),
+    updatedAt: appUpdatedAt(),
+    latest: st.version || null,
+    url: st.url || null,
+  };
+});
+
 // The one line Phase 5 replaces: today it hands the dmg to the browser, later
 // it will download and install in place. Only http(s) — the url arrives from a
 // network response, and shell.openExternal will happily run other schemes.
@@ -758,7 +803,9 @@ ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id
 // tool the user installed. A shell tile papers over this by sourcing .zshrc on
 // its way up, but anything spawned directly — claude, a harness — does not.
 function sessionEnv(path) {
-  const env = Object.assign({}, process.env, { TERM: 'xterm-256color', FORCE_COLOR: '1' });
+  // stripInheritedClaude first: a tile is a top-level agent, and inheriting the
+  // launching conversation's handles makes claude disable transcript saving.
+  const env = Object.assign(stripInheritedClaude(process.env), { TERM: 'xterm-256color', FORCE_COLOR: '1' });
   if (path) env.PATH = path;
   // TUIs that check COLORFGBG (vim, htop, some harnesses) pick palettes that
   // suit the theme's ground: "fg;bg" where bg 15=light desk, 0=dark desk.

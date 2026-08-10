@@ -78,6 +78,7 @@ body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title,
 body[data-theme="operator"] .card-lbl,
+body[data-theme="operator"] .ab-name,
 body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
 
 /* The update note is already mono; operator only drops paper's offset shadow
@@ -116,6 +117,9 @@ body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
 body[data-theme="operator"] .card-lbl { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+body[data-theme="operator"] .ab-name { font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; }
+/* paper's green reads as dead here; the About links take the accent */
+body[data-theme="operator"] .ab-link { color: var(--accent, #ef6461); }
 body[data-theme="operator"] .board-title { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
 
 /* ---- topbar -------------------------------------------------------------- */

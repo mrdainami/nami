@@ -1,5 +1,4 @@
 /* Nami — the liquid-glass system: "glass" (light) + shared structure.
-   Spec: docs/superpowers/specs/2026-08-09-glass-graphite-themes-design.md
    Approved mockup: docs/reference/glass-graphite-mockup.html
 
    Layout of the system, mirroring the paper/operator pattern:
@@ -158,6 +157,7 @@ body[data-glass] .stopped .title,
 body[data-glass] .artifacts .title,
 body[data-glass] .modal-head .title,
 body[data-glass] .card-lbl,
+body[data-glass] .ab-name,
 body[data-glass] .board-title,
 body[data-glass] .sv-bigok-t { font-family: var(--gl-dot); font-weight: 800; }
 body[data-glass] .say--user { font-family: var(--gl-sans); font-size: 13px; line-height: 1.6; border-left-color: var(--gl-accent); }
@@ -185,6 +185,8 @@ body[data-glass] .card-head .goal { font-size: 13px; letter-spacing: 0.03em; }
 body[data-glass] .approval .title, body[data-glass] .stopped .title,
 body[data-glass] .artifacts .title, body[data-glass] .modal-head .title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
 body[data-glass] .card-lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
+body[data-glass] .ab-name { font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .ab-link { color: var(--gl-accent, #2e7d4f); }
 body[data-glass] .board-title { font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; }
 body[data-glass] .sv-bigok-t { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
 

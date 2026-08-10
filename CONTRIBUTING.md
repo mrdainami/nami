@@ -31,7 +31,7 @@ so the shipped app can transcribe offline. Packaging config lives in
 - `src/main/stt-local.js` / `stt-model.js` — Whisper on onnxruntime-node, and its weights
 - `src/main/preload.js` — contextBridge IPC surface
 - `src/renderer/` — the paper UI (`app.js`, `paper.css`, vendored xterm)
-- `docs/design.md` — the approved design · `docs/reference/` — the source mockup
+- `docs/design.md` — the approved design · `docs/media/` — what it looks like now
 
 State persists to `userData/state.json` (projects, sessions, card content), so a
 restart restores the desk.

@@ -14,7 +14,7 @@ import { readLiveSession, liveSessionChanged } from '../src/main/session-registr
 
 const rec = (o) => JSON.stringify(Object.assign({
   pid: 4242, sessionId: 'dddf8560-3aad-4b62-9184-33ad8101ba20',
-  cwd: '/Users/calvinhia/Desktop/dainami-cli', status: 'idle',
+  cwd: '/Users/dev/code/nami', status: 'idle',
   name: 'dainami-cli-ff', nameSource: 'derived',
 }, o));
 

@@ -1,6 +1,6 @@
-# Dainami CLI — the paper agent workbench
+# Nami — the paper agent workbench
 
-Approved design (Calvin, 2026-08-08). Reference mockup: `docs/reference/Dainami CLI.dc.html` (+ thumbnail).
+Approved design, 2026-08-08. The app now implements it; the screenshots in `docs/media/` are the live article.
 
 ## What it is
 A lean Electron desktop app: open any folder, run **Claude Code sessions** and **terminal sessions**
