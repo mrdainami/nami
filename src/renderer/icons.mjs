@@ -50,6 +50,12 @@ export function iconSvg(key) {
   return body ? `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>` : '';
 }
 
+// Is this somebody else's logo, as opposed to one of our own drawings?
+// Brand marks get their own colours; everything else is coloured by kind.
+export function isBrandKey(key) {
+  return Object.prototype.hasOwnProperty.call(BRAND, key);
+}
+
 // ---- workspace tree icons --------------------------------------------------
 // Folder faces for the file tree, VSCode-icon-theme style but hand-cut: one
 // wobbly folder silhouette, a small badge for well-known folder names, a page
@@ -110,12 +116,23 @@ export function treeIcon(name, kind, open) {
 const escChip = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // A .code chip: brand/type glyph when known, two-letter code otherwise.
-// The colour comes from `kind` via CSS ([data-kind] in paper.css), never from
-// an inline hex — so a chip's colour always answers "what kind of thing is
-// this?", and each theme can re-ink the whole set in one place.
+//
+// Colour still comes from CSS and never from an inline hex, so each theme
+// re-inks the whole set in one place. Which rule applies depends on what the
+// chip is:
+//
+//   data-kind   our own drawings — skills, commands, editors, shells. One hue
+//               per kind of thing, so the set is learnable at a glance.
+//   data-brand  somebody else's logo. Claude is clay, OpenAI is black, Gemini
+//               is blue, because that is what they are everywhere else. Six
+//               agents tinted identically read as one agent six times.
+//
+// Both attributes are emitted, so layout rules keyed on kind still apply and a
+// theme can drop back to the kind hue by not defining a brand rule.
 export function chipHtml({ key, code, kind }) {
   const svg = key ? iconSvg(key) : '';
-  return `<span class="code${svg ? ' code--icon' : ''}" data-kind="${escChip(kind || 'neutral')}">${svg || escChip(code)}</span>`;
+  const brand = key && isBrandKey(key) ? ` data-brand="${escChip(key)}"` : '';
+  return `<span class="code${svg ? ' code--icon' : ''}" data-kind="${escChip(kind || 'neutral')}"${brand}>${svg || escChip(code)}</span>`;
 }
 
 // ---- pixel glyphs (glass/graphite themes) -----------------------------------

@@ -584,16 +584,42 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* ---- colour means kind ----------------------------------------------------
    One hue per kind of thing, never per id. Learn these seven once and every
    chip, swatch and tile in the app is legible at a glance. */
-.code[data-kind="agent"],   .swatch[data-kind="agent"]   { background: var(--tint-code); }
-.code[data-kind="skill"],   .swatch[data-kind="skill"]   { background: var(--tint-vision); }
-.code[data-kind="command"], .swatch[data-kind="command"] { background: var(--tint-research); }
-.code[data-kind="service"], .swatch[data-kind="service"] { background: var(--tint-scrape); }
-.code[data-kind="editor"],  .swatch[data-kind="editor"]  { background: var(--tint-write); }
-.code[data-kind="viewer"],  .swatch[data-kind="viewer"]  { background: var(--tint-ops); }
-.code[data-kind="shell"],   .swatch[data-kind="shell"]   { background: var(--tint-neutral); }
-.code[data-kind="harness"], .swatch[data-kind="harness"] { background: var(--tint-neutral); }
-.code[data-kind="folder"],  .swatch[data-kind="folder"]  { background: var(--tint-research); }
-.code[data-kind="neutral"], .swatch[data-kind="neutral"] { background: var(--tint-neutral); }
+.code[data-kind="agent"]:not([data-brand]),   .swatch[data-kind="agent"]   { background: var(--tint-code); }
+.code[data-kind="skill"]:not([data-brand]),   .swatch[data-kind="skill"]   { background: var(--tint-vision); }
+.code[data-kind="command"]:not([data-brand]), .swatch[data-kind="command"] { background: var(--tint-research); }
+.code[data-kind="service"]:not([data-brand]), .swatch[data-kind="service"] { background: var(--tint-scrape); }
+.code[data-kind="editor"]:not([data-brand]),  .swatch[data-kind="editor"]  { background: var(--tint-write); }
+.code[data-kind="viewer"]:not([data-brand]),  .swatch[data-kind="viewer"]  { background: var(--tint-ops); }
+.code[data-kind="shell"]:not([data-brand]),   .swatch[data-kind="shell"]   { background: var(--tint-neutral); }
+.code[data-kind="harness"]:not([data-brand]), .swatch[data-kind="harness"] { background: var(--tint-neutral); }
+.code[data-kind="folder"]:not([data-brand]),  .swatch[data-kind="folder"]  { background: var(--tint-research); }
+.code[data-kind="neutral"]:not([data-brand]), .swatch[data-kind="neutral"] { background: var(--tint-neutral); }
+
+/* ---- except for other people's logos --------------------------------------
+   Kind-colouring is right for our own drawings, and wrong for brands: six
+   agents in one tint read as one agent six times, and Claude's clay or
+   OpenAI's black is what those tools look like everywhere else, so a
+   monochrome copy reads as a knock-off.
+
+   These rules come after the kind rules and match on the same specificity, so
+   the later one wins — and a chip with no brand rule simply keeps its kind hue.
+   A plain terminal has no logo and stays grey, which is the point: colour here
+   means "this is a named tool", grey means "this is a shell". */
+.code[data-brand] {
+  border: 1px solid rgba(60, 48, 28, 0.16);   /* white marks need an edge on cream */
+  color: var(--brand-ink);
+  background: var(--brand-bg);
+}
+.code[data-brand="claude"],
+.code[data-brand="anthropic"] { --brand-bg: #f4e2d6; --brand-ink: #c1552d; }
+.code[data-brand="openai"]    { --brand-bg: #ffffff; --brand-ink: #0d0d0d; }
+.code[data-brand="opencode"]  { --brand-bg: #fbfaf7; --brand-ink: #14120e; }
+.code[data-brand="gemini"]    { --brand-bg: #e6e7fa; --brand-ink: #4257d0; }
+.code[data-brand="kimi"]      { --brand-bg: #e4e8fc; --brand-ink: #2b4bd4; }
+.code[data-brand="hermes"]    { --brand-bg: #f2c33c; --brand-ink: #241a06; }
+.code[data-brand="ollama"]    { --brand-bg: #f4f2ed; --brand-ink: #17150f; }
+/* mcp is a protocol, not a product — it keeps the service hue */
+.code[data-brand="mcp"]       { --brand-bg: var(--tint-scrape); --brand-ink: var(--ink); border-color: transparent; }
 
 .picker-box { width: 560px; background: var(--paper); border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); animation: rise 0.18s ease both; }
 .picker-input { display: flex; align-items: center; gap: 12px; padding: 16px 44px 16px 18px; border-bottom: 2px dashed var(--dash); }
