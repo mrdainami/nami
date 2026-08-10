@@ -93,11 +93,18 @@ function currentTheme() {
 }
 function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
 function statusColors() { return STATUS_COLORS[currentTheme()]; }
-// the glass themes read as sleek SF Mono; paper/operator keep their typewriter
+// SF Mono in every theme's terminal, Courier Prime everywhere else.
+//
+// Courier Prime is a typewriter face: thin strokes, low x-height, wide letters.
+// It is what makes Nami's chrome look hand-made and it is the worst thing about
+// reading a dense terminal — an agent's output is small, dense, and rarely
+// re-read carefully, which is the opposite of what that face is for. The glass
+// themes already made this trade; the rest now follow.
+//
+// The UI keeps Courier Prime, so the desk still reads as paper. Only the
+// terminals change.
 function termFontFamily() {
-  return GLASS_FAMILY.has(currentTheme())
-    ? "'SF Mono', ui-monospace, Menlo, monospace"
-    : "'Courier Prime','Courier New',monospace";
+  return "'SF Mono', ui-monospace, Menlo, monospace";
 }
 function applyThemeAttrs(name) {
   if (name !== 'paper' && THEME_NAMES.includes(name)) document.body.dataset.theme = name;
@@ -135,6 +142,7 @@ const S = {
   project: null, recents: [], claudeExe: null, demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
+  version: '', updatedAt: null,        // shown in Settings → About, filled at boot
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
@@ -188,6 +196,7 @@ function dropFilesOnPanel(p, paths) {
   buildShell();
   const b = await api.boot();
   S.winId = b.winId || 0;
+  S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
   S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
@@ -924,11 +933,29 @@ const TERM_FONT_KEY = 'dainami-term-fontsize';
 function termFontSize() {
   const saved = Number(localStorage.getItem(TERM_FONT_KEY));
   if (saved >= 10 && saved <= 18) return saved;
-  // glass stays on whole pixels: SF Mono at fractional sizes yields fractional
-  // cell widths, and xterm then paints wider than fit measured (right-edge clip)
-  return GLASS_FAMILY.has(currentTheme()) ? 12 : 13.5;
+  // Whole pixels, every theme: SF Mono at a fractional size yields a fractional
+  // cell width, xterm then computes more columns than it can paint, and every
+  // line loses its tail off the right edge. This was a glass-only rule while
+  // glass was the only theme on SF Mono.
+  return 12;
 }
-function termLetterSpacing() { return GLASS_FAMILY.has(currentTheme()) ? 0 : 0.2; }
+// Zero, every theme. Tracking inherits into xterm's hidden measuring element,
+// which then reports a cell narrower than the font actually paints — same
+// right-edge clipping as a fractional size. Courier Prime wanted 0.2; SF Mono
+// does not need it.
+function termLetterSpacing() { return 0; }
+
+// The terminal draws with the DOM renderer, not the GPU one. The WebGL addon
+// is sharper and much faster on a wall of output, but it repaints by damage and
+// leaves the undamaged canvas alone — so anything it fails to mark dirty stays
+// on screen. In practice that was a block of stale pixels lying across live
+// text, and Claude's welcome banner surviving five redraws stacked on itself.
+// Same command, same build, the addon the only difference.
+//
+// It is a real gain when it works, and worth trying again: what made it fire so
+// often was the column count being wrong, which resized the terminal ten times
+// in the first tenth of a second. That is fixed now (see .term-body in
+// paper.css). The vendored addon stays in ./vendor for that attempt.
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
@@ -1019,7 +1046,20 @@ function safeFit(rec) {
 }
 
 function mountTerminal(p, rec) {
-  const term = new Terminal({ fontFamily: termFontFamily(), fontSize: termFontSize(), lineHeight: 1.35, letterSpacing: termLetterSpacing(), theme: xtermTheme(), cursorBlink: true, allowTransparency: true, allowProposedApi: true, scrollback: 6000, minimumContrastRatio: 6, linkHandler: oscLinkHandler(p) });
+  const term = new Terminal({
+    fontFamily: termFontFamily(), fontSize: termFontSize(), letterSpacing: termLetterSpacing(),
+    // 1.45 rather than 1.35: an agent writes paragraphs, not log lines, and at
+    // 1.35 a long answer reads as one block of grey.
+    lineHeight: 1.45,
+    theme: xtermTheme(), cursorBlink: true, allowTransparency: true, allowProposedApi: true,
+    scrollback: 6000,
+    // Bold is the one weight distinction the stream actually carries — Claude
+    // uses it for headings and emphasis — so let it be properly bold, and let
+    // bold text take the bright half of the palette.
+    fontWeight: 400, fontWeightBold: 700, drawBoldTextInBrightColors: true,
+    minimumContrastRatio: 6,
+    linkHandler: oscLinkHandler(p),
+  });
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => { safeFit(rec); startProcess(p, term.cols, term.rows); });
@@ -1107,6 +1147,11 @@ function registerTerminalLinks(term, p) {
           links.push({
             text: row.link.text,
             range: { start, end },
+            // Without this xterm decorates nothing: a path that opens on
+            // ⌘-click looked exactly like a path that does not, and the only
+            // way to find out was to try. Now the cursor and the underline say
+            // so before you commit to the click.
+            decorations: { pointerCursor: true, underline: true },
             activate: (ev) => { if (ev.metaKey || ev.ctrlKey) openTermLink(row.link, row.st, ev); },
           });
         }
@@ -2159,6 +2204,7 @@ const SET_SECTIONS = [
   { id: 'voice', name: 'Voice', lead: 'how Nami hears you' },
   { id: 'look', name: 'Look', lead: 'how Nami looks on this desk' },
   { id: 'keys', name: 'Keys', lead: 'keys every session can use' },
+  { id: 'about', name: 'About', lead: 'about this copy of Nami' },
 ];
 function openSettings(section) {
   S.overlay = { type: 'settings', section: section || 'voice', draft: {}, test: null };
@@ -2180,7 +2226,9 @@ function renderSettings() {
       <div class="set-nav">${SET_SECTIONS.map((s) =>
         `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}">${esc(s.name)}</button>`).join('')}</div>
       <div class="set-pane" id="set-pane">${
-        sec.id === 'voice' ? voicePaneHtml() : sec.id === 'look' ? lookPaneHtml() : keysPaneHtml()}</div>
+        sec.id === 'voice' ? voicePaneHtml()
+          : sec.id === 'look' ? lookPaneHtml()
+            : sec.id === 'about' ? aboutPaneHtml() : keysPaneHtml()}</div>
     </div></div>
     <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
@@ -2192,6 +2240,7 @@ function renderSettings() {
   if (sec.id === 'voice') wireVoicePane(modal);
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
+  if (sec.id === 'about') wireAboutPane(modal);
 }
 
 // ---- Voice -----------------------------------------------------------------
@@ -2344,6 +2393,76 @@ function wireLookPane(modal) {
   modal.querySelectorAll('[data-theme-id]').forEach((b) => {
     b.onclick = () => { setTheme(b.dataset.themeId); renderOverlay(); };
   });
+}
+
+// ---- About — which copy is this, and is it behind? -------------------------
+// The version was nowhere in the app, which made two builds of the same number
+// indistinguishable from inside it. The date is when this copy landed in
+// Applications, not when it was compiled: the same release installs on two
+// machines weeks apart, and "when did I last update" is the question people
+// actually ask.
+//
+// Checking by hand matters beyond reassurance. Dismissing the update bar writes
+// that version off for good (see SKIPPED_UPDATE below), and until now there was
+// no way back to it. Pressing the button clears the mark.
+const REPO_URL = 'https://github.com/mrdainami/nami';
+function updatedOn(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  // hour12 forced: the machine's locale decides otherwise, and "18:55" next to a
+  // handwritten heading reads as a log line rather than a date on a page.
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLowerCase().replace(/\s+/g, '');
+  return `updated ${day} at ${time}`;
+}
+// Four states, and the difference between the last two is the whole point:
+// GitHub said no, versus GitHub never answered.
+function aboutLine(a) {
+  if (!a || !a.state) return { dot: 'off', text: 'Not checked yet', act: 'Check now' };
+  if (a.state === 'checking') return { dot: 'off', text: 'Checking…', act: 'Check now', busy: true };
+  // a.latest is the one on offer; a.version stays the one running
+  if (a.state === 'update') return { dot: 'new', text: `Nami ${a.latest} is out`, act: 'Download', get: a.url };
+  if (a.state === 'offline') return { dot: 'off', text: "Couldn't reach GitHub", act: 'Try again' };
+  return { dot: 'ok', text: 'Up to date', act: 'Check now' };
+}
+function aboutPaneHtml() {
+  const a = (S.overlay && S.overlay.about) || null;
+  const version = (a && a.version) || S.version || '';
+  const line = aboutLine(a);
+  const notes = version ? `${REPO_URL}/releases/tag/v${encodeURIComponent(version)}` : `${REPO_URL}/releases`;
+  return `<div class="ab-name">Nami${version ? ' ' + esc(version) : ''}</div>
+    <div class="ab-built">${esc(updatedOn((a && a.updatedAt) || S.updatedAt) || 'this copy')}</div>
+    <hr class="ab-rule" />
+    <div class="ab-state">
+      <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
+      <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
+    </div>
+    <div class="ab-links">
+      <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">MIT licence <span class="arr">↗</span></a>
+    </div>`;
+}
+function wireAboutPane(modal) {
+  const o = S.overlay;
+  modal.querySelectorAll('.ab-link[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+  const act = q('#ab-act', modal);
+  if (!act) return;
+  act.onclick = async () => {
+    const a = o.about;
+    if (a && a.state === 'update' && a.url) { await api.openUpdate(a.url); return; }
+    o.about = { ...(a || {}), state: 'checking' };
+    renderOverlay();
+    const res = await api.updateStatus();
+    // Asking by hand un-dismisses: whatever was waved away before is fair game
+    // again, or the bar could never come back for that version.
+    if (res && res.state === 'update') localStorage.removeItem(SKIPPED_UPDATE);
+    if (isSettingsOpen()) { S.overlay.about = res || { state: 'offline' }; renderOverlay(); }
+  };
 }
 
 // ---- Models ----------------------------------------------------------------

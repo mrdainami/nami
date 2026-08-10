@@ -80,5 +80,6 @@ contextBridge.exposeInMainWorld('dainami', {
   // silence is the normal case and means nothing went wrong.
   onUpdateAvailable: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('update:available', h); return () => ipcRenderer.removeListener('update:available', h); },
   openUpdate: (url) => ipcRenderer.invoke('update:open', url),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
   appVersion: () => ipcRenderer.invoke('app:version'),
 });

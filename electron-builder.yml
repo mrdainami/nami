@@ -6,19 +6,18 @@ directories:
 
 # Releases go to a DIFFERENT repo from the source, and that is the point.
 #
-# The source repo is private and stays private — it holds specs, plans and
-# working notes that are nobody's business. But an app that updates itself has
-# to read its update feed from somewhere public: pointing it at a private repo
-# would mean shipping a GitHub token inside every copy, which makes the repo
-# public in the worst possible way. So the installer and its update metadata
-# live alone in nami-releases, with no source beside them.
+# Installers and update metadata go to this repo's own releases. An app that
+# updates itself has to read its feed from somewhere public, and this repo is
+# public, so no token ships inside a copy of Nami and CI needs no PAT — the
+# built-in GITHUB_TOKEN reaches its own repo. See .github/workflows/release.yml.
 #
-# CI therefore needs a token that can write to nami-releases; the repo's own
-# GITHUB_TOKEN only reaches its own repo. See .github/workflows/release.yml.
+# Downloads used to live in a separate mrdainami/nami-releases because the
+# source was closed. Nothing had shipped when it opened, so they moved here
+# rather than leaving the star count on a repo with no code in it.
 publish:
   provider: github
   owner: mrdainami
-  repo: nami-releases
+  repo: nami
   # Drafts, deliberately. A build lands where it can be looked at and the notes
   # written before anyone can download it, and pressing Publish stays a human
   # decision — the moment it goes live is the moment every installed Nami starts
@@ -76,6 +75,16 @@ asarUnpack:
 dmg:
   sign: true
 afterAllArtifactBuild: scripts/notarize-dmg.mjs
+
+# No version in the installer's name, on purpose. The download button on
+# nami.dainami.ai points at
+#   github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg
+# and that path can only resolve if the newest release holds an asset with
+# exactly that name. Put the version back in and the site's link dies at the
+# next release — silently, because GitHub answers a missing asset with its own
+# 404 page rather than anything the site could notice.
+# The version is still in the release title, the tag, and the app's About.
+artifactName: ${productName}-${arch}.${ext}
 
 mac:
   category: public.app-category.developer-tools

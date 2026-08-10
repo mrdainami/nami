@@ -78,6 +78,7 @@ body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title,
 body[data-theme="operator"] .card-lbl,
+body[data-theme="operator"] .ab-name,
 body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
 
 /* The update note is already mono; operator only drops paper's offset shadow
@@ -116,6 +117,9 @@ body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
 body[data-theme="operator"] .card-lbl { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+body[data-theme="operator"] .ab-name { font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; }
+/* paper's green reads as dead here; the About links take the accent */
+body[data-theme="operator"] .ab-link { color: var(--accent, #ef6461); }
 body[data-theme="operator"] .board-title { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
 
 /* ---- topbar -------------------------------------------------------------- */
@@ -161,25 +165,25 @@ body[data-theme="operator"] .swatch,
 body[data-theme="operator"] .artifact .kind {
   border-color: rgba(255, 255, 255, 0.14); border-radius: 4px;
 }
-body[data-theme="operator"] .code[data-kind="agent"],
+body[data-theme="operator"] .code[data-kind="agent"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="agent"]   { background: #2c3a2d; color: #9ec79a; }
-body[data-theme="operator"] .code[data-kind="skill"],
+body[data-theme="operator"] .code[data-kind="skill"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="skill"]   { background: #332e40; color: #b6a8d6; }
-body[data-theme="operator"] .code[data-kind="command"],
+body[data-theme="operator"] .code[data-kind="command"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="command"] { background: #28323f; color: #9fbada; }
-body[data-theme="operator"] .code[data-kind="service"],
+body[data-theme="operator"] .code[data-kind="service"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="service"] { background: #3d2a30; color: #dda7b5; }
-body[data-theme="operator"] .code[data-kind="editor"],
+body[data-theme="operator"] .code[data-kind="editor"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="editor"]  { background: #3c3323; color: #e6c287; }
-body[data-theme="operator"] .code[data-kind="viewer"],
+body[data-theme="operator"] .code[data-kind="viewer"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="viewer"]  { background: #3a2a22; color: #d99b80; }
-body[data-theme="operator"] .code[data-kind="shell"],
+body[data-theme="operator"] .code[data-kind="shell"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="shell"],
-body[data-theme="operator"] .code[data-kind="harness"],
+body[data-theme="operator"] .code[data-kind="harness"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="harness"],
-body[data-theme="operator"] .code[data-kind="neutral"],
+body[data-theme="operator"] .code[data-kind="neutral"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="neutral"] { background: #2e2e2b; color: #b9b1a0; }
-body[data-theme="operator"] .code[data-kind="folder"],
+body[data-theme="operator"] .code[data-kind="folder"]:not([data-brand]),
 body[data-theme="operator"] .swatch[data-kind="folder"]  { background: #28323f; color: #9fbada; }
 body[data-theme="operator"] .artifact .kind { background: #2e2e2b; color: #b9b1a0; }
 /* settings Keys rows: only the square corners are paper literals */

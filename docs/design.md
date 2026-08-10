@@ -1,6 +1,6 @@
-# Dainami CLI — the paper agent workbench
+# Nami — the paper agent workbench
 
-Approved design (Calvin, 2026-08-08). Reference mockup: `docs/reference/Dainami CLI.dc.html` (+ thumbnail).
+Approved design, 2026-08-08. The app now implements it; the screenshots in `docs/media/` are the live article.
 
 ## What it is
 A lean Electron desktop app: open any folder, run **Claude Code sessions** and **terminal sessions**
@@ -18,7 +18,7 @@ Caveat handwriting, Courier Prime, pastel tints, hard offset shadows, dashed rul
    cream paper ground, ink text, Courier Prime, all 16 ANSI colors remapped to an ink palette drawn
    from the mockup's tints.
 
-## Architecture (skeleton after HNA-Code, MIT)
+## Architecture
 - Electron, plain JS, no bundler. `src/main/` (app + PTYs + Claude driver + persisted state JSON),
   `src/main/preload.js` (contextBridge IPC), `src/renderer/` (the paper UI, ES modules).
 - State persists to `userData/state.json` (projects, sessions, card content) — restart-proof.

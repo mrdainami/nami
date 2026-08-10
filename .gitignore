@@ -5,7 +5,6 @@ shots/
 # 42MB of Whisper weights, fetched by `npm run fetch-model` at package time
 build/models/
 .DS_Store
-.claude/worktrees/
 
 # Your desk. Anything personal, half-finished, or nobody-else's-business goes
 # here and never leaves this machine: scratch notes, screenshots, exports, keys
@@ -22,3 +21,19 @@ _local/
 *.p8
 *.p12
 *.mobileprovision
+
+# Working notes and agent tooling: mine, not the product's. These are how Nami
+# gets built, not how it is used, and the specs in particular carry decisions
+# about shipping and audience that were written as private notes. They stay on
+# this machine. Everything a contributor needs is in README, CONTRIBUTING and
+# docs/design.md.
+.claude/
+.opencode/
+docs/superpowers/
+
+# Source art and old mockups. 11MB that nothing builds from: the mascot in the
+# app is inline SVG, and the icon the installer uses is build/icon.png. Every
+# clone was paying for them. The design they document is now the app itself,
+# and docs/media holds the live screenshots.
+assets/
+docs/reference/

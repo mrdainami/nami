@@ -63,7 +63,7 @@ function releaseFromApi(doc, arch = process.arch) {
   return { version, url };
 }
 
-const LATEST = 'https://api.github.com/repos/mrdainami/nami-releases/releases/latest';
+const LATEST = 'https://api.github.com/repos/mrdainami/nami/releases/latest';
 
 async function fetchLatest(url = LATEST) {
   const res = await fetch(url, {
@@ -74,17 +74,36 @@ async function fetchLatest(url = LATEST) {
   return res.json();
 }
 
-// The whole question, answered once: { version, url } or null. Never throws.
-async function checkForUpdate({ currentVersion, arch = process.arch, fetchJson = fetchLatest } = {}) {
+// The same question with the answer kept whole:
+//   { state: 'update', version, url } | { state: 'current' } | { state: 'offline' }
+//
+// This is for the About pane, where somebody pressed a button and is waiting.
+// The silence the rest of this file is built on would be a lie there: "I could
+// not reach GitHub" and "you have the newest one" are different answers, and
+// telling someone they are up to date when nothing was actually checked is the
+// one outcome an update check must never produce.
+//
+// A reachable GitHub with nothing offerable (the latest is a draft, or a
+// prerelease) is 'current' rather than an error. From where the user stands
+// there is nothing to install, which is what 'current' means.
+async function updateStatus({ currentVersion, arch = process.arch, fetchJson = fetchLatest } = {}) {
   let doc = null;
   try {
     doc = await fetchJson();
   } catch (_) {
-    return null; // offline, timed out, rate-limited — none of it is news
+    return { state: 'offline' };
   }
   const rel = releaseFromApi(doc, arch);
-  if (!rel) return null;
-  return isNewer(rel.version, currentVersion) ? rel : null;
+  if (!rel || !isNewer(rel.version, currentVersion)) return { state: 'current' };
+  return { state: 'update', version: rel.version, url: rel.url };
 }
 
-module.exports = { isNewer, releaseFromApi, checkForUpdate, parseVersion, LATEST };
+// The whole question, answered once: { version, url } or null. Never throws.
+// The background poll's contract, unchanged: everything that is not news is
+// null, so being offline never reaches the user as anything at all.
+async function checkForUpdate(opts = {}) {
+  const st = await updateStatus(opts);
+  return st.state === 'update' ? { version: st.version, url: st.url } : null;
+}
+
+module.exports = { isNewer, releaseFromApi, checkForUpdate, updateStatus, parseVersion, LATEST };
