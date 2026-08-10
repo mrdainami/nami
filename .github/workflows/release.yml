@@ -42,12 +42,18 @@ jobs:
       # Stop in the first seconds rather than after half an hour of building and
       # notarizing something that cannot then be uploaded.
       - name: Check we can publish before doing any work
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
         run: |
-          if [ -z "$RELEASES_TOKEN" ]; then
-            echo "::error::RELEASES_TOKEN is not set — nothing could be published, so not building."
+          missing=
+          [ -z "$RELEASES_TOKEN" ]    && missing="$missing RELEASES_TOKEN"
+          [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
+          [ -z "$APPLE_API_KEY_P8" ]  && missing="$missing APPLE_API_KEY_P8"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing — a release must be signed, notarized and publishable, so stopping now rather than after 45 minutes of building."
             exit 1
           fi
-          echo "publishing token present"
+          echo "all release credentials present"
 
       - uses: actions/checkout@v4
 
