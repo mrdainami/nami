@@ -26,7 +26,7 @@ const { loginShell, windowChrome } = require('./platform');
 const { userPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
-const { downloadUpdate, updaterState } = require('./updater');
+const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
 const stt = require('./stt');
 
 let pty = null;
@@ -409,7 +409,9 @@ ipcMain.handle('boot', (e) => {
     update: lastOffered,
     // And a window opened mid-download, or after one finished, would otherwise
     // offer to start a download that is already running or already done.
-    updater: updaterState(),
+    // `staged` is the one that survives a restart: a download left in the cache
+    // by an earlier run, which nothing would otherwise ever install.
+    updater: { ...updaterState(), staged: stagedUpdateWaiting(), sessions: liveSessionCount() },
     // For the About pane. Sent at boot rather than fetched when the tab opens,
     // so opening it costs nothing and shows the truth instantly; the button is
     // the only thing that touches the network.
@@ -520,6 +522,29 @@ ipcMain.handle('update:download', () => downloadUpdate({
   },
 }));
 ipcMain.handle('update:state', () => updaterState());
+
+// Install it now and come back on the new version, instead of waiting for a
+// quit and hoping to beat the user back to the app.
+ipcMain.handle('update:install', () => installNow({
+  isPackaged: app.isPackaged,
+  emit: (channel, payload) => {
+    for (const w of wins) sendWc(w.webContents, channel, payload);
+  },
+}));
+
+// electron-updater's cache dir, which it names from updaterCacheDirName in
+// app-update.yml. Only somewhere to look — nothing here writes to it.
+function stagedUpdateWaiting() {
+  try { return hasStagedFile(path.join(app.getPath('cache'), 'nami-updater')); } catch (_) { return false; }
+}
+
+// What an update would end if it happened right now. The renderer says so
+// before installing, because an update that silently kills four agents
+// mid-thought is the outcome this whole feature was shaped to avoid.
+function liveSessionCount() {
+  return termSessions.size + claudeSessions.size;
+}
+ipcMain.handle('update:sessions', () => liveSessionCount());
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
 ipcMain.handle('agents:detect', () => detectAgents());

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { nextState, percentOf, downloadUpdate, updaterState } = require('../src/main/updater.js');
+const { nextState, percentOf, downloadUpdate, installNow, hasStagedFile, updaterState } = require('../src/main/updater.js');
 
 // --- the states a download can be in -----------------------------------------
 //
@@ -74,4 +74,54 @@ test('a development build refuses to download anything', async () => {
 
 test('the state is reportable before anything has happened', () => {
   assert.deepEqual(updaterState(), { state: 'idle', version: null });
+});
+
+test('a development build refuses to install anything', async () => {
+  const seen = [];
+  const res = await installNow({ isPackaged: false, emit: (ch) => seen.push(ch) });
+  assert.deepEqual(seen, []);
+  assert.equal(res.state, 'idle');
+});
+
+// --- the update left behind by an earlier run --------------------------------
+//
+// This is the case that failed on a real machine: a download finished, the
+// install was cancelled, and every later launch was blind to the 166 MB sitting
+// in the cache. Nothing installed it and nothing mentioned it.
+
+const stubFs = (files) => ({
+  readFileSync: (p) => {
+    if (!(p in files)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+    return files[p];
+  },
+  existsSync: (p) => p in files,
+});
+
+test('a complete staged download is found', () => {
+  const io = stubFs({
+    '/c/pending/update-info.json': '{"fileName":"Nami-arm64.zip","sha512":"x"}',
+    '/c/pending/Nami-arm64.zip': 'bytes',
+  });
+  assert.equal(hasStagedFile('/c', io), true);
+});
+
+test('info without the file it names is not a staged download', () => {
+  // electron-updater empties this directory on some failures, and a note
+  // pointing at a file that is gone must not read as "ready to install".
+  const io = stubFs({ '/c/pending/update-info.json': '{"fileName":"Nami-arm64.zip"}' });
+  assert.equal(hasStagedFile('/c', io), false);
+});
+
+test('an empty cache is not a staged download', () => {
+  assert.equal(hasStagedFile('/c', stubFs({})), false);
+});
+
+test('unreadable json is not a staged download', () => {
+  const io = stubFs({ '/c/pending/update-info.json': 'not json{' });
+  assert.equal(hasStagedFile('/c', io), false);
+});
+
+test('info with no file name is not a staged download', () => {
+  const io = stubFs({ '/c/pending/update-info.json': '{"sha512":"x"}' });
+  assert.equal(hasStagedFile('/c', io), false);
 });
