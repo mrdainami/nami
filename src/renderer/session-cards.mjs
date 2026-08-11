@@ -40,6 +40,10 @@ export function toolLabel(name, input) {
 function toolDetail(name, input) {
   const i = input || {};
   if (name === 'Bash') return i.description ? short(i.command, MAX_DETAIL) : '';
+  // The label already named the file. Repeating its whole path here reads as a
+  // rendering fault, and a 70-character absolute path pushes the row wider than
+  // the tile it sits in.
+  if (name === 'Read' || name === 'NotebookRead') return '';
   if (name === 'Edit' || name === 'MultiEdit') {
     // Derived from the strings the call carries, not from a diff we never saw:
     // the lines going out, and the lines coming in.

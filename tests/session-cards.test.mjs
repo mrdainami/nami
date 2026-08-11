@@ -97,6 +97,14 @@ test('an edit says how much it changed', () => {
   assert.equal(row.detail, '+4 −2');
 });
 
+test('a Read does not repeat the path its label already named', () => {
+  // Seen on a real session: the label collapsed to nothing and a 70-character
+  // absolute path took the whole row, pushing the card wider than the tile.
+  const [row] = buildRows([use('t1', 'Read', { file_path: '/Users/x/work/repo/src/main/transcript-tail.js' })]);
+  assert.equal(row.label, 'Read transcript-tail.js');
+  assert.equal(row.detail, '');
+});
+
 test('an unknown tool is named, never hidden', () => {
   // MCP tools arrive with names this build has never heard of.
   assert.equal(toolLabel('mcp__github__create_pull_request', {}), 'mcp__github__create_pull_request');
