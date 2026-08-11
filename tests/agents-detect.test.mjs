@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { KNOWN_AGENTS, detectAgents, pathFromShellOutput, findOnDisk } = require('../src/main/agents-detect.js');
+const { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, pathFromShellOutput, findOnDisk } = require('../src/main/agents-detect.js');
 
-test('registry carries the curated six with everything the launcher needs', () => {
+test('registry carries the curated seven with everything the launcher needs', () => {
   const ids = KNOWN_AGENTS.map((a) => a.id);
-  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'hermes', 'kimi']) {
+  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cursor', 'hermes', 'kimi']) {
     assert.ok(ids.includes(id), `registry missing ${id}`);
   }
   for (const a of KNOWN_AGENTS) {
@@ -18,6 +18,31 @@ test('registry carries the curated six with everything the launcher needs', () =
     assert.ok(/^https:\/\//.test(a.docs), `${a.id} docs must be a real https link`);
   }
   assert.equal(KNOWN_AGENTS.find((a) => a.id === 'claude').kind, 'claude');
+});
+
+// The pointer's whole cost is measured here: a skill is announced in one file,
+// and only the agents that refuse to read that file need one of their own.
+test('every agent declares a contextFile, and only two differ from AGENTS.md', () => {
+  for (const a of KNOWN_AGENTS) {
+    assert.ok(a.contextFile, `${a.id} missing contextFile`);
+    assert.match(a.contextFile, /\.md$/, `${a.id} contextFile should be a markdown file`);
+  }
+  const odd = KNOWN_AGENTS.filter((a) => a.contextFile !== POINTER_FILE).map((a) => a.id).sort();
+  assert.deepEqual(odd, ['claude', 'gemini']);
+});
+
+test('contextFilesFor returns AGENTS.md plus a stub only where one is needed', () => {
+  assert.deepEqual(contextFilesFor(['codex']), ['AGENTS.md']);
+  assert.deepEqual(contextFilesFor(['codex', 'cursor', 'hermes', 'kimi', 'opencode']), ['AGENTS.md']);
+  assert.deepEqual(contextFilesFor(['claude', 'codex', 'gemini', 'cursor']).sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+  assert.deepEqual(contextFilesFor([]), ['AGENTS.md']);   // the block still has a home
+  assert.deepEqual(contextFilesFor(), ['AGENTS.md']);
+});
+
+test('only agents with a verified project skills dir claim native registration', () => {
+  const native = KNOWN_AGENTS.filter((a) => a.projectSkillsDir).map((a) => a.id);
+  assert.deepEqual(native, ['claude']);
+  assert.equal(KNOWN_AGENTS.find((a) => a.id === 'claude').projectSkillsDir, '.claude/skills');
 });
 
 test('detectAgents marks found agents with their path', async () => {
