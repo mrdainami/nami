@@ -21,6 +21,24 @@ before(() => {
   write(path.join(home, '.config/opencode/agent/globalrev.md'), '---\ndescription: Global reviewer\n---\nbody\n');
   write(path.join(home, '.claude/plugins/cache/market/superpowers/1.0.0/skills/tdd/SKILL.md'), '---\nname: tdd\ndescription: Test first\n---\nbody\n');
   write(path.join(home, '.claude/plugins/cache/market/superpowers/1.0.0/agents/critic.md'), '---\nname: critic\ndescription: Plugin agent\n---\nbody\n');
+
+  // the project's own neutral folder — the only place Nami writes
+  write(path.join(project, 'skills/meeting-notes/SKILL.md'), '---\nname: meeting-notes\ndescription: Transcript into decisions\n---\nbody\n');
+  // one row per tool that keeps skills of its own
+  write(path.join(home, '.agents/skills/hyperframes/SKILL.md'), '---\nname: hyperframes\ndescription: Render video\n---\nbody\n');
+  write(path.join(home, '.codex/skills/.system/imagegen/SKILL.md'), '---\nname: imagegen\ndescription: Codex bundled\n---\nbody\n');
+  write(path.join(home, '.cursor/skills-cursor/autopilot/SKILL.md'), '---\nname: autopilot\ndescription: Cursor own\n---\nbody\n');
+  write(path.join(home, '.config/opencode/skills/oc-thing/SKILL.md'), '---\nname: oc-thing\ndescription: OpenCode skill\n---\nbody\n');
+  // Hermes groups skills under categories, so the real SKILL.md is one level deeper
+  write(path.join(home, '.hermes/skills/github/github-auth/SKILL.md'), '---\nname: github-auth\ndescription: Signing in\n---\nbody\n');
+  write(path.join(home, '.hermes/skills/github/DESCRIPTION.md'), 'the github group\n');
+  // a live symlink into the shared store, and one whose target is gone
+  fs.mkdirSync(path.join(home, '.gemini/skills'), { recursive: true });
+  fs.symlinkSync(path.join(home, '.agents/skills/hyperframes'), path.join(home, '.gemini/skills/hyperframes'));
+  fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.gemini/skills/media-use'));
+  // the same missing folder, linked a second time by another tool
+  fs.mkdirSync(path.join(home, '.cursor/skills'), { recursive: true });
+  fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.cursor/skills/media-use'));
 });
 
 function find(items, pred) { return items.filter(pred); }
@@ -37,6 +55,50 @@ test('scan finds items from every source with correct type/scope/platform', () =
   assert.equal(by('agent', 'opencode', 'user').length, 1);
   assert.equal(by('skill', 'claude', 'plugin').length, 1);
   assert.equal(by('agent', 'claude', 'plugin').length, 1);
+});
+
+// The bug this fixes: the scanner read one folder, ~/.claude/skills. On a real
+// machine that folder had been deleted while 60 skills sat in six others, so
+// the rail said "Skills · 0" with total confidence.
+test('scan reads every tool\'s skills folder, not just Claude\'s', () => {
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const skill = (slug) => items.find((i) => i.type === 'skill' && i.slug === slug);
+  for (const slug of ['meeting-notes', 'hyperframes', 'imagegen', 'autopilot', 'oc-thing', 'github-auth']) {
+    assert.ok(skill(slug), `missed ${slug}`);
+  }
+  assert.equal(skill('meeting-notes').platform, 'project');
+  assert.equal(skill('imagegen').platform, 'codex');
+  assert.equal(skill('autopilot').platform, 'cursor');
+  assert.equal(skill('github-auth').platform, 'hermes');   // found one level down
+});
+
+test('a skill row says whether a session started here could actually use it', () => {
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const av = (slug) => items.find((i) => i.type === 'skill' && i.slug === slug).availability;
+  assert.equal(av('meeting-notes'), 'project');  // the pointer names it
+  assert.equal(av('deploy'), 'project');         // legacy .claude/skills, still listed
+  assert.equal(av('imagegen'), 'agent');         // Codex reads its own folder
+  assert.equal(av('hyperframes'), 'unwired');    // ~/.agents/skills: nothing reads it
+  assert.equal(av('notes'), 'agent');            // ~/.claude/skills is Claude's
+  const owner = (slug) => items.find((i) => i.type === 'skill' && i.slug === slug).ownerAgent;
+  assert.equal(owner('imagegen'), 'codex');
+  assert.equal(owner('hyperframes'), '');
+});
+
+test('a symlinked skill is a real skill, and a dangling one is shown as broken', () => {
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const skills = items.filter((i) => i.type === 'skill');
+  // the live link resolves to the same folder the store row already claimed, so
+  // it is listed once rather than twice
+  assert.equal(skills.filter((i) => i.slug === 'hyperframes').length, 1);
+  // two tools link the same deleted folder; that is one broken skill, not two
+  const deads = skills.filter((i) => i.slug === 'media-use');
+  assert.equal(deads.length, 1, 'links to one missing folder collapse to one row');
+  const dead = deads[0];
+  assert.equal(dead.broken, true);
+  assert.equal(dead.availability, 'broken');
+  assert.match(dead.linkTarget, /deleted-store-item$/);
+  for (const s of skills) if (s.slug !== 'media-use') assert.equal(s.broken, false, s.filePath);
 });
 
 test('scan: plugin items are readOnly, others are not; metadata parsed', () => {
@@ -79,16 +141,39 @@ test('createItem scaffolds a claude skill dir and an opencode agent', () => {
   assert.match(fs.readFileSync(oc.filePath, 'utf8'), /mode: subagent/);
 });
 
-test('duplicateItem copies a plugin skill dir into the project, -copy on collision', () => {
+test('"Use here" copies a skill into the project\'s own folder, -copy on collision', () => {
   const items = scanLibrary({ projectPath: project, homeDir: home });
   const tdd = items.find((i) => i.slug === 'tdd' && i.scope === 'plugin');
   const one = duplicateItem({ filePath: tdd.filePath, type: 'skill', projectPath: project });
   assert.ok(one.ok);
-  assert.ok(one.filePath.endsWith('.claude/skills/tdd/SKILL.md'));
+  assert.ok(one.filePath.endsWith('skills/tdd/SKILL.md'), one.filePath);
+  assert.ok(!one.filePath.includes('.claude'), 'it lands in the neutral folder, not Claude\'s');
   assert.match(fs.readFileSync(one.filePath, 'utf8'), /Test first/);
+  assert.equal(one.item.availability, 'project');
   const two = duplicateItem({ filePath: tdd.filePath, type: 'skill', projectPath: project });
   assert.ok(two.ok);
-  assert.ok(two.filePath.endsWith('.claude/skills/tdd-copy/SKILL.md'));
+  assert.ok(two.filePath.endsWith('skills/tdd-copy/SKILL.md'), two.filePath);
+});
+
+// Most of these skills are links into a shared store. Copying the link would
+// carry the dependency along — and its ability to dangle — so the folder itself
+// has to be dereferenced on the way in.
+test('"Use here" on a linked skill copies the folder, not the link', () => {
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const linked = items.find((i) => i.slug === 'hyperframes');
+  const res = duplicateItem({ filePath: linked.filePath, type: 'skill', projectPath: project });
+  assert.ok(res.ok, res.error);
+  const dest = path.dirname(res.filePath);
+  assert.equal(fs.lstatSync(dest).isSymbolicLink(), false, 'the copy must be a real folder');
+  assert.match(fs.readFileSync(res.filePath, 'utf8'), /Render video/);
+});
+
+test('"Use here" refuses a skill whose files are gone', () => {
+  const items = scanLibrary({ projectPath: project, homeDir: home });
+  const dead = items.find((i) => i.slug === 'media-use');
+  const res = duplicateItem({ filePath: dead.filePath, type: 'skill', projectPath: project });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /missing/i);
 });
 
 test('block-scalar descriptions (description: |) are joined, not shown as "|"', () => {

@@ -34,16 +34,45 @@ function listMd(dir) {
   try { return fs.readdirSync(dir).filter((f) => f.endsWith('.md')).map((f) => path.join(dir, f)); }
   catch (_) { return []; }
 }
-function listSkillDirs(dir) {
-  try {
-    return fs.readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => path.join(dir, e.name))
-      .filter((d) => fs.existsSync(path.join(d, 'SKILL.md')));
-  } catch (_) { return []; }
+
+// Skills are folders, and installers routinely place them as symlinks into a
+// shared store — so `isDirectory()` alone silently drops every linked skill,
+// live ones included. A link to a folder that still holds a SKILL.md is a real
+// skill; a link whose target has gone is worth surfacing as broken rather than
+// vanishing, which is exactly how 60 dead links went unnoticed on one machine.
+// Some tools group skills a level deeper (Hermes files them under categories),
+// so a folder with no SKILL.md of its own is searched one level down.
+// Dotted names are not skipped wholesale: Codex files its own bundled skills
+// under `.system`, so a blanket dot-rule would hide them. Only genuine noise is
+// named, and plain files fall out anyway on the directory-or-link test.
+const SKIP_SKILL_DIRS = new Set(['.git', 'node_modules']);
+function listSkillDirs(dir, depth = 0) {
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return []; }
+  const out = [];
+  for (const e of entries) {
+    if (SKIP_SKILL_DIRS.has(e.name)) continue;
+    const isLink = e.isSymbolicLink();
+    if (!e.isDirectory() && !isLink) continue;
+    const full = path.join(dir, e.name);
+    if (fs.existsSync(path.join(full, 'SKILL.md'))) { out.push({ dir: full, link: isLink ? readLink(full) : '', broken: false }); continue; }
+    if (isLink) { out.push({ dir: full, link: readLink(full), broken: true }); continue; }
+    if (depth < 1) out.push(...listSkillDirs(full, depth + 1));
+  }
+  return out;
+}
+function readLink(p) { try { return fs.readlinkSync(p); } catch (_) { return ''; } }
+// What a skill folder *is*, for the purpose of listing it once. A live link and
+// its target share a real path. A dangling link has none, so it is identified by
+// what it meant to point at — which is why one deleted store folder referenced
+// by four tools reads as one broken skill and not four.
+function skillIdentity(entry) {
+  try { return fs.realpathSync(entry.dir); } catch (_) { /* dangling */ }
+  if (entry.link) return path.resolve(path.dirname(entry.dir), entry.link);
+  return entry.dir;
 }
 
-function mkItem(type, platform, scope, filePath, readOnly) {
+function mkItem(type, platform, scope, filePath, readOnly, extra) {
   const meta = readMeta(filePath);
   const slug = type === 'skill' ? path.basename(path.dirname(filePath)) : path.basename(filePath, '.md');
   return {
@@ -53,8 +82,48 @@ function mkItem(type, platform, scope, filePath, readOnly) {
     filePath,
     meta: { tools: meta.tools || '', model: meta.model || '', mode: meta.mode || '', agent: meta.agent || '' },
     readOnly: !!readOnly,
+    ...(extra || {}),
   };
 }
+
+// A skill row has to answer one question honestly: can a session started from
+// this project use it? Only two things make that true — the project's own
+// pointer names it, or the agent that owns this folder reads it natively.
+// Everything else is a file on disk that happens to be a skill, and saying so
+// is what keeps `Use here` from looking redundant.
+function mkSkillItem(source, scope, entry) {
+  const availability = entry.broken ? 'broken'
+    : scope === 'project' ? 'project'
+    : source.owner ? 'agent'
+    : 'unwired';
+  return mkItem('skill', source.platform, scope, path.join(entry.dir, 'SKILL.md'), source.readOnly, {
+    dirPath: entry.dir,
+    linkTarget: entry.link || '',
+    broken: !!entry.broken,
+    availability,
+    ownerAgent: source.owner || '',
+    sourceLabel: source.label,
+  });
+}
+
+// Where skills live, per tool. Nami reads every row and writes to exactly one
+// of them — `<project>/skills`, the only location with no agent's name on it.
+// `owner` is the agent that reads the folder natively; null means nothing does,
+// which is the honest state of ~/.agents/skills on a real machine.
+const PROJECT_SKILL_SOURCES = [
+  { rel: 'skills', platform: 'project', owner: null, label: 'this project' },
+  { rel: '.claude/skills', platform: 'claude', owner: 'claude', label: 'this project · Claude' },
+];
+const USER_SKILL_SOURCES = [
+  { rel: '.claude/skills', platform: 'claude', owner: 'claude', label: 'Claude' },
+  { rel: '.agents/skills', platform: 'agents', owner: null, label: 'shared store' },
+  { rel: '.codex/skills', platform: 'codex', owner: 'codex', label: 'Codex' },
+  { rel: '.gemini/skills', platform: 'gemini', owner: 'gemini', label: 'Gemini' },
+  { rel: '.cursor/skills', platform: 'cursor', owner: 'cursor', label: 'Cursor' },
+  { rel: '.cursor/skills-cursor', platform: 'cursor', owner: 'cursor', label: "Cursor's own" },
+  { rel: '.hermes/skills', platform: 'hermes', owner: 'hermes', label: 'Hermes' },
+  { rel: '.config/opencode/skills', platform: 'opencode', owner: 'opencode', label: 'OpenCode' },
+];
 
 // Bounded walk of ~/.claude/plugins for agents/ and skills/ dirs (cache layout varies by
 // marketplace/plugin/version, so we search rather than assume depth).
@@ -71,7 +140,8 @@ function walkPlugins(root, items) {
       if (!e.isDirectory() || SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue;
       const full = path.join(dir, e.name);
       if (e.name === 'skills') {
-        for (const d of listSkillDirs(full)) items.push(mkItem('skill', 'claude', 'plugin', path.join(d, 'SKILL.md'), true));
+        const src = { platform: 'claude', owner: 'claude', label: 'a plugin', readOnly: true };
+        for (const d of listSkillDirs(full)) items.push(mkSkillItem(src, 'plugin', d));
       } else if (e.name === 'agents') {
         for (const f of listMd(full)) items.push(mkItem('agent', 'claude', 'plugin', f, true));
       } else {
@@ -84,14 +154,29 @@ function walkPlugins(root, items) {
 function scanLibrary({ projectPath, homeDir } = {}) {
   const home = homeDir || os.homedir();
   const items = [];
+  // One row per skill, keyed on where the files really are: a link and the
+  // folder it points at are the same skill seen twice, and listing both is how
+  // 20 skills would read as 80. First source wins, so the store is described as
+  // the store rather than as whichever agent happened to link it.
+  const seen = new Set();
+  const addSkills = (root, sources, scope) => {
+    for (const source of sources) {
+      for (const entry of listSkillDirs(path.join(root, source.rel))) {
+        const key = skillIdentity(entry);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push(mkSkillItem(source, scope, entry));
+      }
+    }
+  };
   if (projectPath) {
     for (const f of listMd(path.join(projectPath, '.claude/agents'))) items.push(mkItem('agent', 'claude', 'project', f));
-    for (const d of listSkillDirs(path.join(projectPath, '.claude/skills'))) items.push(mkItem('skill', 'claude', 'project', path.join(d, 'SKILL.md')));
+    addSkills(projectPath, PROJECT_SKILL_SOURCES, 'project');
     for (const f of listMd(path.join(projectPath, '.opencode/agent'))) items.push(mkItem('agent', 'opencode', 'project', f));
     for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
   }
   for (const f of listMd(path.join(home, '.claude/agents'))) items.push(mkItem('agent', 'claude', 'user', f));
-  for (const d of listSkillDirs(path.join(home, '.claude/skills'))) items.push(mkItem('skill', 'claude', 'user', path.join(d, 'SKILL.md')));
+  addSkills(home, USER_SKILL_SOURCES, 'user');
   for (const f of listMd(path.join(home, '.config/opencode/agent'))) items.push(mkItem('agent', 'opencode', 'user', f));
   for (const f of listMd(path.join(home, '.config/opencode/command'))) items.push(mkItem('command', 'opencode', 'user', f));
   const plugin = [];
@@ -192,15 +277,21 @@ function freeDest(base, makePath) {
   return { slug, dest };
 }
 
+// "Use here": bring someone else's skill into this project, where the pointer
+// can announce it. Skills copy their whole folder, and `dereference` matters —
+// most of these are symlinks into a shared store, and copying the link instead
+// of the folder would carry the dependency (and its ability to dangle) along.
 function duplicateItem({ filePath, type, projectPath }) {
-  if (!projectPath) return { ok: false, error: 'Open a folder first — duplicates land in the project.' };
+  if (!projectPath) return { ok: false, error: 'Open a folder first — a copy lands in the project.' };
   try {
     if (type === 'skill') {
       const srcDir = path.dirname(filePath);
+      if (!fs.existsSync(filePath)) return { ok: false, error: 'That skill\'s files are missing — nothing to copy.' };
       const base = path.basename(srcDir);
-      const { dest } = freeDest(base, (s) => path.join(projectPath, '.claude/skills', s));
-      fs.cpSync(srcDir, dest, { recursive: true });
-      return { ok: true, filePath: path.join(dest, 'SKILL.md'), item: mkItem('skill', 'claude', 'project', path.join(dest, 'SKILL.md')) };
+      const { dest } = freeDest(base, (s) => path.join(projectPath, 'skills', s));
+      fs.cpSync(srcDir, dest, { recursive: true, dereference: true });
+      const src = PROJECT_SKILL_SOURCES[0];
+      return { ok: true, filePath: path.join(dest, 'SKILL.md'), item: mkSkillItem(src, 'project', { dir: dest, link: '', broken: false }) };
     }
     const base = path.basename(filePath, '.md');
     const { dest } = freeDest(base, (s) => path.join(projectPath, '.claude/agents', s + '.md'));
@@ -241,7 +332,7 @@ async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = 
   const home = homeDir || os.homedir();
   const abs = path.resolve(String(filePath || ''));
   const roots = [];
-  if (projectPath) roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
+  if (projectPath) roots.push(path.join(projectPath, 'skills'), path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
   roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.claude', 'skills'), path.join(home, '.config', 'opencode'));
   const inRoot = roots.some((r) => abs.startsWith(r + path.sep));
   const inPluginCache = abs.includes(path.sep + path.join('.claude', 'plugins') + path.sep);
