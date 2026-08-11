@@ -426,19 +426,24 @@ function buildShell() {
 }
 
 // ---- glass 3D tilt ----------------------------------------------------------
-// In the glass themes, panes tilt toward the cursor: pointer position feeds the
-// --rx/--ry vars that theme-glass.css puts into each pane's transform. One
-// delegated listener, rAF-throttled; other themes pay nothing (early return),
-// and stale vars are inert because only [data-glass] transforms read them.
+// In the glass themes, the rail's session cards tilt toward the cursor: pointer
+// position feeds the --rx/--ry vars that theme-glass.css puts into their
+// transform. One delegated listener, rAF-throttled; other themes pay nothing
+// (early return), and stale vars are inert because only [data-glass] transforms
+// read them.
+//
+// Desk tiles are deliberately excluded. They were the loudest thing on screen —
+// a document sliding under your hand while you are trying to read it — and a
+// terminal could never tilt anyway: a 3D transform makes Chromium rasterize its
+// text to a texture, which the hover lift's translateZ then stretches. A card
+// 200px wide can carry that movement; a work surface cannot. Tiles keep every
+// other hover cue, so they still answer the cursor without moving.
 function initGlassTilt() {
   let pane = null, raf = 0, lastEvent = null;
   const reset = (el) => { if (el) { el.style.setProperty('--rx', '0deg'); el.style.setProperty('--ry', '0deg'); } };
   document.addEventListener('pointermove', (e) => {
     if (!document.body.hasAttribute('data-glass')) { if (pane) { reset(pane); pane = null; } return; }
-    let hit = e.target instanceof Element ? e.target.closest('.tile, .card, .nav-card') : null;
-    // terminal tiles lift on hover but never rotate: a tilting xterm canvas is
-    // both the most expensive surface to re-render and the one that reads wobbly
-    if (hit && hit.querySelector('.term-body')) hit = null;
+    const hit = e.target instanceof Element ? e.target.closest('.nav-card') : null;
     if (hit !== pane) { reset(pane); pane = hit; }
     if (!pane) return;
     lastEvent = e;
@@ -448,13 +453,10 @@ function initGlassTilt() {
       if (!pane || !lastEvent) return;
       const r = pane.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      // small panes get the playful tilt; big work surfaces stay subtle
-      const mx = pane.classList.contains('nav-card') ? 5 : 3;
-      const my = pane.classList.contains('nav-card') ? 7 : 4;
       const x = (lastEvent.clientX - r.left) / r.width;
       const y = (lastEvent.clientY - r.top) / r.height;
-      pane.style.setProperty('--rx', ((0.5 - y) * mx).toFixed(2) + 'deg');
-      pane.style.setProperty('--ry', ((x - 0.5) * my).toFixed(2) + 'deg');
+      pane.style.setProperty('--rx', ((0.5 - y) * 5).toFixed(2) + 'deg');
+      pane.style.setProperty('--ry', ((x - 0.5) * 7).toFixed(2) + 'deg');
     });
   });
   document.addEventListener('pointerleave', () => { reset(pane); pane = null; });

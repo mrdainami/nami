@@ -191,11 +191,9 @@ body[data-glass] .board-title { font-size: 12.5px; letter-spacing: 0.12em; text-
 body[data-glass] .sv-bigok-t { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
 
 /* ---- the slab + physics ---------------------------------------------------- */
-/* Panes tilt toward the cursor (app.js feeds --rx/--ry, glass themes only),
-   lift on hover, compress on press. The slab's light bands are real shadows,
-   so the tilt moves them — nothing painted on. */
+/* Panes brighten on hover and compress on press. The slab's light bands are real
+   shadows, so depth comes from light rather than from moving the pane. */
 body[data-glass] .tile,
-body[data-glass] .card,
 body[data-glass] .nav-card {
   background: var(--gl-pane);
   /* blur is the perf budget: panes only, kept moderate — buttons/chips are
@@ -205,13 +203,20 @@ body[data-glass] .nav-card {
   border: 1px solid var(--gl-rim);
   border-radius: 22px;
   box-shadow: var(--gl-slab), 0 24px 55px rgb(var(--gl-sh) / 0.16), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+  transition: box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+/* Only the rail's session cards tilt toward the cursor (app.js feeds --rx/--ry).
+   Desk tiles stay put: a document that slides while you read it is the opposite
+   of a work surface, and a terminal could never tilt at all — a 3D transform
+   makes Chromium rasterize its text to a texture and the lift then stretches it.
+   A card this size carries the movement; a tile cannot. */
+body[data-glass] .nav-card {
+  border-radius: 17px;
   transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
   /* 90ms: the tilt tracks the hand instead of dragging behind it */
   transition: transform 0.09s ease-out, box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
 }
-body[data-glass] .nav-card { border-radius: 17px; }
-body[data-glass] .tile:hover, body[data-glass] .card:hover {
-  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-5px) translateZ(12px);
+body[data-glass] .tile:hover {
   background: var(--gl-pane-strong);
   border-color: var(--gl-rim-hi);
   box-shadow: var(--gl-slab), 0 42px 90px rgb(var(--gl-sh) / 0.22), 0 4px 14px rgb(var(--gl-sh) / 0.08);
@@ -221,13 +226,6 @@ body[data-glass] .nav-card:hover {
   background: var(--gl-pane-strong);
   border-color: var(--gl-rim-hi);
   box-shadow: var(--gl-slab), 0 22px 48px rgb(var(--gl-sh) / 0.2);
-}
-/* Terminal tiles stay perfectly flat: a 3D transform makes Chromium rasterize
-   the terminal's DOM text as a texture, and the hover lift's translateZ scale
-   then stretches it. Terminals keep the slab shadows; depth without geometry. */
-body[data-glass] .tile:has(.term-body),
-body[data-glass] .tile:has(.term-body):hover {
-  transform: none;
 }
 body[data-glass] .tile.active {
   border-color: rgba(255, 170, 165, 0.85);
@@ -246,7 +244,7 @@ body[data-glass] .nav-card.attn { border-color: var(--amber-line); box-shadow: v
 body[data-glass] .tile.drop-hint, body[data-glass] .tile.file-hint { outline-color: var(--gl-accent); }
 body[data-glass] .tile.file-hint { box-shadow: var(--gl-slab), 0 0 0 3px rgba(239, 100, 97, 0.25); }
 @media (prefers-reduced-motion: reduce) {
-  body[data-glass] .tile, body[data-glass] .card, body[data-glass] .nav-card { transition: none; transform: none !important; }
+  body[data-glass] .tile, body[data-glass] .nav-card { transition: none; transform: none !important; }
 }
 
 /* dot-matrix titles on tiles + rail cards */
