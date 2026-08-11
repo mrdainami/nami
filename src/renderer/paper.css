@@ -885,8 +885,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .editor--md .ed-area { color: transparent; caret-color: var(--ink); }
 .editor--md .ed-area::selection { background: rgba(120,145,180,0.32); }
 .ed-hl .hl-mark { color: var(--faint); }
+/* weight only, never size: the textarea underneath holds the caret and stays at
+   12.5px, so a wider heading here puts the letters you see out of step with the
+   letter you are about to delete. tests/editor-underlay.test.mjs holds the line. */
 .ed-hl .hl-h { font-weight: 700; }
-.ed-hl .hl-h1 { font-size: 15px; }
 .ed-hl .hl-strong { font-weight: 700; }
 .ed-hl .hl-em { font-style: italic; }
 .ed-hl .hl-code, .ed-hl .hl-fence { color: var(--amber-btn); }
