@@ -433,6 +433,14 @@ body[data-glass] .term-body { padding: 0; }
    the glass panes bleed their blur to the tile edge, so padding the body would
    punch a hard-edged frame out of it */
 body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
+/* the card view — the glass family rounds its edges and lets the pane show
+   through, so the rows are outlines on the slab rather than filled boxes */
+body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
+body[data-glass] .cd-line { border-radius: 8px; background: var(--gl-pane-dim); }
+body[data-glass] .cd-row.open .cd-line { border-radius: 8px 8px 0 0; }
+body[data-glass] .cd-body { border-radius: 0 0 8px 8px; background: var(--gl-well); }
+body[data-glass] .cd-send { border-radius: 6px; }
+body[data-glass] .cd-ask { border-top-color: var(--dash); }
 body[data-glass] .ed-gutter { color: var(--faint); background: none; }
 body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
 body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }

@@ -860,6 +860,94 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb { background: rgba(90, 72, 44, 0.4); background-clip: content-box; }
 .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
+/* ---- the card view ----
+   The same live session, read out of the transcript it is already writing. It
+   sits as a sibling of .tile-body so the terminal keeps every rule it has: only
+   one of the two is ever displayed, and the hidden one is never torn down. */
+.t-view { flex: none; display: flex; border: 1px solid var(--dash); }
+.t-vb {
+  font: inherit; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 4px 7px; border: 0; background: var(--paper); color: var(--muted); cursor: pointer;
+}
+.t-vb + .t-vb { border-left: 1px solid var(--dash); }
+.t-vb:hover { background: var(--hover); color: var(--ink); }
+.t-vb.on { background: var(--green); color: var(--paper); font-weight: 700; }
+.tile.cards-on .t-zoom-in, .tile.cards-on .t-zoom-out { display: none; }
+
+.tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cd-list {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
+  font-size: 12.5px; line-height: 1.6;
+}
+.cd-row { min-width: 0; }
+.cd-user { display: flex; gap: 8px; border-left: 2px solid var(--line); padding-left: 9px; }
+.cd-user .m { color: var(--green); font-weight: 700; flex: none; }
+.cd-user .tx { white-space: pre-wrap; word-break: break-word; }
+.cd-cmd .tx { color: var(--green); }
+.cd-assistant { white-space: pre-wrap; word-break: break-word; }
+.cd-thinking {
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--muted); font-style: italic;
+  border-left: 2px dashed var(--dash); padding-left: 9px;
+}
+.cd-turn_end {
+  font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint);
+  border-top: 1px dashed var(--dash); padding-top: 7px;
+}
+
+/* A tool is one row: what it did, and — for anything that returned output —
+   the whole of what came back, which the terminal hides behind ctrl+o. */
+.cd-tool .cd-line {
+  display: flex; align-items: baseline; gap: 8px;
+  border: 1px solid var(--dash); background: var(--paper-2);
+  padding: 6px 9px; font-size: 12px;
+}
+.cd-row[data-body="1"] .cd-line { cursor: pointer; }
+.cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
+.cd-line .cd-ic { flex: none; color: var(--green-ok); font-weight: 700; width: 10px; }
+/* The label may shrink but never disappear; the detail gives way first. Both
+   ellipsise — a row that pushes wider than the tile takes the whole card with
+   it, and a terminal pane cannot scroll sideways to rescue it. */
+.cd-line .cd-lb { flex: 1 1 auto; font-weight: 700; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-line .cd-dt {
+  flex: 0 1 auto; min-width: 0; max-width: 45%; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted); font-size: 11px;
+}
+.cd-row.pending .cd-ic { color: var(--amber-btn); }
+.cd-row.err .cd-line { border-color: var(--red-line); }
+.cd-row.err .cd-ic { color: var(--red-ink); }
+.cd-body {
+  margin: 0; border: 1px solid var(--dash); border-top: 0; background: var(--paper-3);
+  padding: 8px 10px; max-height: 260px; overflow: auto;
+  font-family: inherit; font-size: 11.5px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted);
+}
+
+.cd-note {
+  flex: none; padding: 8px 14px; font-size: 11.5px; color: var(--muted);
+  border-bottom: 1px dashed var(--dash);
+}
+.cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
+
+.cd-ask {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-top: 1px dashed var(--dash);
+}
+.cd-ask .m { color: var(--green); font-weight: 700; }
+.cd-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--ink);
+  background: transparent; border: 0; outline: none;
+}
+.cd-input::placeholder { color: var(--faint); }
+.cd-send {
+  flex: none; font: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 5px 10px; background: var(--green); color: var(--paper);
+  border: 1px solid var(--green-dark); cursor: pointer;
+}
+.cd-send:hover { background: var(--green-dark); }
+
 /* ---- paper editor ----
    Read and Edit are two panes in one column; only one is ever displayed. */
 .editor { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }

@@ -14,6 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
+import { buildRows } from './session-cards.mjs';
 
 const api = window.dainami;
 
@@ -229,6 +230,16 @@ function dropFilesOnPanel(p, paths) {
   });
 
   api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
+
+  // The same session, read out of the transcript it is already writing. Only
+  // arrives for tiles that asked (cardsWatch), and `reset` means the
+  // conversation underneath changed — /resume, or /clear rewriting the file.
+  api.onSessionEvents(({ id, events, reset }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    if (reset) p.cardEvents = [];
+    if (events && events.length) p.cardEvents = (p.cardEvents || []).concat(events);
+    feedCards(p, !!reset);
+  });
   api.onTermExit(({ id, code, note }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
     p.exited = true; p.status = 'exited';
@@ -1109,6 +1120,10 @@ function mountTile(p) {
       ${panelChip(p)}
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
+      ${canShowCards(p) ? `<span class="t-view" role="group" aria-label="View">
+        <button class="t-vb" data-view="cards" title="Read this session as cards">Cards</button>
+        <button class="t-vb" data-view="term" title="The terminal itself">Term</button>
+      </span>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
       ${['card', 'viewer', 'editor'].includes(p.kind) ? '' : `
       <button class="t-btn t-zoom-out" title="Smaller terminal text"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
@@ -1117,7 +1132,7 @@ function mountTile(p) {
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
-  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null };
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cards: null, rowEls: null };
   tileEls.set(p.id, rec);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
@@ -1140,7 +1155,12 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
+  for (const b of head.querySelectorAll('.t-vb')) {
+    b.onclick = (e) => { e.stopPropagation(); setView(p, b.dataset.view); };
+  }
+
   if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
+  if (canShowCards(p)) { mountCards(p, rec); applyView(p, rec); }
 }
 
 function refreshTileHead(p) {
@@ -1162,12 +1182,18 @@ function refreshTileHead(p) {
   t.statusDot.style.background = m.color;
   t.root.classList.toggle('attention', !!p.attention);
   t.root.classList.toggle('exited', !!p.exited);
+  if (t.cards) refreshCardNote(p, t);
 }
 
 // ---- terminal tiles --------------------------------------------------------
 
 function safeFit(rec) {
   if (!rec || !rec.term || !rec.fit) return;
+  // A hidden terminal measures zero. addon-fit would round that up to its
+  // minimum and resize the pty to a couple of columns — and claude reflows to
+  // whatever it is told, so the session would come back from the card view
+  // wrapped one word per line.
+  if (!rec.body.clientWidth || !rec.body.clientHeight) return;
   try { rec.fit.fit(); } catch (_) { return; }
   try {
     const body = rec.body, term = rec.term;
@@ -1323,9 +1349,181 @@ async function startProcess(p, cols, rows) {
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
   await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, name });
+  // A tile restored in Cards asked to be watched before this ran, and there was
+  // no session to watch yet — the transcript watcher is created by term:create.
+  // Ask again now that there is one, or the view sits empty until it is toggled.
+  if (canShowCards(p) && cardView(p) === 'cards') api.cardsWatch({ id: p.id, on: true });
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
+
+// ---- the card view ---------------------------------------------------------
+// A second view on the very same session. Not a second process: claude writes
+// every turn to its transcript as it happens, main tails that file, and these
+// rows are what it said. The terminal underneath keeps running and keeps the
+// keyboard — slash commands, /resume, ctrl+o, plan mode and the approval prompt
+// all still live there, one click away, which is the whole reason cards can be
+// this simple.
+//
+// Only claude sessions, and only ones with a conversation id: that id is the
+// transcript's name. A legacy --continue tile has none and stays terminal-only.
+const CARD_EVENT_CAP = 900;
+
+function canShowCards(p) { return p && p.kind === 'claude' && !!p.sid && !S.demo; }
+function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
+
+function setView(p, view) {
+  const next = view === 'cards' ? 'cards' : 'term';
+  if (cardView(p) === next) return;
+  p.view = next;
+  const rec = tileEls.get(p.id);
+  if (rec) applyView(p, rec);
+  savePanels();
+}
+
+// The terminal is hidden, never torn down: the pty keeps running, the
+// scrollback survives, and coming back is instant. It does need refitting —
+// while hidden the body measures zero, so xterm could not have tracked a resize.
+function applyView(p, rec) {
+  const view = cardView(p);
+  const on = view === 'cards';
+  if (rec.cards) rec.cards.style.display = on ? 'flex' : 'none';
+  rec.body.style.display = on ? 'none' : '';
+  // The font buttons size terminal cells. In Cards they would do nothing, and
+  // the head is crowded enough that the title was losing room to them.
+  rec.root.classList.toggle('cards-on', on);
+  for (const b of rec.head.querySelectorAll('.t-vb')) b.classList.toggle('on', b.dataset.view === view);
+  api.cardsWatch({ id: p.id, on });
+  if (on) { feedCards(p, true); scrollCards(rec, true); }
+  else requestAnimationFrame(() => safeFit(rec));
+}
+
+function mountCards(p, rec) {
+  const el = document.createElement('div');
+  el.className = 'tile-cards';
+  el.innerHTML = `<div class="cd-note" hidden></div>
+    <div class="cd-list"></div>
+    <div class="cd-ask"><span class="m">❯</span><input class="cd-input" type="text" placeholder="Reply to this session…" /><button class="cd-send">Send</button></div>`;
+  rec.root.appendChild(el);
+  rec.cards = el;
+  rec.cardList = q('.cd-list', el);
+  rec.cardNote = q('.cd-note', el);
+  rec.rowEls = new Map();
+
+  const input = q('.cd-input', el), send = q('.cd-send', el);
+  const submit = () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    // The same path dictation uses: typed into the pty the terminal is running,
+    // so the session cannot tell the difference. The return goes separately —
+    // a TUI wants the line settled before it is submitted.
+    injectToSession(p, text);
+    setTimeout(() => api.termWrite({ id: p.id, data: '\r' }), 160);
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } e.stopPropagation(); });
+  send.onclick = submit;
+}
+
+// The one thing a transcript cannot prove is a question waiting to be answered:
+// the approval prompt is drawn in the TUI and never written to the file. What
+// Nami does know is that the session rang the bell, which is the same signal
+// the rail already shows — so the card says so and sends you where the answer
+// can actually be given, rather than drawing a button that cannot work.
+function refreshCardNote(p, rec) {
+  if (!rec || !rec.cardNote) return;
+  const empty = !rec.cardList.children.length;
+  let text = '';
+  if (p.attention) text = 'This session is waiting on you — answer it in Term.';
+  else if (p.exited) text = 'This session has ended.';
+  else if (empty) text = 'Waiting for the first turn — claude writes its transcript as it works.';
+  rec.cardNote.textContent = text;
+  rec.cardNote.hidden = !text;
+  rec.cardNote.classList.toggle('urgent', !!p.attention);
+}
+
+// Everything accumulated so far, reconciled into the list. Rows only ever
+// append, and a tool row mutates once when its result lands, so a full rebuild
+// is reserved for a reset — it would otherwise close every expanded row and
+// throw away the scroll position.
+function feedCards(p, full) {
+  const rec = tileEls.get(p.id);
+  if (!rec || !rec.cardList || cardView(p) !== 'cards') return;
+
+  if (p.cardEvents && p.cardEvents.length > CARD_EVENT_CAP) {
+    p.cardEvents = p.cardEvents.slice(-CARD_EVENT_CAP);
+    full = true;
+  }
+  if (full) { rec.cardList.innerHTML = ''; rec.rowEls.clear(); }
+
+  const stick = nearBottom(rec);
+  for (const row of buildRows(p.cardEvents || [])) {
+    const seen = rec.rowEls.get(row.id);
+    if (seen) { updateRow(seen, row); continue; }
+    const el = renderRow(p, row);
+    rec.rowEls.set(row.id, el);
+    rec.cardList.appendChild(el);
+  }
+
+  refreshCardNote(p, rec);
+  if (stick) scrollCards(rec, false);
+}
+
+function nearBottom(rec) {
+  const el = rec.cardList;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+}
+function scrollCards(rec, now) {
+  const go = () => { rec.cardList.scrollTop = rec.cardList.scrollHeight; };
+  if (now) requestAnimationFrame(go); else go();
+}
+
+function renderRow(p, row) {
+  const el = document.createElement('div');
+  el.className = 'cd-row cd-' + row.kind;
+  if (row.kind === 'tool') {
+    // .cd-line, not .cd-tool: the row already carries .cd-tool from its kind,
+    // and a child with the same class turns the row into a flex container that
+    // lays the expanded body out beside its own header instead of under it.
+    el.innerHTML = `<div class="cd-line">
+        <span class="cd-ic"></span>
+        <span class="cd-lb"></span>
+        <span class="cd-dt"></span>
+      </div><pre class="cd-body" hidden></pre>`;
+    updateRow(el, row);
+    q('.cd-line', el).onclick = () => {
+      if (!el.dataset.body) return;
+      el.classList.toggle('open');
+      q('.cd-body', el).hidden = !el.classList.contains('open');
+    };
+    return el;
+  }
+  if (row.kind === 'turn_end') { el.textContent = `done in ${row.duration}`; return el; }
+  if (row.kind === 'user') {
+    el.innerHTML = `<span class="m">❯</span><span class="tx"></span>`;
+    q('.tx', el).textContent = row.text;
+    el.classList.toggle('cd-cmd', !!row.command);
+    return el;
+  }
+  // assistant and thinking are prose; markdown is a later slice, so the text is
+  // shown exactly as it was written rather than half-parsed.
+  el.textContent = row.text;
+  return el;
+}
+
+function updateRow(el, row) {
+  if (row.kind !== 'tool') return;
+  el.classList.toggle('err', !!row.isError);
+  el.classList.toggle('pending', !!row.pending);
+  q('.cd-ic', el).textContent = row.pending ? '·' : (row.isError ? '✕' : '✓');
+  q('.cd-lb', el).textContent = row.label;
+  q('.cd-dt', el).textContent = row.detail;
+  const body = row.body || '';
+  el.dataset.body = body ? '1' : '';
+  const pre = q('.cd-body', el);
+  pre.textContent = body + (row.truncated ? '\n\n… cut here — the whole thing is in Term' : '');
+  if (!body) { el.classList.remove('open'); pre.hidden = true; }
+}
 
 // ---- links inside a rendered doc -------------------------------------------
 // The same three destinations as a terminal link — browser, here, Finder —
@@ -1829,7 +2027,7 @@ function panelSnapshot() {
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
     if (p.kind === 'card') return { kind: 'card', item: p.item };
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, view: p.view };
   });
 }
 function savePanels() {
@@ -1859,7 +2057,7 @@ async function restorePanels(snaps) {
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
-      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, view: s.view, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
     } catch (_) {}
   }
   S.activeId = S.panels[0] ? S.panels[0].id : null;
