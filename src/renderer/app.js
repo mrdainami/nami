@@ -321,7 +321,8 @@ function showScene(name) {
     if (what === 'mcp') return openConnect();
     if (what !== 'agent' && what !== 'skill') return;
     openCreate(what);
-    if (step) { S.overlay.step = Number(step) || 1; renderOverlay(); }
+    // a skill has no steps to shoot, so `--scene=skill:2` must not fake one
+    if (step && what === 'agent') { S.overlay.step = Number(step) || 1; renderOverlay(); }
   });
 }
 
@@ -1492,9 +1493,14 @@ function mountViewer(p, rec) {
 }
 
 // ---- card tiles (agent / skill editing: form + raw markdown) ---------------
+// Agents differ per platform, so they are keyed by both. A skill is keyed by type
+// alone: its frontmatter is the same wherever the folder lives, and keying it by
+// platform meant a skill from Cursor or the project's own folder fell through to
+// the agent shape and offered Tools and Model — fields a SKILL.md has no use for,
+// which the form would then write into the file.
 const FIELD_MAP = {
+  skill: [['name', 'Name'], ['description', 'Description']],
   'claude:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model']],
-  'claude:skill': [['name', 'Name'], ['description', 'Description']],
   'opencode:agent': [['description', 'Description'], ['mode', 'Mode'], ['model', 'Model']],
   'opencode:command': [['description', 'Description'], ['agent', 'Agent'], ['model', 'Model']],
 };
@@ -1532,9 +1538,11 @@ async function openCard(item, opts) {
   } else openPeek(p);
 }
 function mountCard(p, rec) {
-  const ro = p.item.readOnly;
+  // A broken link has no file behind it, so its inputs are disabled for the same
+  // reason a plugin's are: there is nothing here that saving could write to.
+  const ro = p.item.readOnly || p.item.broken;
   const wrap = document.createElement('div'); wrap.className = 'card-ed';
-  const fields = FIELD_MAP[p.item.platform + ':' + p.item.type] || FIELD_MAP['claude:agent'];
+  const fields = FIELD_MAP[p.item.type] || FIELD_MAP[p.item.platform + ':' + p.item.type] || FIELD_MAP['claude:agent'];
   wrap.innerHTML = `
     <div class="card-tabs">
       <button class="card-tab" data-m="form">Form</button>
@@ -1554,8 +1562,9 @@ function mountCard(p, rec) {
       <button class="btn card-finder">Finder</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
       ${useHereLabel(p.item) ? `<button class="btn btn--go card-dup">${esc(useHereLabel(p.item))}</button>` : ''}
-      ${ro ? ''
-           : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
+      ${p.item.broken ? '<button class="btn btn--go card-del">Remove this dead link</button>'
+        : ro ? ''
+        : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
     </div>`;
   rec.body.appendChild(wrap);
   const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
@@ -3170,6 +3179,9 @@ function renderSwitchChoice() {
 function applyProject(info) {
   S.project = info; S.tree = {}; S.expanded = new Set();
   S.library.loaded = false; S.library.items = [];
+  // The pointer belongs to a folder, so the old folder's answer must not be
+  // shown against the new one — clear it and let the next scan refill it.
+  S.pointer = null;
   S.recents = [{ path: info.path, pathShort: info.pathShort, name: info.name, at: Date.now(), pinned: !!(S.recents.find((r) => r.path === info.path) || {}).pinned },
     ...S.recents.filter((r) => r.path !== info.path)];
   S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;

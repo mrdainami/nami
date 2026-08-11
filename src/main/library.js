@@ -337,12 +337,23 @@ function extractEdges(items, { maxBytes = 65536 } = {}) {
 // ---- delete to Trash --------------------------------------------------------
 // Guarded: only real library locations, never the plugin cache. Skills are
 // folders, so their SKILL.md maps to the folder that holds it.
-async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = fs.existsSync }) {
+// existsFn uses lstat, not existsSync: a dangling symlink is exactly the thing a
+// user most wants to delete, and existsSync follows the link and reports the dead
+// target as "already gone" — refusing to remove the entry that is still there.
+function entryExists(p) { try { fs.lstatSync(p); return true; } catch (_) { return false; } }
+async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = entryExists }) {
   const home = homeDir || os.homedir();
   const abs = path.resolve(String(filePath || ''));
+  // Built from the same source tables the scan uses, so anything Nami is willing
+  // to list it is willing to clean up — which is what makes the broken-links
+  // group actionable instead of just a shelf of other tools' rot.
   const roots = [];
-  if (projectPath) roots.push(path.join(projectPath, 'skills'), path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
-  roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.claude', 'skills'), path.join(home, '.config', 'opencode'));
+  if (projectPath) {
+    for (const s of PROJECT_SKILL_SOURCES) roots.push(path.join(projectPath, s.rel));
+    roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
+  }
+  for (const s of USER_SKILL_SOURCES) roots.push(path.join(home, s.rel));
+  roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.config', 'opencode'));
   const inRoot = roots.some((r) => abs.startsWith(r + path.sep));
   const inPluginCache = abs.includes(path.sep + path.join('.claude', 'plugins') + path.sep);
   if (!inRoot || inPluginCache) return { ok: false, error: 'Not a deletable library item' };
