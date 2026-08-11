@@ -73,6 +73,41 @@ test('nothing moves the glyphs of one editor layer without the other', () => {
     : '');
 });
 
+// The rule above only reads declarations aimed AT the two layers, and that is
+// not where the second bug came from. body[data-glass] sets letter-spacing to
+// -0.01em for the whole app; the <pre> inherits it, the <textarea> does not,
+// because a UA stylesheet resets tracking on form controls. 0.16px per
+// character, accumulating — a full character out by column 47, so deleting a
+// word ate the letter before it.
+//
+// Chasing every ancestor that might touch an inherited property is a losing
+// game. Pinning the layers instead is not: if the shared rule states these
+// outright, no theme can pull the two apart from above. The terminal learned
+// the same lesson — see termLetterSpacing() in app.js, zero in every theme
+// because tracking inherited into xterm's measuring element and broke it.
+const MUST_BE_PINNED = [
+  'font-family', 'font-size', 'line-height',
+  'letter-spacing', 'word-spacing',   // inherited, and reset on form controls
+  'white-space', 'tab-size',
+];
+
+test('the shared rule pins every metric a theme could inherit into one layer', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'src/renderer/paper.css'), 'utf8');
+  const shared = rules(css).find((r) =>
+    /\.ed-hl\b/.test(r.selector) && /\.ed-area\b/.test(r.selector));
+  assert.ok(shared, 'the `.ed-hl, .ed-area` rule has gone — the layers are no longer paired');
+
+  const declared = declares(shared.body);
+  const missing = MUST_BE_PINNED.filter((p) => !declared.includes(p));
+  assert.deepEqual(missing, [], missing.length
+    ? `The shared rule does not state: ${missing.join(', ')}\n\n`
+      + 'Each of these is inherited, so leaving it unstated lets a theme set it on\n'
+      + 'body and reach only one of the two layers — the <pre> inherits, the\n'
+      + '<textarea> is reset by the UA stylesheet. Declare it in `.ed-hl, .ed-area`\n'
+      + 'so both layers get the same value whatever an ancestor does.'
+    : '');
+});
+
 // The other half of the same contract, and the half that was already right: the
 // underlay has to reproduce the source character for character, or the layers
 // cannot line up no matter what the CSS says. Nothing checked it until now.
