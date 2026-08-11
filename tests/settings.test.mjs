@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { readSettings, writeSettings, normalizeTheme, themeBackground } from '../src/main/settings.js';
+import { readSettings, writeSettings, normalizeTheme, themeBackground, THEMES, DEFAULT_THEME } from '../src/main/settings.js';
 
 function tmpFile() {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nami-set-')), 'settings.json');
@@ -88,8 +88,15 @@ test('normalizeTheme accepts all four shipped themes', () => {
   for (const t of ['paper', 'operator', 'glass', 'graphite']) assert.equal(normalizeTheme(t), t);
 });
 
-test('normalizeTheme falls back to paper for anything else', () => {
-  for (const bad of ['neon', '', null, undefined, 42, 'GLASS']) assert.equal(normalizeTheme(bad), 'paper');
+test('normalizeTheme falls back to the default for anything else', () => {
+  // Asserted against the exported constant rather than a literal: a new install
+  // and a corrupt settings.json must land on the same desk, and the day those
+  // two disagree is the day someone changes one of them alone.
+  for (const bad of ['neon', '', null, undefined, 42, 'GLASS']) assert.equal(normalizeTheme(bad), DEFAULT_THEME);
+});
+
+test('the default is a theme the app actually ships', () => {
+  assert.ok(THEMES.includes(DEFAULT_THEME), `${DEFAULT_THEME} is not one of ${THEMES.join(', ')}`);
 });
 
 test('themeBackground maps every theme to its first-paint color', () => {
@@ -97,6 +104,6 @@ test('themeBackground maps every theme to its first-paint color', () => {
   assert.equal(themeBackground('operator'), '#0d0d0d');
   assert.equal(themeBackground('glass'), '#e8e9ee');
   assert.equal(themeBackground('graphite'), '#26272c');
-  // unknown themes paint paper, matching normalizeTheme
-  assert.equal(themeBackground('neon'), '#cfc3ac');
+  // unknown themes paint the default, matching normalizeTheme
+  assert.equal(themeBackground('neon'), themeBackground(DEFAULT_THEME));
 });

@@ -87,9 +87,14 @@ const STATUS_COLORS = {
 const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite'];
 const GLASS_FAMILY = new Set(['glass', 'graphite']);
 const XTERM_THEMES = { paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE };
+// What a new install opens on, and the answer whenever nothing valid has been
+// chosen. Kept in step with DEFAULT_THEME in src/main/settings.js, which paints
+// the window before this file has loaded — the two disagreeing is a visible
+// flash of the wrong colour on every launch.
+const DEFAULT_THEME = 'glass';
 function currentTheme() {
   const t = document.body.dataset.theme;
-  return THEME_NAMES.includes(t) ? t : 'paper';
+  return THEME_NAMES.includes(t) ? t : DEFAULT_THEME;
 }
 function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
 function statusColors() { return STATUS_COLORS[currentTheme()]; }
@@ -128,7 +133,10 @@ function setTheme(name, persistIt = true) {
   if (els.grid) renderAll();
 }
 // apply the saved theme before first paint (localStorage mirrors settings.json)
-try { applyThemeAttrs(localStorage.getItem(THEME_KEY)); } catch (_) {}
+// Before first paint, and before boot data arrives. An install that has never
+// chosen a theme gets the default rather than the base stylesheet, which is
+// what "paper is the absence of an attribute" would otherwise hand it.
+try { applyThemeAttrs(localStorage.getItem(THEME_KEY) || DEFAULT_THEME); } catch (_) { applyThemeAttrs(DEFAULT_THEME); }
 
 // ---- launcher rows ---------------------------------------------------------
 // Agents come from the detected registry (S.agents); only Terminal is static.
