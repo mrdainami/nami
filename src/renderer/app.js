@@ -155,7 +155,10 @@ const S = {
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
   treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
-  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugins']) },
+  // Your project's skills are what you came for; other tools' folders and broken
+  // links start folded, or 139 borrowed rows sit between you and everything else.
+  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugins', 'skills-mac', 'skills-broken']) },
+  pointer: null, pointerLoading: false,
   services: { catalog: [], connected: [], loading: false },   // connect-a-service state
   railCollapsed: false,
 };
@@ -772,6 +775,7 @@ async function loadLibrary(force) {
   } catch (_) { S.library.items = []; S.library.edges = []; }
   S.library.loading = false; S.library.loaded = true;
   if (S.railTab === 'library') refreshRail();
+  refreshPointer(true);   // read-only; it never writes a file on its own
 }
 async function refreshServices() {
   if (S.services.loading) return;
@@ -784,10 +788,16 @@ async function refreshServices() {
   if (S.railTab === 'library') refreshRail();
   if (S.overlay && S.overlay.type === 'connect') renderOverlay();
 }
-// The library reads like an inventory: what you have, grouped by what it is.
+// The library reads like an inventory: what you have, grouped by what it is —
+// and for skills, by where they live, because that is what you scan for. Whether
+// a session started here can actually run one is a different question, answered
+// per row by the availability tag.
 const LIB_TYPE_GROUPS = [
   { key: 'agents', label: 'Agents' },
-  { key: 'skills', label: 'Skills' },
+  { key: 'skills', label: 'Skills · this project' },
+  { key: 'skills-mac', label: 'Skills · elsewhere on your Mac' },
+  { key: 'skills-broken', label: 'Skills · broken links', shy: true },
+  { key: 'commands', label: 'Commands' },
   { key: 'services', label: 'Services' },
   { key: 'plugins', label: 'Plugins · read-only' },
 ];
@@ -800,11 +810,111 @@ const LIB_MAKE = [
   { key: 'skill', icon: 'skill', code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Create a skill' },
   { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'connect', title: 'Connect a service over MCP' },
 ];
-function libGroupOf(i) { return i.scope === 'plugin' ? 'plugins' : (i.type === 'agent' ? 'agents' : 'skills'); }
+// A command is not a skill. Filing everything that wasn't an agent under Skills
+// is why that count was never trustworthy — and a pointer status hangs off it now.
+function libGroupOf(i) {
+  if (i.scope === 'plugin') return 'plugins';
+  if (i.type !== 'skill') return i.type + 's';
+  if (i.broken) return 'skills-broken';
+  return i.scope === 'project' ? 'skills' : 'skills-mac';
+}
+
+// What a row is allowed to claim. Only two things make a skill runnable from
+// here: this project's pointer names it, or the agent that owns the folder reads
+// it natively. Everything else is a file on disk that happens to be a skill, and
+// saying so is what stops "Use here" from looking pointless.
+function availabilityTag(i) {
+  if (i.broken) return { text: 'broken', tone: 'bad', title: 'Its files are gone — this is a link to nothing. ' + (i.linkTarget || '') };
+  if (i.availability === 'project') {
+    // "runs here" would be a lie while no agent has been told it exists, so the
+    // tag carries that rather than a second warning line under the description.
+    const st = S.pointer;
+    if (st && (st.unlisted || []).includes(i.slug)) {
+      // short on purpose: the tag sits beside the name in a 282px rail, and a
+      // long one pushes the name into an ellipsis, which is the thing you scan for
+      return { text: 'unlisted', tone: 'warn', title: 'It is in this project, but no agent has been told about it yet. Tell them, below.' };
+    }
+    return { text: 'runs here', tone: 'ok', title: 'Announced in AGENTS.md — a session started in this project can use it.' };
+  }
+  if (i.availability === 'agent') {
+    const a = (S.agents || []).find((x) => x.id === i.ownerAgent);
+    const who = (a && a.name) || i.ownerAgent;
+    return { text: who + ' only', tone: 'mute', title: `${who} reads this folder itself. Nami's sessions here won't see it unless you copy it in.` };
+  }
+  return { text: 'not wired', tone: 'mute', title: 'It sits in a shared folder that no agent reads. Copy it here to use it.' };
+}
 // Short on purpose: the tag sits beside the item's name in a 282px rail, and
 // the name is what you are actually scanning for. Longer wording lives on the
 // detail sheets, where there is room for it.
 function scopeTagText(scope) { return scope === 'project' ? 'project' : 'your Mac'; }
+
+// ---- pointer status: silent when healthy -----------------------------------
+// If every skill is announced there is nothing to say, and a line that always
+// says the same thing is noise. So this surfaces only the exception: a skill no
+// agent has been told about, usually one that arrived with a git pull.
+async function refreshPointer(force) {
+  const dir = S.project && S.project.path;
+  if (!dir) { S.pointer = null; return; }
+  if (S.pointerLoading && !force) return;
+  S.pointerLoading = true;
+  try { S.pointer = await api.pointerStatus({ dir, agentIds: installedAgentIds() }); }
+  catch (_) { S.pointer = null; }
+  S.pointerLoading = false;
+  if (S.railTab === 'library') refreshRail();
+}
+function installedAgentIds() { return (S.agents || []).filter((a) => a.found).map((a) => a.id); }
+// A `## Skills` heading the user wrote themselves. Nami appends below it rather
+// than taking it over — their wording is usually better than anything generated
+// from frontmatter, and rewriting prose we didn't author is not a trade worth
+// making. But two Skills sections in one file is worth mentioning once.
+const FOREIGN_DISMISSED = 'nami-foreign-skills-dismissed';
+function appendForeignNote(list) {
+  const st = S.pointer;
+  const dir = S.project && S.project.path;
+  if (!st || !st.foreignSection || !dir) return;
+  let done = [];
+  try { done = JSON.parse(localStorage.getItem(FOREIGN_DISMISSED) || '[]'); } catch (_) { done = []; }
+  if (done.includes(dir)) return;
+  const note = document.createElement('div');
+  note.className = 'ptr-note';
+  note.innerHTML = `<span class="pn-msg">AGENTS.md also has a Skills section you wrote. Nami left it alone and put its own list below — tidy up whenever you like.</span>
+    <button class="pn-x" title="Got it">✕</button>`;
+  list.appendChild(note);
+  q('.pn-x', note).onclick = (e) => {
+    e.stopPropagation();
+    try { localStorage.setItem(FOREIGN_DISMISSED, JSON.stringify(done.concat([dir]))); } catch (_) {}
+    refreshRail();
+  };
+}
+function appendPointerBar(list) {
+  appendForeignNote(list);
+  const st = S.pointer;
+  if (!st || st.inSync) return;
+  const bits = [];
+  if ((st.unlisted || []).length) bits.push(`${st.unlisted.length} not announced to any agent`);
+  if ((st.stale || []).length) bits.push(`${st.stale.length} still listed after being deleted`);
+  if ((st.missingFiles || []).length) bits.push(`${st.missingFiles.join(' + ')} missing`);
+  const bar = document.createElement('div');
+  bar.className = 'ptr-bar';
+  bar.innerHTML = `<span class="pb-msg">⚠ ${esc(st.error ? st.error : bits.join(' · '))}</span>
+    ${st.error ? '' : '<button class="btn pb-go">Tell them</button>'}`;
+  list.appendChild(bar);
+  const go = q('.pb-go', bar);
+  if (go) go.onclick = async (e) => { e.stopPropagation(); await writePointers(go); };
+}
+// The one write the Library can make, and it names its files first.
+async function writePointers(btn) {
+  const dir = S.project && S.project.path;
+  if (!dir) { toast('Open a folder first.'); return; }
+  const agentIds = installedAgentIds();
+  if (btn) { btn.disabled = true; btn.textContent = 'Telling…'; }
+  const res = await api.pointerWrite({ dir, agentIds });
+  if (!res || !res.ok) { toast((res && res.error) || 'Could not write the pointer files'); if (btn) { btn.disabled = false; btn.textContent = 'Tell them'; } return; }
+  const n = (res.written || []).length;
+  toast(n ? `Updated ${res.written.join(', ')} — every installed agent knows now.` : 'Already up to date.');
+  await refreshPointer(true);
+  loadLibrary(true);
+}
 function refreshLibraryRail(c) {
   if (!S.library.loaded) loadLibrary();
   const head = document.createElement('div'); head.className = 'rail-head';
@@ -867,12 +977,17 @@ function refreshLibraryRail(c) {
     for (const i of items) {
       const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
       const row = document.createElement('div'); row.className = 'agent-row';
+      // Skills carry what they can do; everything else keeps the scope tag it had.
+      const tag = i.type === 'skill' && i.scope !== 'plugin'
+        ? (() => { const a = availabilityTag(i); return `<span class="scope-tag" data-tone="${a.tone}" title="${esc(a.title)}">${esc(a.text)}</span>`; })()
+        : (i.scope === 'plugin' ? '' : `<span class="scope-tag">${scopeTagText(i.scope)}</span>`);
       row.innerHTML = `${chipHtml({ key: i.type, code: chip.code, kind: chip.kind })}
         <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span>
-        ${i.scope === 'plugin' ? '' : `<span class="scope-tag">${scopeTagText(i.scope)}</span>`}<span class="chev">›</span>`;
+        ${tag}<span class="chev">›</span>`;
       row.onclick = () => openCard(i);
       list.appendChild(row);
     }
+    if (g.key === 'skills') appendPointerBar(list);
   }
   if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }
 }
@@ -1389,6 +1504,14 @@ function connectionsOf(item) {
   const inn = S.library.edges.filter((e) => e.to === item.id).map((e) => byId.get(e.from)).filter(Boolean);
   return { out, inn };
 }
+// A skill that lives somewhere else is worth showing, but showing it is only
+// half a feature: this is the action that makes it usable here. Nothing offers
+// it for a skill already in the project, or one whose files have gone.
+function useHereLabel(item) {
+  if (item.broken) return '';
+  if (item.type === 'skill') return item.scope === 'project' ? '' : 'Use here';
+  return item.readOnly ? 'Duplicate to project' : '';
+}
 async function openCard(item, opts) {
   await loadLibrary();
   const r = resolveOpen(S.panels, 'card', item.filePath);
@@ -1430,7 +1553,8 @@ function mountCard(p, rec) {
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
       <button class="btn card-finder">Finder</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
-      ${ro ? '<button class="btn btn--go card-dup">Duplicate to project</button>'
+      ${useHereLabel(p.item) ? `<button class="btn btn--go card-dup">${esc(useHereLabel(p.item))}</button>` : ''}
+      ${ro ? ''
            : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
     </div>`;
   rec.body.appendChild(wrap);
@@ -1488,8 +1612,16 @@ function mountCard(p, rec) {
   if (dupBtn) dupBtn.onclick = async () => {
     if (!S.project) { toast('Open a folder first — the copy lands in the project.'); return; }
     const res = await api.libraryDuplicate({ filePath: p.item.filePath, type: p.item.type, projectPath: S.project.path });
-    if (!res.ok) { toast(res.error || 'Duplicate failed'); return; }
-    toast('Copied into this project — opening your editable copy.');
+    if (!res.ok) { toast(res.error || 'Copy failed'); return; }
+    // A skill only runs here once the pointer says so, so the copy and the
+    // announcement are one action — otherwise Use here leaves you half done.
+    if (p.item.type === 'skill') {
+      const w = await api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() });
+      toast(w && w.ok && (w.written || []).length
+        ? `Copied in and announced — every installed agent knows about ${res.item.slug} now.`
+        : 'Copied into this project — opening your editable copy.');
+      await refreshPointer(true);
+    } else toast('Copied into this project — opening your editable copy.');
     loadLibrary(true);
     openCard(res.item);
   };
@@ -1505,6 +1637,10 @@ function mountCard(p, rec) {
     if (!res.ok) { toast(res.error || 'Could not delete'); return; }
     if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
     loadLibrary(true); toast('Moved to Trash.');
+    // and stop advertising it, along with any native link that pointed at it
+    if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
+      api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
+    }
   };
   // clicking or tabbing anywhere else stands the armed Delete back down
   if (delBtn) delBtn.onblur = () => {
@@ -1522,6 +1658,11 @@ async function saveCard(p) {
     p.title = getField(p.doc, 'name') || p.item.slug;
     refreshTileHead(p); refreshRail(); toast('Saved ' + p.title);
     loadLibrary(true);
+    // The block publishes each skill's description, so editing one here is a
+    // reason to rewrite it — the announcement should not lag the file.
+    if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
+      api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
+    }
   } else toast('Save failed: ' + (res && res.error || '?'));
 }
 
@@ -2080,15 +2221,22 @@ function renderAgentPickerSheet() {
 }
 
 // ---- create an agent or a skill (Library ＋ buttons) ------------------------
-// Three steps, one decision each: where it lives, whose it is, what it is. Same overlay type
-// throughout, so the sheet holds its place and does not replay its entrance between steps.
-// State lives on S.overlay and the sheet is rebuilt on every change, so inputs must be
-// flushed into it before any re-render — same discipline as the connect flow.
+// An agent takes three steps, one decision each: where it lives, whose it is,
+// what it is. A skill takes one sheet, because two of those three questions have
+// no honest answer for it — its content is identical whichever agent follows it,
+// and it can only be announced to agents that open this folder. See
+// renderCreateSkill below.
+//
+// Same overlay type throughout, so the sheet holds its place and does not replay
+// its entrance between steps. State lives on S.overlay and the sheet is rebuilt
+// on every change, so inputs must be flushed into it before any re-render — same
+// discipline as the connect flow.
 const CREATE_PLATFORMS = [
   { id: 'claude', name: 'Claude Code', code: 'CC' },
   { id: 'opencode', name: 'OpenCode', code: 'OC' },
 ];
-// OpenCode has no skills format; agents exist on both.
+// Agents differ per platform — different frontmatter, `mode:` versus `tools:` —
+// so that question is real for them and stays. Skills never reach here.
 function createSupported(kind, platform) { return kind === 'agent' || platform === 'claude'; }
 // The bare folder shape for a platform, derived from the one path table in seed-text.mjs.
 function relDirFor(kind, platform) {
@@ -2099,14 +2247,14 @@ function createCount(kind, platform) {
   return n ? `${n} here already` : 'nothing here yet';
 }
 function openCreate(kind) {
-  S.overlay = { type: 'create', kind, step: 1, platform: 'claude',
-    scope: S.project ? 'project' : 'user', name: '', desc: '' };
+  S.overlay = { type: 'create', kind, step: kind === 'skill' ? 3 : 1, platform: 'claude',
+    scope: kind === 'skill' ? 'project' : (S.project ? 'project' : 'user'), name: '', desc: '' };
   renderOverlay(); if (!S.agents) refreshAgents();
 }
 function createHeadHtml(o) {
   return `<div class="picker-input"><span class="prompt-mark">＋</span>
     <span style="font-weight:700">New ${esc(o.kind)}</span>
-    <span class="ni-step">Step ${o.step} of 3</span></div>`;
+    <span class="ni-step">${o.kind === 'skill' ? 'one screen' : `Step ${o.step} of 3`}</span></div>`;
 }
 // One card per choice, on the .add-card idiom so both themes and the chip recolor come free.
 function createChoiceHtml({ id, name, sub, path, on, off, chip }) {
@@ -2164,24 +2312,41 @@ function renderCreateStep2(o) {
   createBack(modal, o);
   wireCreateChoices(modal, (id) => { o.scope = id; o.step = 3; renderOverlay(); });
 }
+// Who ends up knowing about a new skill. Every installed agent, always — there is
+// no good reason to leave one out, and a checklist whose boxes are all ticked by
+// default is a decision with an obvious answer, which is a tax. Opting one out is
+// a property of the project, not of each skill, so it does not belong here.
+function knowsLine() {
+  const names = (S.agents || []).filter((a) => a.found).map((a) => a.name);
+  if (!names.length) return '';
+  const list = names.length === 1 ? names[0]
+    : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  return `${list} will all know — it goes in <b>AGENTS.md</b>${stubCount() ? ` + ${stubCount()} stub${stubCount() > 1 ? 's' : ''}` : ''}`;
+}
+function stubCount() {
+  const found = new Set((S.agents || []).filter((a) => a.found).map((a) => a.id));
+  return ['claude', 'gemini'].filter((id) => found.has(id)).length;
+}
 function renderCreateStep3(o) {
   const worker = chosenAgent(o);
   // the path already says which platform and whose it is — repeating them just wraps the line
   const dir = shortHome(targetDirFor({ type: o.kind, platform: o.platform, scope: o.scope, projectPath: S.project && S.project.path }));
+  const skill = o.kind === 'skill';
   const modal = overlay('picker-box', `${createHeadHtml(o)}
-    <button class="ni-back">‹ back</button>
+    ${skill ? '' : '<button class="ni-back">‹ back</button>'}
     <div class="ni-ask">What is it?</div>
     <div class="ni-row"><span class="lbl">Name</span>
       <input id="ni-name" placeholder="leave it blank and your agent names it" value="${esc(o.name)}" /></div>
     <div class="ni-row"><span class="lbl">What</span>
       <input id="ni-desc" placeholder="e.g. keeps the README honest after a batch of features lands" value="${esc(o.desc)}" /></div>
     <div class="ni-where">it lands in <b>${esc(dir)}</b></div>
+    ${skill && knowsLine() ? `<div class="ni-where ni-knows">${knowsLine()}</div>` : ''}
     <div class="ni-agent" style="margin:10px 18px 0">${worker
       ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> builds it with you`
       : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
     <div class="ni-row ni-actions"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Build it with my agent</button>
       <span class="action" id="ni-blank" role="button" tabindex="0">write it myself</span></div>`, { top: true });
-  createBack(modal, o);
+  if (!skill) createBack(modal, o);
   const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
   const keep = () => { o.name = nameInput.value; o.desc = descInput.value; };
   // agent detection can land mid-typing and re-render this sheet; keeping o in sync on every
@@ -2195,9 +2360,16 @@ function renderCreateStep3(o) {
     const w = chosenAgent(o);
     if (!o.desc.trim()) { toast('Describe what it should do first.'); return; }
     if (!w) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
+    if (skill && !S.project) { toast('Open a folder first — skills live in the project.'); return; }
     const seed = buildCreateSeed({ type: o.kind, platform: o.platform, scope: o.scope, name: o.name, desc: o.desc, projectPath: S.project && S.project.path });
     closeOverlay();
-    agentSession(w, { title: 'build: ' + (o.name.trim() || o.kind), code: 'BD', seed });
+    // The agent writes SKILL.md, so the pointer can only be written afterwards.
+    // On exit is the honest moment; and if the session never exits, the rail
+    // already shows the skill as unannounced with a button to fix it.
+    const onExit = o.kind === 'skill' && S.project
+      ? () => { loadLibrary(true); api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true)); }
+      : undefined;
+    agentSession(w, { title: 'build: ' + (o.name.trim() || o.kind), code: 'BD', seed, onExit });
     toast('Your agent has a few questions first — check the new tile.');
   };
   const blankLink = q('#ni-blank', modal);
@@ -2207,7 +2379,14 @@ function renderCreateStep3(o) {
     if (!o.name.trim()) { toast('Give it a name first.'); return; }
     const res = await api.libraryCreate({ projectPath: S.project && S.project.path, type: o.kind, platform: o.platform, scope: o.scope, name: o.name.trim() });
     if (!res.ok) { toast(res.error || 'Could not create'); return; }
-    closeOverlay(); toast('Created ' + o.name.trim());
+    closeOverlay();
+    // A skill nobody has been told about is a folder. Announce it in the same
+    // breath as writing it, or "write it myself" leaves you half done.
+    if (o.kind === 'skill' && S.project) {
+      const w = await api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() });
+      toast(w && w.ok ? `Created ${o.name.trim()} — ${(w.written || []).length ? w.written.join(', ') + ' updated' : 'already announced'}.` : 'Created ' + o.name.trim());
+      refreshPointer(true);
+    } else toast('Created ' + o.name.trim());
     S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
     openCard(res.item);
   };
