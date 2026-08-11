@@ -1008,6 +1008,25 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .scope-tag { margin-left: auto; flex: none; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted-2); border: 1px dashed var(--dash); padding: 2px 6px; border-radius: 2px; white-space: nowrap; }
 .agent-row .tools .ok { color: var(--green-ok); }
+/* A skill's tag answers "can a session started here use it?" — green when yes,
+   red when its files have gone, muted when it belongs to another tool. */
+.scope-tag[data-tone="ok"]   { color: var(--green-ok); border-color: var(--green-ok); }
+.scope-tag[data-tone="bad"]  { color: var(--red-ink); border-color: var(--red-line); }
+.scope-tag[data-tone="mute"] { color: var(--muted-3); }
+.scope-tag[data-tone="warn"] { color: var(--amber-ink); border-color: var(--amber-line); background: var(--amber-bg); }
+
+/* The pointer bar: shown only when the folder and the announcement disagree. */
+.ptr-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; padding: 7px 9px;
+  border: 1px dashed var(--amber-line); border-radius: 2px; background: var(--amber-bg); }
+.ptr-bar .pb-msg { flex: 1; min-width: 0; font-size: 10.5px; line-height: 1.35; color: var(--amber-body); }
+.ptr-bar .btn { flex: none; font-size: 10.5px; padding: 3px 8px; color: var(--amber-ink); border-color: var(--amber-btn-line); }
+/* Quieter than the bar: nothing is wrong, there is just something to know. */
+.ptr-note { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 2px; padding: 6px 8px;
+  border: 1px dashed var(--dash); border-radius: 2px; }
+.ptr-note .pn-msg { flex: 1; min-width: 0; font-size: 10.5px; line-height: 1.4; color: var(--muted-2); }
+.ptr-note .pn-x { flex: none; border: none; background: none; cursor: pointer; padding: 0 2px;
+  font-size: 11px; color: var(--faint); font-family: inherit; }
+.ptr-note .pn-x:hover { color: var(--ink); }
 
 /* ---- connect a service ----------------------------------------------------- */
 .svc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 12px; }
@@ -1111,6 +1130,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ni-where { margin: 12px 18px 0; padding: 8px 10px; border: 1px dashed var(--dash);
   background: var(--paper-2); font-size: 11.5px; color: var(--muted); }
 .ni-where b { color: var(--ink); font-weight: 700; }
+/* The payoff line: it names the agents rather than counting them, because
+   "Codex will know" is the surprising part and a number hides it.
+   `--green` is the primary-action colour and the other three themes remap it to
+   coral, so a confirmation has to use `--green-ok` or it reads as an error. */
+.ni-where.ni-knows { margin-top: 6px; border-color: var(--green-ok); color: var(--green-ok); }
+.ni-where.ni-knows b { color: var(--green-ok); }
 
 /* ---- card connections ---- */
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 7px 12px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.55); }
