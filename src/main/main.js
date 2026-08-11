@@ -444,6 +444,22 @@ app.on('before-quit', () => {
   for (const c of claudeSessions.values()) { try { c.close(); } catch (_) {} }
 });
 
+// Quit means quit. The window closes at once, but the process was observed
+// living another 30 to 140 seconds — native threads (the Whisper engine, pty
+// plumbing) keep a dead Electron alive long after the event loop is done. To
+// the user that is invisible; to Squirrel it is fatal: install-on-quit waits
+// for the process to actually go, and anyone reopening Nami inside that window
+// got "App Still Running Error" and no update, with nothing said.
+//
+// By the time 'quit' fires, everything that matters has already happened —
+// state written, sessions killed, the updater's own quit handler run (it
+// spawns ShipIt as a separate process, which does not need us alive). The
+// timer is unref'd so it never holds a fast exit open; it only fires if the
+// process is still here two seconds after it had any reason to be.
+app.on('quit', () => {
+  setTimeout(() => process.exit(0), 2000).unref?.();
+});
+
 // ---- IPC: boot + folders ---------------------------------------------------
 
 // Every session map in main (termSessions, sessionOwners, titleWatch) is keyed
