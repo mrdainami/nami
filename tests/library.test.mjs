@@ -131,10 +131,21 @@ test('createItem scaffolds a claude project agent and refuses overwrite', () => 
   assert.equal(again.ok, false);
 });
 
-test('createItem scaffolds a claude skill dir and an opencode agent', () => {
+test('createItem scaffolds a skill in the project\'s own folder, and an opencode agent', () => {
   const sk = createItem({ projectPath: project, homeDir: home, type: 'skill', platform: 'claude', scope: 'project', name: 'Cool Skill' });
   assert.ok(sk.ok);
-  assert.ok(sk.filePath.endsWith('.claude/skills/cool-skill/SKILL.md'));
+  assert.ok(sk.filePath.endsWith('skills/cool-skill/SKILL.md'), sk.filePath);
+  assert.ok(!sk.filePath.includes('.claude'), 'no agent\'s name on the folder');
+  assert.equal(sk.item.availability, 'project');
+  // a skill asked for at user scope still lands in the project — nothing reads a
+  // machine-wide skills folder, so writing one would create a folder that does nothing
+  const usr = createItem({ projectPath: project, homeDir: home, type: 'skill', scope: 'user', name: 'Scoped Skill' });
+  assert.ok(usr.ok);
+  assert.ok(usr.filePath.startsWith(project), usr.filePath);
+  // and with no folder open there is nowhere for it to go, said plainly
+  const none = createItem({ projectPath: null, homeDir: home, type: 'skill', scope: 'project', name: 'Homeless' });
+  assert.equal(none.ok, false);
+  assert.match(none.error, /Open a folder first/);
   const oc = createItem({ projectPath: project, homeDir: home, type: 'agent', platform: 'opencode', scope: 'user', name: 'OC Agent' });
   assert.ok(oc.ok);
   assert.ok(oc.filePath.endsWith('.config/opencode/agent/oc-agent.md'));

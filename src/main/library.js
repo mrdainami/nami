@@ -213,7 +213,9 @@ You are ${name}.
 Describe the job this agent does, how it should work, and what a good
 result looks like. Keep it specific — vague agents drift.
 `,
-  'claude:skill': (name, slug) => `---
+  // One skill template, not one per platform: the file is identical whichever
+  // agent ends up following it, which is the whole premise of the pointer.
+  skill: (name, slug) => `---
 name: ${slug}
 description: Use when — describe the exact trigger for this skill.
 ---
@@ -244,8 +246,10 @@ function targetPath({ projectPath, homeDir, type, platform, scope, slug }) {
   const home = homeDir || os.homedir();
   const root = scope === 'project' ? projectPath : home;
   if (!root) return null;
+  // Skills are project-scoped and platform-agnostic — one neutral folder that
+  // the pointer announces. See targetDirFor in seed-text.mjs, the same table.
+  if (type === 'skill') return projectPath ? path.join(projectPath, 'skills', slug, 'SKILL.md') : null;
   if (platform === 'claude' && type === 'agent') return path.join(root, scope === 'project' ? '.claude/agents' : '.claude/agents', slug + '.md');
-  if (platform === 'claude' && type === 'skill') return path.join(root, '.claude/skills', slug, 'SKILL.md');
   if (platform === 'opencode' && type === 'agent') {
     return scope === 'project' ? path.join(root, '.opencode/agent', slug + '.md') : path.join(home, '.config/opencode/agent', slug + '.md');
   }
@@ -253,16 +257,21 @@ function targetPath({ projectPath, homeDir, type, platform, scope, slug }) {
 }
 
 function createItem({ projectPath, homeDir, type, platform, scope, name }) {
-  const tpl = TEMPLATES[platform + ':' + type];
+  const tpl = type === 'skill' ? TEMPLATES.skill : TEMPLATES[platform + ':' + type];
   if (!tpl) return { ok: false, error: `No template for ${platform} ${type}` };
   const slug = kebab(name);
   const filePath = targetPath({ projectPath, homeDir, type, platform, scope, slug });
-  if (!filePath) return { ok: false, error: 'No folder open for a project-scoped item' };
+  if (!filePath) {
+    return { ok: false, error: type === 'skill' ? 'Open a folder first — skills live in the project.' : 'No folder open for a project-scoped item' };
+  }
   if (fs.existsSync(filePath)) return { ok: false, error: `Already exists: ${filePath}` };
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, tpl(String(name || slug).trim() || slug, slug));
-    return { ok: true, filePath, item: mkItem(type, platform, scope, filePath) };
+    const item = type === 'skill'
+      ? mkSkillItem(PROJECT_SKILL_SOURCES[0], 'project', { dir: path.dirname(filePath), link: '', broken: false })
+      : mkItem(type, platform, scope, filePath);
+    return { ok: true, filePath, item };
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
