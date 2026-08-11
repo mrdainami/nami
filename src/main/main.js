@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions, Claude Code sessions (via claude-driver),
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -27,7 +27,68 @@ const { userPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
+const { parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
 const stt = require('./stt');
+
+// nami-doc:// — how a viewed HTML page and its neighbouring images are served.
+//
+// A standard, secure scheme so the page gets a real origin of its own, which is
+// what lets an <iframe sandbox="allow-scripts allow-same-origin"> load its
+// relative files while staying cross-origin to Nami's file:// renderer — it can
+// paint itself but cannot read window.parent. Must be declared before the app is
+// ready; the handler that answers requests is installed once it is (below).
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'nami-doc',
+  privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false },
+}]);
+
+// A minimal content type from the extension — enough for a browser to render a
+// document and its own assets. Unknown types are served as octet-stream, which a
+// page never asks for as an image or stylesheet, so an accidental download of
+// something odd stays inert.
+function docContentType(file) {
+  const e = (file.split('.').pop() || '').toLowerCase();
+  // The text types carry a charset or an em-dash arrives as mojibake — the file
+  // is read as bytes and the browser guesses latin-1 without this.
+  return ({
+    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8', svg: 'image/svg+xml; charset=utf-8',
+    png: 'image/png', jpg: 'image/jpeg',
+    jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+    ico: 'image/x-icon', bmp: 'image/bmp', woff: 'font/woff', woff2: 'font/woff2',
+    ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', webm: 'video/webm',
+    mp3: 'audio/mpeg', wav: 'audio/wav',
+  })[e] || 'application/octet-stream';
+}
+
+// The one policy every served response carries: the page may run and style
+// itself (agents inline both) and load its own assets, but connect-src 'none'
+// means it can open no socket, so anything it managed to read it cannot send
+// anywhere. No frame-ancestors on purpose — Nami is a file:// origin embedding a
+// nami-doc:// page, and 'self' there would refuse the very frame we want; the
+// isolation that matters is the cross-origin wall and the sandbox, not this.
+const DOC_CSP = "default-src 'self' data: blob:; img-src 'self' data: blob:; "
+  + "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
+  + "media-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'self'; "
+  + "form-action 'none';";
+
+function installDocProtocol() {
+  protocol.handle('nami-doc', async (request) => {
+    const parsed = parseDocUrl(request.url);
+    if (!parsed) return new Response('bad request', { status: 400 });
+    const file = resolveWithinRoot(parsed.root, parsed.rel);
+    // null means the path escaped its folder — refuse, do not explain.
+    if (!file) return new Response('not found', { status: 404 });
+    const res = await net.fetch('file://' + file.split('/').map(encodeURIComponent).join('/'));
+    // Re-wrap so we set our own content type and, above all, our CSP — net.fetch
+    // of a file:// URL carries neither.
+    return new Response(res.body, {
+      status: res.status,
+      headers: { 'content-type': docContentType(file), 'content-security-policy': DOC_CSP },
+    });
+  });
+}
 
 let pty = null;
 try { pty = require('@lydell/node-pty'); } catch (_) { try { pty = require('node-pty'); } catch (_) {} }
@@ -343,6 +404,7 @@ function reapSessions(wcId) {
 
 app.whenReady().then(() => {
   loadState();
+  installDocProtocol();  // serve viewed HTML + its assets from nami-doc://
   // Ask the login shell for the real PATH now, so the answer is already waiting
   // when the first session spawns. Deliberately not awaited: a slow .zshrc must
   // delay a terminal, never the window.

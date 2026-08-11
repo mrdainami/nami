@@ -7,6 +7,10 @@ A lean Electron desktop app: open any folder, run **Claude Code sessions** and *
 as paper session cards — 100% in the paper aesthetic of the mockup (cream sheet, washi tape,
 Caveat handwriting, Courier Prime, pastel tints, hard offset shadows, dashed rules).
 
+Paper is the design language and the base stylesheet; the other three desks (operator, glass,
+graphite) are layered over it. Since 0.1.8 a **new install opens on glass** — the desk that reads
+as a current Mac app to someone who has never seen Nami — and anyone who picks a theme keeps it.
+
 ## The two session types — both paper
 1. **Claude sessions** — no terminal emulator at all. Driven headless through the Claude Agent SDK
    (structured events). Every event renders as paper: goal in handwriting on the card, tool calls as

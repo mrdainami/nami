@@ -5,7 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
-import { fileKind, shellQuote, fileUrl } from './file-kinds.mjs';
+import { fileKind, shellQuote, fileUrl, docUrl } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
@@ -267,8 +267,12 @@ function dropFilesOnPanel(p, paths) {
 // --scene= puts one surface on screen at boot so `npm run shot` can capture it in both
 // themes. Screenshot plumbing only; nothing in the app calls this.
 function showScene(name) {
-  const [what, step] = String(name).split(':');
+  const [what, ...rest] = String(name).split(':');
+  const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // open:<abs path> — pin any file as a tile, which is how a new viewer kind
+  // gets screenshotted without a folder open and a tree to click through.
+  if (what === 'open' && step) return openFile(step, { pin: true });
   // agent surfaces need the detect pass to have landed, and the sheet also
   // needs that agent's identity, so both wait rather than shooting "checking…"
   if (what === 'launcher' || what === 'agent' || what === 'agent-remove') {
@@ -1230,14 +1234,16 @@ async function openDocLink(href, p, read) {
 
 // ---- editor tiles ----------------------------------------------------------
 function mountEditor(p, rec) {
-  // Markdown opens rendered; everything else has nothing to render, so it opens
-  // straight in the editor and never shows the Read tab.
+  // Markdown and html open rendered; everything else has nothing to render, so
+  // it opens straight in the editor and never shows the Read tab.
   const md = isMarkdownPath(p.filePath);
-  if (!md) p.edMode = 'edit';
+  const html = fileKind(p.filePath) === 'html';
+  const rendered = md || html;
+  if (!rendered) p.edMode = 'edit';
   else if (p.edMode !== 'edit') p.edMode = 'read';
 
   const wrap = document.createElement('div'); wrap.className = 'editor';
-  wrap.innerHTML = `${md ? `<div class="ed-tabs card-tabs">
+  wrap.innerHTML = `${rendered ? `<div class="ed-tabs card-tabs">
       <button class="card-tab ed-tab" data-m="read">Read</button>
       <button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : ''}
     <div class="ed-read md-read"></div>
@@ -1245,6 +1251,7 @@ function mountEditor(p, rec) {
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
+  wrap.classList.toggle('editor--html', html);
   rec.body.appendChild(wrap);
 
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
@@ -1271,7 +1278,40 @@ function mountEditor(p, rec) {
   };
   const applyMode = () => {
     wrap.dataset.mode = p.edMode;
-    if (p.edMode === 'read') read.innerHTML = renderMarkdown(p.text || '');
+    if (p.edMode === 'read') {
+      if (html) {
+        // The page renders from the buffer, not the file, so Edit → Read shows
+        // unsaved changes — the same live round trip markdown has. Sandboxed
+        // exactly like the standalone viewer: scripts run, but the page has an
+        // opaque origin and cannot reach Nami. The injected <base> makes the
+        // page's own relative images and stylesheets resolve beside the file;
+        // the parser hoists it into <head> wherever the document starts.
+        read.innerHTML = '';
+        const f = document.createElement('iframe');
+        f.className = 'ed-html';
+        if (p.dirty) {
+          // Mid-edit the file on disk is stale, so the page is rendered from the
+          // buffer in an opaque sandbox — the change shows live, its relative
+          // images do not (an opaque origin cannot fetch file://), and they
+          // return the moment you save. allow-scripts only; no same-origin,
+          // because a srcdoc page shares Nami's file:// origin and the flag
+          // would let it read the app.
+          f.setAttribute('sandbox', 'allow-scripts');
+          const text = p.text || '';
+          const dir = 'file://' + String(p.filePath).split('/').slice(0, -1).map(encodeURIComponent).join('/') + '/';
+          f.srcdoc = /<base[\s>]/i.test(text) ? text : `<base href="${dir}">` + text;
+        } else {
+          // Saved → served from nami-doc://, its own origin. Relative images
+          // load, and allow-same-origin is safe: "same origin" is the page's
+          // nami-doc origin, cross-origin to Nami, so it still cannot reach the
+          // app (proved by the hostile-page test). connect-src 'none' in the
+          // served CSP stops it sending anything it read anywhere.
+          f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+          f.src = docUrl(p.filePath);
+        }
+        read.appendChild(f);
+      } else read.innerHTML = renderMarkdown(p.text || '');
+    }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
     if (p.edMode === 'edit') sync();
   };
@@ -1310,6 +1350,11 @@ function mountViewer(p, rec) {
   else if (p.sub === 'video') wrap.innerHTML = `<div class="vw-stage vw-stage--dark"><video src="${esc(url)}" controls playsinline></video></div>`;
   else if (p.sub === 'audio') wrap.innerHTML = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">♪</div><div class="vw-name">${esc(p.title)}</div><audio src="${esc(url)}" controls></audio></div>`;
   else if (p.sub === 'pdf') wrap.innerHTML = `<iframe class="vw-pdf" src="${esc(url)}"></iframe>`;
+  // Served from nami-doc://, the page's own origin — relative images load and
+  // allow-same-origin is safe because that origin is cross-origin to Nami (see
+  // the Read tab in mountEditor for the full reasoning). html routes to the
+  // editor now, so this branch is a fallback; it uses the same safe path.
+  else if (p.sub === 'html') wrap.innerHTML = `<iframe class="vw-pdf vw-html" sandbox="allow-scripts allow-same-origin" src="${esc(docUrl(p.filePath))}"></iframe>`;
   else wrap.innerHTML = fallback;
   wrap.insertAdjacentHTML('beforeend',
     `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">Finder</button></div>`);
@@ -1699,7 +1744,7 @@ function startPanel(opts) {
   renderGrid(); renderRail(); renderHeader(); savePanels();
   return p;
 }
-const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', other: 'FI' };
+const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', html: 'HT', other: 'FI' };
 function viewerPanel(filePath, sub, note) {
   return { id: uid('p_'), kind: 'viewer', sub, note, chipKind: 'viewer', code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
 }
@@ -1707,7 +1752,9 @@ function viewerPanel(filePath, sub, note) {
 // unreadable/binary as an 'other' viewer card carrying the reason.
 async function buildFilePanel(filePath) {
   const kind = fileKind(filePath);
-  if (kind !== 'text') return viewerPanel(filePath, kind);
+  // html is text underneath: it goes to the editor, which gives it the same
+  // Read/Edit tabs markdown has — Read renders the page, Edit is the source.
+  if (kind !== 'text' && kind !== 'html') return viewerPanel(filePath, kind);
   const res = await api.rawFile(filePath);
   if (!res.ok) return viewerPanel(filePath, 'other', res.error || 'Could not open');
   return { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };

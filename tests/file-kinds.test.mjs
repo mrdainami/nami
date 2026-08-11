@@ -13,6 +13,9 @@ test('fileKind: audio', () => {
   for (const f of ['x.mp3', 'x.wav', 'x.m4a', 'x.aac', 'x.ogg', 'x.flac']) assert.equal(fileKind(f), 'audio', f);
 });
 test('fileKind: pdf', () => { assert.equal(fileKind('doc.PDF'), 'pdf'); });
+test('fileKind: html renders, in either spelling and any case', () => {
+  for (const f of ['report.html', 'index.HTM', 'dash.Html']) assert.equal(fileKind(f), 'html', f);
+});
 test('fileKind: everything else is text', () => {
   for (const f of ['a.ts', 'Makefile', 'notes.md', 'x.json', 'no-ext', '/tmp/.hidden'])
     assert.equal(fileKind(f), 'text', f);
