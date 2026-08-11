@@ -9,6 +9,8 @@ const fs = require('fs');
 const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
 const { claudeSpawnArgs, projectSlug } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { readFrom, tailStart } = require('./transcript-tail.js');
+const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
@@ -1066,8 +1068,60 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 // A poll, not fs.watch: transcripts are appended to constantly, so a watcher
 // would fire hundreds of times per turn for a string that changes twice a
 // session. Only the tail is read — these files reach hundreds of megabytes.
-const titleWatch = new Map(); // panel id -> { file, wc, mtime, title }
+//
+// The same watcher feeds the card view. A tile in Cards is reading this file's
+// body as well as its name — see pumpCards below — so the sweep speeds up while
+// any tile has cards open, and drops back to the title cadence when none does.
+const titleWatch = new Map(); // panel id -> { file, wc, mtime, title, cards, offset }
 let titleTimer = null;
+let titleEvery = 0;
+const TITLE_MS = 4000;
+// A turn writes a dozen records; anything slower than this and a card view
+// arrives in visible lurches. Only ever runs while a tile is actually in Cards.
+const CARDS_MS = 700;
+
+// One tick may cross several bounded reads — a burst after the app was asleep,
+// or a long tool result — but never more than this, so a huge backlog cannot
+// hold the main process inside one sweep.
+const CARD_READS_PER_TICK = 8;
+
+// Everything new in this transcript since the last tick, as card events.
+function pumpCards(id, w) {
+  // First tick after Cards was switched on: a large transcript opens on its
+  // last screenful rather than its history, and the renderer clears whatever
+  // it had. A short one is read from the top.
+  if (w.offset === null) {
+    let size = 0;
+    try { size = fs.statSync(w.file).size; } catch (_) { return; }
+    w.offset = tailStart(size).offset;
+    sendWc(w.wc, 'session:events', { id, events: [], reset: true });
+  }
+  for (let i = 0; i < CARD_READS_PER_TICK; i++) {
+    const r = readFrom(w.file, w.offset);
+    if (r.missing) return;
+    w.offset = r.offset;
+    // The file shrank: /clear, or a resume that replaced it. What the tile is
+    // showing belongs to a conversation that no longer exists.
+    if (r.reset) sendWc(w.wc, 'session:events', { id, events: [], reset: true });
+    if (r.lines.length) {
+      // Titles come from readTailTitle below — one name, one source.
+      const events = parseTranscript(r.lines).filter((e) => e.kind !== 'title');
+      if (events.length) sendWc(w.wc, 'session:events', { id, events });
+    }
+    if (!r.lines.length && !r.dropped) return;
+  }
+}
+
+// Cards want 700ms; titles alone are content with 4s. Restart the interval only
+// when the answer actually changes.
+function retimeTitles() {
+  const want = [...titleWatch.values()].some((w) => w.cards) ? CARDS_MS : TITLE_MS;
+  if (titleTimer && titleEvery === want) return;
+  if (titleTimer) clearInterval(titleTimer);
+  titleEvery = want;
+  titleTimer = setInterval(sweepTitles, want);
+  if (titleTimer.unref) titleTimer.unref(); // never hold the app open
+}
 
 function sweepTitles() {
   for (const [id, w] of titleWatch) {
@@ -1081,6 +1135,9 @@ function sweepTitles() {
         w.sid = live.sessionId;
         w.file = path.join(os.homedir(), '.claude', 'projects', projectSlug(w.cwd), w.sid + '.jsonl');
         w.mtime = 0;
+        // A different conversation entirely: re-seed the tail so the cards
+        // show the one the user is now in, not the tail of the old one.
+        w.offset = null;
         // The renderer persists this, so the next launch resumes the conversation
         // the user is actually in rather than starting a blank one.
         sendWc(w.wc, 'session:sid', { id, sid: w.sid });
@@ -1088,6 +1145,9 @@ function sweepTitles() {
     }
     let stat = null;
     try { stat = fs.statSync(w.file); } catch (_) { continue; } // not written yet
+    // Cards are seeded on their first tick, before anything has been appended,
+    // so they run whether or not the file moved since last time.
+    if (w.cards) pumpCards(id, w);
     if (stat.mtimeMs === w.mtime) continue;
     w.mtime = stat.mtimeMs;
     const title = readTailTitle(w.file);
@@ -1095,15 +1155,25 @@ function sweepTitles() {
     w.title = title;
     sendWc(w.wc, 'session:title', { id, title });
   }
-  if (!titleWatch.size) { clearInterval(titleTimer); titleTimer = null; }
+  if (!titleWatch.size) { clearInterval(titleTimer); titleTimer = null; titleEvery = 0; }
 }
 
 function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
-  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd });
-  if (titleTimer) return;
-  titleTimer = setInterval(sweepTitles, 4000);
-  if (titleTimer.unref) titleTimer.unref(); // never hold the app open
+  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd, cards: false, offset: null });
+  retimeTitles();
 }
+
+// A tile switched to Cards (or back). Turning it on re-seeds the tail and
+// sweeps at once, so the view fills immediately instead of on the next tick.
+ipcMain.handle('cards:watch', (_e, { id, on }) => {
+  const w = titleWatch.get(id);
+  if (!w) return { ok: false };
+  w.cards = !!on;
+  if (on) w.offset = null;
+  retimeTitles();
+  if (on) sweepTitles();
+  return { ok: true };
+});
 
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
 ipcMain.handle('term:resize', (_e, { id, cols, rows }) => { const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p }; });

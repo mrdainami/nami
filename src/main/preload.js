@@ -72,6 +72,13 @@ contextBridge.exposeInMainWorld('dainami', {
   termKill: (args) => ipcRenderer.invoke('term:kill', args),
   onTermData: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
   onTermExit: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
+  // The card view: the same live session, read out of the transcript it is
+  // already writing. cardsWatch turns the tail on for one tile; the events
+  // arrive in batches — { id, events, reset } — with reset meaning "what you
+  // have belongs to a conversation that is gone, start again".
+  cardsWatch: (args) => ipcRenderer.invoke('cards:watch', args),
+  onSessionEvents: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:events', h); return () => ipcRenderer.removeListener('session:events', h); },
+
   // claude worked out a name for this conversation — { id, title }
   onSessionTitle: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:title', h); return () => ipcRenderer.removeListener('session:title', h); },
   // Claude moved this tile to a different conversation (the user ran /resume).
