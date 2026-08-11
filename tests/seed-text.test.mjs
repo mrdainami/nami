@@ -28,15 +28,36 @@ test('the seed stays one line — the pty seeder presses Enter for us', () => {
 });
 
 test('blank name asks the agent to choose one', () => {
-  const s = buildCreateSeed({ type: 'skill', platform: 'claude', scope: 'user', name: '', desc: 'reviews CSS', projectPath: null });
+  const s = buildCreateSeed({ type: 'skill', scope: 'project', name: '', desc: 'reviews CSS', projectPath: '/p' });
   assert.match(s, /choose a short kebab-case name/i);
-  assert.match(s, /~\/\.claude\/skills/);
+  assert.match(s, /\/p\/skills/);
   assert.match(s, /folder under .* holding a SKILL\.md/);
 });
 
 test('opencode agents land in the opencode folders per scope', () => {
   assert.equal(targetDirFor({ type: 'agent', platform: 'opencode', scope: 'project', projectPath: '/p' }), '/p/.opencode/agent');
   assert.equal(targetDirFor({ type: 'agent', platform: 'opencode', scope: 'user', projectPath: '/p' }), '~/.config/opencode/agent');
+});
+
+// A skill goes in the project's own folder with no agent's name on it. There is
+// no per-platform variant, and no machine-wide one — the pointer only reaches
+// agents that open this folder.
+test('skills land in the project\'s neutral folder, whatever platform is passed', () => {
+  assert.equal(targetDirFor({ type: 'skill', platform: 'claude', scope: 'project', projectPath: '/p' }), '/p/skills');
+  assert.equal(targetDirFor({ type: 'skill', platform: 'codex', scope: 'project', projectPath: '/p' }), '/p/skills');
+  assert.equal(targetDirFor({ type: 'skill', scope: 'project', projectPath: '/p' }), '/p/skills');
+  // even asked for user scope, a skill belongs to the project it was made in
+  assert.equal(targetDirFor({ type: 'skill', platform: 'claude', scope: 'user', projectPath: '/p' }), '/p/skills');
+});
+
+test('the skill seed never names a platform, so the agent writes something portable', () => {
+  const s = buildCreateSeed({ type: 'skill', scope: 'project', name: 'meeting notes', desc: 'transcript into decisions', projectPath: '/p' });
+  assert.ok(!/\bclaude\b/i.test(s), 'no agent is named');
+  assert.ok(!/\bcodex\b/i.test(s));
+  assert.match(s, /agent-agnostic/i);
+  assert.match(s, /do not write any files yet/i);   // the interview beats survive
+  assert.match(s, /only after I say go, write it/i);
+  assert.equal(s.includes('\n'), false);            // still one line for the pty seeder
 });
 
 test('improve seed points at the exact file and keeps the format honest', () => {
