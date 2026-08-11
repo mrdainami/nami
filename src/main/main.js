@@ -19,6 +19,7 @@ const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
+const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
@@ -836,6 +837,41 @@ ipcMain.handle('library:scan', (_e, { projectPath }) => {
 ipcMain.handle('library:create', (_e, args) => createItem(args || {}));
 ipcMain.handle('library:duplicate', (_e, args) => duplicateItem(args || {}));
 ipcMain.handle('library:delete', (_e, args) => deleteItem({ ...(args || {}), trashFn: (p) => shell.trashItem(p) }));
+
+// ---- IPC: the skills pointer ------------------------------------------------
+// Nothing here runs unless the renderer asks. Opening a folder is a read: the
+// only paths that write are a skill being created and the buttons that say so.
+ipcMain.handle('pointer:status', (_e, args) => {
+  const { dir, agentIds } = args || {};
+  try {
+    const skills = projectSkills(dir);
+    const st = pointerStatus({ dir, skills, agentIds });
+    const text = safeReadText(dir && path.join(dir, POINTER_FILE));
+    return { ...st, skills: skills.map((s) => s.slug), foreignSection: hasForeignSkillsSection(text) };
+  } catch (e) { return { inSync: true, unlisted: [], stale: [], missingFiles: [], listed: [], error: e.message }; }
+});
+ipcMain.handle('pointer:write', (_e, args) => {
+  const { dir, agentIds, dryRun } = args || {};
+  try {
+    const skills = projectSkills(dir);
+    const res = writePointers({ dir, skills, agentIds, dryRun });
+    if (!res.ok || dryRun) return res;
+    // Native registration is the stronger route where an agent's own project
+    // path is verified; it is additive, so a failure here must not fail the write.
+    const link = linkNative({ dir, slugs: skills.map((s) => s.slug), agentIds });
+    return { ...res, linked: link.linked || [], swept: link.swept || [] };
+  } catch (e) { return { ok: false, error: e.message, written: [], preview: {} }; }
+});
+
+// The pointer announces what the folder holds, so the folder is the source of
+// truth — read fresh each time rather than trusting anything the renderer sends.
+function projectSkills(dir) {
+  if (!dir) return [];
+  return scanLibrary({ projectPath: dir })
+    .filter((i) => i.type === 'skill' && i.scope === 'project' && !i.broken)
+    .map((i) => ({ slug: i.slug, description: i.description }));
+}
+function safeReadText(p) { try { return p ? fs.readFileSync(p, 'utf8') : ''; } catch (_) { return ''; } }
 
 // ---- IPC: quick look / files ----------------------------------------------
 ipcMain.handle('file:read', (_e, file) => {
