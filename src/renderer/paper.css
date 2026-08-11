@@ -902,6 +902,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   padding: 16px 22px 24px; font-size: 13px; line-height: 1.72; color: var(--ink); user-select: text;
 }
 .md-read > * { max-width: 76ch; }
+/* An html file's Read tab is the page itself: no prose padding or measure, the
+   frame fills the pane and paints its own white canvas (a page with no
+   background of its own would sit transparent on the sheet and read as broken).
+   max-width:none is load-bearing — .md-read > * caps children at 76ch for
+   readable prose, which squeezed the page into a column with a dark gap beside it. */
+.editor--html .ed-read { padding: 0; overflow: hidden; }
+.editor--html .ed-html { width: 100%; height: 100%; max-width: none; border: 0; display: block; background: #fff; }
 .md-read > .md-pre { max-width: 100%; }
 .md-read > :first-child { margin-top: 0; }
 .md-read h1, .md-read h2, .md-read h3, .md-read h4, .md-read h5, .md-read h6 {
@@ -943,6 +950,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .viewer .vw-stage video { max-width: 100%; max-height: 100%; }
 .viewer .vw-stage audio { width: 90%; }
 .viewer .vw-pdf { flex: 1; min-height: 0; width: 100%; border: 0; }
+/* Pages assume a white canvas; without this a page with no background of its own
+   would sit transparent on the cream sheet and read as broken. */
+.viewer .vw-html { background: #fff; }
 .viewer .vw-glyph { font-size: 34px; color: var(--muted); }
 .viewer .vw-name { font-size: 13px; font-weight: 700; }
 .viewer .vw-note { font-size: 11px; color: var(--muted); text-align: center; }
