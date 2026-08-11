@@ -1320,7 +1320,12 @@ function mountEditor(p, rec) {
   ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
-    if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; p.text = ta.value; sync(); }
+    // insertText, not an assignment to ta.value: assigning replaces the field's
+    // contents outside the browser's editing pipeline and throws the undo stack
+    // away with them, so one Tab cost you the whole history — Cmd+Z afterwards
+    // did nothing at all. Editing through the pipeline fires input, and the
+    // handler above does the p.text/dirty/sync work that used to be repeated here.
+    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
   });
   ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
   wrap.querySelectorAll('.ed-tab').forEach((b) => {
@@ -1600,11 +1605,11 @@ function injectToSession(p, text) {
   focusPanel(p.id, false);
   if (p.kind === 'editor') {
     const t = tileEls.get(p.id); if (!t || !t.ta) return;
-    const ta = t.ta, s = ta.selectionStart;
-    ta.value = ta.value.slice(0, s) + text + ta.value.slice(ta.selectionEnd);
-    ta.selectionStart = ta.selectionEnd = s + text.length;
-    p.text = ta.value; p.dirty = true; refreshTileHead(p);
-    ta.dispatchEvent(new Event('input'));
+    // Same reason as the Tab key: assigning ta.value costs the undo stack, and
+    // dictation was spending it on every insert. focusPanel above already put
+    // the keyboard here; execCommand needs that for certain, so say so.
+    t.ta.focus();
+    document.execCommand('insertText', false, text);
     return;
   }
   if (p.autoName) feedSessionName(p, text);
