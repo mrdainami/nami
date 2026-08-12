@@ -1527,7 +1527,18 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ab-dot--ok { background: var(--green-ok); }
 .ab-dot--new { background: var(--amber-btn); }
 .ab-dot--off { background: var(--faint); }
+/* The star is the only action in this pane besides Check now, so it looks like
+   one. The team button below is deliberately the other shape — .btn--quiet,
+   outlined and unfilled — rather than another colour: --green and --amber-btn
+   both resolve to the same coral in operator, glass AND graphite, so a
+   two-colour scheme would collapse into one colour on three of the four desks.
+   Filled versus outlined survives all four. */
+.ab-star { margin-top: 18px; }
 .ab-links { display: flex; flex-direction: column; gap: 7px; margin-top: 18px; }
+/* The colophon: who made this, and the one way to ask for it at work. */
+.ab-made { font-size: 12px; color: var(--muted); }
+.ab-made .ab-link { display: inline; font-size: inherit; }
+.ab-team { margin-top: 12px; }
 .ab-link {
   font-size: 12px; color: var(--green); cursor: pointer; width: fit-content;
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--dash-dark);

@@ -3084,6 +3084,18 @@ function wireLookPane(modal) {
 // that version off for good (see SKIPPED_UPDATE below), and until now there was
 // no way back to it. Pressing the button clears the mark.
 const REPO_URL = 'https://github.com/mrdainami/nami';
+// Where the app sends people who want the person rather than the program.
+//
+// Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
+// one of the three reasons anyone trusts it, and it cannot be un-spent. So the
+// UTM is the entire measurement story: it costs nothing, it is visible to
+// anyone who reads the link, and dainami.ai's own analytics reads it at the
+// other end. `where` names the surface, so "does the empty desk ever get
+// clicked" has an answer without a single byte leaving the machine.
+//
+// GitHub links stay bare on purpose: there is no analytics there to read them.
+const makerUrl = (where) => `https://dainami.ai/links?utm_source=nami-app&utm_medium=${where}`;
+const teamsUrl = (where) => `https://dainami.ai/?utm_source=nami-app&utm_medium=${where}&utm_campaign=teams`;
 function updatedOn(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -3117,15 +3129,26 @@ function aboutPaneHtml() {
       <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
       <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
     </div>
+    <div class="ab-star">
+      <button class="btn btn--go" data-url="${REPO_URL}">★ Star Nami on GitHub</button>
+    </div>
     <div class="ab-links">
       <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
       <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
       <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">MIT licence <span class="arr">↗</span></a>
+    </div>
+    <hr class="ab-rule" />
+    <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Cal</a>, in Nami.</div>
+    <div class="ab-team">
+      <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Nami for your team? →</button>
     </div>`;
 }
 function wireAboutPane(modal) {
   const o = S.overlay;
-  modal.querySelectorAll('.ab-link[data-url]').forEach((el) => {
+  // [data-url] rather than .ab-link[data-url]: the star and team buttons carry
+  // the same attribute, and a selector that only matched the text links would
+  // have left both of them silently dead.
+  modal.querySelectorAll('[data-url]').forEach((el) => {
     el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
   });
   const act = q('#ab-act', modal);
