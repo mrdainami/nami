@@ -5,9 +5,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, pathFromShellOutput, findOnDisk } = require('../src/main/agents-detect.js');
 
-test('registry carries the curated seven with everything the launcher needs', () => {
+test('registry carries the curated six with everything the launcher needs', () => {
+  // gemini and cursor left the registry 2026-08-12: Google shut Gemini CLI
+  // down and Antigravity (agy) replaced it; cursor was never verified here.
   const ids = KNOWN_AGENTS.map((a) => a.id);
-  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cursor', 'hermes', 'kimi']) {
+  assert.ok(!ids.includes('gemini'), 'gemini is gone');
+  assert.ok(!ids.includes('cursor'), 'cursor is gone');
+  for (const id of ['claude', 'codex', 'opencode', 'antigravity', 'hermes', 'kimi']) {
     assert.ok(ids.includes(id), `registry missing ${id}`);
   }
   for (const a of KNOWN_AGENTS) {
@@ -28,13 +32,13 @@ test('every agent declares a contextFile, and only two differ from AGENTS.md', (
     assert.match(a.contextFile, /\.md$/, `${a.id} contextFile should be a markdown file`);
   }
   const odd = KNOWN_AGENTS.filter((a) => a.contextFile !== POINTER_FILE).map((a) => a.id).sort();
-  assert.deepEqual(odd, ['claude', 'gemini']);
+  assert.deepEqual(odd, ['antigravity', 'claude']);
 });
 
 test('contextFilesFor returns AGENTS.md plus a stub only where one is needed', () => {
   assert.deepEqual(contextFilesFor(['codex']), ['AGENTS.md']);
-  assert.deepEqual(contextFilesFor(['codex', 'cursor', 'hermes', 'kimi', 'opencode']), ['AGENTS.md']);
-  assert.deepEqual(contextFilesFor(['claude', 'codex', 'gemini', 'cursor']).sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+  assert.deepEqual(contextFilesFor(['codex', 'hermes', 'kimi', 'opencode']), ['AGENTS.md']);
+  assert.deepEqual(contextFilesFor(['claude', 'codex', 'antigravity']).sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
   assert.deepEqual(contextFilesFor([]), ['AGENTS.md']);   // the block still has a home
   assert.deepEqual(contextFilesFor(), ['AGENTS.md']);
 });
@@ -135,10 +139,13 @@ const HERMES_AUTH = JSON.stringify({
 });
 
 test('lifecycle fields only exist for agents verified on a real machine', () => {
+  // all six were verified on this Mac 2026-08-12; antigravity and kimi
+  // joined when their auth files and commands were confirmed live
   const withLifecycle = KNOWN_AGENTS.filter((a) => a.lifecycle).map((a) => a.id).sort();
-  assert.deepEqual(withLifecycle, ['claude', 'codex', 'hermes', 'opencode']);
-  const gemini = KNOWN_AGENTS.find((a) => a.id === 'gemini');
-  assert.equal(gemini.lifecycle, undefined, 'gemini is unverified and must stay inert');
+  assert.deepEqual(withLifecycle, ['antigravity', 'claude', 'codex', 'hermes', 'kimi', 'opencode']);
+  // kimi can log in but its CLI has no logout — so the sheet offers neither,
+  // and the pairing rule below stays intact
+  assert.equal(KNOWN_AGENTS.find((a) => a.id === 'kimi').lifecycle.login, undefined);
 });
 
 test('every lifecycle that can sign in can also sign out', () => {
@@ -179,10 +186,10 @@ test('agentStatus returns unknown when the status command fails', async () => {
   assert.deepEqual(s.rows, []);
 });
 
-test('agentStatus returns unknown for an agent with no lifecycle', async () => {
-  const s = await agentStatus('gemini', { exec: async () => 'x', readFile: async () => 'y', home: '/h' });
-  assert.equal(s.signedIn, null);
-  assert.equal(s.label, '');
+test('agentStatus reads antigravity identity from its google account files', async () => {
+  const readFile = async (p) => (p.endsWith('oauth_creds.json') ? '{"access_token":"x"}' : null);
+  const s = await agentStatus('antigravity', { exec: async () => { throw new Error('must not exec'); }, readFile, home: '/h' });
+  assert.equal(s.source, 'reads ~/.gemini');
 });
 
 test('agentStatus returns unknown for an id that is not in the registry', async () => {
@@ -193,5 +200,5 @@ test('agentStatus returns unknown for an id that is not in the registry', async 
 test('detectAgents expands configPath so the renderer never needs $HOME', async () => {
   const out = await detectAgents({ exec: async () => '/bin/x', home: '/h' });
   assert.equal(out.find((a) => a.id === 'hermes').configFile, '/h/.hermes/config.yaml');
-  assert.equal(out.find((a) => a.id === 'gemini').configFile, '', 'no lifecycle, no config file');
+  assert.equal(out.find((a) => a.id === 'antigravity').configFile, '/h/.gemini/settings.json');
 });

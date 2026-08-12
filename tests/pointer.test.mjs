@@ -136,7 +136,7 @@ test('a hand-written Skills section is detected but never rewritten', () => {
 
 test('writePointers writes AGENTS.md plus a stub only where one is needed', () => {
   const dir = tmp();
-  const res = writePointers({ dir, skills: TWO, agentIds: ['claude', 'codex', 'gemini', 'cursor'] });
+  const res = writePointers({ dir, skills: TWO, agentIds: ['claude', 'codex', 'antigravity'] });
   assert.ok(res.ok, res.error);
   assert.deepEqual(res.written.sort(), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
   assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /invoice-check/);
@@ -201,7 +201,7 @@ test('pointerStatus names a skill the block still advertises after it is gone', 
 test('pointerStatus spots a missing stub, so a new agent gets noticed', () => {
   const dir = tmp();
   writePointers({ dir, skills: TWO, agentIds: ['codex'] });
-  const st = pointerStatus({ dir, skills: TWO, agentIds: ['codex', 'gemini'] });
+  const st = pointerStatus({ dir, skills: TWO, agentIds: ['codex', 'antigravity'] });
   assert.deepEqual(st.missingFiles, ['GEMINI.md']);
   assert.equal(st.inSync, false);
 });

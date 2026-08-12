@@ -118,7 +118,7 @@ const USER_SKILL_SOURCES = [
   { rel: '.claude/skills', platform: 'claude', owner: 'claude', label: 'Claude' },
   { rel: '.agents/skills', platform: 'agents', owner: null, label: 'shared store' },
   { rel: '.codex/skills', platform: 'codex', owner: 'codex', label: 'Codex' },
-  { rel: '.gemini/skills', platform: 'gemini', owner: 'gemini', label: 'Gemini' },
+  { rel: '.gemini/skills', platform: 'gemini', owner: 'gemini', label: 'Antigravity' },
   { rel: '.cursor/skills', platform: 'cursor', owner: 'cursor', label: 'Cursor' },
   { rel: '.cursor/skills-cursor', platform: 'cursor', owner: 'cursor', label: "Cursor's own" },
   { rel: '.hermes/skills', platform: 'hermes', owner: 'hermes', label: 'Hermes' },
