@@ -839,8 +839,9 @@ async function refreshServices() {
   if (S.services.loading) return;
   S.services.loading = true;
   try {
-    const res = await api.listServices({ projectPath: S.project && S.project.path });
+    const res = await api.listServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
     S.services.catalog = res.catalog || []; S.services.connected = res.connected || [];
+    S.services.coverage = res.coverage || null;
   } catch (_) {}
   S.services.loading = false;
   if (S.railTab === 'library') refreshRail();
@@ -921,6 +922,7 @@ async function refreshPointer(force) {
   if (S.railTab === 'library') refreshRail();
 }
 function installedAgentIds() { return (S.agents || []).filter((a) => a.found).map((a) => a.id); }
+function agentNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
 // A `## Skills` heading the user wrote themselves. Nami appends below it rather
 // than taking it over — their wording is usually better than anything generated
 // from frontmatter, and rewriting prose we didn't author is not a trade worth
@@ -1018,11 +1020,29 @@ function refreshLibraryRail(c) {
       for (const sv of items) {
         const cat = S.services.catalog.find((s) => s.id === sv.id);
         const row = document.createElement('div'); row.className = 'agent-row';
+        // Coverage answers the only question that matters: who can use this?
+        // Healthy says "everywhere" and shuts up; drift names who is missing.
+        const cov = S.services.coverage && S.services.coverage[sv.id];
+        // Hermes is excluded from the amber: Nami can't deliver to it (its
+        // config is hand-owned), so a button promising to fix it would lie.
+        const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
+        const covLine = !cov
+          ? `<span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))}`
+          : missing.length
+            ? `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(', '))} can’t see it`
+            : '<span class="ok">●</span> connected · everywhere';
         row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
           <span class="col"><span class="name">${esc(sv.name)}</span>
-          <span class="tools"><span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))}</span></span>
-          <span class="scope-tag">${scopeTagText(sv.scopes.includes('project') ? 'project' : 'user')}</span>`;
+          <span class="tools">${covLine}</span></span>
+          ${cov && missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${scopeTagText(sv.scopes.includes('project') ? 'project' : 'user')}</span>`}`;
         row.onclick = () => openServiceDetails(sv);
+        const tell = row.querySelector('.sv-tell');
+        if (tell) tell.onclick = async (e) => {
+          e.stopPropagation();
+          tell.disabled = true; tell.textContent = 'telling…';
+          await api.deliverServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
+          refreshServices();
+        };
         list.appendChild(row);
       }
       const add = document.createElement('div'); add.className = 'agent-row';
@@ -3225,7 +3245,18 @@ function renderConnectCatalog() {
   q('#svc-custom', modal).onclick = () => openConnectCustom();
   clickOnEnter(q('#svc-custom', modal));
 }
-function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', platforms: ['claude', 'opencode'], values: {} }; renderOverlay(); }
+function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', values: {} }; renderOverlay(); }
+// Who ends up seeing a new connection: every installed agent, always — the same
+// no-checklist reasoning as knowsLine() for skills. Hermes is the honest
+// exception; its config is hand-owned, so it is named rather than implied.
+function svcKnowsLine() {
+  const names = (S.agents || []).filter((a) => a.found && a.id !== 'hermes').map((a) => a.name);
+  if (!names.length) return '';
+  const list = names.length === 1 ? names[0]
+    : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  const hermes = (S.agents || []).some((a) => a.found && a.id === 'hermes');
+  return esc(list) + ' will all be able to use it' + (hermes ? ' — Hermes keeps its own list (`hermes mcp`)' : '');
+}
 function renderConnectForm() {
   const o = S.overlay, svc = o.svc;
   const guided = svc.kind === 'guided';
@@ -3243,16 +3274,13 @@ function renderConnectForm() {
       : folder
         ? `<p class="setup-copy">Pick the one folder your agents may read and edit. Nothing outside it is reachable.</p><button class="btn" id="sv-pick-folder">Choose a folder…</button><div class="setup-note" id="sv-folder-note">${esc(o.values.folder ? shortHome(o.values.folder) : '')}</div>`
         : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on your Mac.</p>${keyRows}`}
+    ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
     <details class="sv-fold"${o.foldOpen ? ' open' : ''}><summary>choices (fine as they are)</summary>
       <div class="sv-fold-body">
         <div class="sv-lab">works in</div>
         <div class="chip-row" id="sv-scope">
           <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
           <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">everywhere on this Mac</span></div>
-        <div class="sv-lab">for</div>
-        <div class="chip-row" id="sv-plat">
-          <span class="pick-chip${o.platforms.includes('claude') ? ' picked' : ''}" data-v="claude">Claude Code</span>
-          <span class="pick-chip${o.platforms.includes('opencode') ? ' picked' : ''}" data-v="opencode">OpenCode</span></div>
       </div></details>
     <div class="setup-actions">
       <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>
@@ -3267,9 +3295,6 @@ function renderConnectForm() {
   const fold = q('.sv-fold', modal); fold.ontoggle = () => { o.foldOpen = fold.open; };
   q('#sv-docs', modal).onclick = () => api.openUrl(svc.docs);
   q('#sv-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { saveKeys(); o.scope = chip.dataset.v; renderOverlay(); }; });
-  q('#sv-plat', modal).querySelectorAll('.pick-chip').forEach((chip) => {
-    chip.onclick = () => { saveKeys(); const v = chip.dataset.v; o.platforms = o.platforms.includes(v) ? o.platforms.filter((x) => x !== v) : [...o.platforms, v]; renderOverlay(); };
-  });
   const pickBtn = q('#sv-pick-folder', modal);
   if (pickBtn) pickBtn.onclick = async () => { const info = await api.pickFolder(); if (info) { o.values.folder = info.path; q('#sv-folder-note', modal).textContent = info.pathShort; } };
   // Install kind (kie): two honest clicks. First click installs in a visible
@@ -3299,9 +3324,8 @@ function renderConnectForm() {
     saveKeys();
     if (install) o.values.installDir = installDirOf();
     if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
-    if (!o.platforms.length) { toast('Tick at least one platform under choices.'); return; }
     q('#sv-connect', modal).textContent = 'Connecting…';
-    const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, platforms: o.platforms, projectPath: S.project && S.project.path });
+    const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path });
     refreshServices(); loadLibrary(true);
     S.overlay = { type: 'connect-done', svc, result: res }; renderOverlay();
   };
