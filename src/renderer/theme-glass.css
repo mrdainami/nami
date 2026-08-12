@@ -465,7 +465,6 @@ body[data-glass] .cd-wpick,
 body[data-glass] .head-menu,
 body[data-glass] .picker-row .way { border-radius: 9px; }
 body[data-glass] .t-surface { border-radius: 999px; }
-body[data-glass] .t-stamp { border-radius: 4px; }
 body[data-glass] .cd-open { border-radius: 0 0 9px 9px; }
 body[data-glass] .cd-line { border-radius: 8px; background: var(--gl-pane-dim); }
 body[data-glass] .cd-row.open .cd-line { border-radius: 8px 8px 0 0; }
