@@ -11,18 +11,19 @@ body[data-theme="graphite"] {
   --paper-2: rgba(70, 72, 84, 0.36);
   --paper-3: rgba(64, 66, 78, 0.3);
   --ink: #ececf1;
-  --muted: #a2a3ae;
+  --muted: #b4b6c4;   /* was #a2a3ae — unreadable on the dark ground (Calvin) */
   --muted-2: #91929d;
   --muted-3: #85868f;
-  --faint: #5d5e68;
-  --line: rgba(255, 255, 255, 0.16);
-  --dash: rgba(255, 255, 255, 0.1);
+  --faint: #8a8c9a;   /* was #5d5e68 */
+  --line: rgba(255, 255, 255, 0.24);
+  --dash: rgba(255, 255, 255, 0.17);
   --dash-dark: rgba(255, 255, 255, 0.2);
   --rail: rgba(30, 31, 38, 0.3);
   --hover: rgba(255, 255, 255, 0.08);
   --green: #ef6461;
   --green-dark: #d95350;
   --green-ok: #63c68a;
+  --u-bg: rgba(239, 100, 97, 0.11);
   --diff-add-bg: rgba(99, 198, 138, 0.14);
   --diff-add-ink: #8fd3a6;
   --diff-del-bg: rgba(239, 100, 97, 0.14);
@@ -88,6 +89,7 @@ body[data-theme="graphite"] {
     linear-gradient(165deg, #2d2e34 0%, #242529 55%, #27282e 100%);
 }
 body[data-theme="graphite"] a { color: #6f9dff; }
+body[data-theme="graphite"] .t-surface.cards { color: #fff; }
 
 /* the shared system paints white-outlined ink cursors + coral pointer already;
    graphite only needs the few spots where a light literal reads wrong */

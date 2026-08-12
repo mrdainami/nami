@@ -129,7 +129,9 @@ test('the command list the agent publishes reaches init', () => {
   const inits = events.filter((e) => e.kind === 'init');
   const withCmds = inits.find((e) => e.commands && e.commands.length);
   assert.ok(withCmds, 'available_commands_update never surfaced');
-  assert.ok(withCmds.commands.includes('customize-opencode'));
+  const names = withCmds.commands.map((c) => c.name);
+  assert.ok(names.includes('customize-opencode'));
+  assert.ok(withCmds.commands.some((c) => c.description), 'descriptions must ride through');
 });
 
 test('an unknown sessionUpdate kind is ignored, never thrown on', () => {
