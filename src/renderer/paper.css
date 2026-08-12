@@ -1303,7 +1303,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
   padding: 8px 0 6px; margin-top: 10px; border-top: 1px dashed var(--dash);
 }
-.lib-group:first-child { margin-top: 0; border-top: none; }
+.lib-sect:first-child .lib-group { margin-top: 0; border-top: none; }
 .lib-group:hover { color: var(--ink); }
 .lib-group .lg-caret { width: 10px; font-size: 10px; color: var(--muted-3); }
 .lib-group .lg-count { margin-left: auto; font-weight: 700; color: var(--muted-3); letter-spacing: 0; }
