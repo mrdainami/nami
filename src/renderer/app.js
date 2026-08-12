@@ -14,6 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
+import { continuesLink, leadingIndent, MAX_JOINS } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
 
@@ -1804,16 +1805,39 @@ async function statLink(token, cwd, id) {
 // keep a cell address per character, so the underline lands on the right cells
 // even when the line holds wide glyphs (a wide char is one string char but two
 // columns, and its second cell reports width 0).
+// A hard wrap is not a wrap: a program that measured the width itself and
+// printed its own newline leaves isWrapped false on both rows, nothing joins
+// them, and scanLinks matches the head of a severed URL as a whole one. The
+// walk goes both ways so hovering either fragment finds the other; see
+// term-wrap.mjs for why the guards are as narrow as they are.
 function wrappedRow(term, y) {
   const buf = term.buffer.active;
+  const cols = term.cols;
+  const hard = new Set();   // rows joined despite isWrapped being false
   let top = y - 1;
-  while (top > 0) { const l = buf.getLine(top); if (l && l.isWrapped) top--; else break; }
+  while (top > 0) {
+    const l = buf.getLine(top);
+    if (l && l.isWrapped) { top--; continue; }
+    if (hard.size >= MAX_JOINS) break;
+    const prev = buf.getLine(top - 1);
+    if (l && prev && continuesLink(prev, l, cols)) { hard.add(top); top--; continue; }
+    break;
+  }
   let bottom = top;
-  while (bottom + 1 < buf.length) { const l = buf.getLine(bottom + 1); if (l && l.isWrapped) bottom++; else break; }
+  while (bottom + 1 < buf.length) {
+    const l = buf.getLine(bottom + 1);
+    if (l && l.isWrapped) { bottom++; continue; }
+    if (hard.size >= MAX_JOINS) break;
+    if (l && continuesLink(buf.getLine(bottom), l, cols)) { bottom++; hard.add(bottom); continue; }
+    break;
+  }
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
-    for (let x = 0; x < term.cols; x++) {
+    // A joined row's hanging indent is not part of the token, and emitting it
+    // would put a space in the middle of the URL the scanner is about to read.
+    const from = hard.has(row) ? leadingIndent(line, cols) : 0;
+    for (let x = from; x < term.cols; x++) {
       const cell = line.getCell(x);
       if (!cell || cell.getWidth() === 0) continue;
       const ch = cell.getChars() || ' ';
