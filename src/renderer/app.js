@@ -15,6 +15,7 @@ import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './ses
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { buildRows } from './session-cards.mjs';
+import { buildCards } from './cards-dom.mjs';
 
 const api = window.dainami;
 
@@ -236,12 +237,38 @@ function dropFilesOnPanel(p, paths) {
   // conversation underneath changed — /resume, or /clear rewriting the file.
   api.onSessionEvents(({ id, events, reset }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
+    if (p.agentLive) return; // the drive channel owns this tile's events
     if (reset) p.cardEvents = [];
     if (events && events.length) p.cardEvents = (p.cardEvents || []).concat(events);
     feedCards(p, !!reset);
   });
+
+  // Drive mode: one event at a time from the live adapter, already in the
+  // vocabulary. init and status shape the tile; everything else is a row.
+  api.onAgentEvent((ev) => {
+    const p = S.panels.find((x) => x.id === ev.id); if (!p) return;
+    if (ev.kind === 'init') {
+      p.agentCaps = ev.capability || null;
+      p.agentCommands = ev.commands || [];
+      // The adapter resumed (or minted) a conversation; keep the id the next
+      // launch will resume — same rule as /resume inside the terminal.
+      if (ev.claudeSessionId && p.sid !== ev.claudeSessionId) { p.sid = ev.claudeSessionId; savePanels(); }
+      return;
+    }
+    if (ev.kind === 'status') {
+      p.agentBusy = ev.state === 'running';
+      const rec = tileEls.get(p.id); if (rec) refreshCardNote(p, rec);
+      return;
+    }
+    p.cardEvents = (p.cardEvents || []).concat(ev);
+    feedCards(p, false);
+    if (ev.kind === 'permission') setAttention(p);
+  });
   api.onTermExit(({ id, code, note }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
+    // A deliberate runtime swap (Term → Cards) is not an ending: the same
+    // conversation is about to continue over the drive channel.
+    if (p.viewSwitching) { p.viewSwitching = false; return; }
     p.exited = true; p.status = 'exited';
     // main writes the note, because only it knows whether Nami ended this
     // session or the process did. `code` stays in the payload for older paths.
@@ -1109,7 +1136,10 @@ function termLetterSpacing() { return 0; }
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
-  tileEls.forEach((r) => { if (r.term) { r.term.options.fontSize = next; safeFit(r); } });
+  tileEls.forEach((r) => {
+    if (r.term) { r.term.options.fontSize = next; safeFit(r); }
+    if (r.cardsUi) r.cardsUi.setFontSize(next); // cards read at the same size the terminal does
+  });
   toast('Terminal text · ' + next + 'px');
 }
 function mountTile(p) {
@@ -1121,7 +1151,7 @@ function mountTile(p) {
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
       ${canShowCards(p) ? `<span class="t-view" role="group" aria-label="View">
-        <button class="t-vb" data-view="cards" title="Read this session as cards">Cards</button>
+        <button class="t-vb" data-view="cards" title="Drive this session as cards">Cards<span class="t-beta">beta</span></button>
         <button class="t-vb" data-view="term" title="The terminal itself">Term</button>
       </span>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
@@ -1132,7 +1162,7 @@ function mountTile(p) {
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
-  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cards: null, rowEls: null };
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null };
   tileEls.set(p.id, rec);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
@@ -1182,7 +1212,7 @@ function refreshTileHead(p) {
   t.statusDot.style.background = m.color;
   t.root.classList.toggle('attention', !!p.attention);
   t.root.classList.toggle('exited', !!p.exited);
-  if (t.cards) refreshCardNote(p, t);
+  if (t.cardsUi) refreshCardNote(p, t);
 }
 
 // ---- terminal tiles --------------------------------------------------------
@@ -1227,7 +1257,13 @@ function mountTerminal(p, rec) {
   });
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
   if (S.demo) (window.__terms = window.__terms || []).push(term);
-  requestAnimationFrame(() => { safeFit(rec); startProcess(p, term.cols, term.rows); });
+  requestAnimationFrame(() => {
+    safeFit(rec);
+    // A tile restored in Cards goes straight to the drive channel — spawning
+    // the pty first would put two runtimes on one conversation.
+    if (canShowCards(p) && cardView(p) === 'cards') enterCards(p);
+    else startProcess(p, term.cols, term.rows);
+  });
   term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });
   term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
   term.onBell(() => setAttention(p));
@@ -1349,24 +1385,23 @@ async function startProcess(p, cols, rows) {
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
   await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, name });
-  // A tile restored in Cards asked to be watched before this ran, and there was
-  // no session to watch yet — the transcript watcher is created by term:create.
-  // Ask again now that there is one, or the view sits empty until it is toggled.
-  if (canShowCards(p) && cardView(p) === 'cards') api.cardsWatch({ id: p.id, on: true });
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
 
 // ---- the card view ---------------------------------------------------------
-// A second view on the very same session. Not a second process: claude writes
-// every turn to its transcript as it happens, main tails that file, and these
-// rows are what it said. The terminal underneath keeps running and keeps the
-// keyboard — slash commands, /resume, ctrl+o, plan mode and the approval prompt
-// all still live there, one click away, which is the whole reason cards can be
-// this simple.
+// A second view on the very same conversation — but a different runtime. Term
+// runs the agent's own TUI in a pty; Cards drives the same conversation over
+// the agent's structured channel (the Agent SDK, for claude), so approvals can
+// be answered in place and the composer sends real turns. Switching stops one
+// runtime and resumes the same conversation in the other by its session id.
+// Two runtimes never overlap on one tile.
 //
-// Only claude sessions, and only ones with a conversation id: that id is the
-// transcript's name. A legacy --continue tile has none and stays terminal-only.
+// When the drive channel is missing (no claude binary), Cards falls back to
+// watching the transcript the pty writes — read-only, and the note says so.
+//
+// Only claude sessions, and only ones with a conversation id: that id is what
+// both runtimes resume. A legacy --continue tile has none and stays Term-only.
 const CARD_EVENT_CAP = 900;
 
 function canShowCards(p) { return p && p.kind === 'claude' && !!p.sid && !S.demo; }
@@ -1379,150 +1414,121 @@ function setView(p, view) {
   const rec = tileEls.get(p.id);
   if (rec) applyView(p, rec);
   savePanels();
+  if (next === 'cards') enterCards(p); else exitCards(p);
 }
 
-// The terminal is hidden, never torn down: the pty keeps running, the
-// scrollback survives, and coming back is instant. It does need refitting —
-// while hidden the body measures zero, so xterm could not have tracked a resize.
+// Which pane is showing. Runtime changes live in enterCards/exitCards; this
+// only dresses the tile, so mountTile can call it before anything runs.
 function applyView(p, rec) {
   const view = cardView(p);
   const on = view === 'cards';
-  if (rec.cards) rec.cards.style.display = on ? 'flex' : 'none';
+  if (rec.cardsUi) rec.cardsUi.el.style.display = on ? 'flex' : 'none';
   rec.body.style.display = on ? 'none' : '';
-  // The font buttons size terminal cells. In Cards they would do nothing, and
-  // the head is crowded enough that the title was losing room to them.
   rec.root.classList.toggle('cards-on', on);
   for (const b of rec.head.querySelectorAll('.t-vb')) b.classList.toggle('on', b.dataset.view === view);
-  api.cardsWatch({ id: p.id, on });
-  if (on) { feedCards(p, true); scrollCards(rec, true); }
+  if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
   else requestAnimationFrame(() => safeFit(rec));
 }
 
+// Into Cards: the backlog first (what the conversation already holds, read
+// once from the transcript), then the runtime swap — pty out, adapter in,
+// resuming the same conversation id. If the drive channel refuses, the pty
+// comes back and the card watches the transcript instead.
+async function enterCards(p) {
+  const rec = tileEls.get(p.id); if (!rec) return;
+  p.cardEvents = [];
+  const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
+  p.cardEvents = (back && back.events) || [];
+  if (cardView(p) !== 'cards') return; // switched away while we read
+  feedCards(p, true);
+  if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
+
+  if (p.started && !p.exited) {
+    p.viewSwitching = true;
+    await api.termKill({ id: p.id });
+    p.started = false;
+  }
+  const res = await api.agentStart({ id: p.id, agent: 'claude', cwd: p.cwd, sid: p.sid });
+  if (cardView(p) !== 'cards') { if (res && res.ok) api.agentStop({ id: p.id }); return; }
+  p.agentLive = !!(res && res.ok);
+  p.cardFallback = '';
+  if (!p.agentLive) {
+    // Read-only fallback: restart the pty (hidden under the card) and tail
+    // the transcript it writes. The composer still works — it types into the
+    // terminal, the way dictation always has.
+    p.cardFallback = 'Read-only: driving needs the claude CLI. The terminal still runs underneath.';
+    p.started = false; p.exited = false;
+    if (rec.term) startProcess(p, rec.term.cols, rec.term.rows).then(() => api.cardsWatch({ id: p.id, on: true }));
+  }
+  refreshCardNote(p, rec);
+}
+
+// Back to Term: the adapter stops, the pty resumes the same conversation.
+// The terminal is reset first — its scrollback belongs to the previous run.
+async function exitCards(p) {
+  const rec = tileEls.get(p.id); if (!rec) return;
+  api.cardsWatch({ id: p.id, on: false });
+  if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
+  if (p.started && !p.exited) return; // fallback pty is already live — keep it
+  p.exited = false; p.status = 'live'; p.started = false;
+  if (rec.term) {
+    try { rec.term.reset(); } catch (_) {}
+    requestAnimationFrame(() => { safeFit(rec); startProcess(p, rec.term.cols, rec.term.rows); });
+  }
+  refreshTileHead(p); refreshRail();
+}
+
 function mountCards(p, rec) {
-  const el = document.createElement('div');
-  el.className = 'tile-cards';
-  el.innerHTML = `<div class="cd-note" hidden></div>
-    <div class="cd-list"></div>
-    <div class="cd-ask"><span class="m">❯</span><input class="cd-input" type="text" placeholder="Reply to this session…" /><button class="cd-send">Send</button></div>`;
-  rec.root.appendChild(el);
-  rec.cards = el;
-  rec.cardList = q('.cd-list', el);
-  rec.cardNote = q('.cd-note', el);
-  rec.rowEls = new Map();
-
-  const input = q('.cd-input', el), send = q('.cd-send', el);
-  const submit = () => {
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    // The same path dictation uses: typed into the pty the terminal is running,
-    // so the session cannot tell the difference. The return goes separately —
-    // a TUI wants the line settled before it is submitted.
-    injectToSession(p, text);
-    setTimeout(() => api.termWrite({ id: p.id, data: '\r' }), 160);
-  };
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } e.stopPropagation(); });
-  send.onclick = submit;
+  const ui = buildCards({
+    onSend: (text) => {
+      clearAttention(p);
+      if (p.autoName) feedSessionName(p, text + '\n');
+      if (p.agentLive) { api.agentSend({ id: p.id, text }); return; }
+      // Watch fallback: the pty underneath still holds the keyboard.
+      api.termWrite({ id: p.id, data: text });
+      setTimeout(() => api.termWrite({ id: p.id, data: '\r' }), 160);
+    },
+    onPermission: (permissionId, optionId) => {
+      clearAttention(p);
+      api.agentPermission({ id: p.id, permissionId, optionId });
+    },
+    onInterrupt: () => { if (p.agentLive) api.agentInterrupt({ id: p.id }); },
+    onMic: () => toggleMic(p),
+    onOpenPath: async (token, ev) => {
+      const st = await api.statPath({ token, cwd: p.cwd });
+      if (!st.exists) { toast('Not found: ' + token); return; }
+      openTermLink({ kind: 'path', text: token }, st, ev);
+    },
+    onOpenUrl: (url) => api.openUrl(url),
+    commands: () => p.agentCommands || [],
+  });
+  rec.root.appendChild(ui.el);
+  rec.cardsUi = ui;
+  ui.setFontSize(termFontSize());
 }
 
-// The one thing a transcript cannot prove is a question waiting to be answered:
-// the approval prompt is drawn in the TUI and never written to the file. What
-// Nami does know is that the session rang the bell, which is the same signal
-// the rail already shows — so the card says so and sends you where the answer
-// can actually be given, rather than drawing a button that cannot work.
 function refreshCardNote(p, rec) {
-  if (!rec || !rec.cardNote) return;
-  const empty = !rec.cardList.children.length;
-  let text = '';
-  if (p.attention) text = 'This session is waiting on you — answer it in Term.';
-  else if (p.exited) text = 'This session has ended.';
-  else if (empty) text = 'Waiting for the first turn — claude writes its transcript as it works.';
-  rec.cardNote.textContent = text;
-  rec.cardNote.hidden = !text;
-  rec.cardNote.classList.toggle('urgent', !!p.attention);
+  if (!rec || !rec.cardsUi) return;
+  let text = '', urgent = false;
+  if (p.exited && !p.agentLive) text = 'This session has ended.';
+  else if (p.attention && !p.agentLive) { text = 'This session is waiting on you — answer it in Term.'; urgent = true; }
+  else if (p.cardFallback) text = p.cardFallback;
+  else if (rec.cardsUi.isEmpty()) text = 'Waiting for the first turn.';
+  rec.cardsUi.setNote(text, urgent);
 }
 
-// Everything accumulated so far, reconciled into the list. Rows only ever
-// append, and a tool row mutates once when its result lands, so a full rebuild
-// is reserved for a reset — it would otherwise close every expanded row and
+// Everything accumulated so far, reconciled into the list. A full rebuild is
+// reserved for a reset — it would otherwise close every expanded row and
 // throw away the scroll position.
 function feedCards(p, full) {
   const rec = tileEls.get(p.id);
-  if (!rec || !rec.cardList || cardView(p) !== 'cards') return;
-
+  if (!rec || !rec.cardsUi || cardView(p) !== 'cards') return;
   if (p.cardEvents && p.cardEvents.length > CARD_EVENT_CAP) {
     p.cardEvents = p.cardEvents.slice(-CARD_EVENT_CAP);
     full = true;
   }
-  if (full) { rec.cardList.innerHTML = ''; rec.rowEls.clear(); }
-
-  const stick = nearBottom(rec);
-  for (const row of buildRows(p.cardEvents || [])) {
-    const seen = rec.rowEls.get(row.id);
-    if (seen) { updateRow(seen, row); continue; }
-    const el = renderRow(p, row);
-    rec.rowEls.set(row.id, el);
-    rec.cardList.appendChild(el);
-  }
-
+  rec.cardsUi.feed(buildRows(p.cardEvents || []), full);
   refreshCardNote(p, rec);
-  if (stick) scrollCards(rec, false);
-}
-
-function nearBottom(rec) {
-  const el = rec.cardList;
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-}
-function scrollCards(rec, now) {
-  const go = () => { rec.cardList.scrollTop = rec.cardList.scrollHeight; };
-  if (now) requestAnimationFrame(go); else go();
-}
-
-function renderRow(p, row) {
-  const el = document.createElement('div');
-  el.className = 'cd-row cd-' + row.kind;
-  if (row.kind === 'tool') {
-    // .cd-line, not .cd-tool: the row already carries .cd-tool from its kind,
-    // and a child with the same class turns the row into a flex container that
-    // lays the expanded body out beside its own header instead of under it.
-    el.innerHTML = `<div class="cd-line">
-        <span class="cd-ic"></span>
-        <span class="cd-lb"></span>
-        <span class="cd-dt"></span>
-      </div><pre class="cd-body" hidden></pre>`;
-    updateRow(el, row);
-    q('.cd-line', el).onclick = () => {
-      if (!el.dataset.body) return;
-      el.classList.toggle('open');
-      q('.cd-body', el).hidden = !el.classList.contains('open');
-    };
-    return el;
-  }
-  if (row.kind === 'turn_end') { el.textContent = `done in ${row.duration}`; return el; }
-  if (row.kind === 'user') {
-    el.innerHTML = `<span class="m">❯</span><span class="tx"></span>`;
-    q('.tx', el).textContent = row.text;
-    el.classList.toggle('cd-cmd', !!row.command);
-    return el;
-  }
-  // assistant and thinking are prose; markdown is a later slice, so the text is
-  // shown exactly as it was written rather than half-parsed.
-  el.textContent = row.text;
-  return el;
-}
-
-function updateRow(el, row) {
-  if (row.kind !== 'tool') return;
-  el.classList.toggle('err', !!row.isError);
-  el.classList.toggle('pending', !!row.pending);
-  q('.cd-ic', el).textContent = row.pending ? '·' : (row.isError ? '✕' : '✓');
-  q('.cd-lb', el).textContent = row.label;
-  q('.cd-dt', el).textContent = row.detail;
-  const body = row.body || '';
-  el.dataset.body = body ? '1' : '';
-  const pre = q('.cd-body', el);
-  pre.textContent = body + (row.truncated ? '\n\n… cut here — the whole thing is in Term' : '');
-  if (!body) { el.classList.remove('open'); pre.hidden = true; }
 }
 
 // ---- links inside a rendered doc -------------------------------------------
@@ -1911,14 +1917,21 @@ async function transcribeBlob(blob) {
   const pcm = await decodePcm(blob);
   return api.transcribe({ pcm, sampleRate: 16000, bytes, mime: blob.type || 'audio/webm' });
 }
-function micBtn(p) { const t = tileEls.get(p.id); return t ? q('.t-mic', t.head) : null; }
+function micBtn(p) {
+  const t = tileEls.get(p.id); if (!t) return null;
+  // The mic never disappears: in Cards it sits in the composer, in Term in
+  // the head. State lands on whichever one is showing.
+  if (canShowCards(p) && cardView(p) === 'cards' && t.cardsUi) return q('.cd-mic-btn', t.cardsUi.el);
+  return q('.t-mic', t.head);
+}
 function setMicState(p, state) {
   const b = micBtn(p); if (!b) return;
+  if (!b.dataset.idle) b.dataset.idle = b.innerHTML; // whatever glyph pair it was born with
   b.classList.toggle('rec', state === 'recording');
   b.classList.toggle('busy', state === 'transcribing');
   if (state === 'recording') b.innerHTML = '<span class="rec-square"></span>';
   else if (state === 'transcribing') b.textContent = '…';
-  else b.innerHTML = MIC_SVG;
+  else b.innerHTML = b.dataset.idle;
   b.title = state === 'recording' ? 'Stop & transcribe' : state === 'transcribing' ? 'Transcribing…' : 'Dictate into this session';
 }
 async function toggleMic(p) {
@@ -1953,6 +1966,12 @@ async function pasteDictation(p) {
 function injectToSession(p, text) {
   if (!text) return;
   focusPanel(p.id, false);
+  // In Cards the composer is the keyboard: dictation lands there, reviewable,
+  // and Enter sends it — the same courtesy the terminal's settled-line gets.
+  if (canShowCards(p) && cardView(p) === 'cards') {
+    const t = tileEls.get(p.id);
+    if (t && t.cardsUi) { t.cardsUi.insertText(text); return; }
+  }
   if (p.kind === 'editor') {
     const t = tileEls.get(p.id); if (!t || !t.ta) return;
     // Same reason as the Tab key: assigning ta.value costs the undo stack, and
@@ -2133,7 +2152,10 @@ function focusPanel(id, scroll = true) {
 function closePanel(id) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
   if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
-  else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') api.termKill({ id });
+  else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') {
+    api.termKill({ id });
+    if (p.agentLive) api.agentStop({ id });
+  }
   const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;

@@ -51,6 +51,11 @@
   --green: #4a6b52;
   --green-dark: #33503b;
   --green-ok: #4a7a4a;
+  /* diffs, in the card view: what left, what landed */
+  --diff-add-bg: #e4efe0;
+  --diff-add-ink: #33503b;
+  --diff-del-bg: #f9e6e0;
+  --diff-del-ink: #8a2d21;
   --amber-bg: #fdf2cf;
   --amber-line: #c9a94e;
   --amber-ink: #6a4a05;
@@ -872,9 +877,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .t-vb + .t-vb { border-left: 1px solid var(--dash); }
 .t-vb:hover { background: var(--hover); color: var(--ink); }
 .t-vb.on { background: var(--green); color: var(--paper); font-weight: 700; }
-.tile.cards-on .t-zoom-in, .tile.cards-on .t-zoom-out { display: none; }
+/* In Cards the mic lives in the composer; the head keeps everything else —
+   − ＋ size the card text exactly as they size terminal cells. */
+.tile.cards-on .t-mic { display: none; }
+.t-beta {
+  font-size: 6.5px; letter-spacing: 0.08em; vertical-align: super;
+  margin-left: 3px; opacity: 0.75; text-transform: lowercase;
+}
 
-.tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .cd-list {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
@@ -885,19 +896,54 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-user .m { color: var(--green); font-weight: 700; flex: none; }
 .cd-user .tx { white-space: pre-wrap; word-break: break-word; }
 .cd-cmd .tx { color: var(--green); }
-.cd-assistant { white-space: pre-wrap; word-break: break-word; }
-.cd-thinking {
-  white-space: pre-wrap; word-break: break-word;
-  color: var(--muted); font-style: italic;
+
+/* Prose rendered as markdown: never poorer than the terminal it filters. */
+.cd-assistant { word-break: break-word; }
+.cd-md > *:first-child { margin-top: 0; }
+.cd-md > *:last-child { margin-bottom: 0; }
+.cd-md p, .cd-md ul, .cd-md ol { margin: 0 0 0.55em; }
+.cd-md h1, .cd-md h2, .cd-md h3, .cd-md h4 { margin: 0.6em 0 0.35em; font-size: 1.05em; }
+.cd-md ul, .cd-md ol { padding-left: 1.4em; }
+.cd-md code {
+  background: var(--paper-3); border: 1px solid var(--dash);
+  padding: 0 4px; font-size: 0.92em;
+}
+.cd-md pre {
+  background: var(--paper-3); border: 1px solid var(--dash);
+  padding: 8px 10px; margin: 0.35em 0 0.55em;
+  overflow-x: auto; font-size: 11.5px; line-height: 1.5;
+}
+.cd-md pre code { background: transparent; border: 0; padding: 0; }
+.cd-md a { color: var(--green); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cd-path { color: var(--green); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* Thought is context, not content: one quiet line until asked. */
+.cd-th-head {
+  font: inherit; font-size: 11.5px; color: var(--muted); font-style: italic;
+  background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.cd-th-head:hover { color: var(--ink); }
+.cd-th-arr { font-style: normal; font-size: 9px; }
+.cd-th-body {
+  margin-top: 4px; color: var(--muted); font-style: italic;
   border-left: 2px dashed var(--dash); padding-left: 9px;
 }
+
 .cd-turn_end {
   font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint);
   border-top: 1px dashed var(--dash); padding-top: 7px;
 }
+.cd-note { text-align: left; font-size: 11px; color: var(--muted); font-style: italic; }
+.cd-row.cd-note { border-left: 2px solid var(--dash); padding-left: 9px; }
+.cd-error {
+  display: flex; gap: 8px; border: 1px solid var(--red-line); background: var(--red-bg);
+  color: var(--red-ink); padding: 7px 10px; font-size: 12px;
+}
+.cd-error .m { font-weight: 700; flex: none; }
+.cd-error .tx { white-space: pre-wrap; word-break: break-word; }
 
-/* A tool is one row: what it did, and — for anything that returned output —
-   the whole of what came back, which the terminal hides behind ctrl+o. */
+/* A tool is one row: its kind's glyph, what it did, and — for anything that
+   returned output — the whole of what came back, behind a click. */
 .cd-tool .cd-line {
   display: flex; align-items: baseline; gap: 8px;
   border: 1px solid var(--dash); background: var(--paper-2);
@@ -905,10 +951,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-row[data-body="1"] .cd-line { cursor: pointer; }
 .cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
+.cd-line .cd-kd { flex: none; color: var(--muted); width: 12px; text-align: center; }
 .cd-line .cd-ic { flex: none; color: var(--green-ok); font-weight: 700; width: 10px; }
-/* The label may shrink but never disappear; the detail gives way first. Both
-   ellipsise — a row that pushes wider than the tile takes the whole card with
-   it, and a terminal pane cannot scroll sideways to rescue it. */
+/* The label may shrink but never disappear; the detail gives way first. */
 .cd-line .cd-lb { flex: 1 1 auto; font-weight: 700; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-line .cd-dt {
   flex: 0 1 auto; min-width: 0; max-width: 45%; text-align: right;
@@ -918,19 +963,66 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-row.pending .cd-ic { color: var(--amber-btn); }
 .cd-row.err .cd-line { border-color: var(--red-line); }
 .cd-row.err .cd-ic { color: var(--red-ink); }
+.cd-open { border: 1px solid var(--dash); border-top: 0; background: var(--paper-3); }
 .cd-body {
-  margin: 0; border: 1px solid var(--dash); border-top: 0; background: var(--paper-3);
-  padding: 8px 10px; max-height: 260px; overflow: auto;
+  margin: 0; padding: 8px 10px; max-height: 260px; overflow: auto;
   font-family: inherit; font-size: 11.5px; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word; color: var(--muted);
+  background: transparent; border: 0;
 }
 
-.cd-note {
+/* Diffs: what left, what landed — the call's own strings, tinted by tokens. */
+.cd-diff { font-size: 11.5px; line-height: 1.5; }
+.cd-diff-path { padding: 5px 10px 0; font-size: 10.5px; color: var(--muted); }
+.cd-diff-b { margin: 4px 0 0; padding: 4px 10px; white-space: pre-wrap; word-break: break-word; font-family: inherit; }
+.cd-diff-b span { display: block; }
+.cd-diff-b.del { background: var(--diff-del-bg); color: var(--diff-del-ink); }
+.cd-diff-b.add { background: var(--diff-add-bg); color: var(--diff-add-ink); }
+.cd-diff-more { padding: 3px 10px; font-size: 10.5px; color: var(--faint); }
+
+/* A sub-agent folds under the Task that spawned it. */
+.cd-sub { padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 7px; }
+.cd-sub-t { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+
+/* The agent's plan, as it keeps it. */
+.cd-plan { border: 1px dashed var(--dash); background: var(--paper-2); padding: 7px 10px; font-size: 12px; }
+.cd-plan-t { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+.cd-plan-i { display: flex; gap: 7px; }
+.cd-plan-i .mk { flex: none; color: var(--muted); }
+.cd-plan-i.completed { color: var(--muted); }
+.cd-plan-i.completed .mk { color: var(--green-ok); }
+.cd-plan-i.in_progress .mk { color: var(--amber-btn); }
+
+/* The approval card renders what the agent sent, and asks in amber. */
+.cd-perm-open {
+  border: 1px solid var(--amber-line); background: var(--amber-bg);
+  padding: 9px 11px; display: flex; flex-direction: column; gap: 7px;
+}
+.cd-perm-t { display: flex; gap: 8px; align-items: baseline; }
+.cd-perm-mk { flex: none; font-weight: 700; color: var(--amber-btn); }
+.cd-perm-name { font-weight: 700; color: var(--amber-ink); }
+.cd-perm-d { color: var(--amber-body); font-size: 12px; word-break: break-word; }
+.cd-perm-cmd { max-height: 120px; border: 1px solid var(--amber-line); background: var(--paper-3); }
+.cd-perm-diff:empty { display: none; }
+.cd-perm-diff { border: 1px solid var(--dash); background: var(--paper-3); }
+.cd-perm-b { display: flex; gap: 7px; flex-wrap: wrap; }
+.cd-perm-btn {
+  font: inherit; font-size: 11px; padding: 5px 11px; cursor: pointer;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--dash-dark);
+}
+.cd-perm-btn:hover { background: var(--hover); }
+.cd-perm-btn.allow { background: var(--amber-btn); border-color: var(--amber-btn-line); color: var(--paper); font-weight: 700; }
+.cd-perm-done { font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; }
+.cd-perm-done .cd-kd { flex: none; }
+
+/* The card's own status line, above the list. */
+.tile-cards > .cd-note {
   flex: none; padding: 8px 14px; font-size: 11.5px; color: var(--muted);
-  border-bottom: 1px dashed var(--dash);
+  border-bottom: 1px dashed var(--dash); font-style: normal; border-left: 0;
 }
-.cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
+.tile-cards > .cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
 
+/* The composer: prompt, input, mic beside the send arrow. Filled means armed. */
 .cd-ask {
   flex: none; display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-top: 1px dashed var(--dash);
@@ -941,12 +1033,38 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
-.cd-send {
-  flex: none; font: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 5px 10px; background: var(--green); color: var(--paper);
-  border: 1px solid var(--green-dark); cursor: pointer;
+.cd-mic-btn, .cd-send-btn {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font: inherit; cursor: pointer; padding: 0;
 }
-.cd-send:hover { background: var(--green-dark); }
+.cd-mic-btn {
+  background: transparent; color: var(--muted); border: 1px solid var(--dash-dark);
+}
+.cd-mic-btn:hover { color: var(--ink); border-color: var(--ink); }
+.cd-mic-btn.rec { color: var(--red-btn); border-color: var(--red-btn); }
+.cd-mic-btn .rec-square { width: 8px; height: 8px; background: var(--red-btn); }
+.cd-send-btn {
+  background: var(--green); color: var(--paper); border: 1px solid var(--green-dark);
+}
+.cd-send-btn:hover:not(:disabled) { background: var(--green-dark); }
+.cd-send-btn:disabled {
+  background: transparent; color: var(--faint); border-color: var(--dash); cursor: default;
+}
+.cd-send-btn .pix-glyph, .cd-mic-btn .pix-glyph { width: 11px; height: 11px; }
+
+/* `/` offers the agent's own commands. */
+.cd-menu {
+  position: absolute; left: 10px; right: 10px; bottom: 44px;
+  border: 1px solid var(--dash-dark); background: var(--paper);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+  display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; z-index: 5;
+}
+.cd-menu-i {
+  font: inherit; font-size: 12px; text-align: left; padding: 6px 11px;
+  background: transparent; color: var(--ink); border: 0; cursor: pointer;
+}
+.cd-menu-i:hover { background: var(--hover); color: var(--green); }
 
 /* ---- paper editor ----
    Read and Edit are two panes in one column; only one is ever displayed. */
