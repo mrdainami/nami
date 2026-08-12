@@ -25,6 +25,8 @@
 // mint the session id) so every agent behaves the same way.
 const NATIVE_BY_NAME = {
   model: 'native-model',
+  mode: 'native-mode',
+  approvals: 'native-mode', // codex vocabulary; elsewhere it opens the same mode picker
   resume: 'native-resume',
   clear: 'native-clear',
   new: 'native-clear',
@@ -67,10 +69,24 @@ export const STATIC_COMMANDS = {
   // adapter runs and nothing was published yet.
   claude: [
     { name: 'model', description: 'pick the model', route: 'native-model' },
+    { name: 'mode', description: 'switch permission mode', route: 'native-mode' },
     { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
     { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
     { name: 'compact', description: 'compact the conversation', route: 'send' },
     { name: 'review', description: 'review the current changes', route: 'send' },
+    { name: 'mcp', description: 'manage MCP servers', route: 'terminal' },
+  ],
+  // the ACP pair publish their real lists once connected; these keep the
+  // menu alive before that, and in watch mode — a `/` must never show nothing
+  opencode: [
+    { name: 'model', description: 'pick the model', route: 'native-model' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
+  ],
+  hermes: [
+    { name: 'model', description: 'pick the model', route: 'native-model' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
   ],
 };
 

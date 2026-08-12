@@ -2478,10 +2478,13 @@ function handleSlashCommand(p, text) {
   if (r.route === 'native-resume') { openResumePicker(p); return true; }
   if (r.route === 'terminal') {
     const spec = terminalResumeSpec(p);
+    // claude's spec has no run command (its kind is 'claude'); build one so
+    // the button works there too — the run tile resolves the binary itself
+    const command = spec.command || (agent === 'claude' && p.sid ? `claude --resume ${p.sid}` : null);
     p.cardEvents = (p.cardEvents || []).concat({
       kind: 'note', id: 'cmdnote:' + Date.now(),
       text: `/${r.name} belongs to the agent's own terminal — this channel can't run it.`,
-      action: spec.command ? { label: 'Open in Terminal', command: spec.command } : null,
+      action: command ? { label: 'Open in Terminal', command } : null,
     });
     scheduleFeed(p);
     return true;
@@ -2609,7 +2612,10 @@ function openModeMenu(p) {
   if (!p.agentLive) return;
   const rec = tileEls.get(p.id);
   const modes = availableModes(p);
-  if (!rec || !rec.cardsUi || !modes.length) return;
+  if (!rec || !rec.cardsUi) return;
+  // an agent with no switchable modes says so — a silent return reads as
+  // "the command is broken", and this sweep has proven that repeatedly
+  if (!modes.length) { toast('This agent has no switchable modes on its card channel.'); return; }
   const cur = p.agentStatus && p.agentStatus.mode;
   rec.cardsUi.openPicker({
     header: 'Permission mode',
