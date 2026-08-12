@@ -185,13 +185,14 @@ function renderRow(ctx, row) {
     // folder, then the session's dials stacked (stable at every width), then
     // the keys. Pickers are live where the channel can switch; facts where it
     // cannot.
-    el.dataset.n = `${row.model}|${row.mode}`;
+    el.dataset.n = `${row.model}|${row.mode}|${row.note || ''}`;
     const key = iconKeyFor(row.name || '');
     const mark = (key && iconSvg(key)) || `<span class="cd-wl-t">${esc(String(row.name || 'A').slice(0, 2).toUpperCase())}</span>`;
     el.innerHTML = `
       <div class="cd-wl">${mark}</div>
       <div class="cd-wn">${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
       <div class="cd-wf">${esc(shortPath(row.cwd))}</div>
+      ${row.note ? `<div class="cd-wnote">${esc(row.note)}</div>` : ''}
       <div class="cd-wp">
         ${row.model ? `<button class="cd-wpick" data-act="model"><span class="lab">model</span><span class="val">${esc(shortModel(row.model))}</span><span class="c">⌄</span></button>` : ''}
         ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
@@ -290,7 +291,7 @@ function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
   if (row.kind === 'tool') el.dataset.kd = row.toolKind || 'other';
   if (row.kind === 'intro') {
-    const key = `${row.model}|${row.mode}`;
+    const key = `${row.model}|${row.mode}|${row.note || ''}`;
     if (el.dataset.n !== key) { const fresh = renderRow(ctx, row); el.replaceWith(fresh); }
     return;
   }

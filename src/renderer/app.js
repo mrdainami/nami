@@ -257,6 +257,7 @@ function dropFilesOnPanel(p, paths) {
     const p = S.panels.find((x) => x.id === ev.tileId); if (!p) return;
     if (ev.kind === 'init') {
       p.agentCaps = ev.capability || null;
+      p.agentInit = true;
       // A partial re-announcement (a mode switch, a commands update) must
       // never clobber what an earlier, fuller init already delivered.
       if (ev.commands && ev.commands.length) p.agentCommands = ev.commands;
@@ -285,6 +286,9 @@ function dropFilesOnPanel(p, paths) {
         name: p.agentStatus.name, version: p.agentStatus.version,
         model: p.agentStatus.model, mode: p.agentStatus.mode,
         cwd: p.cwd, channel: p.agentCaps && p.agentCaps.channel,
+        // the channel's own caveat, said on the welcome where it belongs
+        // ('headless: approvals run by its own config', …)
+        note: (p.agentCaps && p.agentCaps.note) || '',
       };
       const at = (p.cardEvents || []).findIndex((e) => e && e.id === introId);
       if (at >= 0) p.cardEvents[at] = intro;
@@ -293,6 +297,7 @@ function dropFilesOnPanel(p, paths) {
       const rec = tileEls.get(p.id);
       if (rec && rec.cardsUi) {
         rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+        refreshCardNote(p, rec); // clears the connecting note the moment the channel is real
       }
       refreshChannelBadge(p, rec);
       return;
@@ -2091,6 +2096,19 @@ const MODE_CYCLES = {
   claude: ['default', 'acceptEdits', 'plan', 'bypassPermissions'],
   agy: ['accept-edits', 'plan', 'skip-permissions'],
 };
+
+const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
+
+// The welcome a card can synthesize before (or without) a channel: the
+// registry already knows who this is and where. Watch mode gets this too —
+// a watched card used to open onto nothing at all.
+function cardIntro(p, agent, extra) {
+  const reg = (S.agents || []).find((a) => (agent === 'claude' ? a.id === 'claude' : a.bin === agent));
+  return Object.assign({
+    kind: 'intro', id: 'intro:' + p.id,
+    name: (reg && reg.name) || KNOWN_AGENT_NAMES[agent] || agent, cwd: p.cwd,
+  }, extra || {});
+}
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
 // The agent's own resume handle, for reopening this conversation in its TUI.
@@ -2262,7 +2280,9 @@ async function enterCards(p) {
       p.cardEvents = [];
       const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
       if (cardView(p) !== 'cards') return;
-      p.cardEvents = (back && back.events) || [];
+      // The watched card introduces itself too — it used to open onto a
+      // bare transcript, or nothing at all on a fresh conversation.
+      p.cardEvents = [cardIntro(p, agent), ...((back && back.events) || [])];
       feedCards(p, true);
       if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
       api.cardsWatch({ id: p.id, on: true });
@@ -2273,6 +2293,9 @@ async function enterCards(p) {
       p.agentLive = false;
       p.agentCaps = { channel: 'terminal' };
       p.cardFallback = 'This agent\'s terminal has no readable side-channel. Take over to drive it as cards — the terminal conversation ends, a card conversation starts.';
+      // Rows from an earlier drive stay; only a truly empty card introduces
+      // itself, so watching never opens onto nothing.
+      if (!(p.cardEvents || []).length) { p.cardEvents = [cardIntro(p, agent)]; feedCards(p, true); }
       refreshCardNote(p, rec);
     }
     return;
@@ -2287,17 +2310,12 @@ async function driveCards(p) {
   const agent = cardAgentFor(p);
   if (!agent || agent.startsWith('unknown:')) return;
   p.cardMode = 'drive';
+  p.agentInit = false;
   // The welcome does not wait for the channel to boot: the registry already
   // knows who this is and where. init replaces this card with the enriched
   // one (version, model, mode) the moment it arrives — and it rides ahead of
   // whatever backlog the conversation already holds.
-  const reg = (S.agents || []).find((a) => (agent === 'claude' ? a.id === 'claude' : a.bin === agent));
-  const KNOWN_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
-  const intro = {
-    kind: 'intro', id: 'intro:' + p.id,
-    name: (reg && reg.name) || KNOWN_NAMES[agent] || agent, cwd: p.cwd,
-    mode: (MODE_CYCLES[agent] || [])[0] || '',
-  };
+  const intro = cardIntro(p, agent, { mode: (MODE_CYCLES[agent] || [])[0] || '' });
   p.agentStatus = Object.assign(p.agentStatus || {}, { name: intro.name, mode: intro.mode || undefined });
   if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[agent] });
   p.cardEvents = [intro];
@@ -2310,6 +2328,18 @@ async function driveCards(p) {
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
 
+  // A connect that never resolves must not hang a silent card (hermes'
+  // ACP resume did exactly that): after 10s the note turns urgent and
+  // offers the way out. init clears it through refreshCardNote.
+  setTimeout(() => {
+    if (cardView(p) !== 'cards') return;
+    if (!p.connecting && (!p.agentLive || p.agentInit)) return;
+    const rec3 = tileEls.get(p.id);
+    if (rec3 && rec3.cardsUi) rec3.cardsUi.setNote(
+      'Still connecting — this agent may not support resuming over its card channel.',
+      true, { label: 'Open in Term', run: () => setView(p, 'term') });
+  }, 10000);
+
   if (p.started && !p.exited) {
     p.viewSwitching = true;
     await api.termKill({ id: p.id });
@@ -2321,6 +2351,13 @@ async function driveCards(p) {
   if (cardView(p) !== 'cards') { if (res && res.ok) api.agentStop({ id: p.id }); return; }
   p.agentLive = !!(res && res.ok);
   p.cardFallback = '';
+  // Anything typed while the channel was booting goes now, oldest first.
+  if (p.agentLive && p.sendQueue && p.sendQueue.length) {
+    const queued = p.sendQueue.splice(0);
+    p.cardEvents = (p.cardEvents || []).filter((e) => !(e && e.kind === 'note' && e.queued));
+    scheduleFeed(p);
+    for (const t of queued) api.agentSend({ id: p.id, text: t });
+  }
   if (!p.agentLive && agent === 'claude') {
     // Read-only fallback: restart the pty (hidden under the card) and tail
     // the transcript it writes.
@@ -2352,6 +2389,7 @@ async function exitCards(p) {
   }
   if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
   p.cardMode = 'off';
+  p.agentInit = false;
   p.exited = false; p.status = 'live'; p.started = false;
   if (rec.term) {
     try { rec.term.reset(); } catch (_) {}
@@ -2433,6 +2471,18 @@ function mountCards(p, rec) {
           return;
         }
         api.agentSend({ id: p.id, text });
+        return;
+      }
+      // Still connecting: the input works, the message queues visibly and
+      // sends the moment the channel is up — never into a dead pty.
+      if (p.cardMode === 'drive') {
+        p.sendQueue = p.sendQueue || [];
+        p.sendQueue.push(text);
+        p.cardEvents = (p.cardEvents || []).concat({
+          kind: 'note', id: 'queued:' + Date.now(), queued: true,
+          text: `queued — "${text.length > 44 ? text.slice(0, 43) + '…' : text}" · sends when connected`,
+        });
+        scheduleFeed(p);
         return;
       }
       // Watch fallback: the pty underneath still holds the keyboard.
