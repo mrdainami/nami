@@ -1618,16 +1618,37 @@ function kindLabel(p) {
   return 'run · ' + shortHome(p.cwd);
 }
 
-// One line, three facts: it is free, it can be starred, and a person made it.
-// No social icons — YouTube, LinkedIn and the rest all live behind the one
-// "Cal" link, because a row of platform icons inside a work tool is the fastest
-// way to make it feel like a funnel.
-function deskCreditHtml() {
-  return `<div class="desk-credit">free &amp; open source
-    <span class="dc-sep">·</span>
-    <a class="dc-link" href="#" data-url="${REPO_URL}">★ star Nami</a>
-    <span class="dc-sep">·</span>
-    Made by <a class="dc-link" href="#" data-url="${makerUrl('empty-desk')}">Cal</a>, in Nami.</div>`;
+// The no-folder desk: the first screen anyone ever sees, and until now a wall
+// for the exact person the app is for. It asked for a folder and offered one
+// button to go and find one — fine if you already work in projects, useless if
+// you have never made a folder for a piece of work in your life. So it offers
+// to make one.
+//
+// Which button is green depends on whether this is a first run. With Recents
+// empty there is nothing to open, so making one is the only sensible next move
+// and it takes the emphasis. Once anything is in Recents they swap: from then
+// on, opening something that already exists is the common case, and a person
+// with folders does not want to be nudged into making another.
+function emptyDeskHtml() {
+  const first = !S.recents.length;
+  const make = `<button class="btn ${first ? 'btn--go ' : ''}lane-cta" id="lane-make">＋ Make me a folder</button>`;
+  const open = first
+    ? `<button class="btn lane-cta" id="lane-open">Choose an existing one<span class="kb"> ⌘O</span></button>`
+    : `<button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button>`;
+  return `<div class="lane-empty"><div class="polaroid">no folder</div>
+      <div><div class="big">Open a folder to start working</div>
+      <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
+      <div class="lane-ctas">${first ? make + open : open + make}</div></div></div>`;
+}
+
+// Hands off to the save panel in main, then through the ordinary switch path —
+// a folder Nami made is not a special kind of folder once it exists.
+async function makeFolderDialog() {
+  const info = await api.makeFolder();
+  if (!info) return;
+  if (info.error) { toast('Could not make that folder — ' + info.error); return; }
+  await switchToFolder(info);
+  toast(`Made ${info.name}. Open “Start here” for what to do next.`);
 }
 
 function renderGrid() {
@@ -1644,26 +1665,8 @@ function renderGrid() {
       <div><div class="big">Start a session</div>
       <div class="hint">Agents, terminals and harnesses. They all run in this folder.</div>
       <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
-      : `<div class="lane-empty"><div class="polaroid">no folder</div>
-      <div><div class="big">Open a folder to start working</div>
-      <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
-      <button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button></div></div>`;
-    // The credit belongs to the front door only. It is the first screen anyone
-    // sees and the only place the app says who made it without being opened
-    // first, so it earns the line there. The folder-open desk is somebody
-    // mid-job who just closed their last tile: asking them for a star on their
-    // own desk is asking for a favour in the middle of the work. The one-time
-    // bar after five launches (armStarAsk) is the ask that has been earned; a
-    // line that is always on screen only makes that one read as nagging.
-    // Footer weight on purpose: it must never compete with the button above it,
-    // and it is deliberately not in the keyboard-hints strip below, which is one
-    // category of thing and would read as a bug with a link in it.
-    if (!S.project) {
-      els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
-      els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
-        el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
-      });
-    }
+      : emptyDeskHtml();
+    const make = q('#lane-make', els.grid); if (make) make.onclick = makeFolderDialog;
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
