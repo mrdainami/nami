@@ -12,7 +12,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { capability, toolKindFor, clip, safeEvent } = require('./../agent-events.js');
+const { capability, toolKindFor, clip, safeEvent, classifyFailure } = require('./../agent-events.js');
 
 // agent id -> how to spawn its ACP endpoint. Growing this table is how
 // another ACP agent gets cards.
@@ -110,6 +110,12 @@ class AcpAdapter {
         const hint = this.stderrBuf.trim().split('\n').pop() || '';
         this.emit('error', { message: `${spec.label} exited (${code}).${hint ? ' ' + hint.slice(0, 200) : ''}` });
       }
+      // A turn cannot end that never will: whatever was awaiting this process
+      // fails now, not after a timeout that never comes.
+      for (const [id, pending] of this.pendingRpc) {
+        this.pendingRpc.delete(id);
+        pending.reject(new Error(`${spec.label} exited before answering.`));
+      }
       this.emit('status', { state: 'idle' });
     });
 
@@ -139,8 +145,15 @@ class AcpAdapter {
       const msg = err && (err.message || err.data || JSON.stringify(err));
       this.emit('error', { message: `${spec.label} refused the session: ${String(msg).slice(0, 300)}` });
       // Where the protocol offers a repair, hand it over as a note.
+      // Where the protocol offers a repair — hermes advertises
+      // {args:["--setup"]} — the card offers that exact button.
       const term = this.authMethods.find((m) => Array.isArray(m.args));
-      if (term) this.emit('note', { text: `Fix it in a terminal: ${spec.program} ${term.args.join(' ')}` });
+      if (term) {
+        this.emit('note', {
+          text: `${spec.label} needs configuring before cards can drive it.`,
+          action: { label: 'Configure in a terminal', command: `${spec.program} ${term.args.join(' ')}` },
+        });
+      }
       return false;
     }
 
@@ -387,6 +400,10 @@ class AcpAdapter {
     this.turnStarted = Date.now();
     this._rpc('session/prompt', { sessionId: this.sessionId, prompt: [{ type: 'text', text }] })
       .then((result) => {
+        // Failure is not prose: a provider error that arrived as the whole
+        // answer becomes an error row, so the turn reads as what it was.
+        const failure = classifyFailure(this.burstKind === 'assistant' ? this.burstText : '');
+        if (failure) this.emit('error', { message: failure });
         this.settlePending();
         const usage = this.lastUsage;
         this.emit('turn_end', {

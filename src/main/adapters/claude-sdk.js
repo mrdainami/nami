@@ -99,19 +99,10 @@ class ClaudeSdkAdapter {
       return false;
     }
 
-    const options = {
-      cwd: this.cwd,
-      permissionMode: 'default',
-      includePartialMessages: false,
-      settingSources: ['project', 'user'],
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      pathToClaudeCodeExecutable: exe,
+    const options = sdkOptions({
+      cwd: this.cwd, model: this.model, env: this.env, exe, sid, hasTranscript,
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
-    };
-    if (this.model) options.model = this.model;
-    if (this.env) options.env = this.env;
-    if (sid && hasTranscript) options.resume = sid;
-    else if (sid) options.extraArgs = { 'session-id': sid };
+    });
 
     if (prompt) this.send(prompt);
 
@@ -347,4 +338,26 @@ function suggestionLabel(s, toolName, input) {
 
 function short(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
-module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable };
+// The parity checklist, as one pure function. The pty path spent years
+// learning these; the SDK path must match it item for item or sessions
+// orphan: the same conversation id (resume with a transcript, pinned
+// without one), the same env (login PATH, stripInheritedClaude, stored
+// keys — the caller passes sessionEnv's output), the user's own binary.
+function sdkOptions({ cwd, model, env, exe, sid, hasTranscript, canUseTool }) {
+  const options = {
+    cwd,
+    permissionMode: 'default',
+    includePartialMessages: false,
+    settingSources: ['project', 'user'],
+    systemPrompt: { type: 'preset', preset: 'claude_code' },
+    pathToClaudeCodeExecutable: exe,
+    canUseTool,
+  };
+  if (model) options.model = model;
+  if (env) options.env = env;
+  if (sid && hasTranscript) options.resume = sid;
+  else if (sid) options.extraArgs = { 'session-id': sid };
+  return options;
+}
+
+module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable, sdkOptions };

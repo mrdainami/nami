@@ -177,3 +177,41 @@ test('init announces the channel and what it can do', () => {
   assert.equal(init.capability.channel, 'agent sdk');
   assert.ok(init.agentSessionId);
 });
+
+// ---- step 20: session-identity parity, one line of the checklist per assert
+test('sdkOptions keeps identity parity with the pty path', () => {
+  const { sdkOptions } = require('../src/main/adapters/claude-sdk.js');
+  const canUseTool = () => {};
+  const env = { PATH: '/login/path', COLORFGBG: '0;15' };
+
+  // restored + transcript on disk → --resume, the same conversation
+  const resumed = sdkOptions({ cwd: '/repo', env, exe: '/bin/claude', sid: 'ses_1', hasTranscript: true, canUseTool });
+  assert.equal(resumed.resume, 'ses_1');
+  assert.equal(resumed.extraArgs, undefined);
+
+  // fresh → the id is pinned so the pty can resume it later
+  const fresh = sdkOptions({ cwd: '/repo', env, exe: '/bin/claude', sid: 'ses_2', hasTranscript: false, canUseTool });
+  assert.equal(fresh.extraArgs['session-id'], 'ses_2');
+  assert.equal(fresh.resume, undefined);
+
+  // the env rides through whole — login PATH and all
+  assert.equal(fresh.env.PATH, '/login/path');
+  // the user's own logged-in binary, never the SDK's vendored copy
+  assert.equal(fresh.pathToClaudeCodeExecutable, '/bin/claude');
+  // settings come from the same sources the terminal reads
+  assert.deepEqual(fresh.settingSources, ['project', 'user']);
+  // no sid at all still builds — a tile that never had a conversation
+  const bare = sdkOptions({ cwd: '/repo', env: null, exe: '/bin/claude', sid: null, hasTranscript: false, canUseTool });
+  assert.equal(bare.resume, undefined);
+  assert.equal(bare.extraArgs, undefined);
+});
+
+test('classifyFailure catches the 404 hermes sent as prose, and only that shape', () => {
+  const { classifyFailure } = require('../src/main/agent-events.js');
+  assert.ok(classifyFailure('API call failed after 3 retries: HTTP 404: model: openrouter/x'));
+  assert.ok(classifyFailure('HTTP 502'));
+  assert.ok(classifyFailure('429 Too Many Requests'));
+  assert.equal(classifyFailure('The HTTP 404 status code means not found — here is how to fix your route: ' + 'x'.repeat(400)), null);
+  assert.equal(classifyFailure('I fixed the error in your code.'), null);
+  assert.equal(classifyFailure(''), null);
+});
