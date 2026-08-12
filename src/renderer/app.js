@@ -1640,7 +1640,8 @@ function emptyDeskHtml() {
   return `<div class="lane-empty"><div class="polaroid">no folder</div>
       <div><div class="big">Open a folder to start working</div>
       <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
-      <div class="lane-ctas">${first ? make + open : open + make}</div></div></div>`;
+      <div class="lane-ctas">${first ? make + open : open + make}</div>
+      <button class="lane-tour" id="lane-tour">New to Nami? Start here</button></div></div>`;
 }
 
 // Hands off to the save panel in main, then through the ordinary switch path —
@@ -1669,6 +1670,7 @@ function renderGrid() {
       <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
       : emptyDeskHtml();
     const make = q('#lane-make', els.grid); if (make) make.onclick = makeFolderDialog;
+    const tour = q('#lane-tour', els.grid); if (tour) tour.onclick = openQuickStart;
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
@@ -4498,6 +4500,14 @@ let overlayStill = false;
 // reason to care — VS Code and Zed both landed on a resumable list instead.
 // Every button here does the real thing rather than describing it, and rows
 // tick off as they are done so leaving and coming back keeps your place.
+// The Supademo walk-throughs the rows link to. Empty until each one is
+// recorded, and a row only grows its Watch button once its URL is filled in —
+// a "▶ Watch · 2 min" that plays nothing is a worse promise than no button.
+// Paste a URL here and the button appears; nothing else needs touching.
+const DEMOS = {
+  'getting-started': '',   // first launch → folder → agent → first ask → approve
+  'a-real-job': '',        // plain English in, two panes running, a file out
+};
 const QS_DONE = 'nami-quickstart-done';
 function qsDone() {
   try { return new Set(JSON.parse(localStorage.getItem(QS_DONE) || '[]')); } catch { return new Set(); }
@@ -4530,7 +4540,10 @@ function quickStartRows() {
     {
       n: 2, title: 'Press New session and pick who runs it',
       sub: 'The list shows what is on your Mac. Anything missing installs from the same list.',
-      acts: [{ label: 'New session ⌘N', go: true, run: () => { closeOverlay(); openLauncher(); } }],
+      acts: [
+        { label: 'New session ⌘N', go: true, run: () => { closeOverlay(); openLauncher(); } },
+        { label: '▶ Watch · 2 min', play: 'getting-started' },
+      ],
     },
     {
       n: 3, title: 'Nami runs agents — it is not one',
@@ -4539,8 +4552,11 @@ function quickStartRows() {
     },
     {
       n: 4, title: 'Say what you need, in plain English',
-      sub: 'No commands to learn. There are examples in the note Nami left in your folder.',
-      acts: [{ label: 'See examples', run: qsExamples }],
+      sub: 'No commands to learn. Here are twelve things people actually ask for.',
+      acts: [
+        { label: 'See 12 examples', run: qsExamples },
+        { label: '▶ Watch · 60s', play: 'a-real-job' },
+      ],
     },
     {
       n: 5, title: 'It asks before it does anything real',
@@ -4555,9 +4571,11 @@ function renderQuickStart() {
   const rows = quickStartRows();
   const body = rows.map((r) => {
     const ticked = r.done || done.has(r.n);
-    const acts = r.acts.length
-      ? `<div class="qs-acts">${r.acts.map((a, i) =>
-          `<button class="qs-mini${a.go ? ' qs-mini--go' : ''}" data-row="${r.n}" data-act="${i}">${esc(a.label)}</button>`).join('')}</div>`
+    // A demo that has not been recorded yet simply is not offered.
+    const shown = r.acts.filter((a) => !a.play || DEMOS[a.play]);
+    const acts = shown.length
+      ? `<div class="qs-acts">${shown.map((a) =>
+          `<button class="qs-mini${a.go ? ' qs-mini--go' : ''}${a.play ? ' qs-mini--play' : ''}" data-row="${r.n}" data-act="${r.acts.indexOf(a)}">${esc(a.label)}</button>`).join('')}</div>`
       : '';
     return `<div class="qs-row"${ticked ? ' data-done' : ''}>
       <div class="qs-n">0${r.n}</div>
@@ -4565,7 +4583,7 @@ function renderQuickStart() {
       <div class="qs-s">${esc(r.sub)}</div>${acts}</div></div>`;
   }).join('');
 
-  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
+  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span><span class="qs-esc">esc</span></div>
     <div class="qs-body">${body}</div>
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
     <a class="qs-link" href="#" data-url="${GUIDE_URL}">Full guide ↗</a></div>`, { top: true });
@@ -4576,6 +4594,7 @@ function renderQuickStart() {
       const act = row && row.acts[+b.dataset.act];
       if (!act) return;
       qsMark(row.n);
+      if (act.play) { api.openUrl(DEMOS[act.play]); return; }
       act.run();
     };
   });

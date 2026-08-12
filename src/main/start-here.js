@@ -38,14 +38,32 @@ the list; it installs from there.
 
 ## Ask in plain English
 
-There are no commands to learn. Open a session and say what you need. Things
-people actually ask for:
+There are no commands to learn. Open a session and say what you need. Twelve
+things people actually ask for:
+
+**Make sense of a pile**
 
 - Read every PDF in here and build me one spreadsheet: date, client, amount.
-- Rename these files to "date — client — what it is", based on what's inside.
-- Turn my messy notes into a clean one-page brief I can send a client.
 - Go through these receipts and tell me what I spent, by month.
+- Summarise all the feedback in this folder into the top five complaints.
+
+**Tidy up**
+
+- Rename these files to "date — client — what it is", based on what's inside.
 - Sort this folder into subfolders by year and type.
+- Find every place my old company name appears in here and change it.
+
+**Write it for me**
+
+- Turn my messy notes into a clean one-page brief I can send a client.
+- Draft a follow-up email to everyone in contacts.csv who hasn't replied.
+- Take this meeting transcript and pull out every decision and who owns it.
+
+**Look into it**
+
+- Compare our prices in pricing.csv with the top twenty competitors.
+- Read this contract and flag anything unusual against the others in here.
+- Build me a simple one-page site from this, and open it so I can see it.
 
 Drop some files in here and try one.
 
