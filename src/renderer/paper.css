@@ -1880,6 +1880,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 @media (max-width: 820px) {
   .btn-set { display: none; }
 }
+/* ? outlives ⚙ by that same rule -- it has no shortcut at all, so losing it
+   loses the only way in. It still has to go eventually: by 720px the topbar is
+   four controls in a half-window, and Agents and New session are the two a
+   person mid-work cannot do without. Help lives on in the Help menu. */
+@media (max-width: 720px) {
+  #btn-help { display: none; }
+}
 
 /* Below here the window is narrower than half a laptop screen — a side-by-side
    pane, not a desk. The same priority order applies inside a tile: the status
