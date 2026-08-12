@@ -24,36 +24,54 @@ function startHereNote(folderName) {
   const name = folderName || 'this folder';
   return `# Start here
 
-This is **${name}** — the folder you just gave Nami.
+This is **${name}**, the folder you just gave Nami.
 
 Nami can read and change things in here, and nowhere else on your Mac. That is
 the whole safety model, and it is why every session asks you for a folder first.
 
 ## Nami runs agents. It isn't one.
 
-Nami is the desk. The thinking is done by an agent — Claude Code, Codex and a
-few others — signed in with **your own account**. No Nami account, no second
-bill. If you have none installed yet, press **New session** and pick one from
-the list; it installs from there.
+Nami is the desk. The thinking is done by an agent: Claude Code, Codex and a
+few others. Each one signs in with **your own account**, so there is no Nami
+account and no second bill. If you have none installed yet, press
+**New session** and pick one from the list; it installs from there.
 
 ## Ask in plain English
 
-There are no commands to learn. Open a session and say what you need. Things
-people actually ask for:
+There are no commands to learn. Open a session and say what you need. Twelve
+things people actually ask for:
+
+**Make sense of a pile**
 
 - Read every PDF in here and build me one spreadsheet: date, client, amount.
-- Rename these files to "date — client — what it is", based on what's inside.
-- Turn my messy notes into a clean one-page brief I can send a client.
 - Go through these receipts and tell me what I spent, by month.
+- Summarise all the feedback in this folder into the top five complaints.
+
+**Tidy up**
+
+- Rename these files to "date, client, what it is", based on what's inside.
 - Sort this folder into subfolders by year and type.
+- Find every place my old company name appears in here and change it.
+
+**Write it for me**
+
+- Turn my messy notes into a clean one-page brief I can send a client.
+- Draft a follow-up email to everyone in contacts.csv who hasn't replied.
+- Take this meeting transcript and pull out every decision and who owns it.
+
+**Look into it**
+
+- Compare our prices in pricing.csv with the top twenty competitors.
+- Read this contract and flag anything unusual against the others in here.
+- Build me a simple one-page site from this, and open it so I can see it.
 
 Drop some files in here and try one.
 
 ## It stops and asks before it changes anything
 
-Reading is free. Anything that *changes* something — writing a file, running a
-command, going online — pauses and shows you a **Needs your OK** card naming
-exactly what it wants to do.
+Reading is free. Anything that *changes* something stops first: writing a file,
+running a command, going online. You get a **Needs your OK** card naming exactly
+what it wants to do.
 
 **Go ahead** lets that one thing through. **Not now** stops it and the agent
 carries on without it. Nothing happens behind your back.
@@ -65,8 +83,8 @@ working, and watch both. That is the point of the desk.
 
 ---
 
-You can delete this file whenever you like — it is yours now. Nami will not put
-it back.
+You can delete this file whenever you like. It is yours now, and Nami will not
+put it back.
 `;
 }
 

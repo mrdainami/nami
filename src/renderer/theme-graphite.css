@@ -96,3 +96,13 @@ body[data-theme="graphite"] .t-surface.cards { color: #fff; }
 body[data-theme="graphite"] .nami-mascot { filter: drop-shadow(0 2px 6px rgba(239, 100, 97, 0.45)); }
 body[data-theme="graphite"] .viewer .vw-stage--dark { background: #000; }
 body[data-theme="graphite"] .say--user { color: #d9dae2; }
+
+/* The quick start is a reading panel, so it takes the modal fill rather than
+   the 44% pane wash — at that opacity the desk shows through the words. Blur
+   to match the other modals in this file. */
+body[data-theme="graphite"] .qs-box {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--gl-rim);
+}
