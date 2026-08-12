@@ -13,12 +13,22 @@ import { pixIcon, iconKeyFor, iconSvg } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function modeLabel(mode) {
+export function modeLabel(mode) {
   return {
     default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits',
     plan: 'plan', bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
     build: 'build', 'full access': 'full access',
   }[mode] || mode;
+}
+// One stable colour per mode, worn everywhere the mode appears — the chip,
+// the welcome pick, the mode menu — so shift⇥ state reads by hue before the
+// word: neutral asks, blue plans, green accepts edits, amber bypasses.
+export function modeClass(mode) {
+  const m = String(mode || '');
+  if (/bypass|skip/i.test(m)) return 'm-bypass';
+  if (/plan/i.test(m)) return 'm-plan';
+  if (/accept/i.test(m)) return 'm-accept';
+  return 'm-default';
 }
 function shortModel(m) {
   const s = String(m || '').split('/').pop();
@@ -195,12 +205,12 @@ function renderRow(ctx, row) {
       ${row.note ? `<div class="cd-wnote">${esc(row.note)}</div>` : ''}
       <div class="cd-wp">
         ${row.model ? `<button class="cd-wpick" data-act="model"><span class="lab">model</span><span class="val">${esc(shortModel(row.model))}</span><span class="c">⌄</span></button>` : ''}
-        ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
+        ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val ${modeClass(row.mode)}">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
       </div>
       <div class="cd-wh">/ commands · esc interrupts · shift⇥ cycles mode · ⌘↑ ⌘↓ walk turns</div>`;
     el.querySelectorAll('.cd-wpick').forEach((b) => {
       b.onclick = () => {
-        if (b.dataset.act === 'mode' && ctx.onMode) ctx.onMode();
+        if (b.dataset.act === 'mode') { if (ctx.onModePick) ctx.onModePick(b); else if (ctx.onMode) ctx.onMode(); }
         else if (b.dataset.act === 'model' && ctx.onModelMenu) ctx.onModelMenu();
       };
     });
@@ -613,7 +623,9 @@ export function buildCards(ctx) {
   const modeChip = q('.cs-mode', el);
   modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
   modelSel.addEventListener('keydown', (e) => e.stopPropagation());
-  modeChip.onclick = () => { if (ctx.onMode) ctx.onMode(); };
+  // Click opens the menu of what is actually available; shift⇥ stays the
+  // blind-cycle shortcut (through available modes only — app.js filters).
+  modeChip.onclick = () => { if (ctx.onModePick) ctx.onModePick(modeChip); else if (ctx.onMode) ctx.onMode(); };
   function setStatus(st) {
     const models = st && st.models;
     const hasModel = !!(models && models.options && models.options.length) || !!(st && st.model);
@@ -637,6 +649,7 @@ export function buildCards(ctx) {
       modeChip.textContent = modeLabel(st.mode);
       modeChip.hidden = false;
       modeChip.disabled = !st.canSwitchMode;
+      modeChip.className = 'cs-mode ' + modeClass(st.mode);
       modeChip.classList.toggle('warn', /bypass|skip/i.test(st.mode));
     } else {
       modeChip.hidden = true;

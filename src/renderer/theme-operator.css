@@ -28,6 +28,7 @@ body[data-theme="operator"] {
   --green: #ef6461;          /* primary action → coral in operator */
   --green-dark: #c14f4d;
   --green-ok: #5aa06e;
+  --mode-plan: #7ea4e0; /* plan hue, lifted for the dark ground */
   --u-bg: rgba(239, 100, 97, 0.09);
   --diff-add-bg: rgba(90, 160, 110, 0.16);
   --diff-add-ink: #8fd3a6;

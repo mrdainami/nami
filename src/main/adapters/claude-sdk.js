@@ -77,6 +77,34 @@ function makeInputChannel() {
 
 const CAPABILITY = { drive: true, interrupt: true, ask: true, commands: true, channel: 'agent sdk' };
 
+// Which permission modes this session can actually enter — the renderer's
+// chip offers exactly this list, never a hardcoded table. Settings (managed,
+// user or project) can disable bypass outright; offering it anyway meant the
+// switch silently failed. Reads are best-effort: an unreadable file changes
+// nothing.
+const MODE_IDS = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+function permissionModes({ cwd, home = os.homedir(), readFile } = {}) {
+  const read = readFile || ((p) => { try { return fs.readFileSync(p, 'utf8'); } catch (_) { return null; } });
+  const files = [
+    ['/Library/Application Support/ClaudeCode/managed-settings.json', 'disabled by managed settings'],
+    [home + '/.claude/settings.json', 'disabled in ~/.claude/settings.json'],
+    cwd ? [cwd + '/.claude/settings.json', 'disabled in project settings'] : null,
+    cwd ? [cwd + '/.claude/settings.local.json', 'disabled in project settings'] : null,
+  ].filter(Boolean);
+  let bypassReason = '';
+  for (const [file, why] of files) {
+    const raw = read(file);
+    if (!raw) continue;
+    let s = null;
+    try { s = JSON.parse(raw); } catch (_) { continue; }
+    const v = s && (s.disableBypassPermissionsMode || (s.permissions && s.permissions.disableBypassPermissionsMode));
+    if (v === 'disable') bypassReason = why;
+  }
+  return MODE_IDS.map((id) => (id === 'bypassPermissions' && bypassReason
+    ? { id, available: false, reason: bypassReason }
+    : { id, available: true }));
+}
+
 class ClaudeSdkAdapter {
   constructor({ id, cwd, model, env, onEvent }) {
     this.id = id;
@@ -90,6 +118,13 @@ class ClaudeSdkAdapter {
     this.pendingPermissions = new Map(); // permissionId -> { resolve, input, suggestions }
     this.closed = false;
     this.seq = 0;
+    this.permModes = permissionModes({ cwd });
+    // Silent-approval bookkeeping: which tools the card was actually asked
+    // about, and which toolIds map to which names — so the first edit or
+    // command that runs unasked in default mode can say who allowed it.
+    this.askedNames = new Set();
+    this.toolNames = new Map();
+    this.saidAutoAllow = false;
   }
 
   emit(kind, payload) {
@@ -155,6 +190,7 @@ class ClaudeSdkAdapter {
         agentSessionId: this.sessionId,
         commands: this.richCommands,
         models: this.models,
+        modes: this.permModes,
         ...(this.initMeta || { agentName: 'Claude Code', mode: 'default' }),
       });
     } catch (_) {}
@@ -196,6 +232,7 @@ class ClaudeSdkAdapter {
             capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
             agentSessionId: this.sessionId,
             commands,
+            modes: this.permModes,
             ...this.initMeta,
           });
 
@@ -224,6 +261,7 @@ class ClaudeSdkAdapter {
           } else if (b.type === 'tool_use') {
             if (isTodoTool(b.name)) this.emit('plan', { todos: extractTodos(b.input) });
             else {
+              if (b.id) this.toolNames.set(b.id, String(b.name || ''));
               this.emit('tool', {
                 toolId: b.id || null, name: String(b.name || ''),
                 toolKind: toolKindFor(b.name), input: b.input || {}, parentToolId,
@@ -241,6 +279,7 @@ class ClaudeSdkAdapter {
           if (!b || b.type !== 'tool_result') continue;
           const { body, truncated } = clip(blocksToText(b.content));
           this.emit('tool_result', { toolId: b.tool_use_id || null, isError: !!b.is_error, body, truncated });
+          this.noteSilentApproval(b);
         }
         break;
       }
@@ -268,10 +307,28 @@ class ClaudeSdkAdapter {
     }
   }
 
+  // What made cards look like forced bypass: settings allow-rules approve
+  // before canUseTool is ever consulted, so an edit or command just… runs.
+  // The first time that happens in default mode, one note says who allowed
+  // it. Reads stay silent (the SDK allows those by design), asked tools stay
+  // silent (the card answered), and other modes stay silent (the mode is the
+  // approval). Once per session — a fact, not a nag.
+  noteSilentApproval(b) {
+    if (this.saidAutoAllow || b.is_error) return;
+    const name = this.toolNames.get(b.tool_use_id);
+    if (!name || this.askedNames.has(name)) return;
+    const kind = toolKindFor(name);
+    if (kind !== 'execute' && kind !== 'edit') return;
+    if (((this.initMeta && this.initMeta.mode) || 'default') !== 'default') return;
+    this.saidAutoAllow = true;
+    this.emit('note', { text: `${name} ran without asking — allowed by your settings rules. Rule-approved calls run silently in cards too.` });
+  }
+
   // canUseTool, surfaced. The event carries what the agent sent — its own
   // title, its own description, one option per suggestion — and the promise
   // stays open until the card answers or the turn is cancelled.
   askPermission(toolName, input, opts) {
+    this.askedNames.add(String(toolName || ''));
     return new Promise((resolve) => {
       const permissionId = `${this.id}:p${++this.seq}`;
       const suggestions = (opts && Array.isArray(opts.suggestions)) ? opts.suggestions : [];
@@ -333,10 +390,20 @@ class ClaudeSdkAdapter {
           this.initMeta = Object.assign(this.initMeta || {}, { mode: String(value) });
           this.emit('init', {
             capability: capability(CAPABILITY), agentSessionId: this.sessionId,
-            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+            models: this.models || undefined, modes: this.permModes,
+            ...(this.initMeta || { agentName: 'Claude Code' }),
           });
         })
-        .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
+        .catch(() => {
+          // The chip must never show a mode the agent refused: the note says
+          // what happened and a re-init with the old mode reverts the display.
+          this.emit('note', { text: `Could not switch to ${value} mode — staying in ${(this.initMeta && this.initMeta.mode) || 'default'}.` });
+          this.emit('init', {
+            capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+            models: this.models || undefined, modes: this.permModes,
+            ...(this.initMeta || { agentName: 'Claude Code', mode: 'default' }),
+          });
+        });
       return;
     }
     if (configId === 'model') {
@@ -347,7 +414,8 @@ class ClaudeSdkAdapter {
           if (this.models) this.models.current = String(value);
           this.emit('init', {
             capability: capability(CAPABILITY), agentSessionId: this.sessionId,
-            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+            models: this.models || undefined, modes: this.permModes,
+            ...(this.initMeta || { agentName: 'Claude Code' }),
           });
         })
         .catch(() => this.emit('note', { text: `Could not switch model.` }));
@@ -454,4 +522,4 @@ function sdkOptions({ cwd, model, env, exe, sid, hasTranscript, canUseTool }) {
   return options;
 }
 
-module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable, sdkOptions };
+module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable, sdkOptions, permissionModes };
