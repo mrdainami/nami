@@ -1537,26 +1537,38 @@ function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
     els.grid.classList.remove('has-focus');
-    // With no folder the desk asks for one instead of offering an action that
-    // would have to stop and ask anyway.
+    // Two empty desks, one shape: a heading, a line of why, and the button that
+    // does the thing. The folder-open one used to be the exception — it told you
+    // to press a key and offered nothing to click, which is the one state in the
+    // app where the next step was homework. Its hint also still named Claude Code
+    // alone, from when that was the only session Nami could start.
     els.grid.innerHTML = S.project
       ? `<div class="lane-empty"><div class="polaroid">nothing open</div>
-      <div><div class="big">Start a session</div><div class="hint">Press ⌘N (or the ＋ New session button) — Claude Code, terminals &amp; harnesses.</div></div></div>`
+      <div><div class="big">Start a session</div>
+      <div class="hint">Agents, terminals and harnesses. They all run in this folder.</div>
+      <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
       : `<div class="lane-empty"><div class="polaroid">no folder</div>
       <div><div class="big">Open a folder to start working</div>
-      <div class="hint">Every session runs inside a folder — that is what keeps it resumable.</div>
+      <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
       <button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button></div></div>`;
-    // The empty desk is the one screen every user sees, on the first launch and
-    // between every job after it — and the only place in the app that says who
-    // made this without being opened first. Footer weight on purpose: it must
-    // never compete with the button above it, and it is deliberately not in the
-    // keyboard-hints strip below, which is one category of thing and would read
-    // as a bug with a link in it.
-    els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
-    els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
-      el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
-    });
+    // The credit belongs to the front door only. It is the first screen anyone
+    // sees and the only place the app says who made it without being opened
+    // first, so it earns the line there. The folder-open desk is somebody
+    // mid-job who just closed their last tile: asking them for a star on their
+    // own desk is asking for a favour in the middle of the work. The one-time
+    // bar after five launches (armStarAsk) is the ask that has been earned; a
+    // line that is always on screen only makes that one read as nagging.
+    // Footer weight on purpose: it must never compete with the button above it,
+    // and it is deliberately not in the keyboard-hints strip below, which is one
+    // category of thing and would read as a bug with a link in it.
+    if (!S.project) {
+      els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
+      els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
+        el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+      });
+    }
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
+    const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
   }
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
