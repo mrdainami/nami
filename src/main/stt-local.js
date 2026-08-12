@@ -44,6 +44,11 @@ function status(cfg = {}) {
 async function prepare(cfg = {}, onProgress = () => {}) {
   const model = store.modelById(cfg.sttModelId);
   await store.ensureModel({ dir: modelsDir, repo: model.repo, onProgress });
+  // Announced before the wait, not after it: ~44 MB of weights go into an ONNX
+  // session here, which takes seconds and prints nothing. A progress counter
+  // that stops on its last file and then sits there is how a download that is
+  // working reads as a download that has hung.
+  onProgress({ phase: 'load' });
   await session(model);   // pay the load cost now, not on the first dictation
   return { ok: true, modelId: model.id };
 }

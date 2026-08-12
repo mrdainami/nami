@@ -3648,6 +3648,21 @@ function voiceFlag(p) {
 }
 function mb(bytes) { return Math.round(bytes / 1e6) + ' MB'; }
 
+// What a download is doing, said in the units the event actually carries.
+// stt-model counts FILES: { phase: 'download', done: 3, total: 7 }. This used
+// to read that 7 as a byte total and print `mb(0) of mb(7)` — "0 MB of 0 MB",
+// for the entire download, alongside a `loaded` field that has never existed.
+// Real byte progress would mean streaming each file against its content-length;
+// it is not worth it here, because two of the seven files are ~95% of the bytes,
+// so a byte counter would stall twice for a long time and say less than this.
+// Returns null when there is nothing to say, so the caller leaves the note as is.
+function dlProgressText(ev) {
+  if (!ev) return null;
+  if (ev.phase === 'load') return 'Getting the model ready…';
+  if (!ev.total) return null;
+  return `${ev.done || 0} of ${ev.total} files…`;
+}
+
 // The picked row is the only one that opens: a pointer to the Keys tab when the
 // key is missing, or a download button. Keys are typed in exactly one place —
 // the Keys tab — so a ready provider shows nothing extra at all.
@@ -3705,7 +3720,8 @@ function wireVoicePane(modal) {
     dl.disabled = true; dl.textContent = 'Downloading…';
     const off = api.onSttProgress((ev) => {
       const note = q('#set-dl-note', modal);
-      if (note && ev && ev.total) note.textContent = `${mb(ev.loaded || 0)} of ${mb(ev.total)}…`;
+      const line = dlProgressText(ev);
+      if (note && line) note.textContent = line;
     });
     const res = await api.sttPrepare();
     off();
