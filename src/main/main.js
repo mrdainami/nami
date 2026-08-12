@@ -705,6 +705,68 @@ ipcMain.handle('services:connect', async (_e, { id, values, scope, agentIds, pro
     return { ok: true, files, delivered, tools: check.ok ? check.tools : 0, checked: check.ok, checkError: check.ok ? null : check.error };
   } catch (e) { return { ok: false, error: e.message }; }
 });
+// The other two doors: a .mcpb bundle, or a pasted address / command line.
+// Both end at the same place as the catalog — a master entry, delivered.
+const { parseManifest, userConfigFields, buildEntry, bundleSlug, parseCommandLine } = require('./mcpb');
+ipcMain.handle('services:pickBundle', async (e) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || win;
+  const res = await dialog.showOpenDialog(parent, {
+    properties: ['openFile'], title: 'Choose a bundle',
+    filters: [{ name: 'MCP bundle', extensions: ['mcpb', 'zip'] }],
+  });
+  if (res.canceled || !res.filePaths[0]) return null;
+  const file = res.filePaths[0];
+  // A bundle is a zip; /usr/bin/unzip ships with every Mac, so no dependency.
+  // Extract first into a scratch spot named after the file, read the manifest,
+  // then settle under the manifest's own name+version.
+  const tmp = path.join(os.homedir(), '.nami', 'bundles', '.unpacking-' + Date.now());
+  const unzip = await new Promise((resolve) => {
+    execFile('/usr/bin/unzip', ['-o', '-q', file, '-d', tmp], { timeout: 30000 }, (err) => resolve(err ? err.message.split('\n')[0] : null));
+  });
+  if (unzip) return { ok: false, error: 'Could not unpack it: ' + unzip };
+  try {
+    const parsed = parseManifest(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
+    if (!parsed.ok) { fs.rmSync(tmp, { recursive: true, force: true }); return parsed; }
+    const dir = path.join(os.homedir(), '.nami', 'bundles', bundleSlug(parsed.manifest));
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tmp, dir);
+    const m = parsed.manifest;
+    return {
+      ok: true, dir,
+      name: m.display_name || m.name, slug: m.name, version: m.version || '',
+      description: m.description || '', fields: userConfigFields(m),
+    };
+  } catch (err) {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    return { ok: false, error: 'No manifest.json inside — is this really an MCP bundle? (' + err.message + ')' };
+  }
+});
+ipcMain.handle('services:connectCustom', async (_e, { name, address, values, bundleDir, scope, agentIds, projectPath } = {}) => {
+  try {
+    let entry;
+    if (bundleDir) {
+      const parsed = parseManifest(fs.readFileSync(path.join(bundleDir, 'manifest.json'), 'utf8'));
+      if (!parsed.ok) return parsed;
+      entry = buildEntry({ manifest: parsed.manifest, dir: bundleDir, values: values || {} });
+    } else if (/^https?:\/\//i.test(String(address || '').trim())) {
+      entry = { url: String(address).trim() };
+    } else {
+      const cmd = parseCommandLine(address);
+      if (!cmd) return { ok: false, error: 'Paste an address (https://…) or a command line first.' };
+      entry = cmd;
+    }
+    const id = String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!id) return { ok: false, error: 'Give it a name first.' };
+    const up = upsertMaster({ scope, projectPath, homeDir: os.homedir(), id, entry });
+    if (!up.ok) return up;
+    const delivered = await deliverConnections({ scope, projectPath, agentIds });
+    const files = [shortHome(up.file) + ' (the master)'].concat(deliveredNames(delivered));
+    const check = entry.command
+      ? await checkServer({ command: entry.command, args: entry.args, env: entry.env || {} })
+      : { ok: false, error: 'remote servers are checked by the first session that uses them' };
+    return { ok: true, id, files, delivered, tools: check.ok ? check.tools : 0, checked: check.ok, checkError: check.ok ? null : check.error };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
 // Repair: re-deliver current masters (both scopes) to every installed agent.
 ipcMain.handle('services:deliver', async (_e, { projectPath, agentIds } = {}) => {
   const out = [];

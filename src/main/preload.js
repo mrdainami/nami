@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('dainami', {
   listServices: (args) => ipcRenderer.invoke('services:list', args),
   connectService: (args) => ipcRenderer.invoke('services:connect', args),
   deliverServices: (args) => ipcRenderer.invoke('services:deliver', args),
+  pickBundle: () => ipcRenderer.invoke('services:pickBundle'),
+  connectCustom: (args) => ipcRenderer.invoke('services:connectCustom', args),
   disconnectService: (args) => ipcRenderer.invoke('services:disconnect', args),
   openUrl: (url) => ipcRenderer.invoke('url:open', url),
   themeSet: (theme) => ipcRenderer.invoke('theme:set', theme),
