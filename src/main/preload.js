@@ -61,7 +61,16 @@ contextBridge.exposeInMainWorld('dainami', {
   fsNewFile: (args) => ipcRenderer.invoke('fs:newFile', args),
   fsNewFolder: (args) => ipcRenderer.invoke('fs:newFolder', args),
   fsMove: (args) => ipcRenderer.invoke('fs:move', args),
+  fsRename: (args) => ipcRenderer.invoke('fs:rename', args),
+  // Files dragged in from Finder. Paths come from droppedFilePath above, never
+  // File.path — Electron removed that in v32 and it reads undefined here.
+  fsImport: (args) => ipcRenderer.invoke('fs:import', args),
+  fsDuplicate: (args) => ipcRenderer.invoke('fs:duplicate', args),
   fsTrash: (args) => ipcRenderer.invoke('fs:trash', args),
+  // The tree declares every folder it can see; main diffs that against the
+  // watchers it has open and reports back { watching, overflow, failed }.
+  dirWatch: (paths) => ipcRenderer.invoke('dir:watch', { paths }),
+  onDirChanged: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('dir:changed', h); return () => ipcRenderer.removeListener('dir:changed', h); },
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
   // Cards drive mode: one live agent runtime per tile, whichever adapter its
