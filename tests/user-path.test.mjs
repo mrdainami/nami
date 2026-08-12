@@ -1,64 +1,55 @@
+// The PATH sessions run with: asked once from the user's login shell, because
+// a Dock-launched app inherits `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { userPath, mergePath, pathFromOutput, resetForTests } = require('../src/main/user-path.js');
+const { userPath, mergePath, pathFromOutput, refreshUserPath, resetForTests } = require('../src/main/user-path.js');
 
-// A Dock-launched app is handed launchd's stump and nothing else. Everything
-// here is about turning that back into the PATH the user actually has.
-const LAUNCHD = '/usr/bin:/bin:/usr/sbin:/sbin';
-
-test('the login shell wins, because its order is the user intent', () => {
-  const merged = mergePath('/opt/homebrew/bin:/usr/bin', LAUNCHD);
-  assert.equal(merged.split(':')[0], '/opt/homebrew/bin');
+test('the shell answer wins, and the running PATH fills the gaps', () => {
+  assert.equal(mergePath('/a:/b', '/b:/c'), '/a:/b:/c');
+  // order is the user's intent — a shell entry never gets demoted
+  assert.equal(mergePath('/opt/homebrew/bin:/usr/bin', '/usr/bin'), '/opt/homebrew/bin:/usr/bin');
+  assert.equal(mergePath('', '/usr/bin'), '/usr/bin');
+  assert.equal(mergePath('/usr/bin', ''), '/usr/bin');
 });
 
-test('nothing the process already had is dropped', () => {
-  const merged = mergePath('/opt/homebrew/bin', '/only/here');
-  assert.ok(merged.split(':').includes('/only/here'));
-});
-
-test('a directory in both lists appears once', () => {
-  const merged = mergePath('/usr/bin:/bin', LAUNCHD);
-  assert.equal(merged.split(':').filter((p) => p === '/usr/bin').length, 1);
-});
-
-test('empty segments never become an entry, which would mean "current directory"', () => {
-  // a stray colon in PATH is a real security footgun: it resolves as "."
-  const merged = mergePath('/a::/b:', ':/c');
-  assert.ok(merged.split(':').every(Boolean), merged);
-});
-
-test('a shell that says nothing leaves the process PATH untouched', () => {
-  assert.equal(mergePath('', LAUNCHD), LAUNCHD);
-});
-
-test('the PATH is read past whatever the rc file printed first', () => {
-  assert.equal(pathFromOutput('nvm: v22\nhello\n/opt/homebrew/bin:/usr/bin\n'), '/opt/homebrew/bin:/usr/bin');
-  assert.equal(pathFromOutput('just a greeting\n'), '');
+test('a banner printed by .zshrc does not become the PATH', () => {
+  assert.equal(pathFromOutput('nvm loaded\nwelcome back\n/opt/homebrew/bin:/usr/bin'), '/opt/homebrew/bin:/usr/bin');
+  assert.equal(pathFromOutput('no path here'), '');
   assert.equal(pathFromOutput(''), '');
 });
 
-test('userPath asks the shell once and reuses the answer', async () => {
+test('the shell is asked once, not once per tile', async () => {
   resetForTests();
-  let calls = 0;
-  const exec = async () => { calls++; return '/opt/homebrew/bin'; };
-  const a = await userPath({ exec, env: { PATH: LAUNCHD } });
-  const b = await userPath({ exec, env: { PATH: LAUNCHD } });
-  assert.equal(calls, 1, 'the probe costs a second — it must not run per tile');
-  assert.equal(a, b);
-  assert.ok(a.startsWith('/opt/homebrew/bin'));
+  let asked = 0;
+  const exec = async () => { asked++; return '/from/shell'; };
+  await userPath({ exec, env: { PATH: '/inherited' } });
+  await userPath({ exec, env: { PATH: '/inherited' } });
+  await userPath({ exec, env: { PATH: '/inherited' } });
+  assert.equal(asked, 1);
 });
 
-test('a shell that throws degrades to the PATH we already had, not to nothing', async () => {
+// The one moment the answer goes stale: an installer that just wrote a PATH
+// line into .zshrc. Every tile opened afterwards was being handed the PATH from
+// before the install, so an agent Nami had itself installed could not be
+// spawned until the app was restarted.
+test('after an install the shell is asked again', async () => {
   resetForTests();
-  const out = await userPath({ exec: async () => { throw new Error('no tty'); }, env: { PATH: LAUNCHD } });
-  assert.equal(out, LAUNCHD);
+  let asked = 0;
+  const answers = ['/usr/bin', '/Users/x/.local/bin:/usr/bin'];
+  const exec = async () => answers[asked++] || '';
+  assert.equal(await userPath({ exec, env: { PATH: '' } }), '/usr/bin');
+
+  refreshUserPath();
+
+  assert.equal(await userPath({ exec, env: { PATH: '' } }), '/Users/x/.local/bin:/usr/bin');
+  assert.equal(asked, 2);
 });
 
-test('a shell that hangs and returns empty still yields a usable PATH', async () => {
+test('a shell that fails to answer leaves the app where it was', async () => {
   resetForTests();
-  const out = await userPath({ exec: async () => '', env: { PATH: LAUNCHD } });
-  assert.equal(out, LAUNCHD);
+  const exec = async () => { throw new Error('no tty'); };
+  assert.equal(await userPath({ exec, env: { PATH: '/inherited' } }), '/inherited');
 });
