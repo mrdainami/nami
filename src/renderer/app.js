@@ -1728,19 +1728,23 @@ async function driveCards(p) {
   const agent = cardAgentFor(p);
   if (!agent || agent.startsWith('unknown:')) return;
   p.cardMode = 'drive';
-  p.cardEvents = [];
   // The welcome does not wait for the channel to boot: the registry already
   // knows who this is and where. init replaces this card with the enriched
-  // one (version, model, mode) the moment it arrives.
+  // one (version, model, mode) the moment it arrives — and it rides ahead of
+  // whatever backlog the conversation already holds.
   const reg = (S.agents || []).find((a) => (agent === 'claude' ? a.id === 'claude' : a.bin === agent));
-  p.cardEvents.push({
+  const KNOWN_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
+  const intro = {
     kind: 'intro', id: 'intro:' + p.id,
-    name: (reg && reg.name) || agent, cwd: p.cwd,
-  });
+    name: (reg && reg.name) || KNOWN_NAMES[agent] || agent, cwd: p.cwd,
+    mode: (MODE_CYCLES[agent] || [])[0] || '',
+  };
+  p.agentStatus = Object.assign(p.agentStatus || {}, { name: intro.name, mode: intro.mode || undefined });
+  p.cardEvents = [intro];
   if (agent === 'claude') {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
-    p.cardEvents = (back && back.events) || [];
+    p.cardEvents = [intro, ...((back && back.events) || [])];
   }
   p.connecting = true;
   feedCards(p, true);
@@ -1896,7 +1900,6 @@ function refreshCardNote(p, rec) {
   else if (p.cardMode === 'watch' && cardAgentFor(p) === 'claude') {
     text = 'Watching the terminal\'s conversation. Approvals live in Term — or take over to drive from here.';
   }
-  else if (rec.cardsUi.isEmpty()) text = 'Waiting for the first turn.';
   if (p.cardMode === 'watch' && !p.connecting && !p.exited && cardAgentFor(p) && !String(cardAgentFor(p)).startsWith('unknown:')) {
     action = { label: 'Take over', run: () => { p.cardFallback = ''; driveCards(p); } };
   }
