@@ -1144,6 +1144,27 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
+/* The working line — spinner, elapsed, live tokens, the way out. */
+.cd-working {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  padding: 6px 14px; font-size: 11px; color: var(--muted);
+  border-top: 1px dashed var(--dash);
+}
+.cd-working .cw-sp {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  border: 2px solid var(--amber-btn); border-top-color: transparent;
+  animation: cd-spin 0.9s linear infinite;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cd-working .cw-sp { animation: none; } }
+.cd-working .cw-esc { margin-left: auto; color: var(--faint); font-size: 10px; }
+
+/* a sub-agent's live lane, indented under its Task row */
+.cd-lane {
+  border-left: 3px solid var(--line); margin: 6px 0 0 8px; padding-left: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
 /* The status line — the terminal's own bottom line, kept. Fixed height,
    single line, never wraps; hints give way first on narrow tiles. */
 .cd-status {

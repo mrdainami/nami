@@ -134,6 +134,11 @@ class ClaudeSdkAdapter {
     if (!msg || typeof msg !== 'object') return;
     switch (msg.type) {
       case 'system':
+        // The CLI streams a token estimate while it thinks; the working line
+        // shows it live, the way the TUI's spinner does.
+        if (msg.subtype === 'thinking_tokens' && msg.estimated_tokens) {
+          this.emit('status', { state: 'running', tokens: Number(msg.estimated_tokens) || 0 });
+        }
         if (msg.subtype === 'init') {
           this.sessionId = msg.session_id || this.sessionId;
           const commands = Array.isArray(msg.slash_commands) ? msg.slash_commands.slice(0, 200) : [];
@@ -287,7 +292,8 @@ class ClaudeSdkAdapter {
         ? { behavior: 'allow', updatedInput: pending.input, updatedPermissions: [s] }
         : { behavior: 'allow', updatedInput: pending.input });
     } else {
-      pending.resolve({ behavior: 'deny', message: 'Denied from the card.' });
+      // Worded to keep the turn alive: a denial is feedback, not a wall.
+      pending.resolve({ behavior: 'deny', message: 'The user declined this action — take a different approach or ask what they would prefer.' });
     }
   }
 

@@ -333,6 +333,8 @@ class AcpAdapter {
 
       case 'usage_update':
         this.lastUsage = { used: Number(update.used) || 0, size: Number(update.size) || 0, cost: update.cost || null };
+        // mid-turn usage feeds the working line live
+        if (this.turnStarted) this.emit('status', { state: 'running', tokens: this.lastUsage.used });
         return;
 
       case 'current_mode_update':
