@@ -85,14 +85,21 @@ function norm(c) {
 }
 
 // The menu's source of truth: the channel's own list when it has one, the
-// static table otherwise — every entry leaves here with a route.
+// static table otherwise — every entry leaves here with a route. The card's
+// native entries (model, resume, clear…) are appended even when the channel
+// didn't publish them: they run in the card, so the channel doesn't get a
+// vote — claude's SDK list has no 'resume', and the menu must still offer it.
 export function commandsFor(agent, protocolCommands) {
   const a = String(agent || '');
+  const statics = (STATIC_COMMANDS[a] || []).map((c) => ({ ...c, route: c.route || 'send' }));
   const published = (protocolCommands || []).map(norm).filter((c) => c.name);
-  if (published.length) {
-    return published.map((c) => ({ ...c, route: c.route || NATIVE_BY_NAME[c.name] || 'send' }));
+  if (!published.length) return statics;
+  const out = published.map((c) => ({ ...c, route: c.route || NATIVE_BY_NAME[c.name] || 'send' }));
+  const have = new Set(out.map((c) => c.name.toLowerCase()));
+  for (const s of statics) {
+    if (s.route && s.route.startsWith('native') && !have.has(s.name.toLowerCase())) out.push(s);
   }
-  return (STATIC_COMMANDS[a] || []).map((c) => ({ ...c, route: c.route || 'send' }));
+  return out;
 }
 
 // What the composer does with a typed command. `null` means it is not a
@@ -106,6 +113,10 @@ export function routeCommand(agent, protocolCommands, text) {
   if (!name) return null;
   const arg = t.slice(1 + name.length).trim();
   const cmd = commandsFor(agent, protocolCommands).find((c) => c.name.toLowerCase() === name);
-  if (!cmd) return { name, route: 'send', arg }; // unknown: the channel may still know it
+  // A name the card owns natively is intercepted even when nothing published
+  // it — sending '/resume' to a channel that never claimed it just earns
+  // "isn't available in this environment." Anything else genuinely unknown
+  // still passes through: the channel may know it (custom skills do).
+  if (!cmd) return { name, route: NATIVE_BY_NAME[name] || 'send', arg };
   return { name: cmd.name, route: cmd.route, arg };
 }

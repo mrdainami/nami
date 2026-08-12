@@ -14,11 +14,14 @@ test('every one-shot channel has a static table, so its menu is never empty', ()
   }
 });
 
-test('a published list wins over the static table', () => {
+test('a published entry wins over its static twin; native ops still append', () => {
   const cmds = commandsFor('claude', [{ name: 'compact', description: 'from the channel' }]);
-  assert.equal(cmds.length, 1);
-  assert.equal(cmds[0].description, 'from the channel');
-  assert.equal(cmds[0].route, 'send'); // executable as text — the channel runs it
+  const compact = cmds.find((c) => c.name === 'compact');
+  assert.equal(compact.description, 'from the channel'); // the channel's wording wins
+  assert.equal(compact.route, 'send'); // executable as text — the channel runs it
+  assert.equal(cmds.filter((c) => c.name === 'compact').length, 1); // never doubled
+  // the card's own ops ride along even though the channel never named them
+  assert.ok(cmds.some((c) => c.name === 'resume' && c.route === 'native-resume'));
 });
 
 test('claude with nothing published still shows the watch-mode table', () => {
@@ -94,4 +97,17 @@ test('/resume and /clear are conversation ops on every agent', () => {
 
 test('codex /approvals opens the native mode menu now', () => {
   assert.equal(routeCommand('codex', [], '/approvals').route, 'native-mode');
+});
+
+// Calvin hit this live: claude's SDK publishes no 'resume', so /resume fell
+// through as text and the channel answered "isn't available in this
+// environment." A name the card owns natively is intercepted no matter what
+// the channel published — and the menu offers it too.
+test('native ops win even when the channel never published the name', () => {
+  const published = [{ name: 'compact' }, { name: 'review-pr' }];
+  assert.equal(routeCommand('claude', published, '/resume').route, 'native-resume');
+  assert.equal(routeCommand('claude', published, '/clear').route, 'native-clear');
+  assert.equal(routeCommand('claude', published, '/model').route, 'native-model');
+  const names = commandsFor('claude', published).map((c) => c.name);
+  assert.ok(names.includes('resume') && names.includes('clear') && names.includes('compact'));
 });
