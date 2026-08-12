@@ -5,6 +5,9 @@
 // name → kind mapping applies.
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { capability, toolKindFor, clip, safeEvent } = require('./../agent-events.js');
 
 const CAPABILITY = {
@@ -37,6 +40,10 @@ class KimiAdapter {
       capability: capability(CAPABILITY),
       agentSessionId: this.sessionId,
       commands: [],
+      agentName: 'Kimi Code',
+      // display-only: the channel has no live model switch, but the config
+      // says what the next turn will run
+      model: readDefaultModel(),
     });
   }
 
@@ -160,4 +167,12 @@ class KimiAdapter {
   }
 }
 
-module.exports = { KimiAdapter };
+function readDefaultModel() {
+  try {
+    const toml = fs.readFileSync(path.join(os.homedir(), '.kimi-code', 'config.toml'), 'utf8');
+    const m = /^\s*default_model\s*=\s*"([^"]+)"/m.exec(toml);
+    return m ? m[1] : null;
+  } catch (_) { return null; }
+}
+
+module.exports = { KimiAdapter, readDefaultModel };

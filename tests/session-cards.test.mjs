@@ -258,3 +258,16 @@ test('the meter carries tokens and chips for the files the turn touched', () => 
   assert.equal(meters[0].tokens, 12345);
   assert.deepEqual(meters[1].files, ['/repo/new.js'], 'chips reset per turn');
 });
+
+test('a turn ended by the next user turn folds too — SDK transcripts carry no turn_end', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', text: 'first' },
+    use('t1', 'Read', { file_path: '/a.js' }),
+    result('t1', 'ok'),
+    { kind: 'assistant', id: 'a1', text: 'done' },
+    { kind: 'user', id: 'u2', text: 'second' },
+    use('t2', 'Read', { file_path: '/b.js' }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'assistant', 'user', 'tool']);
+  assert.equal(rows[1].duration, '', 'no meter to borrow a duration from');
+});

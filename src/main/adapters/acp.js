@@ -126,6 +126,7 @@ class AcpAdapter {
         clientInfo: { name: 'nami', version: '0' },
       });
       this.authMethods = (init && init.authMethods) || [];
+      this.agentInfo = (init && init.agentInfo) || {};
       const canLoad = !!(init && init.agentCapabilities && init.agentCapabilities.loadSession);
 
       let sess = null;
@@ -182,6 +183,9 @@ class AcpAdapter {
       agentSessionId: this.sessionId || null,
       commands: this.commands,
       models: this.models,
+      model: (this.models && this.models.current) || null,
+      agentName: (this.agentInfo && this.agentInfo.name) || null,
+      version: (this.agentInfo && this.agentInfo.version) || null,
       authMethods: this.authMethods,
     });
   }

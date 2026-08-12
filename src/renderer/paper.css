@@ -1105,12 +1105,25 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
-.cd-model {
+.cd-model, .cd-mode {
   flex: none; max-width: 150px; font: inherit; font-size: 10.5px;
   color: var(--muted); background: var(--paper-2); border: 1px solid var(--dash);
-  padding: 3px 4px; cursor: pointer;
+  padding: 3px 6px; cursor: pointer;
 }
-.cd-model:hover { color: var(--ink); }
+.cd-model:hover:not(:disabled), .cd-mode:hover:not(:disabled) { color: var(--ink); border-color: var(--dash-dark); }
+.cd-model:disabled { cursor: default; appearance: none; }
+.cd-mode:disabled { cursor: default; }
+
+/* The session introducing itself — the card-native TUI banner. */
+.cd-intro {
+  border: 1px dashed var(--dash-dark); background: var(--paper-2);
+  padding: 10px 13px;
+}
+.cd-intro .t { font-weight: 700; }
+.cd-intro .t .v { font-weight: 400; color: var(--muted); font-size: 11px; }
+.cd-intro .d { margin-top: 2px; font-size: 11.5px; color: var(--muted); display: flex; gap: 7px; flex-wrap: wrap; }
+.cd-intro .d .dot { color: var(--faint); }
+.cd-intro .h { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;

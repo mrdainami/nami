@@ -106,6 +106,7 @@ export function toolDiff(name, input) {
 // shot` renders, so the four theme screenshots are a command, not a ritual.
 export function sceneEvents() {
   return [
+    { kind: 'intro', id: 's0', name: 'Claude Code', version: '3.1.8', model: 'claude-opus-5', mode: 'default', cwd: '~/work/atlas' },
     { kind: 'user', id: 's1', text: 'Tighten up the greeting logic and check the tests still pass' },
     { kind: 'thinking', id: 's2', text: 'Two call sites use greet(); changing the signature would break the CLI path, so the default parameter is the safer edit.' },
     { kind: 'tool', id: 's3', toolId: 'x1', name: 'Read', input: { file_path: '/repo/src/greet.js' } },
@@ -248,6 +249,14 @@ export function buildRows(events) {
         break;
       }
 
+      case 'intro':
+        rows.push({
+          kind: 'intro', id: e.id, at: e.at,
+          name: e.name || 'Agent', version: e.version || '', model: e.model || '',
+          mode: e.mode || '', cwd: e.cwd || '', channel: e.channel || '',
+        });
+        break;
+
       case 'note':
         rows.push({ kind: 'note', id: e.id, at: e.at, text: e.text, action: e.action || null });
         break;
@@ -288,18 +297,21 @@ function groupTurns(rows) {
   const out = [];
   let turn = [];   // everything since the last user row
 
-  const flush = (ended) => {
-    if (!turn.length) { return; }
-    if (!ended) { out.push(...turn); turn = []; return; }
-    const meter = turn.at(-1); // the turn_end that ended this turn
-    const body = turn.slice(0, -1);
+  // how: 'ended' — a turn_end closed it (meter is that row);
+  //      'implied' — the next user turn arrived, so this one is over even
+  //                  though the channel never said so (SDK transcripts carry
+  //                  no turn_duration records);
+  //      'live' — still happening: never folded, you watch it.
+  const flush = (how, meter) => {
+    if (!turn.length) { if (meter) out.push(meter); return; }
+    if (how === 'live') { out.push(...turn); turn = []; return; }
 
     // What folds: the activity. What stays: what was said, what failed, and
     // anything still waiting on the user.
     const folded = [];
     const visible = [];
     const edited = [];
-    for (const r of body) {
+    for (const r of turn) {
       if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) {
         folded.push(r);
         if (r.kind === 'tool' && r.toolKind === 'edit' && !r.isError) {
@@ -311,23 +323,24 @@ function groupTurns(rows) {
       }
     }
 
+    const anchor = meter || folded[0] || visible[0];
     if (folded.length) {
       out.push({
-        kind: 'fold', id: `fold:${meter.id}`,
-        count: folded.length, duration: meter.duration, children: folded,
+        kind: 'fold', id: `fold:${anchor.id}`,
+        count: folded.length, duration: meter ? meter.duration : '', children: folded,
       });
     }
     out.push(...visible);
-    if (edited.length) out.push({ kind: 'edits', id: `edits:${meter.id}`, files: edited });
-    out.push(meter);
+    if (edited.length) out.push({ kind: 'edits', id: `edits:${anchor.id}`, files: edited });
+    if (meter) out.push(meter);
     turn = [];
   };
 
   for (const r of rows) {
-    if (r.kind === 'user') { flush(false); out.push(r); continue; }
+    if (r.kind === 'user') { flush('implied', null); out.push(r); continue; }
+    if (r.kind === 'turn_end') { flush('ended', r); continue; }
     turn.push(r);
-    if (r.kind === 'turn_end') flush(true);
   }
-  flush(false);
+  flush('live', null);
   return out;
 }

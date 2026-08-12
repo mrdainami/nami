@@ -257,8 +257,31 @@ function dropFilesOnPanel(p, paths) {
         if (cardAgentFor(p) === 'claude' && p.sid !== ev.agentSessionId) { p.sid = ev.agentSessionId; savePanels(); }
         else if (cardAgentFor(p) !== 'claude' && p.acpSid !== ev.agentSessionId) { p.acpSid = ev.agentSessionId; savePanels(); }
       }
+      // What the composer shows and the intro card says. init can fire again
+      // (a commands update, a mode switch) — the status merges, the intro
+      // updates in place under its stable id.
+      p.agentStatus = Object.assign(p.agentStatus || {}, {
+        name: ev.agentName || (p.agentStatus && p.agentStatus.name),
+        version: ev.version || (p.agentStatus && p.agentStatus.version),
+        model: ev.model || (p.agentStatus && p.agentStatus.model),
+        mode: ev.mode || (p.agentStatus && p.agentStatus.mode),
+        models: ev.models || (p.agentStatus && p.agentStatus.models),
+      });
+      const introId = 'intro:' + p.id;
+      const intro = {
+        kind: 'intro', id: introId,
+        name: p.agentStatus.name, version: p.agentStatus.version,
+        model: p.agentStatus.model, mode: p.agentStatus.mode,
+        cwd: p.cwd, channel: p.agentCaps && p.agentCaps.channel,
+      };
+      const at = (p.cardEvents || []).findIndex((e) => e && e.id === introId);
+      if (at >= 0) p.cardEvents[at] = intro;
+      else p.cardEvents = (p.cardEvents || []).concat(intro);
+      scheduleFeed(p);
       const rec = tileEls.get(p.id);
-      if (rec && rec.cardsUi) rec.cardsUi.setModels(ev.models || null);
+      if (rec && rec.cardsUi) {
+        rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+      }
       return;
     }
     if (ev.kind === 'status') {
@@ -360,9 +383,14 @@ function showScene(name) {
     if (!p) return;
     p.view = 'cards';
     p.agentCaps = { channel: 'agent sdk' };
+    p.agentStatus = { name: 'Claude Code', model: 'claude-opus-5', mode: 'default' };
     p.cardEvents = sceneEvents();
     const rec = tileEls.get(p.id);
-    if (rec) { applyView(p, rec); feedCards(p, true); }
+    if (rec) {
+      applyView(p, rec);
+      feedCards(p, true);
+      if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: true });
+    }
     return;
   }
   if (what === 'theme') return toggleThemePop();
@@ -1440,6 +1468,12 @@ function cardAgentFor(p) {
   return null;
 }
 function canShowCards(p) { return !!cardAgentFor(p); }
+
+// Which channels can switch mode live, and through what values.
+const MODE_CYCLES = {
+  claude: ['default', 'acceptEdits', 'plan'],
+  agy: ['accept-edits', 'plan'],
+};
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
 function setView(p, view) {
@@ -1492,9 +1526,9 @@ async function enterCards(p) {
     p.cardEvents = (back && back.events) || [];
     if (cardView(p) !== 'cards') return; // switched away while we read
   }
+  p.connecting = true;
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
-  if (rec.cardsUi) rec.cardsUi.setNote('Connecting…', false);
 
   if (p.started && !p.exited) {
     p.viewSwitching = true;
@@ -1503,6 +1537,7 @@ async function enterCards(p) {
   }
   const sid = agent === 'claude' ? p.sid : (p.acpSid || null);
   const res = await api.agentStart({ id: p.id, agent, cwd: p.cwd, sid });
+  p.connecting = false;
   if (cardView(p) !== 'cards') { if (res && res.ok) api.agentStop({ id: p.id }); return; }
   p.agentLive = !!(res && res.ok);
   p.cardFallback = '';
@@ -1560,6 +1595,13 @@ function mountCards(p, rec) {
     },
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    onMode: () => {
+      const cycle = MODE_CYCLES[cardAgentFor(p)];
+      if (!cycle || !p.agentLive) return;
+      const cur = (p.agentStatus && p.agentStatus.mode) || cycle[0];
+      const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+      api.agentConfig({ id: p.id, configId: 'mode', value: next });
+    },
     onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
     commands: () => p.agentCommands || [],
     // The channel badge, quietly on the meter: 'agent sdk · live', turning
@@ -1578,7 +1620,10 @@ function mountCards(p, rec) {
 function refreshCardNote(p, rec) {
   if (!rec || !rec.cardsUi) return;
   let text = '', urgent = false;
-  if (p.exited && !p.agentLive) text = 'This session has ended.';
+  // The runtime swap takes a moment on a long conversation — say so rather
+  // than sitting silent while the SDK boots and resumes.
+  if (p.connecting) text = 'Connecting — resuming this conversation…';
+  else if (p.exited && !p.agentLive) text = 'This session has ended.';
   else if (p.attention && !p.agentLive) { text = 'This session is waiting on you — answer it in Term.'; urgent = true; }
   else if (p.cardFallback) text = p.cardFallback;
   else if (rec.cardsUi.isEmpty()) text = 'Waiting for the first turn.';
