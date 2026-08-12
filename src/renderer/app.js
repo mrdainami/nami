@@ -1417,7 +1417,7 @@ function cardAgentFor(p) {
   if (p.kind === 'claude') return p.sid ? 'claude' : null;
   if (p.kind === 'run') {
     const c = String(p.command || '').trim();
-    if (c === 'opencode' || c === 'hermes') return c;
+    if (['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(c)) return c;
   }
   return null;
 }

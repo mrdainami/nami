@@ -10,6 +10,9 @@ const path = require('path');
 const os = require('os');
 const { ClaudeSdkAdapter } = require('./adapters/claude-sdk.js');
 const { AcpAdapter } = require('./adapters/acp.js');
+const { CodexAdapter } = require('./adapters/codex.js');
+const { KimiAdapter } = require('./adapters/kimi.js');
+const { AgyAdapter } = require('./adapters/agy.js');
 // The one slug rule claude itself uses — a private copy here already cost a
 // live-empty backlog once, when `_local` slugged differently in two places.
 const { projectSlug } = require('./claude-args.js');
@@ -20,6 +23,9 @@ const ADAPTERS = {
   claude: ClaudeSdkAdapter,
   opencode: AcpAdapter,
   hermes: AcpAdapter,
+  codex: CodexAdapter,
+  kimi: KimiAdapter,
+  agy: AgyAdapter,
 };
 
 // The transcript claude would resume for this tile, if it exists yet.
