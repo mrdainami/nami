@@ -1,12 +1,13 @@
 // Nami — Electron main process.
-// Owns: the window, PTY terminal sessions, Claude Code sessions (via claude-driver),
+// Owns: the window, PTY terminal sessions, agent sessions (via agent-session),
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { ClaudeSession, resolveClaudeExecutable } = require('./claude-driver');
+const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
+const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
@@ -138,7 +139,7 @@ function killSession(id) {
   termSessions.delete(id);
   return true;
 }
-const claudeSessions = new Map(); // id -> ClaudeSession
+const agentSessions = new AgentSessions(); // tile id -> live adapter (Cards drive mode)
 
 // ---- state (restart-proof) -------------------------------------------------
 function stateFile() { return path.join(app.getPath('userData'), 'state.json'); }
@@ -401,7 +402,7 @@ function reapSessions(wcId) {
     if (owner !== wcId) continue;
     sessionOwners.delete(id);
     killSession(id);
-    const c = claudeSessions.get(id); if (c) { try { c.close(); } catch (_) {} claudeSessions.delete(id); }
+    agentSessions.stop(id);
   }
 }
 
@@ -444,7 +445,7 @@ app.on('before-quit', () => {
     fs.renameSync(stateFile() + '.tmp', stateFile());
   } catch (_) {}
   for (const id of [...termSessions.keys()]) killSession(id);
-  for (const c of claudeSessions.values()) { try { c.close(); } catch (_) {} }
+  agentSessions.stopAll();
 });
 
 // Quit means quit. The window closes at once, but the process was observed
@@ -623,7 +624,7 @@ function stagedUpdateWaiting() {
 // before installing, because an update that silently kills four agents
 // mid-thought is the outcome this whole feature was shaped to avoid.
 function liveSessionCount() {
-  return termSessions.size + claudeSessions.size;
+  return termSessions.size + agentSessions.size;
 }
 ipcMain.handle('update:sessions', () => liveSessionCount());
 
@@ -938,19 +939,47 @@ ipcMain.handle('stt:prepare', (e) =>
     deps: { onProgress: (p) => sendWc(e.sender, 'stt:progress', p) },
   })));
 
-// ---- IPC: Claude sessions --------------------------------------------------
-ipcMain.handle('claude:start', (e, { id, cwd, model, agentName, prompt, resumeId }) => {
-  if (claudeSessions.has(id)) { try { claudeSessions.get(id).close(); } catch (_) {} }
-  const wc = e.sender; sessionOwners.set(id, wc.id);
-  const sess = new ClaudeSession({ id, cwd, model, agentName, onEvent: (ev) => sendWc(wc, 'claude:event', ev) });
-  claudeSessions.set(id, sess);
-  sess.start(prompt, resumeId);
-  return { ok: true };
+// ---- IPC: agent sessions (Cards drive mode) --------------------------------
+// One live runtime per tile: starting an agent session for a tile closes any
+// previous one, and the pty is the renderer's to stop first. Events flow back
+// on 'agent:event', already speaking the vocabulary in agent-events.js.
+ipcMain.handle('agent:start', async (e, { id, agent, cwd, sid, model, prompt }) => {
+  const wc = e.sender;
+  sessionOwners.set(id, wc.id);
+  const envPath = await userPath();
+  const res = await agentSessions.start({
+    id, agent, cwd, sid, model, prompt,
+    // The same env discipline the ptys get: login PATH, stripInheritedClaude,
+    // stored keys — a session must behave the same in either view.
+    env: sessionEnv(envPath),
+    onEvent: (ev) => sendWc(wc, 'agent:event', { id, ...ev }),
+  });
+  // The SDK writes the same transcript the pty would, so the title watcher
+  // keeps the rail name honest while Cards drive.
+  if (res.ok && agent === 'claude' && sid) {
+    const file = path.join(os.homedir(), '.claude', 'projects', projectSlug(cwd), sid + '.jsonl');
+    watchTitle(id, wc, file, { sid, cwd });
+  }
+  return res;
 });
-ipcMain.handle('claude:send', (_e, { id, text }) => { const s = claudeSessions.get(id); if (s) s.send(text); return { ok: !!s }; });
-ipcMain.handle('claude:permission', (_e, { id, permissionId, allow, note }) => { const s = claudeSessions.get(id); if (s) s.resolvePermission(permissionId, allow, note); return { ok: !!s }; });
-ipcMain.handle('claude:interrupt', (_e, { id }) => { const s = claudeSessions.get(id); if (s) s.interrupt(); return { ok: !!s }; });
-ipcMain.handle('claude:close', (_e, { id }) => { const s = claudeSessions.get(id); if (s) { s.close(); claudeSessions.delete(id); } sessionOwners.delete(id); return { ok: true }; });
+ipcMain.handle('agent:send', (_e, { id, text }) => ({ ok: agentSessions.send(id, text) }));
+ipcMain.handle('agent:permission', (_e, { id, permissionId, optionId }) => ({ ok: agentSessions.permission(id, permissionId, optionId) }));
+ipcMain.handle('agent:interrupt', (_e, { id }) => ({ ok: agentSessions.interrupt(id) }));
+ipcMain.handle('agent:stop', (_e, { id }) => { agentSessions.stop(id); return { ok: true }; });
+
+// Everything the conversation already holds, read once on a switch to Cards —
+// the backlog a live adapter cannot replay. Bounded exactly like the tail: a
+// large transcript opens on its last screenful, never whole.
+ipcMain.handle('cards:backlog', (_e, { cwd, sid }) => {
+  const file = claudeTranscript(cwd, sid);
+  if (!file) return { events: [] };
+  try {
+    const size = fs.statSync(file).size;
+    const { offset, partial } = tailStart(size, {});
+    const r = readFrom(file, offset, {});
+    return { events: parseTranscript(r.lines), partial };
+  } catch (_) { return { events: [] }; }
+});
 
 
 // Every session inherits the saved Keys as env vars. A key saved in Nami wins
