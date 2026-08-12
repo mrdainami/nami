@@ -1093,6 +1093,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-bottom: 1px dashed var(--dash); font-style: normal; border-left: 0;
 }
 .tile-cards > .cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
+.cd-note-btn {
+  margin-left: 10px; font: inherit; font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 2px 9px; cursor: pointer;
+  background: transparent; color: var(--green); border: 1px solid var(--green);
+}
+.cd-note-btn:hover { background: var(--green); color: var(--paper); }
 
 /* The composer: prompt, input, mic beside the send arrow. Filled means armed. */
 .cd-ask {

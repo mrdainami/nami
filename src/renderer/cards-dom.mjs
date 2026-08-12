@@ -485,9 +485,16 @@ export function buildCards(ctx) {
     if (stick) scrollToEnd(false);
   }
 
-  function setNote(text, urgent) {
+  function setNote(text, urgent, action) {
     note.textContent = text || '';
-    note.hidden = !text;
+    if (action && action.label) {
+      const b = document.createElement('button');
+      b.className = 'cd-note-btn';
+      b.textContent = action.label;
+      b.onclick = action.run;
+      note.appendChild(b);
+    }
+    note.hidden = !text && !action;
     note.classList.toggle('urgent', !!urgent);
   }
 
