@@ -996,7 +996,18 @@ function showMenu(x, y, items) {
   }, 0);
 }
 function escHideMenu(e) { if (e.key === 'Escape') hideMenu(); }
-function hideMenu() { const m = document.getElementById('ctx-menu'); if (m) m.remove(); window.removeEventListener('keydown', escHideMenu); }
+// Every listener showMenu armed has to come back off, not just the keydown one.
+// `once` only fires-and-removes when the event actually arrives, so dismissing a
+// menu with Escape or a click left the *contextmenu* listener armed — and it
+// then bubbled into the next right-click and tore that menu down as it opened.
+// The menu opened once per session and Duplicate, Copy path and Move to Trash
+// were unreachable after it. Present since 0.1.2.
+function hideMenu() {
+  const m = document.getElementById('ctx-menu'); if (m) m.remove();
+  window.removeEventListener('keydown', escHideMenu);
+  window.removeEventListener('click', hideMenu);
+  window.removeEventListener('contextmenu', hideMenu);
+}
 async function refreshTreeDir(dir) {
   S.tree[dir] = await api.listDir(dir, S.treeAll);
   if (S.railTab === 'workspace') refreshRail();
