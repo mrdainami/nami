@@ -1924,6 +1924,8 @@ function mountViewer(p, rec) {
 // which the form would then write into the file.
 const FIELD_MAP = {
   skill: [['name', 'Name'], ['description', 'Description']],
+  // the master: the superset every dialect is a subset of
+  'project:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model'], ['mode', 'Mode']],
   'claude:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model']],
   'opencode:agent': [['description', 'Description'], ['mode', 'Mode'], ['model', 'Model']],
   'opencode:command': [['description', 'Description'], ['agent', 'Agent'], ['model', 'Model']],
@@ -1941,6 +1943,12 @@ function useHereLabel(item) {
   if (item.broken) return '';
   if (item.type === 'skill') return item.scope === 'project' ? '' : 'Use here';
   return item.readOnly ? 'Duplicate to project' : '';
+}
+// A hand-made platform agent can be lifted into the drawer; a master already
+// is everyone's, and read-only plugin agents are somebody else's to lift.
+function canAdopt(item) {
+  return item.type === 'agent' && !item.readOnly && !item.broken && !!S.project
+    && ['claude', 'opencode', 'gemini', 'kimi'].includes(item.platform);
 }
 async function openCard(item, opts) {
   await loadLibrary();
@@ -1985,6 +1993,7 @@ function mountCard(p, rec) {
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
       <button class="btn card-finder">Finder</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
+      ${canAdopt(p.item) ? '<button class="btn btn--go card-adopt">Make it everyone’s</button>' : ''}
       ${useHereLabel(p.item) ? `<button class="btn btn--go card-dup">${esc(useHereLabel(p.item))}</button>` : ''}
       ${p.item.broken ? '<button class="btn btn--go card-del">Remove this dead link</button>'
         : ro ? ''
@@ -2040,6 +2049,18 @@ function mountCard(p, rec) {
   const cardFinder = q('.card-finder', wrap);
   if (cardFinder) cardFinder.onclick = () => api.revealFile(p.filePath);
   const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
+  const adoptBtn = q('.card-adopt', wrap);
+  if (adoptBtn) adoptBtn.onclick = async () => {
+    if (p.dirty) { toast('Save the card first — the master is lifted from the file.'); return; }
+    adoptBtn.disabled = true; adoptBtn.textContent = 'Lifting…';
+    const res = await api.adoptAgent({ filePath: p.item.filePath, platform: p.item.platform, projectPath: S.project.path, agentIds: installedAgentIds() });
+    if (!res.ok) { toast(res.error || 'Could not lift it'); adoptBtn.disabled = false; adoptBtn.textContent = 'Make it everyone’s'; return; }
+    if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
+    await loadLibrary(true);
+    const master = S.library.items.find((i) => i.filePath === res.masterPath);
+    toast('Now everyone’s — the master lives in agents/.');
+    if (master) openCard(master);
+  };
   const saveBtn = q('.card-save', wrap); if (saveBtn) saveBtn.onclick = () => saveCard(p);
   const dupBtn = q('.card-dup', wrap);
   if (dupBtn) dupBtn.onclick = async () => {
@@ -2095,6 +2116,10 @@ async function saveCard(p) {
     // reason to rewrite it — the announcement should not lag the file.
     if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
       api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
+    }
+    // A master agent's copies must never lag the master — regenerate on save.
+    if (p.item.type === 'agent' && p.item.platform === 'project' && S.project) {
+      api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() });
     }
   } else toast('Save failed: ' + (res && res.error || '?'));
 }
@@ -2864,8 +2889,13 @@ function renderImproveItem() {
     const w = chosenAgent(o);
     if (!o.text.trim() || !w) { if (!o.text.trim()) toast('Say what should change first.'); return; }
     closeOverlay();
+    // An improved master must reach every tool's copy the moment the session
+    // ends — the same on-exit rhythm the skills pointer uses.
+    const onExit = item.type === 'agent' && item.platform === 'project' && S.project
+      ? () => { loadLibrary(true); api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() }); }
+      : undefined;
     agentSession(w, { title: 'improve: ' + item.slug, code: 'IM', seed:
-      buildImproveSeed({ platform: item.platform, type: item.type, filePath: item.filePath, ask: o.text }) });
+      buildImproveSeed({ platform: item.platform, type: item.type, filePath: item.filePath, ask: o.text }), onExit });
     toast('Your agent is on it. Reopen the card when it finishes.');
   };
   q('#imp-go', modal).onclick = go;
