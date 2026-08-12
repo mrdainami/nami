@@ -299,13 +299,8 @@ function dropFilesOnPanel(p, paths) {
   // still alive and still theirs — this is the command reporting, not the tile
   // ending. See src/main/run-done.js for how the shell says so.
   api.onTermCommandDone(({ id, code }) => {
-    const p = S.panels.find((x) => x.id === id); if (!p || p.commandDone) return;
-    p.commandDone = true; p.commandCode = code;
-    // Snapshot now: from here the tile is an ordinary shell, and must never be
-    // restored as a command to run again.
-    savePanels();
-    if (p.agentId) finishAgentInstall(p, code);
-    else refreshTileHead(p);
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    runCommandFinished(p, code);
   });
 
   api.onTermExit(({ id, code, note }) => {
@@ -367,6 +362,41 @@ function showScene(name) {
       if (!a) return openLauncher();
       await refreshAgentStatus(a.id);
       return what === 'agent' ? openAgentSheet(a) : openAgentRemove(a);
+    });
+  }
+  // An install that has just finished — the one state you cannot arrange on
+  // demand without actually installing something. The tile is static (no pty),
+  // but finishAgentInstall is the real one: it re-scans and decides from what
+  // it finds, so the shot shows what a user would see and not a mock of it.
+  //   --scene=install:ok  ·  install:failed  ·  install:launcher
+  if (what === 'install') {
+    return refreshAgents().then(async () => {
+      if (step === 'launcher') {
+        const found = (S.agents || []).find((x) => x.found);
+        S.justAdded = found && found.id;
+        return openLauncher();
+      }
+      const fail = step === 'failed';
+      // ok needs an agent this Mac really has, so the scan can confirm it.
+      // failed is driven by the exit code, which is what actually decides —
+      // a machine with every agent already installed (this one, as it turns
+      // out) has no missing agent to borrow for the shot.
+      const a = (S.agents || []).find((x) => x.found) || (S.agents || [])[0];
+      if (!a) return undefined;
+      const p = startPanel({
+        kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install,
+        oneShot: true, agentId: a.id, sceneStatic: true,
+      });
+      if (!p) return undefined;
+      await new Promise((r) => requestAnimationFrame(r));
+      const t = tileEls.get(p.id);
+      if (t && t.term) {
+        t.term.write(`\x1b[38;5;246m$ ${a.install}\x1b[0m\r\n`);
+        t.term.write('  resolving host…\r\n  downloading  ████████  100%\r\n');
+        t.term.write(fail ? '\x1b[38;5;174mcurl: (6) Could not resolve host\x1b[0m\r\n'
+          : `\x1b[38;5;114m  ✓ ${a.bin} installed\x1b[0m\r\n`);
+      }
+      return runCommandFinished(p, fail ? 6 : 0);
     });
   }
   if (what === 'projects') return toggleProjectsPop();
@@ -601,7 +631,11 @@ function renderHeader() {
     : `<span class="folder-glyph">${treeIcon('', 'dir', false)}</span><span class="name">Open a folder</span><span class="caret">▼</span>`;
   chip.onclick = (e) => { e.stopPropagation(); toggleProjectsPop(); };
   els.topbarCenter.appendChild(chip);
-  const live = S.panels.filter((x) => x.status === 'live' && x.kind !== 'editor').length;
+  // An errand whose command has landed is not a live session — its shell is
+  // still open, but nothing is running in it and counting it makes the badge
+  // say two sessions are working when one of them is a finished install.
+  const live = S.panels.filter((x) => x.status === 'live' && x.kind !== 'editor'
+    && !(x.oneShot && x.commandDone)).length;
   const attn = S.panels.filter((x) => x.attention).length;
   if (live > 0) { els.liveBadge.style.display = ''; els.liveLabel.textContent = attn ? `${attn} needs you` : `${live} live`; els.liveBadge.classList.toggle('attn', attn > 0); }
   else els.liveBadge.style.display = 'none';
@@ -1140,10 +1174,13 @@ function statusMeta(p) {
   // A one-shot says how its command went, not just that a shell is alive: the
   // whole reason the tile exists is the command, and "live" while sitting at a
   // finished prompt is the thing that read as a dead end.
+  // installOk is set once the scan has confirmed it, because the exit code of
+  // an install cannot (see finishAgentInstall). A tile still waiting on that
+  // answer says 'finished', which is the only thing known for certain.
   if (p.oneShot && p.commandDone) {
-    return p.commandCode === 0
-      ? { label: 'installed', color: c.ok }
-      : { label: `failed · ${p.commandCode}`, color: c.warn };
+    if (p.installOk === true) return { label: 'installed', color: c.ok };
+    if (p.installOk === false) return { label: 'did not install', color: c.warn };
+    return { label: 'finished', color: c.mut };
   }
   if (p.oneShot) return { label: 'running', color: c.warn };
   if (p.attention) return { label: 'needs you', color: c.warn };
@@ -1513,7 +1550,8 @@ const CARD_EVENT_CAP = 900;
 // Which adapter can drive this tile's agent, or null. A claude tile needs its
 // conversation id; an ACP agent tile is one whose command is exactly the bin.
 function cardAgentFor(p) {
-  if (p && p.sceneStatic) return 'claude'; // the fixture tile draws as claude
+  // an errand tile is never a conversation, fixture or not
+  if (p && p.sceneStatic) return p.oneShot ? null : 'claude'; // the fixture tile draws as claude
   if (!p || S.demo) return null;
   if (p.kind === 'claude') return p.sid ? 'claude' : null;
   if (p.kind === 'run') {
@@ -2736,15 +2774,40 @@ function setTileNote(p, html, kind) {
   return note;
 }
 
+// One place both the live channel and --scene=install go through, so what gets
+// screenshotted is what a user gets.
+function runCommandFinished(p, code) {
+  if (p.commandDone) return;
+  p.commandDone = true; p.commandCode = code;
+  // Snapshot now: from here the tile is an ordinary shell and must never be
+  // restored as a command to run again.
+  savePanels();
+  // head, rail and the live badge all read the same status — refreshing one of
+  // them left the rail saying "running" beside a tile saying "installed".
+  refreshTileHead(p); refreshRail(); renderHeader();
+  if (p.agentId) finishAgentInstall(p, code);
+}
+
 async function finishAgentInstall(p, code) {
   const agent = () => (S.agents || []).find((x) => x.id === p.agentId);
   const name = (agent() && agent().name) || p.agentId;
   refreshTileHead(p);
 
-  if (code !== 0) {
-    // Never claim an agent is ready on the strength of a command that failed.
-    setTileNote(p, `<span class="tn-tx">That install exited with <b>${esc(String(code))}</b>. ${esc(name)} is not set up.
-      The output above says why.</span>
+  // The scan decides, not the exit code. `curl … | bash` — four of the six
+  // install commands — reports the status of bash, and a curl that never
+  // reached the host still leaves bash reading an empty script and exiting 0
+  // (measured against a real pty). A zero means the shell got to the end. Only
+  // finding the program means it installed.
+  if (code === 0) await refreshAgents();
+  const found = !!(agent() && agent().found);
+  const ok = code === 0 && found;
+  p.installOk = ok;
+  refreshTileHead(p); refreshRail();
+
+  if (!ok) {
+    setTileNote(p, `<span class="tn-tx"><b>${esc(name)} is still not on this Mac.</b>
+      ${code === 0 ? 'The command ran to the end but left nothing Nami can find — the output above should say why.'
+        : `The install exited with <b>${esc(String(code))}</b>.`}</span>
       <span class="tn-bt"><button class="btn btn--small" id="tn-docs">Read the guide</button>
       <button class="btn btn--small" id="tn-retry">Try again</button></span>`, 'warn');
     const t = tileEls.get(p.id); if (!t) return;
@@ -2754,21 +2817,7 @@ async function finishAgentInstall(p, code) {
     return;
   }
 
-  // The scan is the only thing that can confirm an install: the command's exit
-  // code says curl was happy, not that a program landed somewhere on PATH.
-  await refreshAgents();
   const a = agent();
-  refreshTileHead(p);
-
-  if (!a || !a.found) {
-    setTileNote(p, `<span class="tn-tx">The command finished, but ${esc(name)} is still not on PATH.
-      A new terminal usually finds it — the shell that ran the install cannot.</span>
-      <span class="tn-bt"><button class="btn btn--small" id="tn-new">New session</button></span>`, 'warn');
-    const t = tileEls.get(p.id); if (!t) return;
-    const nb = q('#tn-new', t.root); if (nb) nb.onclick = () => openLauncher();
-    return;
-  }
-
   S.justAdded = a.id;
   const signedOut = !(S.agentStatus[a.id] && S.agentStatus[a.id].signedIn);
   setTileNote(p, `<span class="tn-tx"><b>${esc(a.name)} is on this Mac.</b>

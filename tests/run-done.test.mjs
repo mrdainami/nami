@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { doneSuffix, feedRunDone } = require('../src/main/run-done.js');
+const { doneSuffix, oneShotArgs, feedRunDone } = require('../src/main/run-done.js');
 
 const SEQ = (code) => `\x1b]1337;NamiRunDone=${code}\x07`;
 
@@ -92,4 +92,47 @@ test('nothing of the sequence is left visible in the output', () => {
   assert.match(out, /installed/);
   // no literal escape text leaked into what the user reads
   assert.doesNotMatch(out, /printf|033|NamiRunDone=%s/);
+});
+
+// The measurement that decided how much the exit code is worth. Four of the six
+// install commands are `curl … | bash`, and `$?` after a pipeline is the status
+// of its LAST stage — so a curl that never reached the host still leaves bash
+// reading an empty script and exiting 0. The exit code cannot confirm an
+// install; only the scan can, and finishAgentInstall treats it that way.
+test('curl | bash reports zero even when curl failed', () => {
+  const out = execFileSync('/bin/zsh', ['-c', doneSuffix('curl -fsS https://nope.invalid/x.sh | bash')],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.equal(feedRunDone({}, out), 0, 'if this ever reports non-zero, the exit code became trustworthy');
+});
+
+// ---- spawned, not typed ----------------------------------------------------
+// A pty echoes what is written into it, so a suffix TYPED onto the user's
+// install line was printed back at them — measured in the running app as
+// sentinelVisible: true. Spawning the command means nothing is echoed.
+test('a one-shot is spawned with its command, so nothing is typed', () => {
+  const args = oneShotArgs('/bin/zsh', 'curl -fsSL https://x/i.sh | bash');
+  assert.equal(args[0], '-i');
+  assert.equal(args[1], '-c');
+  assert.match(args[2], /^curl -fsSL https:\/\/x\/i\.sh \| bash;/);
+  assert.match(args[2], /NamiRunDone/);
+  // and the tile is still a terminal afterwards, on a shell that re-read the
+  // rc file the installer just wrote to
+  assert.match(args[2], /exec \/bin\/zsh -i$/);
+});
+
+test('spawned for real: the code is reported and the output survives', () => {
+  const args = oneShotArgs('/bin/zsh', 'echo BEFORE; echo AFTER');
+  const out = execFileSync('/bin/zsh', args.slice(0, 2).concat(args[2].replace(/; exec .*$/, '')), { encoding: 'utf8' });
+  assert.equal(feedRunDone({}, out), 0);
+  assert.match(out, /BEFORE/);
+  assert.match(out, /AFTER/);
+  // the command itself was never echoed — that is the whole point
+  assert.doesNotMatch(out, /printf/);
+});
+
+test('a failing spawned command still reports', () => {
+  const args = oneShotArgs('/bin/zsh', 'ls /nope/nope');
+  const body = args[2].replace(/; exec .*$/, '');
+  const out = execFileSync('/bin/zsh', ['-i', '-c', body], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.equal(feedRunDone({}, out), 1);
 });

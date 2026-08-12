@@ -13,7 +13,7 @@ const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
-const { doneSuffix, feedRunDone } = require('./run-done');
+const { oneShotArgs, feedRunDone } = require('./run-done');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
@@ -1162,7 +1162,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
-  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null;
+  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null;
   if (kind === 'claude') {
     // sid: the panel's own conversation id, minted in the renderer at first spawn.
     // A fresh spawn pins it with --session-id; a restored panel resumes it with
@@ -1192,8 +1192,11 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   } else if (kind === 'run' && command) {
     // watchDone marks a one-shot: a command Nami ran on the user's behalf and
     // needs to know the end of, rather than a session that happens to be a
-    // shell. The shell reports its own exit code (run-done.js).
-    file = shellPath; afterStart = watchDone ? doneSuffix(command) : command;
+    // shell. It is spawned rather than typed, so the reporting suffix is never
+    // echoed back at the user; the header below stands in for the echo.
+    file = shellPath;
+    if (watchDone) { spawnArgs = oneShotArgs(shellPath, command); echoLine = command; }
+    else afterStart = command;
   } else {
     file = shellPath;
   }
@@ -1215,6 +1218,11 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // the transcript, it is still right after the user runs /resume inside the
   // tile and lands in a different conversation. feedOscTitle reports only when
   // the name changes, so the spinner glyph never re-renders the rail.
+  // Display-only: straight to the renderer, never into the pty. A spawned
+  // one-shot echoes nothing, and a tile that opens on silent output does not
+  // say what it is doing.
+  if (echoLine) sendWc(wc, 'term:data', { id, data: `\x1b[38;2;141;128;101m$ ${echoLine}\x1b[0m\r\n` });
+
   const osc = { last: null };
   const done = { buf: '' };
   let reported = false;
