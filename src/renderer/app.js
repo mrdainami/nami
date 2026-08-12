@@ -333,6 +333,7 @@ function dropFilesOnPanel(p, paths) {
   renderAll();
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
   if (b.scene) showScene(b.scene);
+  armStarAsk();
 })();
 
 // --scene= puts one surface on screen at boot so `npm run shot` can capture it in both
@@ -367,6 +368,12 @@ function showScene(name) {
     offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
     if (staged) paintUpdate(step, { percent: 58, version: '0.2.0', live: 3 });
     return undefined;
+  }
+  // Same problem as the update card: the star ask is gated on five launches and
+  // a 90-second wait, which is not a state anyone can arrange for a screenshot.
+  if (what === 'star') {
+    localStorage.removeItem(STAR_ASKED);
+    return paintStarAsk();
   }
   // rename:tile / rename:rail — the in-place name editor, which you can only
   // otherwise reach by double-clicking a live session
@@ -3837,6 +3844,73 @@ function paintUpdate(state, ev) {
     localStorage.setItem(SKIPPED_UPDATE, offered.version);
     close();
   };
+}
+
+// ===========================================================================
+//  The one time Nami asks for anything
+// ===========================================================================
+// Nami is free, and the only thing that helps anyone find it is a star. But the
+// app has no account, no telemetry and no way to reach the person using it —
+// which is the point — so the ask has to happen here, and it gets exactly one
+// chance. Once. Dismissed is forever, same as a skipped update.
+//
+// Counted in launches rather than sessions on purpose. Five sessions can all
+// happen in one sitting on the first afternoon, when nobody owes you anything
+// yet; five separate launches means somebody came back, which is the only
+// evidence available that Nami earned its place. Nothing is sent anywhere to
+// learn this — it is a number in localStorage on one machine.
+
+const STAR_ASKED = 'nami-star-asked';
+const LAUNCH_TALLY = 'nami-launches';
+const ASK_AFTER_LAUNCHES = 5;
+// Long enough that the bar is never part of the app opening. Someone who just
+// launched Nami is going somewhere; this waits until they have arrived.
+const ASK_AFTER_MS = 90_000;
+
+function tallyLaunch() {
+  const n = Number(localStorage.getItem(LAUNCH_TALLY) || 0) + 1;
+  // Stop counting once it is moot, so the number cannot grow without bound.
+  if (n <= ASK_AFTER_LAUNCHES) localStorage.setItem(LAUNCH_TALLY, String(n));
+  return n;
+}
+
+// Pure, so the rules are testable without a DOM: asked already, or not enough
+// launches, means never.
+function starAskDue({ asked, launches }) {
+  if (asked) return false;
+  return Number(launches) >= ASK_AFTER_LAUNCHES;
+}
+
+function closeStarAsk() {
+  // Clicked or waved away, it makes no difference: both are an answer, and
+  // asking a second time is how a request becomes a nag.
+  localStorage.setItem(STAR_ASKED, '1');
+  if (els.updateRoot) els.updateRoot.innerHTML = '';
+}
+
+function paintStarAsk() {
+  // An update is always the more important thing in this slot, and it must
+  // never be displaced by a favour. If one is showing, the moment has passed.
+  if (!els.updateRoot || offered || localStorage.getItem(STAR_ASKED)) return;
+  // Green, not amber: amber in Nami means *needs you*, and this does not.
+  els.updateRoot.innerHTML = `<div class="update-note">
+    <span class="un-dot un-done"></span>
+    <span class="un-msg un-ask">Enjoying Nami? A star helps other people find it.</span>
+    <button class="un-act" id="star-go">★ Star it</button>
+    <span class="un-sep">·</span>
+    <button class="un-act un-quiet" id="star-no">no thanks</button>
+  </div>`;
+  q('#star-go', els.updateRoot).onclick = () => { api.openUrl(REPO_URL); closeStarAsk(); };
+  q('#star-no', els.updateRoot).onclick = closeStarAsk;
+}
+
+// Called once at boot. A demo or screenshot run counts nothing — those launches
+// are not a person coming back to the app.
+function armStarAsk() {
+  if (S.demo) return;
+  const launches = tallyLaunch();
+  if (!starAskDue({ asked: localStorage.getItem(STAR_ASKED), launches })) return;
+  setTimeout(paintStarAsk, ASK_AFTER_MS);
 }
 
 // ===========================================================================

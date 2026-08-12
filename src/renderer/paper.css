@@ -761,6 +761,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .update-note .un-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber-line); flex: none; }
 .update-note .un-msg { color: var(--ink); }
+/* The bar is absolutely positioned with no max-width, so it sizes to whatever
+   it is told to say — a long message walks it across the desk and wraps into a
+   block instead of a strip. The star ask is the longest string this bar ever
+   carries, so it clips rather than reflows: the shape stays a bar whatever a
+   future edit does to the copy. The width has room over the current string on
+   purpose — this is a backstop, not a crop, and a test fails if the copy ever
+   grows past it. */
+.update-note .un-ask { max-width: 58ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .update-note .un-sep { color: var(--faint); }
 .update-note .un-act {
   padding: 0; border: 0; background: none; cursor: pointer; font: inherit;
