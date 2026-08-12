@@ -14,6 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
+import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
 
@@ -1786,12 +1787,15 @@ function mountTerminal(p, rec) {
 // Nothing dead is ever offered: a path is stat'd before it underlines, so the
 // only things that light up are things that actually open.
 const LINK_STAT_TTL = 10000;
-const linkStats = new Map(); // `${cwd}\0${token}` -> { at, st }
-async function statLink(token, cwd) {
-  const key = `${cwd || ''}\u0000${token}`;
+const linkStats = new Map(); // `${id}\0${cwd}\0${token}` -> { at, st }
+// The session id is part of the key, not decoration: two tiles opened on the
+// same folder can be sitting in different directories, and a cache keyed on
+// the frozen cwd alone would hand one tile's answer to the other.
+async function statLink(token, cwd, id) {
+  const key = `${id || ''}\u0000${cwd || ''}\u0000${token}`;
   const hit = linkStats.get(key);
   if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
-  const st = await api.statPath({ token, cwd });
+  const st = await api.statPath({ token, cwd, id });
   if (linkStats.size > 400) linkStats.clear();
   linkStats.set(key, { at: Date.now(), st });
   return st;
@@ -1801,16 +1805,22 @@ async function statLink(token, cwd) {
 // keep a cell address per character, so the underline lands on the right cells
 // even when the line holds wide glyphs (a wide char is one string char but two
 // columns, and its second cell reports width 0).
+// A hard wrap is not a wrap: a program that measured the width itself and
+// printed its own newline leaves isWrapped false on both rows, nothing joins
+// them, and scanLinks matches the head of a severed URL as a whole one. The
+// walk goes both ways so hovering either fragment finds the other; see
+// term-wrap.mjs for why the guards are as narrow as they are.
 function wrappedRow(term, y) {
   const buf = term.buffer.active;
-  let top = y - 1;
-  while (top > 0) { const l = buf.getLine(top); if (l && l.isWrapped) top--; else break; }
-  let bottom = top;
-  while (bottom + 1 < buf.length) { const l = buf.getLine(bottom + 1); if (l && l.isWrapped) bottom++; else break; }
+  const cols = term.cols;
+  const { top, bottom, hard } = runBounds(buf, y, cols);
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
-    for (let x = 0; x < term.cols; x++) {
+    // A joined row's hanging indent is not part of the token, and emitting it
+    // would put a space in the middle of the URL the scanner is about to read.
+    const from = hard.has(row) ? leadingIndent(line, cols) : 0;
+    for (let x = from; x < term.cols; x++) {
       const cell = line.getCell(x);
       if (!cell || cell.getWidth() === 0) continue;
       const ch = cell.getChars() || ' ';
@@ -1836,7 +1846,7 @@ function registerTerminalLinks(term, p) {
       if (!found.length) { callback(undefined); return; }
       Promise.all(found.map(async (link) => {
         if (link.kind === 'url') return { link, st: null };
-        const st = await statLink(link.text, p.cwd);
+        const st = await statLink(link.text, p.cwd, p.id);
         return st && st.exists ? { link, st } : null;
       })).then((rows) => {
         const links = [];
@@ -1872,7 +1882,7 @@ function oscLinkHandler(p) {
       if (!/^file:\/\//i.test(uri)) return;
       let abs = uri.replace(/^file:\/\/(localhost)?/i, '');
       try { abs = decodeURIComponent(abs); } catch (_) {}
-      const st = await api.statPath({ token: abs, cwd: p.cwd });
+      const st = await api.statPath({ token: abs, cwd: p.cwd, id: p.id });
       if (!st.exists) { toast('Not found: ' + abs); return; }
       openTermLink({ kind: 'path', text: abs }, st, ev);
     },
@@ -2213,7 +2223,7 @@ function mountCards(p, rec) {
     onInterrupt: () => { if (p.agentLive) api.agentInterrupt({ id: p.id }); },
     onMic: () => toggleMic(p),
     onOpenPath: async (token, ev) => {
-      const st = await api.statPath({ token, cwd: p.cwd });
+      const st = await api.statPath({ token, cwd: p.cwd, id: p.id });
       if (!st.exists) { toast('Not found: ' + token); return; }
       openTermLink({ kind: 'path', text: token }, st, ev);
     },
@@ -2343,7 +2353,7 @@ async function openDocLink(href, p, read) {
     return;
   }
   if (t.kind !== 'path') return;
-  const st = await api.statPath({ token: t.target, cwd: p.cwd });
+  const st = await api.statPath({ token: t.target, cwd: p.cwd, id: p.id });
   if (!st.exists) { toast('Not found: ' + shortHome(t.target)); return; }
   if (st.isFile) openFile(st.abs); else api.revealFile(st.abs);
 }
