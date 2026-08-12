@@ -387,6 +387,15 @@ body[data-glass] .tree-row { border-bottom-color: rgb(var(--gl-sh) / 0.08); bord
 body[data-glass] .tree-row:hover { background: var(--hover); }
 body[data-glass] .agent-row { border-color: var(--gl-rim-dim); border-radius: 14px; background: var(--gl-pane-dim); }
 body[data-glass] .agent-row:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+/* A pinned group label sits over live rows, and --rail is see-through here, so
+   it has to carry its own glass: blur what passes under it, or the rows read
+   straight through the words. The bleed hides the row corners either side. */
+body[data-glass] .lib-group {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  padding-left: 14px; padding-right: 14px; margin-left: -14px; margin-right: -14px;
+}
 
 /* segmented progress ticks (paper's solid bars go dotted, Nothing-style) */
 body[data-glass] .bar, body[data-glass] .progress {

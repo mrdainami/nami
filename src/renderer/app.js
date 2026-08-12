@@ -1042,13 +1042,16 @@ function refreshLibraryRail(c) {
     if (!items.length && !(isSvc && !ql)) continue; // the services group always offers connect when not filtering
     shown += items.length + (isSvc ? 1 : 0);
     const open = ql ? true : !S.library.collapsed.has(g.key); // filtering always reveals matches
+    // Each group owns a section so its sticky header can only travel inside its
+    // own rows — siblings sharing one scroller all pin at top:0 and pile up.
+    const sect = document.createElement('div'); sect.className = 'lib-sect'; list.appendChild(sect);
     const lab = document.createElement('div'); lab.className = 'lib-group';
     lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${items.length}</span>`;
     lab.onclick = () => {
       if (S.library.collapsed.has(g.key)) S.library.collapsed.delete(g.key); else S.library.collapsed.add(g.key);
       refreshRail();
     };
-    list.appendChild(lab);
+    sect.appendChild(lab);
     if (!open) continue;
     if (isSvc) {
       for (const sv of items) {
@@ -1077,13 +1080,13 @@ function refreshLibraryRail(c) {
           await api.deliverServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
           refreshServices();
         };
-        list.appendChild(row);
+        sect.appendChild(row);
       }
       const add = document.createElement('div'); add.className = 'agent-row';
       add.innerHTML = `<span class="code" data-kind="service">⚡</span>
         <span class="col"><span class="name">connect a service</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
       add.onclick = () => openConnect();
-      list.appendChild(add);
+      sect.appendChild(add);
       continue;
     }
     for (const i of items) {
@@ -1097,9 +1100,9 @@ function refreshLibraryRail(c) {
         <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span>
         ${tag}<span class="chev">›</span>`;
       row.onclick = () => openCard(i);
-      list.appendChild(row);
+      sect.appendChild(row);
     }
-    if (g.key === 'skills') appendPointerBar(list);
+    if (g.key === 'skills') appendPointerBar(sect);
   }
   if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }
 }
