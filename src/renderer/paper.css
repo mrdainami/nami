@@ -975,7 +975,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .tile-head:active { cursor: grabbing; }
 .tile-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60,45,25,0.3); }
-.tile-head .col { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+/* flex-basis auto, not 0%: with 0% the title only ever got LEFTOVER space,
+   so any rigid neighbour (the channel badge) could starve it to nothing while
+   itself staying visible. With auto the title claims its content width first
+   and the badge's 999 shrink factor makes the badge collapse before the
+   title gives a pixel — the head degrades in the right order. */
+.tile-head .col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
 .tile-head .t-title { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-head .t-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .tile-head .t-status { display: flex; align-items: center; gap: 6px; margin-right: 4px; }
@@ -1064,9 +1069,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
 /* the channel badge: which structured channel this card speaks, said once in
    the head. Quiet fact; amber only when it explains a limit (watching,
-   one-shot, terminal-only). Hidden entirely in Term view. */
+   one-shot, terminal-only). Hidden entirely in Term view.
+   It is the FIRST thing in the head to give ground: .tile-head never clips
+   and the buttons are flex:none, so a rigid badge shoved the ✕ off the card
+   on narrow tiles — the huge shrink factor collapses this before the title
+   loses a pixel, and the buttons never move. */
 .t-channel {
-  flex: none; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  flex: 0 999 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted); white-space: nowrap;
 }
 .t-channel.warn { color: var(--amber-btn); }
