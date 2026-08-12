@@ -85,4 +85,18 @@ function safeEvent(e) {
   return e;
 }
 
-module.exports = { EVENT_KINDS, TOOL_KINDS, toolKindFor, capability, clip, BODY_CAP, safeEvent };
+// A short answer that is really the provider failing — Hermes returned
+// "API call failed after 3 retries: HTTP 404: model: …" as ordinary assistant
+// prose, and a naive card rendered it as the reply. Long texts never classify:
+// an agent legitimately *discussing* an error writes paragraphs, not one line.
+function classifyFailure(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t || t.length > 400) return null;
+  if (/^API call failed\b/i.test(t)) return t;
+  if (/^HTTP\s+\d{3}\b/.test(t)) return t;
+  if (/^\d{3}\s+(Bad Gateway|Service Unavailable|Too Many Requests|Unauthorized|Forbidden|Not Found|Internal Server Error)\b/i.test(t)) return t;
+  if (/^(request|api)\s+error\b/i.test(t)) return t;
+  return null;
+}
+
+module.exports = { EVENT_KINDS, TOOL_KINDS, toolKindFor, capability, clip, BODY_CAP, safeEvent, classifyFailure };
