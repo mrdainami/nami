@@ -1665,7 +1665,7 @@ function applyView(p, rec) {
   const surf = q('.t-surface', rec.head);
   if (surf) {
     surf.className = 't-surface' + (on ? ' cards' : ' term');
-    surf.innerHTML = on ? `CARDS<span class="t-stamp">BETA</span>` : 'TERM';
+    surf.textContent = on ? 'CARDS' : 'TERM';
   }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
   else requestAnimationFrame(() => safeFit(rec));
@@ -1729,6 +1729,14 @@ async function driveCards(p) {
   if (!agent || agent.startsWith('unknown:')) return;
   p.cardMode = 'drive';
   p.cardEvents = [];
+  // The welcome does not wait for the channel to boot: the registry already
+  // knows who this is and where. init replaces this card with the enriched
+  // one (version, model, mode) the moment it arrives.
+  const reg = (S.agents || []).find((a) => (agent === 'claude' ? a.id === 'claude' : a.bin === agent));
+  p.cardEvents.push({
+    kind: 'intro', id: 'intro:' + p.id,
+    name: (reg && reg.name) || agent, cwd: p.cwd,
+  });
   if (agent === 'claude') {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
@@ -2673,7 +2681,7 @@ function renderLauncher() {
       <span class="col"><span class="name">${esc(a.name)}</span>
       <span class="desc"><span class="ok${st.dot === 'warn' ? ' ok--warn' : ''}">●</span> ready · ${esc(st.text)}</span></span>
       ${cardable ? `<span class="ways">
-        <button class="way way--cards${lastPick === 'cards' ? ' last' : ''}" data-w="cards">Cards<span class="t-stamp">BETA</span></button>
+        <button class="way way--cards${lastPick === 'cards' ? ' last' : ''}" data-w="cards">Cards</button>
         <button class="way${lastPick === 'term' ? ' last' : ''}" data-w="term">Terminal</button>
       </span>` : ''}
       ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;

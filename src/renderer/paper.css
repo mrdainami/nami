@@ -878,14 +878,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .t-surface.cards { background: var(--green); color: var(--paper); }
 .t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
-/* the beta stamp: a side hat on the top-left corner, tilted, never clipped */
-.t-stamp {
-  position: absolute; top: -7px; left: -7px; transform: rotate(-14deg);
-  transform-origin: bottom left; font-size: 5.5px; letter-spacing: 0.1em;
-  font-weight: 700; line-height: 1; padding: 1.5px 3px;
-  border: 1px solid var(--green); border-radius: 2px;
-  background: var(--paper); color: var(--green); pointer-events: none; white-space: nowrap;
-}
 
 /* the ⌄ menu those labels defer to */
 .head-menu {
@@ -914,7 +906,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row .way:hover { border-color: var(--green); color: var(--ink); }
 .picker-row .way.last { border-color: var(--dash-dark); color: var(--ink); }
 .picker-row .way--cards { font-weight: 700; }
-.picker-row .way .t-stamp { background: var(--paper-2); }
 /* In Cards the mic lives in the composer; the head keeps everything else —
    − ＋ size the card text exactly as they size terminal cells. */
 .tile.cards-on .t-mic { display: none; }
