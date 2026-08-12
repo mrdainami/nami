@@ -218,6 +218,10 @@ function dropFilesOnPanel(p, paths) {
   const b = await api.boot();
   S.winId = b.winId || 0;
   S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
+  // The wordmark's caption. Rendered empty by buildShell and filled here, so
+  // the lockup is never laid out twice — the stack is sized by Nami above it,
+  // and a build that somehow reports no version simply shows nothing.
+  if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
   S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
@@ -687,7 +691,10 @@ function buildShell() {
               -60 0 -54 9 -62 65 -61 34 1 45 8 50 29 2 11 1 63 -2 70 -8 20 -34 27 -78 22z"/>
               </g>
             </svg>
-            <span class="brand-name">Nami</span>
+            <span class="brand-stack">
+              <span class="brand-name">Nami</span>
+              <span class="brand-ver" id="brand-ver"></span>
+            </span>
           </span>
           <span class="brand-sub">AI agent workbench</span>
         </div>
