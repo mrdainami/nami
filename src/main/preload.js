@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('dainami', {
   droppedFilePath: (file) => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } },
 
   pickFolder: () => ipcRenderer.invoke('folder:pick'),
+  // Same return shape as pickFolder, so the renderer switches to it the same
+  // way — it just made the folder first, and left a note in it.
+  makeFolder: () => ipcRenderer.invoke('folder:make'),
   // commit:false reads the folder without adopting it — the renderer needs the
   // scan before it can decide whether the switch happens at all.
   openFolder: (folder, commit) => ipcRenderer.invoke('folder:open', { folder, commit: commit !== false }),
