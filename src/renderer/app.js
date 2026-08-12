@@ -1740,6 +1740,7 @@ async function driveCards(p) {
     mode: (MODE_CYCLES[agent] || [])[0] || '',
   };
   p.agentStatus = Object.assign(p.agentStatus || {}, { name: intro.name, mode: intro.mode || undefined });
+  if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[agent] });
   p.cardEvents = [intro];
   if (agent === 'claude') {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });

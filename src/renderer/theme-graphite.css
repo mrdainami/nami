@@ -11,12 +11,12 @@ body[data-theme="graphite"] {
   --paper-2: rgba(70, 72, 84, 0.36);
   --paper-3: rgba(64, 66, 78, 0.3);
   --ink: #ececf1;
-  --muted: #a2a3ae;
+  --muted: #b4b6c4;   /* was #a2a3ae — unreadable on the dark ground (Calvin) */
   --muted-2: #91929d;
   --muted-3: #85868f;
-  --faint: #5d5e68;
-  --line: rgba(255, 255, 255, 0.16);
-  --dash: rgba(255, 255, 255, 0.1);
+  --faint: #8a8c9a;   /* was #5d5e68 */
+  --line: rgba(255, 255, 255, 0.24);
+  --dash: rgba(255, 255, 255, 0.17);
   --dash-dark: rgba(255, 255, 255, 0.2);
   --rail: rgba(30, 31, 38, 0.3);
   --hover: rgba(255, 255, 255, 0.08);

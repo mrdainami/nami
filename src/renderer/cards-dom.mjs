@@ -417,7 +417,7 @@ export function buildCards(ctx) {
       <span class="cs-mk">▸▸</span>
       <button class="cs-mode" title="Click or shift⇥ to cycle"></button>
       <span class="cs-kb">(shift⇥ cycles)</span>
-      <span class="cs-dot">·</span>
+      <span class="cs-dot cs-mdot" hidden>·</span>
       <select class="cd-model cs-model" title="Model"></select>
       <span class="cs-dot cs-ctxdot" hidden>·</span>
       <span class="cs-ctx" hidden></span>
@@ -624,6 +624,8 @@ export function buildCards(ctx) {
     } else {
       modelSel.hidden = true;
     }
+    const mdot = q('.cs-mdot', el);
+    if (mdot) mdot.hidden = modelSel.hidden;
     if (hasMode) {
       modeChip.textContent = modeLabel(st.mode);
       modeChip.hidden = false;
