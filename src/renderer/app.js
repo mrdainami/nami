@@ -4008,6 +4008,7 @@ function aboutPaneHtml() {
     </div>
     <hr class="ab-rule" />
     <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Cal</a>, in Nami.</div>
+    <div class="ab-copy">© 2026 Dainami AI · MIT licensed</div>
     <div class="ab-team">
       <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Nami for your team? →</button>
     </div>`;
