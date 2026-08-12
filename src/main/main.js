@@ -19,6 +19,8 @@ const { detectAgents, agentStatus } = require('./agents-detect');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
+const { readMaster, upsertMaster, removeMaster, deliveryPlan, notebookTargets, readNotebooks, coverage, writeCodexBlock } = require('./connections');
+const { runPlan } = require('./connections-deliver');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
@@ -118,7 +120,11 @@ if (SHOT_PATH) {
 // app impossible to daily-drive while developing, and makes a clean first launch
 // impossible to see at all without deleting your own config. Development gets its own
 // directory instead. Must run before anything reads userData, hence module scope.
-if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
+// --user-data <dir> gives a run its own profile — two dev sessions sharing
+// Nami-dev otherwise restore each other's desks into every screenshot.
+const UD_IDX = process.argv.indexOf('--user-data');
+if (UD_IDX >= 0 && process.argv[UD_IDX + 1]) app.setPath('userData', path.resolve(process.argv[UD_IDX + 1]));
+else if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
@@ -644,49 +650,90 @@ ipcMain.handle('agents:remove', (_e, { id, binPath } = {}) =>
 function catalogForRenderer() {
   return KNOWN_SERVICES.map((s) => ({ id: s.id, name: s.name, desc: s.desc, code: s.code, kind: s.kind, keys: s.keys, keyHelpUrl: s.keyHelpUrl, docs: s.docs, guide: s.guide }));
 }
-// User-scope Claude config belongs to the claude CLI, never hand-edited.
-function claudeUserScopeAdd(id, entry) {
+// CLI steps in a delivery plan (user-scope Claude, later others) run through
+// the user's login shell — that config belongs to the tool, never hand-edited.
+function shellExec(cmd) {
   return new Promise((resolve) => {
-    const json = JSON.stringify(entry);
     const sh = loginShell();
-    execFile(sh.file, sh.args(`claude mcp add-json --scope user ${id} ${JSON.stringify(json)}`), { timeout: 20000 }, (err) => {
-      resolve(err ? 'skipped: ' + err.message.split('\n')[0] : 'written');
+    execFile(sh.file, sh.args(cmd), { timeout: 20000 }, (err) => {
+      resolve(err ? { ok: false, error: err.message.split('\n')[0] } : { ok: true });
     });
   });
 }
-ipcMain.handle('services:list', (_e, { projectPath } = {}) => ({
-  catalog: catalogForRenderer(),
-  connected: detectServices({ projectPath, home: os.homedir() }),
-}));
-ipcMain.handle('services:connect', async (_e, { id, values, scope, platforms, projectPath }) => {
+// One connection, one master, copies for every installed agent. The full master
+// set is always re-delivered — the codex marker block is regenerated whole, so
+// delivering a single entry would silently drop its siblings from that block.
+async function deliverConnections({ scope, projectPath, agentIds }) {
+  const masters = readMaster({ scope, projectPath, homeDir: os.homedir() });
+  if (!Object.keys(masters).length) return [];
+  const plan = deliveryPlan({ masters, scope, agentIds: agentIds || [], projectPath, homeDir: os.homedir() });
+  return runPlan({ plan, execCmd: shellExec });
+}
+// What a delivery looked like, in the words the connect-done sheet shows.
+function shortHome(p) { return String(p || '').replace(os.homedir(), '~'); }
+function deliveredNames(results) {
+  return results.filter((r) => r.ok).map((r) => (r.via === 'cli' ? r.agent + ' (its own CLI)' : shortHome(r.wrote)));
+}
+ipcMain.handle('services:list', (_e, { projectPath, agentIds } = {}) => {
+  const home = os.homedir();
+  const masters = {
+    ...readMaster({ scope: 'user', projectPath, homeDir: home }),
+    ...readMaster({ scope: 'project', projectPath, homeDir: home }),
+  };
+  const notebooks = (agentIds && agentIds.length) ? readNotebooks({ projectPath, homeDir: home, agentIds }) : null;
+  return {
+    catalog: catalogForRenderer(),
+    connected: detectServices({ projectPath, home }),
+    masters: Object.keys(masters),
+    coverage: notebooks ? coverage({ masters, notebooks }) : null,
+  };
+});
+ipcMain.handle('services:connect', async (_e, { id, values, scope, agentIds, projectPath }) => {
   const s = serviceById(id);
   if (!s) return { ok: false, error: 'unknown service' };
   if (values && values.installDir) values.installDir = values.installDir.replace(/^~/, os.homedir());
-  const files = [];
-  let claudeUserScope = null;
   try {
-    if (platforms.includes('claude')) {
-      const entry = s.claudeEntry(values);
-      if (scope === 'project' && projectPath) { upsertMcpJson({ file: path.join(projectPath, '.mcp.json'), id, entry }); files.push('.mcp.json'); }
-      else if (scope === 'user') { claudeUserScope = await claudeUserScopeAdd(id, entry); if (claudeUserScope === 'written') files.push('claude user settings'); }
-    }
-    if (platforms.includes('opencode')) {
-      const entry = s.opencodeEntry(values);
-      const file = scope === 'project' && projectPath
-        ? path.join(projectPath, 'opencode.json')
-        : path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
-      upsertOpencode({ file, id, entry });
-      files.push(file.indexOf('.config') >= 0 ? 'opencode config' : 'opencode.json');
-    }
-    const probe = s.claudeEntry(values);
-    const check = await checkServer({ command: probe.command, args: probe.args, env: probe.env || {} });
-    return { ok: true, files, tools: check.ok ? check.tools : 0, checked: check.ok, checkError: check.ok ? null : check.error, claudeUserScope };
-  } catch (e) { return { ok: false, error: e.message, files }; }
+    const entry = s.entry(values);
+    const up = upsertMaster({ scope, projectPath, homeDir: os.homedir(), id, entry });
+    if (!up.ok) return up;
+    const delivered = await deliverConnections({ scope, projectPath, agentIds });
+    const files = [shortHome(up.file) + ' (the master)'].concat(deliveredNames(delivered));
+    const check = entry.command
+      ? await checkServer({ command: entry.command, args: entry.args, env: entry.env || {} })
+      : { ok: false, error: 'remote servers are checked by the first session that uses them' };
+    return { ok: true, files, delivered, tools: check.ok ? check.tools : 0, checked: check.ok, checkError: check.ok ? null : check.error };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+// Repair: re-deliver current masters (both scopes) to every installed agent.
+ipcMain.handle('services:deliver', async (_e, { projectPath, agentIds } = {}) => {
+  const out = [];
+  out.push(...await deliverConnections({ scope: 'user', projectPath, agentIds }));
+  if (projectPath) out.push(...await deliverConnections({ scope: 'project', projectPath, agentIds }));
+  return out;
 });
 ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
-  // Hand-editable files only; user-scope Claude goes through the claude CLI.
-  const files = knownFiles(projectPath, os.homedir()).filter(([f]) => f.indexOf('.claude.json') < 0).map(([f]) => f);
-  const changed = removeService({ files, id });
+  const home = os.homedir();
+  const changed = [];
+  // Masters first — they are what delivery would faithfully restore.
+  for (const scope of ['project', 'user']) {
+    const res = removeMaster({ scope, projectPath, homeDir: home, id });
+    if (res.ok) changed.push(res.file);
+  }
+  // Every JSON notebook a delivery (or a hand) could have written, both scopes.
+  const jsonFiles = new Set(knownFiles(projectPath, home).filter(([f]) => f.indexOf('.claude.json') < 0).map(([f]) => f));
+  for (const scope of ['project', 'user']) {
+    const targets = notebookTargets({ scope, projectPath, homeDir: home });
+    for (const t of Object.values(targets)) if (t.kind === 'json' && t.file) jsonFiles.add(t.file);
+  }
+  changed.push(...removeService({ files: [...jsonFiles], id }));
+  // Codex blocks regenerate from what remains in each master.
+  for (const scope of ['project', 'user']) {
+    const t = notebookTargets({ scope, projectPath, homeDir: home }).codex;
+    if (t && t.file && fs.existsSync(t.file)) {
+      const res = writeCodexBlock({ file: t.file, masters: readMaster({ scope, projectPath, homeDir: home }) });
+      if (res.ok) changed.push(t.file);
+    }
+  }
   const viaCli = await new Promise((resolve) => {
     const sh = loginShell();
     execFile(sh.file, sh.args(`claude mcp remove --scope user ${id}`), { timeout: 20000 }, (err) => resolve(!err));
