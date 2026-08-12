@@ -119,3 +119,90 @@ test('nothing in, nothing out', () => {
   assert.deepEqual(buildRows([]), []);
   assert.deepEqual(buildRows(undefined), []);
 });
+
+// ---- the kinds the agent-cards build added ---------------------------------
+
+test('a tool row wears the glyph of its kind, never its name', () => {
+  const rows = buildRows([
+    { kind: 'tool', id: 'a', toolId: 't1', name: 'Read', input: { file_path: '/x/y.js' } },
+    { kind: 'tool', id: 'b', toolId: 't2', name: 'Bash', input: { command: 'ls' } },
+    { kind: 'tool', id: 'c', toolId: 't3', name: 'mcp__weird__thing', input: {} },
+  ]);
+  assert.equal(rows[0].glyph, '◧');
+  assert.equal(rows[1].glyph, '▸');
+  assert.equal(rows[2].glyph, '•');
+  assert.equal(rows[2].label, 'mcp__weird__thing');
+});
+
+test('an adapter that already typed its call wins over the name mapping', () => {
+  const rows = buildRows([{ kind: 'tool', id: 'a', toolId: 't1', name: 'shell', toolKind: 'execute', input: {} }]);
+  assert.equal(rows[0].toolKind, 'execute');
+  assert.equal(rows[0].glyph, '▸');
+});
+
+test('an edit row carries the diff the call itself holds', () => {
+  const rows = buildRows([{
+    kind: 'tool', id: 'a', toolId: 't1', name: 'Edit',
+    input: { file_path: '/repo/app.js', old_string: 'a\nb', new_string: 'a\nc\nd' },
+  }]);
+  assert.equal(rows[0].detail, '+3 −2');
+  assert.deepEqual(rows[0].diff, { path: '/repo/app.js', oldText: 'a\nb', newText: 'a\nc\nd' });
+});
+
+test('a read that returned tells how much came back', () => {
+  const rows = buildRows([
+    { kind: 'tool', id: 'a', toolId: 't1', name: 'Read', input: { file_path: '/x/y.js' } },
+    { kind: 'tool_result', id: 'b', toolId: 't1', body: 'l1\nl2\nl3', truncated: false },
+  ]);
+  assert.equal(rows[0].detail, '3 lines');
+});
+
+test('a sub-agent folds under the Task row that spawned it', () => {
+  const rows = buildRows([
+    { kind: 'tool', id: 'a', toolId: 'task1', name: 'Task', input: { description: 'explore' } },
+    { kind: 'assistant', id: 'b', text: 'sub thinking out loud', parentToolId: 'task1' },
+    { kind: 'tool', id: 'c', toolId: 't2', name: 'Read', input: { file_path: '/x.js' }, parentToolId: 'task1' },
+    { kind: 'assistant', id: 'd', text: 'main again' },
+  ]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].children.length, 2);
+  assert.equal(rows[1].text, 'main again');
+});
+
+test('an approval row renders what the agent sent and settles when resolved', () => {
+  const events = [{
+    kind: 'permission', id: 'p', permissionId: 'pp1', toolName: 'Bash',
+    title: 'Bash', description: 'Remove build dir',
+    options: [{ id: 'allow', label: 'Allow' }, { id: 'sugg:0', label: 'Always allow `rm -rf build`' }, { id: 'deny', label: 'Deny' }],
+  }];
+  let rows = buildRows(events);
+  assert.equal(rows[0].kind, 'permission');
+  assert.equal(rows[0].options.length, 3);
+  assert.equal(rows[0].resolved, null);
+  rows = buildRows([...events, { kind: 'permission_resolved', id: 'q', permissionId: 'pp1', optionId: 'sugg:0' }]);
+  assert.equal(rows[0].resolved, 'sugg:0');
+});
+
+test('plans, notes and errors are rows of their own kind', () => {
+  const rows = buildRows([
+    { kind: 'plan', id: 'a', todos: [{ text: 'one', status: 'completed' }] },
+    { kind: 'note', id: 'b', text: 'Rate limit reached.' },
+    { kind: 'error', id: 'c', message: 'HTTP 404' },
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['plan', 'note', 'error']);
+  assert.equal(rows[2].text, 'HTTP 404');
+});
+
+test('a turn_end carries its cost when the channel reported one', () => {
+  const rows = buildRows([{ kind: 'turn_end', id: 'a', durationMs: 5000, costUsd: 0.13 }]);
+  assert.equal(rows[0].duration, '5.0s');
+  assert.equal(rows[0].costUsd, 0.13);
+});
+
+test('init and status shape the tile, not the list', () => {
+  const rows = buildRows([
+    { kind: 'init', id: 'a', capability: {} },
+    { kind: 'status', id: 'b', state: 'running' },
+  ]);
+  assert.equal(rows.length, 0);
+});
