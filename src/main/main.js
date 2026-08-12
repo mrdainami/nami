@@ -31,6 +31,7 @@ const { deliverAgents, liftToMaster, sweepCopies } = require('./agent-master');
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
+const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
@@ -943,16 +944,33 @@ ipcMain.handle('file:raw', (_e, file) => {
 ipcMain.handle('file:save', (_e, { file, text }) => {
   try { fs.writeFileSync(file, text); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
 });
-// Resolve a token clicked in a terminal (absolute, ~, or relative to the session cwd).
-ipcMain.handle('path:stat', (_e, { token, cwd }) => {
+// Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
+// `relative` is reported because it is the only case a second base could
+// change: an absolute path that is missing is missing everywhere.
+function statToken(token, base) {
+  let relative = false;
   try {
     let p = String(token || '').trim().replace(/[)>,.:'"]+$/, '');
-    if (!p) return { exists: false };
-    if (p.startsWith('~')) p = path.join(os.homedir(), p.slice(1));
-    if (!path.isAbsolute(p)) p = path.resolve(cwd || os.homedir(), p);
+    if (!p) return { exists: false, relative: false };
+    const tilde = p.startsWith('~');
+    if (tilde) p = path.join(os.homedir(), p.slice(1));
+    relative = !tilde && !path.isAbsolute(p);
+    if (relative) p = path.resolve(base || os.homedir(), p);
     const st = fs.statSync(p);
-    return { exists: true, isFile: st.isFile(), isDir: st.isDirectory(), abs: p };
-  } catch (_) { return { exists: false }; }
+    return { exists: true, isFile: st.isFile(), isDir: st.isDirectory(), abs: p, relative };
+  } catch (_) { return { exists: false, relative }; }
+}
+// The session's own cwd is tried first and wins outright, so the retry below
+// can only ever turn a dead link live — never the reverse. Only a relative
+// miss pays for the lsof, and only while a link is being hovered.
+ipcMain.handle('path:stat', async (_e, { token, cwd, id }) => {
+  const hit = statToken(token, cwd);
+  if (hit.exists || !hit.relative) return hit;
+  const term = id ? termSessions.get(id) : null;
+  if (!term || !term.pid) return hit;
+  const live = await ptyCwd(term.pid);
+  if (!live || live === cwd) return hit;
+  return statToken(token, live);
 });
 
 // ---- IPC: agents & skills library ------------------------------------------
