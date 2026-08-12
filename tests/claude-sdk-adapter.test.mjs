@@ -1,0 +1,179 @@
+// The claude-sdk adapter, tested against frames a real SDK session produced
+// (tests/fixtures/agents/claude-sdk*.jsonl — recorded, sanitised, never
+// imagined). handle() is pure enough to feed directly: no query, no process.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { ClaudeSdkAdapter } = require('../src/main/adapters/claude-sdk.js');
+const { EVENT_KINDS, BODY_CAP } = require('../src/main/agent-events.js');
+
+function fixture(name) {
+  return fs.readFileSync(new URL(`./fixtures/agents/${name}`, import.meta.url), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l));
+}
+
+function drive(name) {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  for (const rec of fixture(name)) {
+    if (rec.kind === 'canUseTool') {
+      // Recorded at the callback boundary: replay it the same way.
+      a.askPermission(rec.msg.toolName, rec.msg.input, { suggestions: rec.msg.suggestions, ...rec.msg.opts });
+    } else {
+      a.handle(rec.msg || rec);
+    }
+  }
+  return { a, events };
+}
+
+test('every event the adapter emits is in the vocabulary', () => {
+  for (const f of ['claude-sdk.jsonl', 'claude-sdk2.jsonl', 'claude-sdk3.jsonl', 'claude-sdk4.jsonl']) {
+    for (const e of drive(f).events) {
+      assert.ok(EVENT_KINDS.has(e.kind), `${f}: '${e.kind}' is not in the vocabulary`);
+      assert.ok(e.id, `${f}: event without an id`);
+    }
+  }
+});
+
+test('a tool_result carries its body — the first build threw it away', () => {
+  const { events } = drive('claude-sdk4.jsonl');
+  const results = events.filter((e) => e.kind === 'tool_result');
+  assert.ok(results.length >= 3, 'expected tool results in the capture');
+  assert.ok(results.some((r) => r.body && r.body.length > 0), 'no result kept its body');
+  for (const r of results) {
+    assert.ok(typeof r.body === 'string');
+    assert.ok(r.body.length <= BODY_CAP);
+    assert.equal(typeof r.truncated, 'boolean');
+  }
+});
+
+test('tool events carry the kind the row is keyed to, and the raw input', () => {
+  const { events } = drive('claude-sdk4.jsonl');
+  const tools = events.filter((e) => e.kind === 'tool');
+  assert.ok(tools.length >= 2);
+  for (const t of tools) {
+    assert.ok(['read', 'edit', 'execute', 'search', 'fetch', 'think', 'checkpoint', 'other'].includes(t.toolKind));
+    assert.ok(t.input && typeof t.input === 'object');
+    assert.ok(t.toolId);
+  }
+  assert.ok(tools.some((t) => t.name === 'Bash' && t.toolKind === 'execute'));
+});
+
+test('the permission event carries what the agent sent: title, description, options from suggestions', () => {
+  const { a, events } = drive('claude-sdk4.jsonl');
+  const perms = events.filter((e) => e.kind === 'permission');
+  assert.equal(perms.length, 2);
+
+  const bash = perms[0];
+  assert.equal(bash.toolName, 'Bash');
+  assert.equal(bash.title, 'Bash');
+  assert.equal(bash.description, 'Remove build dir and create probe.txt');
+  // allow · the agent's own suggestion · deny — never fewer than the channel offered
+  assert.equal(bash.options.length, 3);
+  assert.equal(bash.options[0].id, 'allow');
+  assert.match(bash.options[1].label, /rm -rf build/);
+  assert.equal(bash.options.at(-1).id, 'deny');
+
+  const write = perms[1];
+  assert.equal(write.toolName, 'Write');
+  assert.match(write.options[1].label, /[Aa]ccept edits/);
+  // A Write asks with the content it wants to land: the diff rides the event.
+  assert.ok(write.diff && typeof write.diff.newText === 'string');
+  assert.ok(write.diff.path);
+
+  // Answering with the suggestion resolves allow + that suggestion, and the
+  // resolution is announced so the card can settle the row.
+  const answered = [];
+  a.pendingPermissions.get(bash.permissionId); // exists
+  const before = events.length;
+  const resolutionPromise = a.pendingResults && null;
+  a.resolvePermission(bash.permissionId, bash.options[1].id);
+  const resolved = events.slice(before).find((e) => e.kind === 'permission_resolved');
+  assert.ok(resolved, 'no permission_resolved emitted');
+  assert.equal(resolved.permissionId, bash.permissionId);
+  assert.equal(resolved.optionId, bash.options[1].id);
+});
+
+test('askPermission resolves to the SDK shape for each option', async () => {
+  const a = new ClaudeSdkAdapter({ id: 't2', cwd: '/repo', onEvent: () => {} });
+  const sugg = [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }];
+
+  const p1 = a.askPermission('Write', { file_path: '/repo/x', content: 'hi' }, { suggestions: sugg });
+  const perm1 = [...a.pendingPermissions.keys()][0];
+  a.resolvePermission(perm1, 'allow');
+  assert.deepEqual(await p1, { behavior: 'allow', updatedInput: { file_path: '/repo/x', content: 'hi' } });
+
+  const p2 = a.askPermission('Write', { file_path: '/repo/x', content: 'hi' }, { suggestions: sugg });
+  const perm2 = [...a.pendingPermissions.keys()][0];
+  a.resolvePermission(perm2, 'sugg:0');
+  const r2 = await p2;
+  assert.equal(r2.behavior, 'allow');
+  assert.deepEqual(r2.updatedPermissions, sugg);
+
+  const p3 = a.askPermission('Bash', { command: 'rm -rf /' }, {});
+  const perm3 = [...a.pendingPermissions.keys()][0];
+  a.resolvePermission(perm3, 'deny');
+  const r3 = await p3;
+  assert.equal(r3.behavior, 'deny');
+});
+
+test('a rate limit that bites is a note; one that allows is silence', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 'rl', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour' } });
+  assert.equal(events.filter((e) => e.kind === 'note').length, 0, 'an allowed check is not news');
+  a.handle({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1786521600 } });
+  const notes = events.filter((e) => e.kind === 'note');
+  assert.equal(notes.length, 1, 'a rejection must surface');
+  assert.match(notes[0].text, /[Rr]ate limit/);
+});
+
+test('init carries the slash commands the agent published', () => {
+  const { events } = drive('claude-sdk.jsonl');
+  const init = events.find((e) => e.kind === 'init');
+  assert.ok(Array.isArray(init.commands) && init.commands.length > 0, 'slash_commands vanished');
+  assert.equal(init.capability.commands, true);
+});
+
+test('the turn ends with a meter: duration, cost, turns', () => {
+  const { events } = drive('claude-sdk.jsonl');
+  const ends = events.filter((e) => e.kind === 'turn_end');
+  assert.ok(ends.length >= 1);
+  assert.ok(ends[0].durationMs > 0);
+});
+
+test('todo updates become a plan event', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't3', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id: 'tu1', name: 'TodoWrite', input: { todos: [{ content: 'do it', status: 'pending' }] } }] },
+  });
+  const plan = events.find((e) => e.kind === 'plan');
+  assert.ok(plan);
+  assert.equal(plan.todos[0].text, 'do it');
+  assert.equal(plan.todos[0].status, 'pending');
+});
+
+test('a sub-agent turn is marked with its parent tool, so the card can fold it', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't4', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({
+    type: 'assistant', parent_tool_use_id: 'task1',
+    message: { content: [{ type: 'text', text: 'sub says hi' }] },
+  });
+  assert.equal(events[0].parentToolId, 'task1');
+});
+
+test('init announces the channel and what it can do', () => {
+  const { events } = drive('claude-sdk.jsonl');
+  const init = events.find((e) => e.kind === 'init');
+  assert.ok(init);
+  assert.equal(init.capability.drive, true);
+  assert.equal(init.capability.ask, true);
+  assert.equal(init.capability.interrupt, true);
+  assert.equal(init.capability.channel, 'agent sdk');
+  assert.ok(init.claudeSessionId);
+});
