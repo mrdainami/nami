@@ -313,7 +313,7 @@ function updateRow(ctx, el, row) {
   const open = q('.cd-open', el);
   const hasDiff = row.diff && (row.diff.oldText || row.diff.newText);
   const children = row.children && row.children.length;
-  el.dataset.body = (row.body || hasDiff || children) ? '1' : '';
+  el.dataset.body = (row.body || hasDiff || (children && !row.pending)) ? '1' : '';
   // Rebuilt each update: a tool mutates once, when its result lands.
   open.innerHTML = '';
   if (hasDiff) open.appendChild(diffEl(row.diff));
@@ -323,7 +323,18 @@ function updateRow(ctx, el, row) {
     pre.textContent = row.body + (row.truncated ? '\n\n… cut here — the whole thing is in Term' : '');
     open.appendChild(pre);
   }
-  if (children) {
+  // A sub-agent you can watch: while its Task still runs, the children are a
+  // live indented lane in the open; once it finishes they fold behind the
+  // click, like any other body.
+  let lane = q('.cd-lane', el);
+  if (children && row.pending) {
+    if (!lane) { lane = document.createElement('div'); lane.className = 'cd-lane'; el.appendChild(lane); }
+    lane.innerHTML = `<div class="cd-sub-t">sub-agent · live</div>`;
+    for (const c of row.children) lane.appendChild(renderRow(ctx, c));
+  } else if (lane) {
+    lane.remove();
+  }
+  if (children && !row.pending) {
     const sub = document.createElement('div');
     sub.className = 'cd-sub';
     sub.innerHTML = `<div class="cd-sub-t">sub-agent · ${row.children.length} step${row.children.length > 1 ? 's' : ''}</div>`;
@@ -389,6 +400,11 @@ export function buildCards(ctx) {
   el.className = 'tile-cards';
   el.innerHTML = `<div class="cd-note" hidden></div>
     <div class="cd-list"></div>
+    <div class="cd-working" hidden>
+      <span class="cw-sp"></span>
+      <span>Working… <b class="cw-el">0s</b><span class="cw-tk-wrap" hidden> · <span class="cw-tk">0</span> tok</span></span>
+      <span class="cw-esc">esc to interrupt</span>
+    </div>
     <div class="cd-menu" hidden></div>
     <div class="cd-ask">
       <span class="m">❯</span>
@@ -625,9 +641,34 @@ export function buildCards(ctx) {
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); e.stopPropagation(); if (ctx.onMode) ctx.onMode(); }
   });
 
+  // The working line — the TUI's spinner, kept: elapsed always, live tokens
+  // when the channel pulses them, and the way out named.
+  const workEl = q('.cd-working', el);
+  let workTimer = null, workStart = 0;
+  function setWorking(on, tokens) {
+    if (on) {
+      if (workEl.hidden) {
+        workEl.hidden = false;
+        workStart = Date.now();
+        q('.cw-el', workEl).textContent = '0s';
+        q('.cw-tk-wrap', workEl).hidden = true;
+        workTimer = setInterval(() => {
+          q('.cw-el', workEl).textContent = Math.round((Date.now() - workStart) / 1000) + 's';
+        }, 500);
+      }
+      if (typeof tokens === 'number' && tokens > 0) {
+        q('.cw-tk-wrap', workEl).hidden = false;
+        q('.cw-tk', workEl).textContent = tokens.toLocaleString();
+      }
+    } else {
+      workEl.hidden = true;
+      if (workTimer) { clearInterval(workTimer); workTimer = null; }
+    }
+  }
+
   return {
     el, list, input,
-    feed, setNote, scrollToEnd, setStatus,
+    feed, setNote, scrollToEnd, setStatus, setWorking,
     isEmpty: () => !list.children.length,
     insertText: (t) => {
       input.focus();

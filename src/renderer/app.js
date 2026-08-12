@@ -286,8 +286,18 @@ function dropFilesOnPanel(p, paths) {
       return;
     }
     if (ev.kind === 'status') {
+      const was = p.agentBusy;
       p.agentBusy = ev.state === 'running';
-      const rec = tileEls.get(p.id); if (rec) refreshCardNote(p, rec);
+      const rec = tileEls.get(p.id);
+      if (rec && rec.cardsUi) rec.cardsUi.setWorking(p.agentBusy, ev.tokens);
+      if (rec) refreshCardNote(p, rec);
+      // a queued message goes when the channel frees up
+      if (was && !p.agentBusy && p.sendQueue && p.sendQueue.length) {
+        const next = p.sendQueue.shift();
+        const qrow = (p.cardEvents || []).findIndex((e2) => e2 && e2.kind === 'note' && e2.queued);
+        if (qrow >= 0) { p.cardEvents.splice(qrow, 1); scheduleFeed(p); }
+        setTimeout(() => { if (p.agentLive) api.agentSend({ id: p.id, text: next }); }, 60);
+      }
       return;
     }
     p.cardEvents = (p.cardEvents || []).concat(ev);
@@ -1760,7 +1770,24 @@ function mountCards(p, rec) {
     onSend: (text) => {
       clearAttention(p);
       if (p.autoName) feedSessionName(p, text + '\n');
-      if (p.agentLive) { api.agentSend({ id: p.id, text }); return; }
+      if (p.agentLive) {
+        // One-shot channels take one task at a time: typed mid-run, the
+        // message queues visibly and sends when the turn ends. Claude's
+        // stream accepts input any time — straight through.
+        const oneShot = p.agentCaps && p.agentCaps.channel === 'one-shot';
+        if (oneShot && p.agentBusy) {
+          p.sendQueue = p.sendQueue || [];
+          p.sendQueue.push(text);
+          p.cardEvents = (p.cardEvents || []).concat({
+            kind: 'note', id: 'queued:' + Date.now(), queued: true,
+            text: `queued — "${text.length > 44 ? text.slice(0, 43) + '…' : text}" · sends when this turn ends`,
+          });
+          scheduleFeed(p);
+          return;
+        }
+        api.agentSend({ id: p.id, text });
+        return;
+      }
       // Watch fallback: the pty underneath still holds the keyboard.
       api.termWrite({ id: p.id, data: text });
       setTimeout(() => api.termWrite({ id: p.id, data: '\r' }), 160);
