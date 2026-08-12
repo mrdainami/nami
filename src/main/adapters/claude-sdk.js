@@ -113,7 +113,36 @@ class ClaudeSdkAdapter {
       return false;
     }
     this.pump();
+    // Force the CLI awake: with no first prompt the stream idles unbooted and
+    // the init frame never comes — but these control calls boot it and hand
+    // back the real command and model lists in one move.
+    this.bootstrap();
     return true;
+  }
+
+  async bootstrap() {
+    if (!this.query) return;
+    try {
+      const [cmds, models] = await Promise.all([
+        this.query.supportedCommands ? this.query.supportedCommands() : [],
+        this.query.supportedModels ? this.query.supportedModels() : [],
+      ]);
+      if (this.closed) return;
+      this.richCommands = (Array.isArray(cmds) ? cmds : []).slice(0, 200).map((c) => ({
+        name: String(c.name || ''), description: String(c.description || ''), argumentHint: String(c.argumentHint || ''),
+      }));
+      this.models = (Array.isArray(models) && models.length) ? {
+        current: (this.initMeta && this.initMeta.model) || this.model || null,
+        options: models.map((m) => ({ value: String(m.value || ''), name: String(m.displayName || m.value || '') })),
+      } : null;
+      this.emit('init', {
+        capability: capability({ ...CAPABILITY, commands: this.richCommands.length > 0, models: !!this.models }),
+        agentSessionId: this.sessionId,
+        commands: this.richCommands,
+        models: this.models,
+        ...(this.initMeta || { agentName: 'Claude Code', mode: 'default' }),
+      });
+    } catch (_) {}
   }
 
   async pump() {
@@ -154,9 +183,7 @@ class ClaudeSdkAdapter {
             commands,
             ...this.initMeta,
           });
-          // The names arrived on the init frame; the descriptions and argument
-          // hints live behind supportedCommands(). Fetch once, re-announce.
-          this.fetchCommands();
+
         }
         break;
 
@@ -226,22 +253,6 @@ class ClaudeSdkAdapter {
     }
   }
 
-  fetchCommands() {
-    Promise.resolve(this.query && this.query.supportedCommands && this.query.supportedCommands())
-      .then((cmds) => {
-        if (!Array.isArray(cmds) || !cmds.length || this.closed) return;
-        this.emit('init', {
-          capability: capability({ ...CAPABILITY, commands: true }),
-          agentSessionId: this.sessionId,
-          commands: cmds.slice(0, 200).map((c) => ({
-            name: String(c.name || ''), description: String(c.description || ''), argumentHint: String(c.argumentHint || ''),
-          })),
-          ...(this.initMeta || {}),
-        });
-      })
-      .catch(() => {});
-  }
-
   // canUseTool, surfaced. The event carries what the agent sent — its own
   // title, its own description, one option per suggestion — and the promise
   // stays open until the card answers or the turn is cancelled.
@@ -297,16 +308,35 @@ class ClaudeSdkAdapter {
     }
   }
 
-  // The composer's mode chip: default → acceptEdits → plan, applied live.
+  // The composer's dials, applied live over the channel's own controls.
   setConfigOption(configId, value) {
-    if (configId !== 'mode' || !this.query) return;
-    const apply = this.query.setPermissionMode && this.query.setPermissionMode(String(value));
-    Promise.resolve(apply)
-      .then(() => this.emit('init', {
-        capability: capability(CAPABILITY), agentSessionId: this.sessionId,
-        agentName: 'Claude Code', mode: String(value),
-      }))
-      .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
+    if (!this.query) return;
+    if (configId === 'mode') {
+      const apply = this.query.setPermissionMode && this.query.setPermissionMode(String(value));
+      Promise.resolve(apply)
+        .then(() => {
+          this.initMeta = Object.assign(this.initMeta || {}, { mode: String(value) });
+          this.emit('init', {
+            capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+          });
+        })
+        .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
+      return;
+    }
+    if (configId === 'model') {
+      const apply = this.query.setModel && this.query.setModel(String(value));
+      Promise.resolve(apply)
+        .then(() => {
+          this.initMeta = Object.assign(this.initMeta || {}, { model: String(value) });
+          if (this.models) this.models.current = String(value);
+          this.emit('init', {
+            capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+          });
+        })
+        .catch(() => this.emit('note', { text: `Could not switch model.` }));
+    }
   }
 
   send(text) {
