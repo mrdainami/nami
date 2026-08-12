@@ -18,8 +18,19 @@
 // channel Nami already reads claude's session titles from (osc-title.js), used
 // the other way round.
 //
-// `;` and not `&&`, so a failed install still reports. `$?` is the status of
-// the whole command, including the last stage of a pipeline.
+// `;` and not `&&`, so a failed install still reports.
+//
+// What the code is worth, measured rather than assumed: `$?` after a pipeline
+// is the status of its LAST stage. Four of the six install commands are
+// `curl … | bash`, and a curl that fails outright still leaves bash reading an
+// empty script and exiting 0 — verified against a real pty, unreachable host,
+// exit 0. So a zero here means "the shell got to the end", not "it worked".
+// Only the scan can say an agent was installed, and the caller treats it that
+// way. A non-zero, on the other hand, is always real.
+//
+// `set -o pipefail` would sharpen this, and is deliberately not used: it would
+// mean running the user's command in a subshell with options they did not
+// choose, to improve a message that is already backed by something better.
 //
 // One gap, deliberately left: a command that ends the shell itself — a bare
 // `exit`, an installer that execs — never reaches the printf. That case kills
@@ -35,6 +46,25 @@ const DONE_RE = /\]1337;NamiRunDone=(-?\d{1,5})(?:|\\)/;
 // nothing in it; "$?" quoted so an empty status cannot swallow the argument.
 function doneSuffix(command) {
   return `${command}; printf '\\033]1337;NamiRunDone=%s\\007' "$?"`;
+}
+
+// The suffix cannot be TYPED into an interactive shell, which is how a run tile
+// used to be driven: a pty echoes its input, so the user watched Nami's own
+// printf scroll past on the end of their install line. Measured in the real
+// app — sentinelVisible: true — and unacceptable in a tile people read.
+//
+// So a one-shot is spawned with the command instead of sent it. Nothing is
+// typed, so nothing is echoed, and the tile shows only what the command
+// printed. The caller writes the `$ command` header itself, straight to the
+// renderer, so the tile still says what it is running.
+//
+// `exec <shell> -i` at the end is what keeps the tile a terminal afterwards
+// rather than a corpse — and it is a fresh interactive shell, so it re-reads
+// the rc file the installer just wrote a PATH line into. The prompt you are
+// left with can run the thing that was installed; the one that ran the install
+// could not.
+function oneShotArgs(shell, command) {
+  return ['-i', '-c', `${doneSuffix(command)}; exec ${shell} -i`];
 }
 
 // Feed one chunk of pty output. Returns the exit code once, or null.
@@ -59,4 +89,4 @@ function feedRunDone(st, chunk) {
   return null;
 }
 
-module.exports = { doneSuffix, feedRunDone, DONE_RE };
+module.exports = { doneSuffix, oneShotArgs, feedRunDone, DONE_RE };
