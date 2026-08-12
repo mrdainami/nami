@@ -16,6 +16,7 @@ const { feedOscTitle } = require('./osc-title');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
+const { rememberBins, knownBin } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -636,7 +637,14 @@ function liveSessionCount() {
 ipcMain.handle('update:sessions', () => liveSessionCount());
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
-ipcMain.handle('agents:detect', () => detectAgents());
+// Every scan writes down where it found each program, because the scan is the
+// only code that asks the user's own shell. Everything that spawns an agent
+// reads that memo instead of guessing (bin-cache.js says why).
+ipcMain.handle('agents:detect', async () => {
+  const agents = await detectAgents();
+  rememberBins(agents);
+  return agents;
+});
 // Who is signed in to one of them. Lazy and per-agent — a CLI that hangs must
 // never stall the launcher, so every failure lands on signedIn: null.
 ipcMain.handle('agents:status', (_e, { id } = {}) => agentStatus(id));
