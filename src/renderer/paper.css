@@ -52,6 +52,7 @@
   --green-dark: #33503b;
   --green-ok: #4a7a4a;
   /* diffs, in the card view: what left, what landed */
+  --u-bg: #e7eee3;               /* your turn's tint — the bubble reads at a glance */
   --diff-add-bg: #e4efe0;
   --diff-add-ink: #33503b;
   --diff-del-bg: #f9e6e0;
@@ -929,7 +930,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    conversation reads as alternation at a glance. */
 .cd-user {
   display: flex; gap: 8px; align-self: flex-end; max-width: 85%;
-  background: var(--paper-2); border: 1px solid var(--dash);
+  background: var(--u-bg); border: 1px solid var(--dash);
   border-right: 3px solid var(--green);
   padding: 6px 11px;
 }
@@ -1037,6 +1038,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-row[data-body="1"] .cd-line { cursor: pointer; }
 .cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
 .cd-line .cd-kd { flex: none; color: var(--muted); width: 12px; text-align: center; }
+/* the glyph wears its kind's colour — what a row DID reads before its words */
+.cd-row[data-kd="execute"] .cd-kd { color: var(--amber-btn); }
+.cd-row[data-kd="edit"] .cd-kd { color: var(--green); }
+.cd-row[data-kd="read"] .cd-kd { color: var(--green-ok); }
+.cd-row[data-kd="checkpoint"] .cd-kd { color: var(--faint); }
 .cd-line .cd-ic { flex: none; color: var(--green-ok); font-weight: 700; width: 10px; }
 /* The label may shrink but never disappear; the detail gives way first. */
 .cd-line .cd-lb { flex: 1 1 auto; font-weight: 700; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -27,6 +27,7 @@ body[data-theme="operator"] {
   --green: #ef6461;          /* primary action → coral in operator */
   --green-dark: #c14f4d;
   --green-ok: #5aa06e;
+  --u-bg: rgba(239, 100, 97, 0.09);
   --diff-add-bg: rgba(90, 160, 110, 0.16);
   --diff-add-ink: #8fd3a6;
   --diff-del-bg: rgba(239, 100, 97, 0.14);

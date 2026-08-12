@@ -398,17 +398,40 @@ function showScene(name) {
   if (what === 'cards') {
     // A card view from a fixture: every row shape on one screen, no process,
     // no network — the closest thing to a renderer test this repo can have.
+    //   cards          the conversation, small tile
+    //   cards:full     the same, tile focused (bodies breathe)
+    //   cards:welcome  the card-born welcome alone
+    //   cards:menu     the slash menu open over content
     const p = startPanel({ kind: 'claude', title: 'Agent cards', code: 'AC', sid: 'ses_scene', sceneStatic: true, cwd: (S.project && S.project.path) || '/tmp' });
     if (!p) return;
     p.view = 'cards';
     p.agentCaps = { channel: 'agent sdk' };
-    p.agentStatus = { name: 'Claude Code', model: 'claude-opus-5', mode: 'default' };
-    p.cardEvents = sceneEvents();
+    p.agentStatus = { name: 'Claude Code', model: 'claude-opus-5', mode: 'default', ctxPct: 62 };
+    p.agentCommands = [
+      { name: 'model', description: 'Switch the model for this session', argumentHint: 'model name' },
+      { name: 'review-pr', description: 'Review a pull request with severity labels', argumentHint: 'PR number' },
+      { name: 'resume', description: 'Pick a past conversation to continue' },
+      { name: 'rewind', description: 'Walk back to an earlier turn' },
+      { name: 'compact', description: 'Compress the context, keep the thread' },
+    ];
+    p.cardEvents = step === 'welcome'
+      ? [sceneEvents().find((e) => e.kind === 'intro') || sceneEvents()[0]]
+      : sceneEvents();
+    if (step === 'welcome') {
+      p.cardEvents = [{ kind: 'intro', id: 'w0', name: 'Claude Code', version: '3.1.8', model: 'claude-opus-5', mode: 'default', cwd: '~/work/atlas' }];
+    }
     const rec = tileEls.get(p.id);
     if (rec) {
       applyView(p, rec);
       feedCards(p, true);
-      if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: true });
+      if (rec.cardsUi) {
+        rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: true });
+        if (step === 'menu') {
+          rec.cardsUi.input.value = '/re';
+          rec.cardsUi.input.dispatchEvent(new Event('input'));
+        }
+        if (step === 'full') { S.expandedId = p.id; renderGrid(); }
+      }
     }
     return;
   }

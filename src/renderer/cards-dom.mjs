@@ -288,6 +288,7 @@ function shortPath(p) {
 
 function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
+  if (row.kind === 'tool') el.dataset.kd = row.toolKind || 'other';
   if (row.kind === 'intro') {
     const key = `${row.model}|${row.mode}`;
     if (el.dataset.n !== key) { const fresh = renderRow(ctx, row); el.replaceWith(fresh); }
