@@ -3642,6 +3642,13 @@ function voiceFootHtml() {
     <span class="set-result" id="set-result">${esc(o.test || 'say something and Nami will type it back')}</span>`;
 }
 function voiceFlag(p) {
+  // Ready on a key Nami never saved means the key arrived on the environment
+  // this run was launched with. That is true right now and worth saying, but it
+  // is not durable: user-path.js merges the login shell's PATH into a Dock
+  // launch and nothing else, so from the Dock the variable is absent and this
+  // same provider reports "no API key". Saying only "ready" is what made Voice
+  // and Keys look like they disagreed about the same key.
+  if (p.ready && p.needsKey && !p.keySaved) return 'ready · from your shell';
   if (p.ready) return 'ready';
   if (p.downloadBytes) return mb(p.downloadBytes) + ' to download';
   return p.reason || 'not set up';
@@ -3671,6 +3678,13 @@ function voiceRowBodyHtml(p) {
     return `<div class="set-opt-body"><div class="setup-note">needs your ${esc(p.keyEnv)} —
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">add it in Keys</span></div>
       ${p.keyHelpUrl ? `<div class="sv-help" data-url="${esc(p.keyHelpUrl)}">where do I find my key?</div>` : ''}</div>`;
+  }
+  // Usable, but on a key Nami is not holding. The row says where it came from
+  // and what would make it survive the next launch.
+  if (p.needsKey && p.ready && !p.keySaved) {
+    return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Nami was started in.
+        Open Nami from the Dock and it will not be there.
+        <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">Save it in Keys</span> to make it stick.</div></div>`;
   }
   if (p.id === 'local' && !p.ready && p.downloadBytes) {
     return `<div class="set-opt-body">
