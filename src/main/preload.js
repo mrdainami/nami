@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('dainami', {
   termResize: (args) => ipcRenderer.invoke('term:resize', args),
   termKill: (args) => ipcRenderer.invoke('term:kill', args),
   onTermData: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
+  onTermCommandDone: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:command-done', h); return () => ipcRenderer.removeListener('term:command-done', h); },
   onTermExit: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
   // The card view: the same live session, read out of the transcript it is
   // already writing. cardsWatch turns the tail on for one tile; the events

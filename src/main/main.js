@@ -13,6 +13,7 @@ const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
+const { doneSuffix, feedRunDone } = require('./run-done');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
@@ -31,7 +32,7 @@ const fsActions = require('./fs-actions');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
-const { userPath } = require('./user-path');
+const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
@@ -1151,7 +1152,7 @@ function sessionEnv(path) {
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
-ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name }) => {
+ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name, watchDone }) => {
   const wc = e.sender;
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   // Primed at startup, so by the time anyone opens a tile this is already
@@ -1189,7 +1190,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
-    file = shellPath; afterStart = command;
+    // watchDone marks a one-shot: a command Nami ran on the user's behalf and
+    // needs to know the end of, rather than a session that happens to be a
+    // shell. The shell reports its own exit code (run-done.js).
+    file = shellPath; afterStart = watchDone ? doneSuffix(command) : command;
   } else {
     file = shellPath;
   }
@@ -1212,8 +1216,23 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // tile and lands in a different conversation. feedOscTitle reports only when
   // the name changes, so the spinner glyph never re-renders the rail.
   const osc = { last: null };
+  const done = { buf: '' };
+  let reported = false;
   p.onData((data) => {
     sendWc(wc, 'term:data', { id, data });
+    // A one-shot command announcing its own exit code. Same channel as the
+    // title below, opposite direction: the shell talking to Nami.
+    if (watchDone && !reported) {
+      const code = feedRunDone(done, data);
+      if (code !== null) {
+        reported = true;
+        // An installer writes a PATH line into the user's rc file. The memo we
+        // hand every session was taken before that, so it is now wrong — drop
+        // it and the next tile asks the shell again (user-path.js).
+        refreshUserPath();
+        sendWc(wc, 'term:command-done', { id, code });
+      }
+    }
     if (kind !== 'claude') return;
     const t = feedOscTitle(osc, data);
     if (t) sendWc(wc, 'session:title', { id, title: t });
