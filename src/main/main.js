@@ -8,7 +8,7 @@ const os = require('os');
 const fs = require('fs');
 const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
 const { AgentSessions, claudeTranscript } = require('./agent-session.js');
-const { claudeSpawnArgs, projectSlug } = require('./claude-args');
+const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
@@ -1178,8 +1178,14 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // after the spawn below, because following it needs the pty's pid.
     if (transcript) claudeWatch = { transcript, sid, cwd };
     if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
-    else { file = shellPath; afterStart = ['claude', ...claudeArgs].join(' '); }
-    if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + '\u0000SEED\u0000'; // handled below
+    // No resolvable binary: type the command into a shell instead. It has to be
+    // the WHOLE command. A session spawned with a first message used to fall
+    // into a marker branch below that typed a bare `claude`, dropping
+    // --session-id, --resume and --name — so the pinned id was never used, the
+    // title watcher followed a transcript nothing ever wrote, and the tile came
+    // back empty on the next launch. Quoted because --name carries a sentence,
+    // and an unquoted sentence arrives as four arguments.
+    else { file = shellPath; afterStart = ['claude', ...claudeArgs].map(shellQuote).join(' '); }
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
@@ -1221,8 +1227,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   });
 
   // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
-  if (afterStart && afterStart.indexOf('\u0000SEED\u0000') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
-  else if (afterStart) setTimeout(() => { try { p.write('claude\r'); } catch (_) {} }, 200);
+  // One branch, and it writes what it was given. The seed is a separate thing
+  // on its own timer below; conflating the two is what dropped claude's args.
+  if (afterStart) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
 
   // Seed a first message into an interactive session once it's ready
   // (claude spawns fast; run-kind agent TUIs draw slower, give them longer).
