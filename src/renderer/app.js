@@ -154,6 +154,7 @@ const S = {
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
+  justAdded: null,                      // agent installed this run — flagged in the launcher
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
   treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
@@ -294,6 +295,19 @@ function dropFilesOnPanel(p, paths) {
     scheduleFeed(p);
     if (ev.kind === 'permission') setAttention(p);
   });
+  // A one-shot command Nami ran on the user's behalf has landed. The shell is
+  // still alive and still theirs — this is the command reporting, not the tile
+  // ending. See src/main/run-done.js for how the shell says so.
+  api.onTermCommandDone(({ id, code }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p || p.commandDone) return;
+    p.commandDone = true; p.commandCode = code;
+    // Snapshot now: from here the tile is an ordinary shell, and must never be
+    // restored as a command to run again.
+    savePanels();
+    if (p.agentId) finishAgentInstall(p, code);
+    else refreshTileHead(p);
+  });
+
   api.onTermExit(({ id, code, note }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
     // A deliberate runtime swap (Term → Cards) is not an ending: the same
@@ -1123,6 +1137,15 @@ function statusMeta(p) {
   if (p.kind === 'viewer') return { label: p.sub, color: c.mut };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? c.warn : c.mut };
   if (p.exited) return { label: 'closed', color: c.mut };
+  // A one-shot says how its command went, not just that a shell is alive: the
+  // whole reason the tile exists is the command, and "live" while sitting at a
+  // finished prompt is the thing that read as a dead end.
+  if (p.oneShot && p.commandDone) {
+    return p.commandCode === 0
+      ? { label: 'installed', color: c.ok }
+      : { label: `failed · ${p.commandCode}`, color: c.warn };
+  }
+  if (p.oneShot) return { label: 'running', color: c.warn };
   if (p.attention) return { label: 'needs you', color: c.warn };
   return { label: 'live', color: c.ok };
 }
@@ -1467,7 +1490,7 @@ async function startProcess(p, cols, rows) {
   // A name nami chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
-  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, name });
+  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, name, watchDone: !!p.watchDone });
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
@@ -2297,7 +2320,14 @@ function panelSnapshot() {
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
     if (p.kind === 'card') return { kind: 'card', item: p.item };
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view };
+    // A one-shot that has run comes back as a plain terminal, not as its
+    // command. Restoring the command re-ran it: leave an install tile on the
+    // desk, quit, and Nami piped curl into bash again on the next launch, and
+    // the one after that. A session is worth restoring; an errand is not.
+    if (p.oneShot && (p.commandDone || p.exited)) {
+      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd };
+    }
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone };
   });
 }
 function savePanels() {
@@ -2327,7 +2357,7 @@ async function restorePanels(snaps) {
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
-      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
     } catch (_) {}
   }
   S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -2474,7 +2504,10 @@ function renderLauncher() {
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
     <div class="picker-list" id="lc-list"></div>`, { top: true });
   const list = q('#lc-list', modal);
-  const ready = (S.agents || []).filter((a) => a.found);
+  // The one just added sorts to the top. Anything else and the user is handed
+  // back a list and asked to find their own new thing in it.
+  const ready = (S.agents || []).filter((a) => a.found)
+    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded));
   const missing = (S.agents || []).filter((a) => !a.found);
 
   if (!S.agents) {
@@ -2486,9 +2519,15 @@ function renderLauncher() {
     const row = document.createElement('div'); row.className = 'picker-row';
     const st = statusLineFor(a);
     const manageable = !!a.lifecycle;
+    // The one just installed says so, and says it here — this list is where the
+    // install sends you back to, and an agent that arrived thirty seconds ago
+    // looks exactly like one that has been there for months without it.
+    const fresh = S.justAdded === a.id;
+    if (fresh) row.classList.add('picker-row--new');
     row.innerHTML = `${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
       <span class="col"><span class="name">${esc(a.name)}</span>
       <span class="desc"><span class="ok${st.dot === 'warn' ? ' ok--warn' : ''}">●</span> ready · ${esc(st.text)}</span></span>
+      ${fresh ? '<span class="row-new">just added</span>' : ''}
       ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;
     row.onclick = async (e) => {
       // The chevron manages the agent; anywhere else on the row still launches.
@@ -2660,11 +2699,87 @@ function renderAgentInstall(a) {
   q('.su-back', modal).onclick = () => openLauncher();
   q('#su-run', modal).onclick = async () => {
     closeOverlay(); if (!(await ensureFolder())) return;
-    startPanel({ kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install, onExit: () => refreshAgents() });
-    toast('When it finishes, press ⌘N. The button will be ready.');
+    // oneShot + watchDone: this tile exists to run one command Nami chose, and
+    // the tile itself reports when that command lands. Before, the only signal
+    // was the shell dying — which for an install is never — so the toast asked
+    // the user to go and press ⌘N themselves.
+    startPanel({
+      kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install,
+      oneShot: true, watchDone: true, agentId: a.id,
+      onExit: () => refreshAgents(),
+    });
   };
   q('#su-copy', modal).onclick = async () => { await api.copyText(a.install); toast('Copied.'); };
   q('#su-docs', modal).onclick = () => api.openUrl(a.docs);
+}
+
+// ---- an install that finished ----------------------------------------------
+// The old ending was a shell prompt and a toast asking the user to press ⌘N and
+// go find the agent. Nothing had told the app the install was over, so nothing
+// could offer anything better. Now the tile knows, so it can say what happened
+// and hand back the one list the user came from.
+
+// A strip under the tile body. Deliberately not a toast: a toast is gone in
+// four seconds and this is the tile's own state, which should still be there
+// when someone looks back at it.
+function setTileNote(p, html, kind) {
+  const t = tileEls.get(p.id); if (!t) return;
+  let note = q('.tile-note', t.root);
+  if (!html) { if (note) note.remove(); return; }
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'tile-note';
+    t.root.appendChild(note);
+  }
+  note.className = 'tile-note' + (kind ? ' tile-note--' + kind : '');
+  note.innerHTML = html;
+  return note;
+}
+
+async function finishAgentInstall(p, code) {
+  const agent = () => (S.agents || []).find((x) => x.id === p.agentId);
+  const name = (agent() && agent().name) || p.agentId;
+  refreshTileHead(p);
+
+  if (code !== 0) {
+    // Never claim an agent is ready on the strength of a command that failed.
+    setTileNote(p, `<span class="tn-tx">That install exited with <b>${esc(String(code))}</b>. ${esc(name)} is not set up.
+      The output above says why.</span>
+      <span class="tn-bt"><button class="btn btn--small" id="tn-docs">Read the guide</button>
+      <button class="btn btn--small" id="tn-retry">Try again</button></span>`, 'warn');
+    const t = tileEls.get(p.id); if (!t) return;
+    const docs = q('#tn-docs', t.root), retry = q('#tn-retry', t.root);
+    if (docs) docs.onclick = () => { const a = agent(); if (a) api.openUrl(a.docs); };
+    if (retry) retry.onclick = () => { const a = agent(); if (a) { closePanel(p.id); openAgentSetup(a); } };
+    return;
+  }
+
+  // The scan is the only thing that can confirm an install: the command's exit
+  // code says curl was happy, not that a program landed somewhere on PATH.
+  await refreshAgents();
+  const a = agent();
+  refreshTileHead(p);
+
+  if (!a || !a.found) {
+    setTileNote(p, `<span class="tn-tx">The command finished, but ${esc(name)} is still not on PATH.
+      A new terminal usually finds it — the shell that ran the install cannot.</span>
+      <span class="tn-bt"><button class="btn btn--small" id="tn-new">New session</button></span>`, 'warn');
+    const t = tileEls.get(p.id); if (!t) return;
+    const nb = q('#tn-new', t.root); if (nb) nb.onclick = () => openLauncher();
+    return;
+  }
+
+  S.justAdded = a.id;
+  const signedOut = !(S.agentStatus[a.id] && S.agentStatus[a.id].signedIn);
+  setTileNote(p, `<span class="tn-tx"><b>${esc(a.name)} is on this Mac.</b>
+    ${signedOut ? 'Signed out — your first session signs you in.' : 'Signed in and ready.'}</span>
+    <span class="tn-bt"><button class="btn btn--go btn--small" id="tn-go">Back to New session</button></span>`, 'ok');
+  const t = tileEls.get(p.id); if (!t) return;
+  const go = q('#tn-go', t.root);
+  // Back to the list they came from, with the new agent in it — rather than
+  // dropping them into a session they did not ask for yet. The finished install
+  // terminal closes on the way out: it has nothing left to say.
+  if (go) go.onclick = () => { closePanel(p.id); openLauncher(); };
 }
 
 // ---- agent picker (⌘K) — fed by the library scan ---------------------------
