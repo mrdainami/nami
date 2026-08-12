@@ -372,7 +372,10 @@ function showScene(name) {
     return ready.then(() => { S.railTab = 'workspace'; renderRail(); });
   }
   S.railTab = 'library';
-  loadLibrary(true).then(() => {
+  // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
+  // show project-scoped state (coverage pills need a project's masters).
+  const withFolder = step && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
+  withFolder.then(() => loadLibrary(true)).then(() => {
     renderRail();
     if (what === 'library') return;
     if (what === 'mcp') return openConnect();
@@ -838,6 +841,9 @@ async function loadLibrary(force) {
 async function refreshServices() {
   if (S.services.loading) return;
   S.services.loading = true;
+  // Coverage is computed against installed agents, so the detect pass has to
+  // land first — refreshAgents dedupes in-flight calls, this never re-scans.
+  if (!S.agents) { try { await refreshAgents(); } catch (_) {} }
   try {
     const res = await api.listServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
     S.services.catalog = res.catalog || []; S.services.connected = res.connected || [];
