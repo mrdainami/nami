@@ -35,6 +35,7 @@ const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
+const { seedStartHere } = require('./start-here');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
@@ -933,11 +934,46 @@ ipcMain.handle('settings:set', (_e, patch) => {
 
 ipcMain.handle('folder:pick', async (e) => {
   const parent = BrowserWindow.fromWebContents(e.sender) || win;
-  const res = await dialog.showOpenDialog(parent, { properties: ['openDirectory'], title: 'Open a folder' });
+  // createDirectory is what puts macOS's own New Folder button in the panel.
+  // Without it the one user who most needs to make a folder -- somebody with no
+  // project at all, sent here by the empty desk -- lands in a picker that can
+  // only choose things that already exist.
+  const res = await dialog.showOpenDialog(parent, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Open a folder',
+  });
   if (res.canceled || !res.filePaths[0]) return null;
   // Deliberately does NOT commit: the renderer may still decide this folder
   // belongs in a new window instead. It commits with folder:open.
   return scanFolder(res.filePaths[0]);
+});
+
+// Make the folder for them. The save panel rather than a sheet of our own: it
+// arrives with the favourites sidebar, iCloud, search and tags, and it is the
+// dialog every Mac user has already learned. Pre-filled so Return is enough for
+// anyone who does not care where it goes.
+//
+// Returns the same shape as folder:pick, so the renderer hands it to the switch
+// path it already has and nothing downstream knows the difference.
+ipcMain.handle('folder:make', async (e) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || win;
+  const res = await dialog.showSaveDialog(parent, {
+    title: 'Where should Nami work?',
+    defaultPath: path.join(app.getPath('documents'), 'Nami'),
+    buttonLabel: 'Create',
+    nameFieldLabel: 'Folder name:',
+    properties: ['createDirectory'],
+  });
+  if (res.canceled || !res.filePath) return null;
+  try {
+    await fs.promises.mkdir(res.filePath, { recursive: true });
+  } catch (err) {
+    return { error: err.message };
+  }
+  // Best effort, and never fatal -- see seedStartHere. A folder that got made
+  // is a success even if the welcome note did not land.
+  await seedStartHere(res.filePath);
+  return scanFolder(res.filePath);
 });
 
 // Adopting a folder is what makes it this window's folder, bumps it up Recents
