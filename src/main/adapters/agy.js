@@ -54,7 +54,18 @@ class AgyAdapter {
       capability: capability(CAPABILITY),
       agentSessionId: this.conversationId,
       commands: [],
+      agentName: 'Antigravity',
+      model: this.model || null,
+      mode: this.mode || null,
     });
+  }
+
+  // Choices ride the next turn's flags — the channel is one-shot.
+  setConfigOption(configId, value) {
+    if (configId === 'model') this.model = String(value || '') || null;
+    else if (configId === 'mode') this.mode = String(value || '') || null;
+    else return;
+    this.emitInit();
   }
 
   async start({ prompt, sid }) {
@@ -74,7 +85,12 @@ class AgyAdapter {
     this.turnStarted = Date.now();
 
     const args = ['-p', text, '--output-format', 'stream-json', '--add-dir', this.cwd];
-    if (this.hasHistory) args.push('--continue');
+    // --conversation resumes by id — found in agy --help after round 1
+    // shipped with the blunter --continue.
+    if (this.conversationId && this.hasHistory) args.push('--conversation', this.conversationId);
+    else if (this.hasHistory) args.push('--continue');
+    if (this.model) args.push('--model', this.model);
+    if (this.mode) args.push('--mode', this.mode);
     let child;
     try {
       child = spawn('agy', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });

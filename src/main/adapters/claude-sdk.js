@@ -141,7 +141,10 @@ class ClaudeSdkAdapter {
             capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
             agentSessionId: this.sessionId,
             commands,
+            agentName: 'Claude Code',
+            version: msg.claude_code_version || null,
             model: msg.model || null,
+            mode: msg.permissionMode || 'default',
           });
         }
         break;
@@ -258,6 +261,18 @@ class ClaudeSdkAdapter {
     } else {
       pending.resolve({ behavior: 'deny', message: 'Denied from the card.' });
     }
+  }
+
+  // The composer's mode chip: default → acceptEdits → plan, applied live.
+  setConfigOption(configId, value) {
+    if (configId !== 'mode' || !this.query) return;
+    const apply = this.query.setPermissionMode && this.query.setPermissionMode(String(value));
+    Promise.resolve(apply)
+      .then(() => this.emit('init', {
+        capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+        agentName: 'Claude Code', mode: String(value),
+      }))
+      .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
   }
 
   send(text) {

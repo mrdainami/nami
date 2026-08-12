@@ -892,10 +892,45 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   font-size: 12.5px; line-height: 1.6;
 }
 .cd-row { min-width: 0; }
-.cd-user { display: flex; gap: 8px; border-left: 2px solid var(--line); padding-left: 9px; }
+/* Your turn is a bubble: right-shifted, tinted, accent-edged — the
+   conversation reads as alternation at a glance. */
+.cd-user {
+  display: flex; gap: 8px; align-self: flex-end; max-width: 85%;
+  background: var(--paper-2); border: 1px solid var(--dash);
+  border-right: 3px solid var(--green);
+  padding: 6px 11px;
+}
 .cd-user .m { color: var(--green); font-weight: 700; flex: none; }
 .cd-user .tx { white-space: pre-wrap; word-break: break-word; }
 .cd-cmd .tx { color: var(--green); }
+
+/* A finished turn's work, folded to one line. */
+.cd-fold-h {
+  font: inherit; font-size: 11px; letter-spacing: 0.04em; color: var(--muted);
+  background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.cd-fold-h:hover { color: var(--ink); }
+.cd-fold-h .arr { font-size: 9px; }
+.cd-fold-b { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Edited N files — name left, counts right, diff behind the row. */
+.cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
+.cd-edits-h {
+  padding: 6px 10px; font-size: 11px; font-weight: 700;
+  border-bottom: 1px solid var(--dash);
+}
+.cd-edits-f {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  width: 100%; font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  background: transparent; color: var(--ink); border: 0; padding: 5px 10px;
+}
+.cd-edits-f:hover { background: var(--hover); }
+.cd-edits-f + .cd-edits-f { border-top: 1px dashed var(--dash); }
+.cd-edits-f .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-edits-f .c { flex: none; }
+.cd-edits .plus { color: var(--diff-add-ink); font-weight: 700; }
+.cd-edits .minus { color: var(--diff-del-ink); font-weight: 700; }
+.cd-edits .cd-diff-body { border-top: 1px solid var(--dash); }
 
 /* Prose rendered as markdown: never poorer than the terminal it filters. */
 .cd-assistant { word-break: break-word; }
@@ -994,6 +1029,18 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* Diffs: what left, what landed — the call's own strings, tinted by tokens. */
 .cd-diff { font-size: 11.5px; line-height: 1.5; }
+.cd-diff-sum {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  width: 100%; font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+  background: var(--paper-2); color: var(--ink); border: 1px solid var(--dash);
+  padding: 5px 10px;
+}
+.cd-diff-sum:hover { background: var(--hover); }
+.cd-diff-sum .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-diff-sum .c { flex: none; color: var(--muted); }
+.cd-diff .plus { color: var(--diff-add-ink); font-weight: 700; }
+.cd-diff .minus { color: var(--diff-del-ink); font-weight: 700; }
+.cd-diff-body { max-height: 260px; overflow: auto; }
 .cd-diff-path { padding: 5px 10px 0; font-size: 10.5px; color: var(--muted); }
 .cd-diff-b { margin: 4px 0 0; padding: 4px 10px; white-space: pre-wrap; word-break: break-word; font-family: inherit; }
 .cd-diff-b span { display: block; }
@@ -1023,16 +1070,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-perm-mk { flex: none; font-weight: 700; color: var(--amber-btn); }
 .cd-perm-name { font-weight: 700; color: var(--amber-ink); }
 .cd-perm-d { color: var(--amber-body); font-size: 12px; word-break: break-word; }
-.cd-perm-cmd { max-height: 120px; border: 1px solid var(--amber-line); background: var(--paper-3); }
+.cd-perm-cmd { max-height: 200px; border: 1px solid var(--amber-line); background: var(--paper-3); cursor: pointer; }
+.cd-perm-cmd.clamp { max-height: 56px; overflow: hidden; position: relative; }
 .cd-perm-diff:empty { display: none; }
 .cd-perm-diff { border: 1px solid var(--dash); background: var(--paper-3); }
 .cd-perm-b { display: flex; gap: 7px; flex-wrap: wrap; }
+/* Secondary buttons draw with the card's own ink, so they hold on every
+   theme's amber ground — paper-grey on graphite's dark red was invisible. */
 .cd-perm-btn {
   font: inherit; font-size: 11px; padding: 5px 11px; cursor: pointer;
-  background: var(--paper); color: var(--ink); border: 1px solid var(--dash-dark);
+  background: transparent; color: var(--amber-ink); border: 1px solid var(--amber-ink);
 }
 .cd-perm-btn:hover { background: var(--hover); }
 .cd-perm-btn.allow { background: var(--amber-btn); border-color: var(--amber-btn-line); color: var(--paper); font-weight: 700; }
+.cd-perm-btn.allow:hover { filter: brightness(1.08); }
 .cd-perm-done { font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; }
 .cd-perm-done .cd-kd { flex: none; }
 
@@ -1042,6 +1093,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-bottom: 1px dashed var(--dash); font-style: normal; border-left: 0;
 }
 .tile-cards > .cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
+.cd-note-btn {
+  margin-left: 10px; font: inherit; font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 2px 9px; cursor: pointer;
+  background: transparent; color: var(--green); border: 1px solid var(--green);
+}
+.cd-note-btn:hover { background: var(--green); color: var(--paper); }
 
 /* The composer: prompt, input, mic beside the send arrow. Filled means armed. */
 .cd-ask {
@@ -1054,12 +1111,25 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
-.cd-model {
+.cd-model, .cd-mode {
   flex: none; max-width: 150px; font: inherit; font-size: 10.5px;
   color: var(--muted); background: var(--paper-2); border: 1px solid var(--dash);
-  padding: 3px 4px; cursor: pointer;
+  padding: 3px 6px; cursor: pointer;
 }
-.cd-model:hover { color: var(--ink); }
+.cd-model:hover:not(:disabled), .cd-mode:hover:not(:disabled) { color: var(--ink); border-color: var(--dash-dark); }
+.cd-model:disabled { cursor: default; appearance: none; }
+.cd-mode:disabled { cursor: default; }
+
+/* The session introducing itself — the card-native TUI banner. */
+.cd-intro {
+  border: 1px dashed var(--dash-dark); background: var(--paper-2);
+  padding: 10px 13px;
+}
+.cd-intro .t { font-weight: 700; }
+.cd-intro .t .v { font-weight: 400; color: var(--muted); font-size: 11px; }
+.cd-intro .d { margin-top: 2px; font-size: 11.5px; color: var(--muted); display: flex; gap: 7px; flex-wrap: wrap; }
+.cd-intro .d .dot { color: var(--faint); }
+.cd-intro .h { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
