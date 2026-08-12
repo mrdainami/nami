@@ -152,3 +152,16 @@ test('settlePending closes every dangling call — hermes never completes its to
   const settledAfter = new Set(events.filter((e) => e.kind === 'tool_result').map((e) => e.toolId));
   for (const id of calls) assert.ok(settledAfter.has(id), 'every call must settle at end of turn');
 });
+
+// The connect deadline: an ACP rpc only fails when the process exits, so an
+// agent that stays alive but never answers hung the card on "Connecting…"
+// forever (hermes, real screenshot). withDeadline turns silence into an error
+// the existing catch already knows how to present.
+test('withDeadline settles: pass-through on answer, rejection on silence', async () => {
+  const { withDeadline } = require('../src/main/adapters/acp.js');
+  assert.equal(await withDeadline(Promise.resolve('ok'), 50, 'x'), 'ok');
+  await assert.rejects(
+    withDeadline(new Promise(() => {}), 30, 'Hermes session/load'),
+    /Hermes session\/load did not answer within/);
+  await assert.rejects(withDeadline(Promise.reject(new Error('refused')), 50, 'x'), /refused/);
+});
