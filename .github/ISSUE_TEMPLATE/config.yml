@@ -1,0 +1,16 @@
+# Links GitHub shows above the issue form. Anyone who has reached "New issue"
+# is invested enough to type, which makes this the one place worth catching
+# "can I get this for my company" before it arrives as a bug report.
+#
+# Blank issues stay enabled: there are no issue templates, and turning this off
+# without any would leave people with nowhere to file.
+#
+# UTMs are fine here — GitHub renders the name and the blurb, never the URL.
+blank_issues_enabled: true
+contact_links:
+  - name: Want Nami for your team?
+    url: https://dainami.ai/teams?utm_source=github&utm_medium=issue-chooser&utm_campaign=teams
+    about: Custom builds, Windows, or Nami wired into your own stack.
+  - name: Made by Cal
+    url: https://dainami.ai/links?utm_source=github&utm_medium=issue-chooser
+    about: What I'm building, and everywhere else to find me.
