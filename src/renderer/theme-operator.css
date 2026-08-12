@@ -24,6 +24,7 @@ body[data-theme="operator"] {
   --dash-dark: #3d3d3d;
   --rail: #121212;
   --hover: #212121;
+  --menu-sheet: #171717; /* opaque paper — menus need no extra fill here */
   --green: #ef6461;          /* primary action → coral in operator */
   --green-dark: #c14f4d;
   --green-ok: #5aa06e;
