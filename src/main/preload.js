@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('dainami', {
   agentRemove: (id, binPath) => ipcRenderer.invoke('agents:remove', { id, binPath }),
   listServices: (args) => ipcRenderer.invoke('services:list', args),
   connectService: (args) => ipcRenderer.invoke('services:connect', args),
+  deliverServices: (args) => ipcRenderer.invoke('services:deliver', args),
   disconnectService: (args) => ipcRenderer.invoke('services:disconnect', args),
   openUrl: (url) => ipcRenderer.invoke('url:open', url),
   themeSet: (theme) => ipcRenderer.invoke('theme:set', theme),
