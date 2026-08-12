@@ -661,6 +661,7 @@ function buildShell() {
         <div class="topbar-center" id="topbar-center"></div>
         <div class="topbar-right">
           <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
+          <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
           <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
           <button class="btn" id="btn-agents">Agents<span class="kb"> ⌘K</span></button>
@@ -698,6 +699,7 @@ function buildShell() {
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
+  q('#btn-help').onclick = () => openQuickStart();
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
   document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
@@ -1638,7 +1640,8 @@ function emptyDeskHtml() {
   return `<div class="lane-empty"><div class="polaroid">no folder</div>
       <div><div class="big">Open a folder to start working</div>
       <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
-      <div class="lane-ctas">${first ? make + open : open + make}</div></div></div>`;
+      <div class="lane-ctas">${first ? make + open : open + make}</div>
+      <button class="lane-tour" id="lane-tour">New to Nami? Start here</button></div></div>`;
 }
 
 // Hands off to the save panel in main, then through the ordinary switch path —
@@ -1667,6 +1670,7 @@ function renderGrid() {
       <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
       : emptyDeskHtml();
     const make = q('#lane-make', els.grid); if (make) make.onclick = makeFolderDialog;
+    const tour = q('#lane-tour', els.grid); if (tour) tour.onclick = openQuickStart;
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
@@ -3714,6 +3718,7 @@ function renderOverlay() {
   if (o.type === 'fs-name') return renderFsName();
   if (o.type === 'switch-folder') return renderSwitchChoice();
   if (o.type === 'settings') return renderSettings();
+  if (o.type === 'quickstart') return renderQuickStart();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
@@ -3956,6 +3961,16 @@ function wireLookPane(modal) {
 // that version off for good (see SKIPPED_UPDATE below), and until now there was
 // no way back to it. Pressing the button clears the mark.
 const REPO_URL = 'https://github.com/mrdainami/nami';
+// The doc pages the quick start points at. One page per row, so a reader lands
+// on the answer to the row they pressed rather than on a contents page they
+// then have to search. Kept next to REPO_URL so every outward link Nami has is
+// read in one place.
+const DOCS = {
+  start: 'https://nami.dainami.ai/docs/start/',
+  pickAgent: 'https://nami.dainami.ai/docs/pick-an-agent/',
+  examples: 'https://nami.dainami.ai/docs/examples/',
+  permissions: 'https://nami.dainami.ai/docs/permissions/',
+};
 // Where the app sends people who want the person rather than the program.
 //
 // Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
@@ -4478,6 +4493,109 @@ function startGuidedSetup(svc, worker) {
   toast('Your agent will walk you through it, right in the tile.');
 }
 let overlayStill = false;
+// ---- quick start -----------------------------------------------------------
+//
+// The one place in the window that answers "what is this and what do I do now".
+// Nami had no such place: the Help menu is five outbound links, and the person
+// this is for does not look in the menu bar.
+//
+// A checklist, not a tour. Coach marks have to be maintained across four themes
+// and every layout change, they get skipped, and they teach before anyone has a
+// reason to care — VS Code and Zed both landed on a resumable list instead.
+// Every button here does the real thing rather than describing it, and rows
+// tick off as they are done so leaving and coming back keeps your place.
+// The Supademo walk-throughs the rows link to. Empty until each one is
+// recorded, and a row only grows its Watch button once its URL is filled in —
+// a "▶ Watch · 2 min" that plays nothing is a worse promise than no button.
+// Paste a URL here and the button appears; nothing else needs touching.
+const DEMOS = {
+  'getting-started': '',   // first launch → folder → agent → first ask → approve
+  'a-real-job': '',        // plain English in, two panes running, a file out
+};
+const QS_DONE = 'nami-quickstart-done';
+function qsDone() {
+  try { return new Set(JSON.parse(localStorage.getItem(QS_DONE) || '[]')); } catch { return new Set(); }
+}
+function qsMark(n) {
+  const done = qsDone(); done.add(n);
+  try { localStorage.setItem(QS_DONE, JSON.stringify([...done])); } catch { /* private mode */ }
+}
+function openQuickStart() { S.overlay = { type: 'quickstart' }; renderOverlay(); }
+
+function quickStartRows() {
+  return [
+    {
+      n: 1, title: 'Pick one folder to work in',
+      sub: 'Nami only ever looks inside it. No folder yet? It will make you one.',
+      done: !!S.project,
+      acts: S.project ? [] : [{ label: 'Make me a folder', go: true, run: () => { closeOverlay(); makeFolderDialog(); } }],
+    },
+    {
+      n: 2, title: 'Press New session and pick who runs it',
+      sub: 'The list shows what is on your Mac. Anything missing installs from the same list.',
+      acts: [
+        { label: 'New session ⌘N', go: true, run: () => { closeOverlay(); openLauncher(); } },
+        { label: '▶ Watch · 2 min', play: 'getting-started' },
+      ],
+    },
+    {
+      n: 3, title: 'Nami can run multiple agents for you',
+      sub: 'Claude Code signs in with your Claude account, Codex with your ChatGPT one. No Nami account, no second bill.',
+      acts: [{ label: 'Which should I pick?', run: () => api.openUrl(DOCS.pickAgent) }],
+    },
+    {
+      n: 4, title: 'Say what you need, in plain English',
+      sub: 'No commands to learn. Here are twelve things people actually ask for.',
+      acts: [
+        { label: 'See 12 examples', run: () => api.openUrl(DOCS.examples) },
+        { label: '▶ Watch · 60s', play: 'a-real-job' },
+      ],
+    },
+    {
+      n: 5, title: 'It asks before it does anything real',
+      sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
+      acts: [{ label: 'How permissions work', run: () => api.openUrl(DOCS.permissions) }],
+    },
+  ];
+}
+
+function renderQuickStart() {
+  const done = qsDone();
+  const rows = quickStartRows();
+  const body = rows.map((r) => {
+    const ticked = r.done || done.has(r.n);
+    // A demo that has not been recorded yet simply is not offered.
+    const shown = r.acts.filter((a) => !a.play || DEMOS[a.play]);
+    const acts = shown.length
+      ? `<div class="qs-acts">${shown.map((a) =>
+          `<button class="qs-mini${a.go ? ' qs-mini--go' : ''}${a.play ? ' qs-mini--play' : ''}" data-row="${r.n}" data-act="${r.acts.indexOf(a)}">${esc(a.label)}</button>`).join('')}</div>`
+      : '';
+    return `<div class="qs-row"${ticked ? ' data-done' : ''}>
+      <div class="qs-n">0${r.n}</div>
+      <div><div class="qs-t">${esc(r.title)}</div>
+      <div class="qs-s">${esc(r.sub)}</div>${acts}</div></div>`;
+  }).join('');
+
+  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
+    <div class="qs-body">${body}</div>
+    <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
+    <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
+
+  modal.querySelectorAll('[data-act]').forEach((b) => {
+    b.onclick = () => {
+      const row = rows.find((r) => r.n === +b.dataset.row);
+      const act = row && row.acts[+b.dataset.act];
+      if (!act) return;
+      qsMark(row.n);
+      if (act.play) { api.openUrl(DEMOS[act.play]); return; }
+      act.run();
+    };
+  });
+  modal.querySelectorAll('.qs-link[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+}
+
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;

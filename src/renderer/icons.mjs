@@ -178,23 +178,39 @@ export function chipHtml({ key, code, kind }) {
 // 7×7 dot-grid twins of the chrome glyphs (◐ ⚙ ⤢ ✕ ＋ ⚑). Markup renders both
 // the unicode glyph (.uni-i) and this SVG (.pix-i); the glass themes flip
 // visibility in CSS, so paper/operator keep their exact DOM and look.
-const PIX = {
+// Each entry is [path, grid]. The grid used to be 7 for everything and implicit
+// in pixIcon — fine until something needed detail that seven cells cannot hold.
+// A gear is the case that broke it: seven pixels can carry a ring or teeth, not
+// both, so every hand-drawn attempt came out as a donut or a plus. Sixteen is
+// the other good number here — at a 16px glyph that is exactly one cell per CSS
+// pixel, so a finer drawing stays as crisp as a coarse one.
+export const PIX = {
   // half-filled circle: solid light half, dotted dark rim — "switch appearance"
-  theme: 'M2 0h3v1H2z M1 1h3v1H1z M5 1h1v1H5z M0 2h4v1H0z M6 2h1v1H6z M0 3h4v1H0z M6 3h1v1H6z M0 4h4v1H0z M6 4h1v1H6z M1 5h3v1H1z M5 5h1v1H5z M2 6h3v1H2z',
-  // three sliders with offset knobs — the universal "adjust" glyph
-  settings: 'M0 1h7v1H0z M1 0h1v3H1z M0 3h7v1H0z M4 2h1v3H4z M0 5h7v1H0z M2 4h1v3H2z',
-  expand: 'M4 0h3v3H6V1H4z M0 4h1v2h2v1H0z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z',
-  close: 'M0 0h1v1H0z M6 0h1v1H6z M1 1h1v1H1z M5 1h1v1H5z M2 2h1v1H2z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z M4 4h1v1H4z M1 5h1v1H1z M5 5h1v1H5z M0 6h1v1H0z M6 6h1v1H6z',
-  plus: 'M3 0h1v2H3z M3 5h1v2H3z M0 3h2v1H0z M5 3h2v1H5z M3 2h1v1H3z M3 4h1v1H3z M2 3h1v1H2z M4 3h1v1H4z',
-  flag: 'M1 0h1v7H1z M2 0h4v1H2z M2 3h4v1H2z M6 1h1v2H6z',
-  minus: 'M1 3h5v1H1z',
+  theme: ['M2 0h3v1H2z M1 1h3v1H1z M5 1h1v1H5z M0 2h4v1H0z M6 2h1v1H6z M0 3h4v1H0z M6 3h1v1H6z M0 4h4v1H0z M6 4h1v1H6z M1 5h3v1H1z M5 5h1v1H5z M2 6h3v1H2z', 7],
+  // An eight-tooth cog, rasterised from real gear geometry rather than drawn:
+  // tip radius 1.0, root 0.66, hub 0.28, and the lit cells merged into runs.
+  // It replaces three sliders, which read as "filters" or "levels" — the one
+  // glyph in the set that named the wrong thing.
+  settings: ['M6 0h4v1H6z M3 1h1v1H3z M6 1h4v1H6z M12 1h1v1H12z M2 2h3v1H2z M7 2h2v1H7z M11 2h3v1H11z M1 3h14v1H1z M2 4h12v1H2z M3 5h10v1H3z M0 6h2v1H0z M3 6h3v1H3z M10 6h3v1H10z M14 6h2v1H14z M0 7h6v1H0z M10 7h6v1H10z M0 8h6v1H0z M10 8h6v1H10z M0 9h2v1H0z M3 9h3v1H3z M10 9h3v1H10z M14 9h2v1H14z M3 10h10v1H3z M2 11h12v1H2z M1 12h14v1H1z M2 13h3v1H2z M7 13h2v1H7z M11 13h3v1H11z M3 14h1v1H3z M6 14h4v1H6z M12 14h1v1H12z M6 15h4v1H6z', 16],
+  // Cut on 16 to match the cog: a chunky 7×7 question mark beside a fine cog
+  // reads as two different icon sets on the same toolbar.
+  help: ['M5 0h6v1H5z M3 1h10v1H3z M2 2h4v1H2z M10 2h4v1H10z M2 3h3v1H2z M11 3h3v1H11z M11 4h3v1H11z M10 5h4v1H10z M9 6h4v1H9z M8 7h4v1H8z M7 8h4v1H7z M7 9h3v2H7z M7 12h3v3H7z', 16],
+  expand: ['M4 0h3v3H6V1H4z M0 4h1v2h2v1H0z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z', 7],
+  close: ['M0 0h1v1H0z M6 0h1v1H6z M1 1h1v1H1z M5 1h1v1H5z M2 2h1v1H2z M4 2h1v1H4z M3 3h1v1H3z M2 4h1v1H2z M4 4h1v1H4z M1 5h1v1H1z M5 5h1v1H5z M0 6h1v1H0z M6 6h1v1H6z', 7],
+  plus: ['M3 0h1v2H3z M3 5h1v2H3z M0 3h2v1H0z M5 3h2v1H5z M3 2h1v1H3z M3 4h1v1H3z M2 3h1v1H2z M4 3h1v1H4z', 7],
+  flag: ['M1 0h1v7H1z M2 0h4v1H2z M2 3h4v1H2z M6 1h1v2H6z', 7],
+  minus: ['M1 3h5v1H1z', 7],
   // a small v — the tile head's "more surfaces / settings" menu
-  chevron: 'M0 2h1v1H0z M1 3h1v1H1z M2 4h1v1H2z M3 5h1v1H3z M4 4h1v1H4z M5 3h1v1H5z M6 2h1v1H6z',
+  chevron: ['M0 2h1v1H0z M1 3h1v1H1z M2 4h1v1H2z M3 5h1v1H3z M4 4h1v1H4z M5 3h1v1H5z M6 2h1v1H6z', 7],
   // the card composer: an up arrow to send, a capsule-and-cradle mic
-  send: 'M3 0h1v7H3z M2 1h1v1H2z M4 1h1v1H4z M1 2h1v1H1z M5 2h1v1H5z M0 3h1v1H0z M6 3h1v1H6z',
-  mic: 'M2 0h3v4H2z M1 3h1v2H1z M5 3h1v2H5z M2 5h3v1H2z M3 6h1v1H3z',
+  send: ['M3 0h1v7H3z M2 1h1v1H2z M4 1h1v1H4z M1 2h1v1H1z M5 2h1v1H5z M0 3h1v1H0z M6 3h1v1H6z', 7],
+  mic: ['M2 0h3v4H2z M1 3h1v2H1z M5 3h1v2H5z M2 5h3v1H2z M3 6h1v1H3z', 7],
 };
 export function pixIcon(name) {
-  const d = PIX[name];
-  return d ? `<svg class="pix-glyph" viewBox="0 0 7 7" aria-hidden="true"><path d="${d}"/></svg>` : '';
+  const glyph = PIX[name];
+  if (!glyph) return '';
+  const [d, grid] = glyph;
+  // crispEdges matters on the 16-grids: without it the browser antialiases the
+  // cell boundaries and a pixel glyph stops looking like one.
+  return `<svg class="pix-glyph" viewBox="0 0 ${grid} ${grid}" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}"/></svg>`;
 }

@@ -318,12 +318,17 @@ body[data-glass] .btn {
 }
 body[data-glass] .btn:hover { transform: translateY(-2.5px); background: var(--gl-pane-strong); border-color: var(--gl-rim-hi); box-shadow: var(--gl-slab), 0 12px 28px rgb(var(--gl-sh) / 0.15); }
 body[data-glass] .btn:active { transform: translateY(0) scale(0.96); transition-duration: 0.12s; }
-body[data-glass] #btn-theme, body[data-glass] #btn-settings {
+body[data-glass] #btn-theme, body[data-glass] #btn-settings, body[data-glass] #btn-help {
   width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
 }
-body[data-glass] #btn-theme .uni-i, body[data-glass] #btn-settings .uni-i { display: none; }
-body[data-glass] #btn-theme .pix-i, body[data-glass] #btn-settings .pix-i { margin: 0; }
-body[data-glass] #btn-theme .pix-glyph, body[data-glass] #btn-settings .pix-glyph { width: 14px; height: 14px; }
+body[data-glass] #btn-theme .uni-i, body[data-glass] #btn-settings .uni-i,
+body[data-glass] #btn-help .uni-i { display: none; }
+body[data-glass] #btn-theme .pix-i, body[data-glass] #btn-settings .pix-i,
+body[data-glass] #btn-help .pix-i { margin: 0; }
+/* 16, not 14: the cog and the ? are cut on a 16 grid, so a 16px box is one
+   cell per CSS pixel and the teeth stay square. */
+body[data-glass] #btn-theme .pix-glyph, body[data-glass] #btn-settings .pix-glyph,
+body[data-glass] #btn-help .pix-glyph { width: 16px; height: 16px; }
 /* tile buttons: capsule glass, mic in ink, zoom pair reads as one control */
 body[data-glass] .t-btn { border-radius: 999px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
 body[data-glass] .t-btn .pix-glyph { width: 12px; height: 12px; }
@@ -618,3 +623,13 @@ body[data-glass] .theme-opt.picked { border-color: var(--gl-accent); background:
 body[data-glass] .theme-opt.picked .theme-dot { border-color: var(--gl-accent); background: radial-gradient(circle, var(--gl-accent) 0 3.5px, transparent 4px); }
 body[data-glass] .ctx-item { border-radius: 10px; }
 body[data-glass] .ctx-item:hover { background: var(--hover); }
+
+/* The quick start is a reading panel, so it takes the modal fill rather than
+   the 44% pane wash — at that opacity the desk shows through the words. Blur
+   to match the other modals in this file. */
+body[data-glass] .qs-box {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--gl-rim);
+}

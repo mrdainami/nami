@@ -31,11 +31,13 @@ test('the note says Nami is not itself the agent', () => {
   assert.match(md, /your own (Claude|ChatGPT)|subscription|account/i);
 });
 
-test('the note offers things to ask for', () => {
+test('the note carries the full twelve example asks', () => {
   const md = startHereNote('Nami');
-  // at least three example asks, as list items
   const bullets = md.split('\n').filter((l) => /^[-*] /.test(l));
-  assert.ok(bullets.length >= 3, `expected 3+ example asks, got ${bullets.length}`);
+  // Twelve is not decoration: the quick start's row 4 button says "See 12
+  // examples" and opens this note. If the list shrinks, that button starts
+  // lying, so the count is pinned rather than left to drift.
+  assert.ok(bullets.length >= 12, `expected 12+ example asks, got ${bullets.length}`);
 });
 
 test('seedStartHere writes the note into a new folder', async () => {
