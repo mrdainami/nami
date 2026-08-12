@@ -246,7 +246,7 @@ function dropFilesOnPanel(p, paths) {
   // Drive mode: one event at a time from the live adapter, already in the
   // vocabulary. init and status shape the tile; everything else is a row.
   api.onAgentEvent((ev) => {
-    const p = S.panels.find((x) => x.id === ev.id); if (!p) return;
+    const p = S.panels.find((x) => x.id === ev.tileId); if (!p) return;
     if (ev.kind === 'init') {
       p.agentCaps = ev.capability || null;
       p.agentCommands = ev.commands || [];

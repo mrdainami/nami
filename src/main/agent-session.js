@@ -9,14 +9,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { ClaudeSdkAdapter } = require('./adapters/claude-sdk.js');
+// The one slug rule claude itself uses — a private copy here already cost a
+// live-empty backlog once, when `_local` slugged differently in two places.
+const { projectSlug } = require('./claude-args.js');
 
 // agent kind -> adapter class. One row per verified channel; growing this
 // table is how a new agent gets cards.
 const ADAPTERS = {
   claude: ClaudeSdkAdapter,
 };
-
-function projectSlug(cwd) { return String(cwd || '').replace(/[\\/.]/g, '-'); }
 
 // The transcript claude would resume for this tile, if it exists yet.
 function claudeTranscript(cwd, sid, home) {

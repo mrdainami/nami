@@ -952,7 +952,8 @@ ipcMain.handle('agent:start', async (e, { id, agent, cwd, sid, model, prompt }) 
     // The same env discipline the ptys get: login PATH, stripInheritedClaude,
     // stored keys — a session must behave the same in either view.
     env: sessionEnv(envPath),
-    onEvent: (ev) => sendWc(wc, 'agent:event', { id, ...ev }),
+    // tileId rides its own field — every event already owns `id` for its row.
+    onEvent: (ev) => sendWc(wc, 'agent:event', { tileId: id, ...ev }),
   });
   // The SDK writes the same transcript the pty would, so the title watcher
   // keeps the rail name honest while Cards drive.
