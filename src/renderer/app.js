@@ -14,7 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
-import { buildRows } from './session-cards.mjs';
+import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
 
 const api = window.dainami;
@@ -267,7 +267,8 @@ function dropFilesOnPanel(p, paths) {
       return;
     }
     p.cardEvents = (p.cardEvents || []).concat(ev);
-    feedCards(p, false);
+    p.lastEventAt = Date.now();
+    scheduleFeed(p);
     if (ev.kind === 'permission') setAttention(p);
   });
   api.onTermExit(({ id, code, note }) => {
@@ -351,6 +352,18 @@ function showScene(name) {
     if (!p) return;
     const t = tileEls.get(p.id);
     return beginRename(p, step === 'rail' ? q('.rail-list .nav-card .goal') : t && q('.t-title', t.head));
+  }
+  if (what === 'cards') {
+    // A card view from a fixture: every row shape on one screen, no process,
+    // no network — the closest thing to a renderer test this repo can have.
+    const p = startPanel({ kind: 'claude', title: 'Agent cards', code: 'AC', sid: 'ses_scene', sceneStatic: true, cwd: (S.project && S.project.path) || '/tmp' });
+    if (!p) return;
+    p.view = 'cards';
+    p.agentCaps = { channel: 'agent sdk' };
+    p.cardEvents = sceneEvents();
+    const rec = tileEls.get(p.id);
+    if (rec) { applyView(p, rec); feedCards(p, true); }
+    return;
   }
   if (what === 'theme') return toggleThemePop();
   if (what === 'workspace') {
@@ -1265,6 +1278,7 @@ function mountTerminal(p, rec) {
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => {
     safeFit(rec);
+    if (p.sceneStatic) return; // a fixture tile draws, it never runs
     // A tile restored in Cards goes straight to the drive channel — spawning
     // the pty first would put two runtimes on one conversation.
     if (canShowCards(p) && cardView(p) === 'cards') enterCards(p);
@@ -1413,6 +1427,7 @@ const CARD_EVENT_CAP = 900;
 // Which adapter can drive this tile's agent, or null. A claude tile needs its
 // conversation id; an ACP agent tile is one whose command is exactly the bin.
 function cardAgentFor(p) {
+  if (p && p.sceneStatic) return 'claude'; // the fixture tile draws as claude
   if (!p || S.demo) return null;
   if (p.kind === 'claude') return p.sid ? 'claude' : null;
   if (p.kind === 'run') {
@@ -1479,6 +1494,7 @@ async function enterCards(p) {
   }
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
+  if (rec.cardsUi) rec.cardsUi.setNote('Connecting…', false);
 
   if (p.started && !p.exited) {
     p.viewSwitching = true;
@@ -1544,6 +1560,7 @@ function mountCards(p, rec) {
     },
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
     commands: () => p.agentCommands || [],
     // The channel badge, quietly on the meter: 'agent sdk · live', turning
     // amber only when it explains a limitation.
@@ -1567,6 +1584,32 @@ function refreshCardNote(p, rec) {
   else if (rec.cardsUi.isEmpty()) text = 'Waiting for the first turn.';
   rec.cardsUi.setNote(text, urgent);
 }
+
+// Streaming floods batch here: however many events land in one frame, the
+// DOM is touched once, on the next animation frame. OpenCode sent fourteen
+// chunks for one sentence and Hermes twenty-seven thought chunks; per-chunk
+// rendering stutters, per-frame rendering does not.
+const feedPending = new Set();
+function scheduleFeed(p) {
+  if (feedPending.has(p.id)) return;
+  feedPending.add(p.id);
+  requestAnimationFrame(() => {
+    feedPending.delete(p.id);
+    try { feedCards(p, false); } catch (_) {} // a bad row costs the row, never the tile
+  });
+}
+
+// An adapter that goes quiet still owes the card a shape: after a minute of
+// silence mid-turn the note says so, instead of a spinner that never resolves.
+setInterval(() => {
+  for (const p of S.panels) {
+    if (!p.agentBusy || cardView(p) !== 'cards') continue;
+    if (p.lastEventAt && Date.now() - p.lastEventAt > 60000) {
+      const rec = tileEls.get(p.id);
+      if (rec && rec.cardsUi) rec.cardsUi.setNote('No response for a minute — Esc stops the turn, Term shows the raw channel.', false);
+    }
+  }
+}, 15000);
 
 // Everything accumulated so far, reconciled into the list. A full rebuild is
 // reserved for a reset — it would otherwise close every expanded row and

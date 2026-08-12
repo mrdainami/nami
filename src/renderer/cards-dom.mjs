@@ -149,7 +149,19 @@ function renderRow(ctx, row) {
     return el;
   }
 
-  if (row.kind === 'note') { el.textContent = row.text; return el; }
+  if (row.kind === 'note') {
+    el.textContent = row.text;
+    // A note that knows the repair offers it — hermes' own `--setup`, run in
+    // a terminal tile, exactly as the protocol advertised it.
+    if (row.action && row.action.command && ctx.onRunCommand) {
+      const b = document.createElement('button');
+      b.className = 'cd-note-act';
+      b.textContent = row.action.label || row.action.command;
+      b.onclick = () => ctx.onRunCommand(row.action.command);
+      el.appendChild(b);
+    }
+    return el;
+  }
   if (row.kind === 'error') { el.innerHTML = `<span class="m">✕</span><span class="tx"></span>`; q('.tx', el).textContent = row.text; return el; }
 
   if (row.kind === 'turn_end') {
