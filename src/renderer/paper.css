@@ -1221,14 +1221,33 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-menu {
   position: absolute; left: 10px; right: 10px; bottom: 44px;
   border: 1px solid var(--dash-dark); background: var(--paper);
-  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
-  display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; z-index: 5;
+  /* the glass family's paper is translucent by design; the blur is what
+     keeps a menu readable over content there — same material as its popovers */
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
+  display: flex; flex-direction: column; max-height: 240px; overflow-y: auto;
+  overscroll-behavior: contain; z-index: 5;
 }
 .cd-menu-i {
+  display: flex; align-items: baseline; gap: 10px;
   font: inherit; font-size: 12px; text-align: left; padding: 6px 11px;
   background: transparent; color: var(--ink); border: 0; cursor: pointer;
 }
-.cd-menu-i:hover { background: var(--hover); color: var(--green); }
+.cd-menu-i + .cd-menu-i { border-top: 1px dashed var(--dash); }
+.cd-menu-i:hover, .cd-menu-i.on { background: var(--hover); }
+.cd-menu-i .mi-n { color: var(--green); font-weight: 700; flex: none; }
+.cd-menu-i .mi-d {
+  color: var(--muted); font-size: 11px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-menu-i .mi-h { margin-left: auto; color: var(--faint); font-size: 10px; flex: none; }
+.cd-menu-f {
+  padding: 4px 11px; font-size: 9.5px; color: var(--faint);
+  border-top: 1px solid var(--dash); background: var(--paper-3);
+  position: sticky; bottom: 0;
+}
+.tile.focused .cd-menu, .tile.focused .cd-open, .tile.focused .cd-body { max-height: 55vh; }
+.tile.focused .cd-diff-body { max-height: 45vh; }
 
 /* ---- paper editor ----
    Read and Edit are two panes in one column; only one is ever displayed. */

@@ -442,36 +442,93 @@ export function buildCards(ctx) {
   sendBtn.onclick = submit;
   micBtn.onclick = (e) => { e.stopPropagation(); ctx.onMic(); };
 
-  // `/` offers the agent's own commands, where it published them.
-  function refreshMenu() {
-    const v = input.value;
-    if (!v.startsWith('/') || v.includes(' ')) { hideMenu(); return; }
-    const all = (ctx.commands && ctx.commands()) || [];
-    const want = v.slice(1).toLowerCase();
-    const hits = all.filter((c) => String(c).toLowerCase().startsWith(want)).slice(0, 8);
-    if (!hits.length) { hideMenu(); return; }
-    menu.innerHTML = hits.map((c) => `<button class="cd-menu-i" data-c="${esc(c)}">/${esc(c)}</button>`).join('');
+  // ---- the menus: `/` commands with the agent's own descriptions and
+  // argument hints; `@` completes files from the folder the session runs in.
+  // One mechanism, keyboard-first: ↑↓ choose, ⇥/enter complete, esc closes.
+  let menuItems = [];
+  let menuIdx = 0;
+  let menuKind = null;
+
+  function paintMenu() {
+    menu.innerHTML = menuItems.map((it, i) =>
+      `<button class="cd-menu-i${i === menuIdx ? ' on' : ''}" data-i="${i}">
+        <span class="mi-n">${esc(it.label)}</span>
+        ${it.desc ? `<span class="mi-d">${esc(it.desc)}</span>` : ''}
+        ${it.hint ? `<span class="mi-h">${esc(it.hint)}</span>` : ''}
+      </button>`).join('') +
+      `<div class="cd-menu-f">↑↓ choose · ⇥ completes · esc closes</div>`;
     menu.hidden = false;
     for (const b of menu.querySelectorAll('.cd-menu-i')) {
-      b.onclick = () => { input.value = '/' + b.dataset.c + ' '; input.focus(); arm(); hideMenu(); };
+      b.onclick = () => pickMenu(Number(b.dataset.i));
     }
   }
-  function hideMenu() { menu.hidden = true; }
+  function pickMenu(i) {
+    const it = menuItems[i ?? menuIdx];
+    if (!it) return;
+    if (menuKind === 'slash') input.value = '/' + it.name + ' ';
+    else if (menuKind === 'file') {
+      const at = input.selectionStart;
+      input.value = input.value.slice(0, at).replace(/@[^\s@]*$/, '@' + it.name + ' ') + input.value.slice(at);
+    }
+    input.focus(); arm(); hideMenu(); refreshMenu();
+  }
+  function moveMenu(d) {
+    if (!menuItems.length) return;
+    menuIdx = (menuIdx + d + menuItems.length) % menuItems.length;
+    menu.querySelectorAll('.cd-menu-i').forEach((el2, i) => el2.classList.toggle('on', i === menuIdx));
+  }
+  function hideMenu() { menu.hidden = true; menuItems = []; menuKind = null; menuIdx = 0; }
+
+  // Commands arrive as strings or {name, description, argumentHint} — the
+  // richer shape wins where the channel publishes it.
+  function normCmd(c) {
+    if (typeof c === 'string') return { name: c, desc: '', hint: '' };
+    return { name: String(c.name || ''), desc: String(c.description || ''), hint: String(c.argumentHint || c.hint || '') };
+  }
+
+  async function refreshMenu() {
+    const v = input.value;
+    const at = input.selectionStart ?? v.length;
+    const word = v.slice(0, at).split(/\s/).pop();
+
+    if (v.startsWith('/') && !v.includes(' ')) {
+      const all = ((ctx.commands && ctx.commands()) || []).map(normCmd).filter((c) => c.name);
+      const want = v.slice(1).toLowerCase();
+      const hits = all.filter((c) => c.name.toLowerCase().startsWith(want)).slice(0, 9);
+      if (!hits.length) { hideMenu(); return; }
+      menuKind = 'slash'; menuIdx = 0;
+      menuItems = hits.map((c) => ({ name: c.name, label: '/' + c.name, desc: c.desc, hint: c.hint }));
+      paintMenu();
+      return;
+    }
+
+    if (word.startsWith('@') && ctx.listFiles) {
+      const q2 = word.slice(1);
+      const files = await ctx.listFiles(q2);
+      if (input.value !== v) return; // typed past us while listing
+      if (!files || !files.length) { hideMenu(); return; }
+      menuKind = 'file'; menuIdx = 0;
+      menuItems = files.slice(0, 9).map((f) => ({ name: f.rel, label: '@' + f.rel, desc: f.desc || '' }));
+      paintMenu();
+      return;
+    }
+    hideMenu();
+  }
 
   input.addEventListener('input', () => { arm(); refreshMenu(); });
   input.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       jumpTurn(e.key === 'ArrowUp' ? -1 : 1); e.preventDefault(); e.stopPropagation(); return;
     }
-    if (e.key === 'Enter') { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') {
-      if (!menu.hidden) hideMenu();
-      else ctx.onInterrupt();
-      e.preventDefault();
-    } else if (e.key === 'Tab' && !menu.hidden) {
-      const first = menu.querySelector('.cd-menu-i');
-      if (first) { first.click(); e.preventDefault(); }
+    if (!menu.hidden) {
+      if (e.key === 'ArrowDown') { moveMenu(1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'ArrowUp') { moveMenu(-1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'Tab') { pickMenu(); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'Enter') { pickMenu(); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'Escape') { hideMenu(); e.preventDefault(); e.stopPropagation(); return; }
     }
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    else if (e.key === 'Escape') { ctx.onInterrupt(); e.preventDefault(); }
     e.stopPropagation();
   });
 

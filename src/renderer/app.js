@@ -1778,6 +1778,22 @@ function mountCards(p, rec) {
     },
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    // `@` completion: the folder this session runs in, one level at a time —
+    // type a slash to descend. Real directory listings, nothing indexed ahead.
+    listFiles: async (query) => {
+      const slash = query.lastIndexOf('/');
+      const dirRel = slash >= 0 ? query.slice(0, slash) : '';
+      const base = (slash >= 0 ? query.slice(slash + 1) : query).toLowerCase();
+      const dir = dirRel ? p.cwd + '/' + dirRel : p.cwd;
+      let entries = [];
+      try { entries = await api.listDir(dir) || []; } catch (_) { return []; }
+      return entries
+        .filter((e2) => e2.name.toLowerCase().startsWith(base))
+        .map((e2) => ({
+          rel: (dirRel ? dirRel + '/' : '') + e2.name + (e2.kind === 'dir' ? '/' : ''),
+          desc: e2.meta || '',
+        }));
+    },
     onModelMenu: () => {
       // The welcome's model row: a real picker where the channel switches
       // (the status-line select), the truth said plainly where it cannot.
