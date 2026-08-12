@@ -5,7 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
-import { fileKind, shellQuote, fileUrl, docUrl } from './file-kinds.mjs';
+import { fileKind, shellQuote, fileUrl, docUrl, tailPath } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
@@ -360,6 +360,18 @@ function showScene(name) {
     });
   }
   if (what === 'projects') return toggleProjectsPop();
+  // newfile / newfolder — the create box. It had no scene, so every screenshot
+  // of this app was taken without it, and its header shipped wrapped across two
+  // lines under a three-line path before anyone saw it.
+  if (what === 'newfile' || what === 'newfolder') {
+    const ready = S.project ? Promise.resolve() : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(() => {
+      S.railTab = 'workspace'; renderRail();
+      // step lets a shot aim at a deep folder, which is the case that broke it
+      const dir = step || (S.project && S.project.path) || '~';
+      openFsName(what === 'newfile' ? 'file' : 'folder', dir);
+    });
+  }
   // The update card only appears when a newer release exists, which is exactly
   // the state you cannot arrange on demand — so the scene fakes the payload.
   // A download in flight and one waiting for a quit are two more states nobody
@@ -578,11 +590,24 @@ function applyChrome() {
 
 function onGlobalKey(e) {
   const meta = e.metaKey || e.ctrlKey;
-  // Enter renames the selected row, the way it does in Finder — but only when
-  // the rail is what you are looking at and nothing else has the keyboard.
-  if (e.key === 'Enter' && !meta && !S.overlay && S.railTab === 'workspace' && S.treeSel && !S.treeEdit
-      && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '')) {
-    e.preventDefault(); beginTreeRename(S.treeSel); return;
+  // Enter renames the selected row and ⌘⌫ trashes it, the way Finder does —
+  // but only when the rail is what you are looking at and nothing else has the
+  // keyboard. ⌘⌫ and not a bare ⌫ is the whole point: Delete on its own is one
+  // mis-keystroke away from destroying something while you meant to rename it.
+  // A peek does not disqualify the rail. Clicking a file both selects the row
+  // and opens its preview — that is one gesture here — and the peek never takes
+  // focus, so the selection is still what the keyboard is aimed at. Same as
+  // Quick Look: space previews, ⌘⌫ still trashes. Any other overlay is a real
+  // modal and does own the keyboard. The activeElement test stays either way:
+  // click into the peek's editor and ⌘⌫ is a text operation again.
+  const peeking = S.overlay && S.overlay.type === 'peek';
+  const inTree = S.railTab === 'workspace' && S.treeSel && !S.treeEdit
+    && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
+  // Rename needs the rail actually in front of you — starting an edit hidden
+  // behind a preview would put your typing somewhere you cannot see it.
+  if (e.key === 'Enter' && !meta && inTree && !S.overlay) { e.preventDefault(); beginTreeRename(S.treeSel); return; }
+  if (meta && (e.key === 'Backspace' || e.key === 'Delete') && inTree && (!S.overlay || peeking)) {
+    e.preventDefault(); trashTreeItem(S.treeSel, dirName(S.treeSel)); return;
   }
   if (meta && e.shiftKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); api.newWindow(); return; }
   if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
@@ -954,6 +979,9 @@ function showMenu(x, y, items) {
     if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
     const row = document.createElement('div'); row.className = 'ctx-item' + (it.danger ? ' danger' : '');
     row.textContent = it.label;
+    // The menu is where people look for a shortcut they don't know yet, so the
+    // ones that exist say so here rather than staying folklore.
+    if (it.kb) { const k = document.createElement('span'); k.className = 'ctx-kb'; k.textContent = it.kb; row.appendChild(k); }
     row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(); };
     m.appendChild(row);
   }
@@ -1013,7 +1041,7 @@ function treeMenu(n, parentDir) {
   // "Move to…" is gone: it opened a native picker that would happily let you
   // choose a folder outside the root, and then movePath refused it — offering a
   // destination you are not allowed to use. Dragging the row does this now.
-  items.push({ label: 'Rename…', run: () => beginTreeRename(n.path) });
+  items.push({ label: 'Rename…', kb: '⏎', run: () => beginTreeRename(n.path) });
   items.push({ label: 'Duplicate', run: async () => {
     const res = await api.fsDuplicate({ root, src: n.path });
     if (!res.ok) { toast(res.error || 'Could not duplicate'); return; }
@@ -1029,24 +1057,41 @@ function treeMenu(n, parentDir) {
   // Direct to Trash: right-click plus a click below a separator is deliberate,
   // and the Trash is recoverable. The library card's Delete keeps its armed
   // second click because it sits next to Save.
-  items.push({ label: 'Move to Trash', danger: true, run: async () => {
-    const res = await api.fsTrash({ root, path: n.path });
-    if (!res.ok) { toast(res.error); return; }
-    S.expanded.delete(n.path);
-    refreshTreeDir(parentDir);
-    toast('Moved to Trash.');
-  } });
+  items.push({ label: 'Move to Trash', danger: true, kb: '⌘⌫', run: () => trashTreeItem(n.path, parentDir) });
   return items;
+}
+
+// Shared by the menu row and ⌘⌫, so the keyboard route cannot drift from the
+// one the menu advertises.
+async function trashTreeItem(path, parentDir) {
+  const res = await api.fsTrash({ root: S.project.path, path });
+  if (!res.ok) { toast(res.error); return; }
+  S.expanded.delete(path); delete S.tree[path];
+  if (S.treeSel === path) S.treeSel = null;
+  // Previewing the thing you just trashed is a window onto a file that is no
+  // longer there — close it rather than leave a stale page up.
+  if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel && S.overlay.panel.filePath === path) closeOverlay();
+  await refreshTreeDir(parentDir);
+  toast('Moved ' + baseName(path) + ' to Trash.');
 }
 function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
 function renderFsName() {
   const o = S.overlay;
+  // Its own header, not .picker-input: that row belongs to the launcher and the
+  // agent picker too, and it has no nowrap on the label and no truncation on the
+  // trailing span — so a deep path wrapped the title onto two lines and then ran
+  // to three of its own, leaving the destination as the biggest thing in a box
+  // whose actual job is a name and a button.
+  const full = shortHome(o.dir);
   const modal = overlay('picker-box', `
-    <div class="picker-input"><span class="prompt-mark">＋</span>
-      <span style="font-weight:700">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--muted)">${esc(shortHome(o.dir))}</span></div>
-    <div class="ni-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
-      <button class="btn btn--go" id="fs-go">Create</button></div>`, { top: true });
+    <div class="fs-head"><span class="prompt-mark">＋</span>
+      <span class="fs-title">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
+      <span class="fs-where" title="${esc(full)}">${esc(tailPath(full))}</span></div>
+    <div class="fs-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
+      <button class="btn btn--go" id="fs-go">Create</button></div>
+    <div class="fs-hint">${o.mode === 'file'
+      ? 'Any extension. It lands empty and opens in the editor.'
+      : 'The folder is created and opened in the tree.'}</div>`, { top: true });
   const input = q('#fs-name', modal); input.value = o.name; setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.name = input.value; };
   const go = async () => {
