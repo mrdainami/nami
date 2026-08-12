@@ -1594,16 +1594,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* workspace context menu */
 .ctx-menu { position: fixed; z-index: 300; min-width: 170px; background: var(--paper); border: 1px solid var(--dash-dark);
-  box-shadow: 3px 3px 0 var(--shadow-mid); border-radius: 2px; padding: 4px; font-size: 12px;
-  /* Over the sidebar bare paper was enough. Over a live terminal it is not:
-     the glass family's paper is translucent by design, so the output
-     underneath reads straight through the menu. Same material as .cd-menu. */
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
+  box-shadow: 3px 3px 0 var(--shadow-mid); border-radius: 2px; padding: 4px; font-size: 12px; }
 .ctx-item { display: flex; align-items: baseline; gap: 18px; padding: 6px 10px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
 .ctx-item:hover { background: var(--paper-2); }
 .ctx-item.danger { color: var(--red-ink); }
-/* a row that is present to explain itself, not to be clicked */
-.ctx-item.off { color: var(--faint); cursor: default; }
+/* A row that is present to explain itself, not to be clicked. --muted-2 rather
+   than --faint: it still reads as disabled next to a live row, and --faint on
+   graphite lands near 3:1 on the menu ground, which is the grey-on-dark the
+   theme was corrected for once already. */
+.ctx-item.off { color: var(--muted-2); cursor: default; }
 .ctx-item.off:hover { background: none; }
 .ctx-item.off .ctx-kb { color: var(--red-ink); }
 /* the shortcut a row already has, printed where people look for it */
