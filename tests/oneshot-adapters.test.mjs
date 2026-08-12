@@ -184,3 +184,95 @@ test('the known-path lookup always falls back to the bare name', () => {
   assert.equal(knownBin('opencode') || 'opencode', 'opencode');
   assert.equal(knownBin('codex') || 'codex', 'codex');
 });
+
+// Displayed state is sent state: the welcome shows accept-edits, so the first
+// turn must spawn with that mode — before the seed, the chip said one thing
+// and the flags said nothing.
+test('agy seeds its mode on start, and announces every mode as available', async () => {
+  const events = [];
+  const a = new AgyAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  await a.start({ prompt: null, sid: null });
+  assert.equal(a.mode, 'accept-edits');
+  const init = events.find((e) => e.kind === 'init');
+  assert.deepEqual(init.modes.map((m) => m.id), ['accept-edits', 'plan', 'skip-permissions']);
+  assert.ok(init.modes.every((m) => m.available));
+  assert.equal(init.mode, 'accept-edits');
+});
+
+// /model on the one-shot channels: the choice is kept on the adapter and
+// every following turn spawns with the flag — no live process required.
+test('codex keeps a chosen model and spawns the next turn with --model', () => {
+  const events = [];
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', 'hi']);
+  a.setConfigOption('model', 'gpt-5.2-codex');
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', '--model', 'gpt-5.2-codex', 'hi']);
+  a.threadId = 'th_1';
+  assert.deepEqual(a.turnArgs('hi'), ['exec', 'resume', 'th_1', '--json', '--skip-git-repo-check', '--model', 'gpt-5.2-codex', 'hi']);
+  const init = events.filter((e) => e.kind === 'init').at(-1);
+  assert.equal(init.model, 'gpt-5.2-codex');
+});
+
+test('kimi keeps a chosen model; -m sits before -p so it is never swallowed', () => {
+  const events = [];
+  const a = new KimiAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.setConfigOption('model', 'kimi-k2.6-turbo');
+  assert.deepEqual(a.turnArgs('hi'), ['-m', 'kimi-k2.6-turbo', '-p', 'hi', '--output-format', 'stream-json']);
+  a.sessionId = 's1';
+  assert.deepEqual(a.turnArgs('hi'), ['-r', 's1', '-m', 'kimi-k2.6-turbo', '-p', 'hi', '--output-format', 'stream-json']);
+  const init = events.filter((e) => e.kind === 'init').at(-1);
+  assert.equal(init.model, 'kimi-k2.6-turbo');
+});
+
+// codex's approval story, expressed as next-turn flags: default passes
+// nothing (its own config decides), the sandbox pair maps to --sandbox,
+// bypass is the dangerously- flag.
+test('codex modes ride the next turn: sandbox flags, bypass, default-nothing', () => {
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: () => {} });
+  assert.ok(!a.turnArgs('hi').join(' ').includes('--sandbox'));
+  a.setConfigOption('mode', 'read-only');
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', 'hi']);
+  a.setConfigOption('mode', 'workspace-write');
+  assert.ok(a.turnArgs('hi').includes('workspace-write'));
+  a.setConfigOption('mode', 'bypass');
+  assert.ok(a.turnArgs('hi').includes('--dangerously-bypass-approvals-and-sandbox'));
+  a.setConfigOption('mode', 'default');
+  assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously/));
+  a.setConfigOption('mode', 'nonsense'); // unknown value falls back, never a bad flag
+  assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously|nonsense/));
+});
+
+test('codex announces its modes on init, all available', () => {
+  const events = [];
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.emitInit();
+  const init = events.find((e) => e.kind === 'init');
+  assert.deepEqual(init.modes.map((m) => m.id), ['default', 'read-only', 'workspace-write', 'bypass']);
+  assert.equal(init.mode, 'default');
+});
+
+// The picker's options are honest per channel: kimi reads the user's own
+// config aliases; codex's curated list always includes the configured
+// current model, even one it has never heard of.
+const { readModelOptions } = require('../src/main/adapters/kimi.js');
+const { modelOptions, CODEX_MODELS } = require('../src/main/adapters/codex.js');
+
+test('kimi model options come from the config\'s [models] sections', () => {
+  const toml = [
+    'default_model = "moonshot-ai/kimi-k2.6"',
+    '[models."moonshot-ai/kimi-k2.6"]', 'model = "kimi-k2.6"',
+    '[models."moonshot-ai/kimi-k3"]', 'model = "kimi-k3"',
+  ].join('\n');
+  const opts = readModelOptions(toml);
+  assert.deepEqual(opts.map((o) => o.value), ['moonshot-ai/kimi-k2.6', 'moonshot-ai/kimi-k3']);
+  assert.equal(opts[0].name, 'kimi-k2.6'); // display drops the provider prefix
+  assert.deepEqual(readModelOptions(''), []);
+});
+
+test('codex options always contain the configured current model', () => {
+  const known = modelOptions(CODEX_MODELS[1].value);
+  assert.equal(known.length, CODEX_MODELS.length);
+  const custom = modelOptions('my-own-alias');
+  assert.equal(custom[0].value, 'my-own-alias');
+  assert.match(custom[0].desc, /config/);
+});

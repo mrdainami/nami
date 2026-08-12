@@ -26,6 +26,7 @@ class KimiAdapter {
     this.seq = 0;
     this.child = null;
     this.sessionId = null;
+    this.model = null; // rides the next turn's -m flag — the channel is one-shot
     this.turnStarted = 0;
     this.openCalls = new Set();
   }
@@ -37,15 +38,38 @@ class KimiAdapter {
   }
 
   emitInit() {
+    // a chosen model rides the next turn's -m flag; the config's default
+    // says what runs when nothing was chosen, and the config's [models]
+    // sections are the picker's options — the user's own list.
+    const current = this.model || readDefaultModel();
+    const options = readModelOptions();
     this.emit('init', {
-      capability: capability(CAPABILITY),
+      capability: capability({ ...CAPABILITY, models: options.length > 0 }),
       agentSessionId: this.sessionId,
       commands: [],
       agentName: 'Kimi Code',
-      // display-only: the channel has no live model switch, but the config
-      // says what the next turn will run
-      model: readDefaultModel(),
+      model: current,
+      models: options.length ? { current, options } : undefined,
     });
+  }
+
+  // /model on a one-shot channel: `kimi -m` exists, so the choice is kept
+  // and every following turn spawns with it. Same pattern as agy's mode.
+  setConfigOption(configId, value) {
+    if (configId !== 'model') return;
+    this.model = String(value || '') || null;
+    if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
+    this.emitInit();
+  }
+
+  // The next turn's argv, pure for the tests. -m sits before -p because -p
+  // takes the prompt as its value and flags after it would be swallowed.
+  turnArgs(text) {
+    const args = [];
+    if (this.sessionId) args.push('-r', this.sessionId);
+    if (this.model) args.push('-m', this.model);
+    args.push('-p', text, '--output-format', 'stream-json');
+    return args;
   }
 
   async start({ prompt, sid }) {
@@ -61,11 +85,7 @@ class KimiAdapter {
     this.emit('status', { state: 'running' });
     this.turnStarted = Date.now();
 
-    // -p takes the prompt as its value — flags after it would be swallowed,
-    // so the prompt comes right behind it and the format flag after.
-    const args = this.sessionId
-      ? ['-r', this.sessionId, '-p', text, '--output-format', 'stream-json']
-      : ['-p', text, '--output-format', 'stream-json'];
+    const args = this.turnArgs(text);
     let child;
     try {
       child = spawn(knownBin('kimi') || 'kimi', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -168,12 +188,28 @@ class KimiAdapter {
   }
 }
 
+// The picker's options come from the user's own config: every
+// [models."alias"] section is a model kimi -m accepts — the honest list,
+// no curation. readConfigToml is split out so both readers share one parse.
+function readConfigToml() {
+  try { return fs.readFileSync(path.join(os.homedir(), '.kimi-code', 'config.toml'), 'utf8'); } catch (_) { return ''; }
+}
+
+function readModelOptions(toml) {
+  const t = toml === undefined ? readConfigToml() : toml;
+  const out = [];
+  const re = /^\[models\."([^"]+)"\]/gm;
+  let m;
+  while ((m = re.exec(t))) out.push({ value: m[1], name: m[1].split('/').pop() });
+  return out;
+}
+
 function readDefaultModel() {
   try {
-    const toml = fs.readFileSync(path.join(os.homedir(), '.kimi-code', 'config.toml'), 'utf8');
+    const toml = readConfigToml();
     const m = /^\s*default_model\s*=\s*"([^"]+)"/m.exec(toml);
     return m ? m[1] : null;
   } catch (_) { return null; }
 }
 
-module.exports = { KimiAdapter, readDefaultModel };
+module.exports = { KimiAdapter, readDefaultModel, readModelOptions };

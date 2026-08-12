@@ -258,6 +258,7 @@ export function buildRows(events) {
           kind: 'intro', id: e.id, at: e.at,
           name: e.name || 'Agent', version: e.version || '', model: e.model || '',
           mode: e.mode || '', cwd: e.cwd || '', channel: e.channel || '',
+          note: e.note || '',
         });
         break;
 

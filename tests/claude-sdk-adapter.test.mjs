@@ -273,3 +273,91 @@ test('a remembered path that no longer exists falls through', () => {
   const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') });
   assert.equal(exe, '/opt/homebrew/bin/claude');
 });
+
+// ---- permission modes -------------------------------------------------------
+// The chip offers exactly what the session can enter. Settings — managed,
+// user or project — can disable bypass; the list must say so with a reason
+// instead of offering a switch that silently fails.
+const { permissionModes } = require('../src/main/adapters/claude-sdk.js');
+
+function readerOf(files) {
+  return (p) => (p in files ? files[p] : null);
+}
+
+test('with no settings anywhere, every mode is available', () => {
+  const modes = permissionModes({ cwd: '/repo', home: '/Users/x', readFile: readerOf({}) });
+  assert.deepEqual(modes.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'bypassPermissions']);
+  assert.ok(modes.every((m) => m.available));
+});
+
+test('managed settings can take bypass off the menu, with the reason attached', () => {
+  const modes = permissionModes({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({
+      '/Library/Application Support/ClaudeCode/managed-settings.json':
+        JSON.stringify({ permissions: { disableBypassPermissionsMode: 'disable' } }),
+    }),
+  });
+  const bypass = modes.find((m) => m.id === 'bypassPermissions');
+  assert.equal(bypass.available, false);
+  assert.match(bypass.reason, /managed/);
+  assert.ok(modes.filter((m) => m.id !== 'bypassPermissions').every((m) => m.available));
+});
+
+test('user and project settings disable bypass too, top-level key included', () => {
+  for (const [file, body] of [
+    ['/Users/x/.claude/settings.json', { disableBypassPermissionsMode: 'disable' }],
+    ['/repo/.claude/settings.json', { permissions: { disableBypassPermissionsMode: 'disable' } }],
+    ['/repo/.claude/settings.local.json', { permissions: { disableBypassPermissionsMode: 'disable' } }],
+  ]) {
+    const modes = permissionModes({ cwd: '/repo', home: '/Users/x', readFile: readerOf({ [file]: JSON.stringify(body) }) });
+    assert.equal(modes.find((m) => m.id === 'bypassPermissions').available, false, file);
+  }
+});
+
+test('an unreadable or malformed settings file changes nothing', () => {
+  const modes = permissionModes({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({ '/Users/x/.claude/settings.json': '{not json' }),
+  });
+  assert.ok(modes.every((m) => m.available));
+});
+
+test('the adapter announces its modes on init', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'init', session_id: 's1', model: 'm', permissionMode: 'default', slash_commands: [] });
+  const init = events.find((e) => e.kind === 'init');
+  assert.ok(Array.isArray(init.modes) && init.modes.length === 4);
+});
+
+// Silent approvals get named: an execute tool whose result arrives without
+// the card ever being asked, in default mode, is a settings rule at work —
+// and the note says so, exactly once.
+test('the first unasked execute in default mode earns one note, asked tools none', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'init', session_id: 's1', model: 'm', permissionMode: 'default', slash_commands: [] });
+  // a Read runs unasked — by SDK design, never noteworthy
+  a.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: {} }] } });
+  a.handle({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'r1', content: 'file' }] } });
+  assert.equal(events.filter((e) => e.kind === 'note' && /without asking/.test(e.text)).length, 0);
+  // a Bash runs unasked — that is a settings rule, and it is said once
+  a.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }] } });
+  a.handle({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'ok' }] } });
+  a.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'b2', name: 'Bash', input: { command: 'pwd' } }] } });
+  a.handle({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b2', content: 'ok' }] } });
+  const notes = events.filter((e) => e.kind === 'note' && /without asking/.test(e.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /Bash/);
+});
+
+test('a Bash the card was asked about stays silent', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'init', session_id: 's1', model: 'm', permissionMode: 'default', slash_commands: [] });
+  a.askPermission('Bash', { command: 'ls' }, {});
+  a.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }] } });
+  a.handle({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'ok' }] } });
+  assert.equal(events.filter((e) => e.kind === 'note' && /without asking/.test(e.text)).length, 0);
+});

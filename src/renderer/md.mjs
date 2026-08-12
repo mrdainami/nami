@@ -19,19 +19,27 @@ const esc = (s) => String(s == null ? '' : s)
 // it stops before the punctuation that ends a sentence around a link.
 const INLINE = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
-function inline(raw) {
-  return esc(raw).replace(INLINE, (m, code, link, strong, del, em, bare) => {
+// Emphasis recurses into its own content — `**[title](url)**` is a bold LINK,
+// not bold text that happens to contain brackets. A one-pass tokeniser gave
+// the whole span to the strong rule and the link inside rendered literal
+// (unclickable, found in a real Notion reply). Each level takes a fresh
+// regex: recursing through the same global RegExp object would clobber the
+// outer replace's lastIndex.
+function inlineEsc(s) {
+  return s.replace(new RegExp(INLINE.source, 'g'), (m, code, link, strong, del, em, bare) => {
     if (code) return `<code>${code.slice(1, -1)}</code>`;
     if (link) {
       const cut = link.lastIndexOf('](');
-      return `<a href="${link.slice(cut + 2, -1)}">${link.slice(1, cut)}</a>`;
+      return `<a href="${link.slice(cut + 2, -1)}">${inlineEsc(link.slice(1, cut))}</a>`;
     }
-    if (strong) return `<strong>${strong.slice(2, -2)}</strong>`;
-    if (del) return `<del>${del.slice(2, -2)}</del>`;
-    if (em) return `<em>${em.slice(1, -1)}</em>`;
+    if (strong) return `<strong>${inlineEsc(strong.slice(2, -2))}</strong>`;
+    if (del) return `<del>${inlineEsc(del.slice(2, -2))}</del>`;
+    if (em) return `<em>${inlineEsc(em.slice(1, -1))}</em>`;
     return `<a href="${bare}">${bare}</a>`;
   });
 }
+
+function inline(raw) { return inlineEsc(esc(raw)); }
 
 // ---- where a link in the Read view points -----------------------------------
 // Pure: hand it an href and the path of the doc it came from, get back what the

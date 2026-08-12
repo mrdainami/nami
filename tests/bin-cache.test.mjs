@@ -74,3 +74,26 @@ test('losing an agent clears both of its names', () => {
   assert.equal(knownBin('antigravity'), '');
   assert.equal(knownBin('agy'), '');
 });
+
+// A run tile types into the user's interactive shell, whose PATH can miss a
+// binary the scan already located (nvm/npm-prefix conflicts drop the
+// npm-global dir). The typed command gets the absolute path; anything the
+// scan doesn't know passes through untouched.
+test('resolveRunCommand swaps a known bare binary for its scanned path', () => {
+  const { resolveRunCommand } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'codex', found: true, path: '/Users/x/.nvm/versions/node/v22/bin/codex' }]);
+  assert.equal(resolveRunCommand('codex'), '/Users/x/.nvm/versions/node/v22/bin/codex');
+  assert.equal(resolveRunCommand('codex resume th_1'), '/Users/x/.nvm/versions/node/v22/bin/codex resume th_1');
+  assert.equal(resolveRunCommand('kimi -r s1'), 'kimi -r s1'); // unknown: untouched
+  assert.equal(resolveRunCommand('npm test'), 'npm test');
+  forgetBins();
+});
+
+test('a scanned path with awkward characters is quoted for the shell', () => {
+  const { resolveRunCommand } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'codex', found: true, path: '/Users/x/My Tools/codex' }]);
+  assert.equal(resolveRunCommand('codex resume t'), "'/Users/x/My Tools/codex' resume t");
+  forgetBins();
+});
