@@ -1,0 +1,10 @@
+# The ♥ Sponsor button GitHub renders from this file has to mean what it says.
+# Ko-fi is the real one; the links hub rides along as its own labelled entry in
+# the dropdown rather than being disguised as the donation. Pointing the heart
+# at a links page on its own would be bait, in a repo whose whole pitch is that
+# nothing happens behind your back.
+#
+# No UTMs here on purpose: GitHub prints these URLs raw in the sponsor
+# dropdown, so a query string would be visible to everyone who opens it.
+ko_fi: calvinhia_ai
+custom: ["https://dainami.ai/links"]

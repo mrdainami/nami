@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions, agent sessions (via agent-session),
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Menu } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -13,6 +13,7 @@ const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
+const { installAppMenu } = require('./app-menu.js');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
@@ -415,6 +416,9 @@ function reapSessions(wcId) {
 
 app.whenReady().then(() => {
   loadState();
+  // Before any window: the menu belongs to the app, and setting it after a
+  // window exists makes the first one flash the stock menu bar.
+  installAppMenu({ Menu, shell, app });
   installDocProtocol();  // serve viewed HTML + its assets from nami-doc://
   // Ask the login shell for the real PATH now, so the answer is already waiting
   // when the first session spawns. Deliberately not awaited: a slow .zshrc must

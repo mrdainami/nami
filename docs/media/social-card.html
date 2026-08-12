@@ -1,0 +1,120 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nami — social preview card source</title>
+<!--
+  The repo's social preview image, at source.
+
+  GitHub renders this card everywhere the repo is shared: X, LinkedIn, Slack,
+  Discord, iMessage. Without it, all of those show an auto-generated grey box,
+  which is a poor showing for a product whose whole pitch is how it looks.
+
+  Regenerate the PNG after editing:
+    node docs/media/render-social-card.mjs
+
+  The ground and the slab are the exact gradients from theme-glass.css — glass
+  is the face Nami leads with, so the card is glass whatever desk anyone runs.
+  Doto is loaded from the same vendored file the app ships; nothing here
+  touches the network, so the render is identical on any machine.
+-->
+<style>
+  @font-face {
+    font-family: 'Doto';
+    font-style: normal;
+    font-weight: 600 900;
+    src: url(../../src/renderer/vendor/doto/doto-latin.woff2) format('woff2');
+  }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 1280px; height: 640px; overflow: hidden;
+    /* the aurora desk, straight out of theme-glass.css */
+    background: #e8e9ee;
+    background-image:
+      radial-gradient(52% 44% at 12% 6%,  rgba(255, 158, 140, 0.62) 0%, transparent 62%),
+      radial-gradient(46% 40% at 92% 12%, rgba(140, 205, 220, 0.55) 0%, transparent 60%),
+      radial-gradient(60% 52% at 78% 88%, rgba(255, 190, 170, 0.48) 0%, transparent 64%),
+      radial-gradient(44% 40% at 8% 92%,  rgba(168, 190, 235, 0.45) 0%, transparent 60%),
+      linear-gradient(165deg, #f6f4f2 0%, #e9e8ee 55%, #eceef0 100%);
+    display: grid; place-items: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* The slab is inset 7.5%, which keeps every glyph inside the middle 70% —
+     X and LinkedIn both crop the edges of a 2:1 card on some layouts. */
+  .slab {
+    position: absolute; inset: 7.5%; border-radius: 34px;
+    background: rgba(255, 255, 255, 0.42);
+    backdrop-filter: blur(14px) saturate(1.5);
+    border: 1.5px solid rgba(255, 255, 255, 0.78);
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.95),
+      inset 0 20px 44px rgba(255, 255, 255, 0.32),
+      inset 0 -20px 44px rgba(96, 108, 148, 0.13),
+      0 30px 70px rgba(45, 52, 90, 0.18);
+  }
+  .in {
+    position: relative; display: flex; flex-direction: column;
+    align-items: center; text-align: center;
+  }
+  .mascot {
+    width: 132px; height: auto; display: block; margin-bottom: 14px;
+    /* the same coral lift the glass topbar gives it */
+    filter: drop-shadow(0 3px 7px rgba(239, 100, 97, 0.35));
+  }
+  /* The body is dots, not a solid fill — theme-glass.css swaps the mascot to
+     url(#nami-dot-lattice) so the silhouette is built from the same grid the
+     Doto wordmark is. A solid blob beside dotted type reads as two logos. */
+  .mascot .nami-body { fill: url(#nami-dot-lattice); }
+  .word {
+    font-family: 'Doto', monospace; font-weight: 900; font-size: 92px;
+    letter-spacing: 0.04em; text-transform: uppercase; color: #1d1d22; line-height: 0.94;
+  }
+  .tag {
+    font-family: 'Doto', monospace; font-weight: 800; font-size: 25px;
+    letter-spacing: 0.2em; text-transform: uppercase; color: #ef6461;
+    line-height: 1.1; margin-top: 10px;
+  }
+  .sub {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    font-size: 22px; line-height: 1.4; color: #4a4b55; letter-spacing: -0.005em;
+    margin-top: 20px;
+    /* one line or nothing: a two-line break left "place." orphaned under the
+       lockup, which reads as a mistake at the size this card is actually seen */
+    white-space: nowrap;
+  }
+  .foot {
+    font-family: 'Doto', monospace; font-weight: 800; font-size: 14px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: #6f7079; margin-top: 22px;
+  }
+</style>
+<div class="slab"></div>
+<div class="in">
+  <!-- the wave blob, same paths the app's topbar draws -->
+  <svg class="mascot" viewBox="474 285 1084 1400" aria-hidden="true">
+    <defs>
+      <!-- same lattice the app defines inline in app.js: one dot per 140 units,
+           r=52, which lands ~8 across the body at the size this card renders -->
+      <pattern id="nami-dot-lattice" width="140" height="140" patternUnits="userSpaceOnUse">
+        <circle cx="70" cy="70" r="52" fill="#ef6461"/>
+      </pattern>
+    </defs>
+    <g class="nami-body" transform="translate(0,2048) scale(1,-1)" fill="#ef6461">
+      <path d="M962 1762 c-201 -12 -357 -148 -373 -324 -12 -132 86 -235 207 -219
+      86 12 143 93 112 160 -16 34 -52 45 -65 19 -10 -20 -40 -17 -51 6 -20 38 18
+      94 74 111 70 20 128 -11 162 -88 12 -30 28 -41 62 -45 98 -11 126 -123 50
+      -199 -64 -64 -174 -70 -329 -20 -79 26 -119 31 -167 19 -105 -24 -166 -131
+      -170 -294 -3 -188 77 -322 226 -375 18 -7 50 -16 55 -16 3 0 3 -1 0 -14 -4
+      -15 -5 -46 -2 -59 11 -41 41 -61 90 -60 58 2 89 43 81 107 l-1 6 18 0 c10 -1
+      47 -1 82 -1 56 0 63 0 63 -1 -2 -5 -3 -25 -2 -36 5 -50 33 -74 87 -74 64 0 95
+      41 84 110 -2 12 -4 10 16 13 172 29 265 149 285 369 2 19 2 110 0 135 -28 397
+      -212 695 -469 757 -41 10 -90 15 -125 13z"/>
+    </g>
+    <g transform="translate(0,2048) scale(1,-1)" fill="#1d1d22">
+      <path d="M723 830 c-27 -3 -34 -14 -35 -55 -1 -59 8 -67 65 -66 47 1 55 14 51
+      77 -2 37 -13 45 -59 45 -9 0 -19 -1 -22 -1z M1263 830 c-28 -3 -35 -15 -35
+      -60 0 -54 9 -62 65 -61 34 1 45 8 50 29 2 11 1 63 -2 70 -8 20 -34 27 -78 22z"/>
+    </g>
+  </svg>
+  <div class="word">Nami</div>
+  <div class="tag">Your AI Agent Workbench</div>
+  <div class="sub">Put the world's best AI agents to work, all in one place.</div>
+  <div class="foot">Free &amp; open source</div>
+</div>
