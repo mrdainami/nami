@@ -18,6 +18,7 @@ import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
+import { commandsFor, routeCommand } from './agent-commands.mjs';
 
 const api = window.dainami;
 
@@ -2359,11 +2360,63 @@ async function exitCards(p) {
   refreshTileHead(p); refreshRail();
 }
 
+// The welcome's model row and /model both land here: a real picker where the
+// channel switches (the status-line select), the truth said plainly where it
+// cannot.
+function openModelControl(p) {
+  const rec = tileEls.get(p.id);
+  const sel = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-model');
+  if (sel && !sel.disabled) { try { sel.showPicker ? sel.showPicker() : sel.focus(); } catch (_) { sel.focus(); } }
+  else toast('This channel sets its model at start — /model where the agent supports it.');
+}
+
+// Every `/` the composer sends gets an answer. Native commands open the
+// card's own control, terminal-only ones say so and offer a terminal, and in
+// watch mode nothing is ever typed into the hidden pty — the CLI's popup
+// would open in a display:none terminal, which is how "/model does nothing"
+// was born. Returns true when the command was handled here.
+function handleSlashCommand(p, text) {
+  if (!String(text || '').startsWith('/')) return false;
+  const agent = cardAgentFor(p);
+  if (!agent || String(agent).startsWith('unknown:')) return false;
+  const rec = tileEls.get(p.id);
+  if (!p.agentLive && p.cardMode === 'watch') {
+    if (rec && rec.cardsUi) rec.cardsUi.setNote(
+      'Slash commands run in the terminal underneath — take over to use them here, or answer in Term.',
+      false, { label: 'Take over', run: () => { p.cardFallback = ''; driveCards(p); } });
+    return true;
+  }
+  const r = routeCommand(agent, p.agentCommands, text);
+  if (!r) return false;
+  if (r.route === 'native-model') { openModelControl(p); return true; }
+  if (r.route === 'native-mode') { cycleMode(p); return true; }
+  if (r.route === 'terminal') {
+    const spec = terminalResumeSpec(p);
+    p.cardEvents = (p.cardEvents || []).concat({
+      kind: 'note', id: 'cmdnote:' + Date.now(),
+      text: `/${r.name} belongs to the agent's own terminal — this channel can't run it.`,
+      action: spec.command ? { label: 'Open in Terminal', command: spec.command } : null,
+    });
+    scheduleFeed(p);
+    return true;
+  }
+  return false; // 'send': the channel executes it as text
+}
+
+function cycleMode(p) {
+  const cycle = MODE_CYCLES[cardAgentFor(p)];
+  if (!cycle || !p.agentLive) return;
+  const cur = (p.agentStatus && p.agentStatus.mode) || cycle[0];
+  const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+  api.agentConfig({ id: p.id, configId: 'mode', value: next });
+}
+
 function mountCards(p, rec) {
   const ui = buildCards({
     onSend: (text) => {
       clearAttention(p);
       if (p.autoName) feedSessionName(p, text + '\n');
+      if (handleSlashCommand(p, text)) return;
       if (p.agentLive) {
         // One-shot channels take one task at a time: typed mid-run, the
         // message queues visibly and sends when the turn ends. Claude's
@@ -2415,23 +2468,12 @@ function mountCards(p, rec) {
           desc: e2.meta || '',
         }));
     },
-    onModelMenu: () => {
-      // The welcome's model row: a real picker where the channel switches
-      // (the status-line select), the truth said plainly where it cannot.
-      const rec2 = tileEls.get(p.id);
-      const sel = rec2 && rec2.cardsUi && rec2.cardsUi.el.querySelector('.cs-model');
-      if (sel && !sel.disabled) { try { sel.showPicker ? sel.showPicker() : sel.focus(); } catch (_) { sel.focus(); } }
-      else toast('This channel sets its model at start — /model where the agent supports it.');
-    },
-    onMode: () => {
-      const cycle = MODE_CYCLES[cardAgentFor(p)];
-      if (!cycle || !p.agentLive) return;
-      const cur = (p.agentStatus && p.agentStatus.mode) || cycle[0];
-      const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
-      api.agentConfig({ id: p.id, configId: 'mode', value: next });
-    },
+    onModelMenu: () => openModelControl(p),
+    onMode: () => cycleMode(p),
     onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
-    commands: () => p.agentCommands || [],
+    // The channel's own list when it published one, the curated static table
+    // otherwise — so the `/` menu works on every agent, watch mode included.
+    commands: () => commandsFor(cardAgentFor(p), p.agentCommands),
   });
   rec.root.appendChild(ui.el);
   rec.cardsUi = ui;

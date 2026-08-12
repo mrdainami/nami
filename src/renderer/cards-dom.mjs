@@ -496,11 +496,17 @@ export function buildCards(ctx) {
   }
   function hideMenu() { menu.hidden = true; menuItems = []; menuKind = null; menuIdx = 0; }
 
-  // Commands arrive as strings or {name, description, argumentHint} — the
-  // richer shape wins where the channel publishes it.
+  // Commands arrive as strings or {name, description, argumentHint, route} —
+  // the richer shape wins where the channel publishes it. A command that runs
+  // somewhere other than this channel says so in the hint slot, so the menu
+  // never promises what the send cannot do.
+  const ROUTE_HINTS = { 'native-model': 'opens the picker', 'native-mode': 'switches mode', terminal: 'terminal' };
   function normCmd(c) {
     if (typeof c === 'string') return { name: c, desc: '', hint: '' };
-    return { name: String(c.name || ''), desc: String(c.description || ''), hint: String(c.argumentHint || c.hint || '') };
+    return {
+      name: String(c.name || ''), desc: String(c.description || ''),
+      hint: String(c.argumentHint || c.hint || '') || ROUTE_HINTS[c.route] || '',
+    };
   }
 
   async function refreshMenu() {
