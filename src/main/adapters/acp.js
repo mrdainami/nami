@@ -322,13 +322,19 @@ class AcpAdapter {
 
       case 'available_commands_update': {
         const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
-        this.commands = list.map((c) => String(c && c.name || '')).filter(Boolean).slice(0, 200);
+        // name AND description ride through — the menu shows what each does.
+        this.commands = list
+          .filter((c) => c && c.name)
+          .slice(0, 200)
+          .map((c) => ({ name: String(c.name), description: String(c.description || '') }));
         this.emitInit();
         return;
       }
 
       case 'usage_update':
         this.lastUsage = { used: Number(update.used) || 0, size: Number(update.size) || 0, cost: update.cost || null };
+        // mid-turn usage feeds the working line live
+        if (this.turnStarted) this.emit('status', { state: 'running', tokens: this.lastUsage.used });
         return;
 
       case 'current_mode_update':
@@ -414,6 +420,8 @@ class AcpAdapter {
           durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0,
           costUsd: usage && usage.cost && usage.cost.currency === 'USD' ? Number(usage.cost.amount) || 0 : 0,
           tokens: usage ? usage.used : 0,
+          // ACP reports used/size directly — the honest context gauge.
+          ctxPct: usage && usage.size > 0 ? Math.max(1, Math.min(99, 100 - Math.round((usage.used / usage.size) * 100))) : undefined,
           ok: !result || result.stopReason !== 'refusal',
         });
         if (result && result.stopReason && result.stopReason !== 'end_turn' && result.stopReason !== 'cancelled') {

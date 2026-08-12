@@ -52,6 +52,7 @@
   --green-dark: #33503b;
   --green-ok: #4a7a4a;
   /* diffs, in the card view: what left, what landed */
+  --u-bg: #e7eee3;               /* your turn's tint — the bubble reads at a glance */
   --diff-add-bg: #e4efe0;
   --diff-add-ink: #33503b;
   --diff-del-bg: #f9e6e0;
@@ -947,21 +948,45 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    The same live session, read out of the transcript it is already writing. It
    sits as a sibling of .tile-body so the terminal keeps every rule it has: only
    one of the two is ever displayed, and the hidden one is never torn down. */
-.t-view { flex: none; display: flex; border: 1px solid var(--dash); }
-.t-vb {
-  font: inherit; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 4px 7px; border: 0; background: var(--paper); color: var(--muted); cursor: pointer;
+/* The surface is a state, not a toggle: one small label, stamped when beta.
+   Switching surfaces is an explicit act in the ⌄ menu. */
+.t-surface {
+  position: relative; flex: none; font-size: 9px; letter-spacing: 0.08em;
+  padding: 4px 9px; font-weight: 700;
 }
-.t-vb + .t-vb { border-left: 1px solid var(--dash); }
-.t-vb:hover { background: var(--hover); color: var(--ink); }
-.t-vb.on { background: var(--green); color: var(--paper); font-weight: 700; }
+.t-surface.cards { background: var(--green); color: var(--paper); }
+.t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
+
+/* the ⌄ menu those labels defer to */
+.head-menu {
+  position: fixed; z-index: 300; min-width: 240px; max-width: 320px;
+  background: var(--paper); border: 1px solid var(--dash-dark);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  display: flex; flex-direction: column;
+}
+.hm-item {
+  font: inherit; font-size: 12px; text-align: left; padding: 8px 12px;
+  background: transparent; color: var(--ink); border: 0; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.hm-item + .hm-item { border-top: 1px dashed var(--dash); }
+.hm-item:hover { background: var(--hover); }
+.hm-item .hm-l { font-weight: 700; }
+.hm-item .hm-d { font-size: 10.5px; color: var(--muted); }
+
+/* the birth choice on a launcher row */
+.picker-row .ways { flex: none; display: flex; gap: 6px; margin-right: 4px; }
+.picker-row .way {
+  position: relative; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
+  padding: 5px 11px; margin-top: 5px; cursor: pointer;
+  background: var(--paper-2); color: var(--muted); border: 1px solid var(--dash);
+}
+.picker-row .way:hover { border-color: var(--green); color: var(--ink); }
+.picker-row .way.last { border-color: var(--dash-dark); color: var(--ink); }
+.picker-row .way--cards { font-weight: 700; }
 /* In Cards the mic lives in the composer; the head keeps everything else —
    − ＋ size the card text exactly as they size terminal cells. */
 .tile.cards-on .t-mic { display: none; }
-.t-beta {
-  font-size: 6.5px; letter-spacing: 0.08em; vertical-align: super;
-  margin-left: 3px; opacity: 0.75; text-transform: lowercase;
-}
 
 .tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .cd-list {
@@ -974,7 +999,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    conversation reads as alternation at a glance. */
 .cd-user {
   display: flex; gap: 8px; align-self: flex-end; max-width: 85%;
-  background: var(--paper-2); border: 1px solid var(--dash);
+  background: var(--u-bg); border: 1px solid var(--dash);
   border-right: 3px solid var(--green);
   padding: 6px 11px;
 }
@@ -1082,6 +1107,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-row[data-body="1"] .cd-line { cursor: pointer; }
 .cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
 .cd-line .cd-kd { flex: none; color: var(--muted); width: 12px; text-align: center; }
+/* the glyph wears its kind's colour — what a row DID reads before its words */
+.cd-row[data-kd="execute"] .cd-kd { color: var(--amber-btn); }
+.cd-row[data-kd="edit"] .cd-kd { color: var(--green); }
+.cd-row[data-kd="read"] .cd-kd { color: var(--green-ok); }
+.cd-row[data-kd="checkpoint"] .cd-kd { color: var(--faint); }
 .cd-line .cd-ic { flex: none; color: var(--green-ok); font-weight: 700; width: 10px; }
 /* The label may shrink but never disappear; the detail gives way first. */
 .cd-line .cd-lb { flex: 1 1 auto; font-weight: 700; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1189,25 +1219,83 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
-.cd-model, .cd-mode {
-  flex: none; max-width: 150px; font: inherit; font-size: 10.5px;
-  color: var(--muted); background: var(--paper-2); border: 1px solid var(--dash);
-  padding: 3px 6px; cursor: pointer;
-}
-.cd-model:hover:not(:disabled), .cd-mode:hover:not(:disabled) { color: var(--ink); border-color: var(--dash-dark); }
-.cd-model:disabled { cursor: default; appearance: none; }
-.cd-mode:disabled { cursor: default; }
+/* display classes must never beat the hidden attribute */
+.cd-working[hidden], .cd-status[hidden], .cd-menu[hidden], .cd-note[hidden] { display: none; }
 
-/* The session introducing itself — the card-native TUI banner. */
-.cd-intro {
-  border: 1px dashed var(--dash-dark); background: var(--paper-2);
-  padding: 10px 13px;
+/* The working line — spinner, elapsed, live tokens, the way out. */
+.cd-working {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  padding: 6px 14px; font-size: 11px; color: var(--muted);
+  border-top: 1px dashed var(--dash);
 }
-.cd-intro .t { font-weight: 700; }
-.cd-intro .t .v { font-weight: 400; color: var(--muted); font-size: 11px; }
-.cd-intro .d { margin-top: 2px; font-size: 11.5px; color: var(--muted); display: flex; gap: 7px; flex-wrap: wrap; }
-.cd-intro .d .dot { color: var(--faint); }
-.cd-intro .h { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
+.cd-working .cw-sp {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  border: 2px solid var(--amber-btn); border-top-color: transparent;
+  animation: cd-spin 0.9s linear infinite;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cd-working .cw-sp { animation: none; } }
+.cd-working .cw-esc { margin-left: auto; color: var(--faint); font-size: 10px; }
+
+/* a sub-agent's live lane, indented under its Task row */
+.cd-lane {
+  border-left: 3px solid var(--line); margin: 6px 0 0 8px; padding-left: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* The status line — the terminal's own bottom line, kept. Fixed height,
+   single line, never wraps; hints give way first on narrow tiles. */
+.cd-status {
+  flex: none; height: 20px; display: flex; align-items: baseline; gap: 6px;
+  padding: 0 14px 6px; font-size: 10px; color: var(--muted);
+  white-space: nowrap; overflow: hidden;
+}
+.cd-status .cs-mk { color: var(--amber-btn); font-weight: 700; flex: none; }
+.cd-status .cs-dot { color: var(--faint); flex: none; }
+.cd-status .cs-kb, .cd-status .cs-right { color: var(--faint); flex: none; }
+.cd-status .cs-right { margin-left: auto; }
+.cs-mode {
+  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  background: transparent; border: 0; padding: 0; cursor: pointer; flex: none;
+}
+.cs-mode:hover:not(:disabled) { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
+.cs-mode:disabled { cursor: default; }
+.cs-mode.warn { color: var(--amber-btn); }
+.cs-model {
+  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  background: transparent; border: 0; padding: 0; cursor: pointer;
+  max-width: 170px; flex: none; appearance: none; -webkit-appearance: none;
+}
+.cs-model:hover:not(:disabled) { color: var(--green); }
+.cs-model:disabled { cursor: default; color: var(--muted); font-weight: 400; }
+/* narrow tiles: the keyboard hints leave, the facts stay */
+.tile:not(.focused) .cd-status .cs-kb, .tile:not(.focused) .cd-status .cs-right { display: none; }
+
+/* The welcome — the session introducing itself, centred like the TUI banner. */
+.cd-intro {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px; padding: 22px 12px 14px;
+}
+.cd-intro .cd-wl {
+  width: 52px; height: 52px; border: 1px solid var(--line); background: var(--paper-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.cd-intro .cd-wl svg { width: 26px; height: 26px; }
+.cd-intro .cd-wl-t { font-weight: 700; font-size: 18px; }
+.cd-intro .cd-wn { font-weight: 700; font-size: 14px; }
+.cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: 10.5px; }
+.cd-intro .cd-wf { color: var(--muted); font-size: 10.5px; }
+.cd-intro .cd-wp { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 90%; margin-top: 4px; }
+.cd-wpick {
+  display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: 11px;
+  border: 1px solid var(--dash); background: var(--paper-2); color: var(--ink);
+  padding: 5px 11px; cursor: pointer; text-align: left;
+}
+.cd-wpick:hover { border-color: var(--green); }
+.cd-wpick .lab { color: var(--faint); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.08em; width: 46px; flex: none; }
+.cd-wpick .val { flex: 1; font-weight: 700; }
+.cd-wpick .c { color: var(--faint); }
+.cd-intro .cd-wh { color: var(--faint); font-size: 10px; margin-top: 4px; }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -1232,14 +1320,33 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-menu {
   position: absolute; left: 10px; right: 10px; bottom: 44px;
   border: 1px solid var(--dash-dark); background: var(--paper);
-  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
-  display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; z-index: 5;
+  /* the glass family's paper is translucent by design; the blur is what
+     keeps a menu readable over content there — same material as its popovers */
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
+  display: flex; flex-direction: column; max-height: 240px; overflow-y: auto;
+  overscroll-behavior: contain; z-index: 5;
 }
 .cd-menu-i {
+  display: flex; align-items: baseline; gap: 10px;
   font: inherit; font-size: 12px; text-align: left; padding: 6px 11px;
   background: transparent; color: var(--ink); border: 0; cursor: pointer;
 }
-.cd-menu-i:hover { background: var(--hover); color: var(--green); }
+.cd-menu-i + .cd-menu-i { border-top: 1px dashed var(--dash); }
+.cd-menu-i:hover, .cd-menu-i.on { background: var(--hover); }
+.cd-menu-i .mi-n { color: var(--green); font-weight: 700; flex: none; }
+.cd-menu-i .mi-d {
+  color: var(--muted); font-size: 11px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-menu-i .mi-h { margin-left: auto; color: var(--faint); font-size: 10px; flex: none; }
+.cd-menu-f {
+  padding: 4px 11px; font-size: 9.5px; color: var(--faint);
+  border-top: 1px solid var(--dash); background: var(--paper-3);
+  position: sticky; bottom: 0;
+}
+.tile.focused .cd-menu, .tile.focused .cd-open, .tile.focused .cd-body { max-height: 55vh; }
+.tile.focused .cd-diff-body { max-height: 45vh; }
 
 /* ---- paper editor ----
    Read and Edit are two panes in one column; only one is ever displayed. */

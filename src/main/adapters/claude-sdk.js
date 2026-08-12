@@ -113,7 +113,36 @@ class ClaudeSdkAdapter {
       return false;
     }
     this.pump();
+    // Force the CLI awake: with no first prompt the stream idles unbooted and
+    // the init frame never comes — but these control calls boot it and hand
+    // back the real command and model lists in one move.
+    this.bootstrap();
     return true;
+  }
+
+  async bootstrap() {
+    if (!this.query) return;
+    try {
+      const [cmds, models] = await Promise.all([
+        this.query.supportedCommands ? this.query.supportedCommands() : [],
+        this.query.supportedModels ? this.query.supportedModels() : [],
+      ]);
+      if (this.closed) return;
+      this.richCommands = (Array.isArray(cmds) ? cmds : []).slice(0, 200).map((c) => ({
+        name: String(c.name || ''), description: String(c.description || ''), argumentHint: String(c.argumentHint || ''),
+      }));
+      this.models = (Array.isArray(models) && models.length) ? {
+        current: (this.initMeta && this.initMeta.model) || this.model || null,
+        options: models.map((m) => ({ value: String(m.value || ''), name: String(m.displayName || m.value || '') })),
+      } : null;
+      this.emit('init', {
+        capability: capability({ ...CAPABILITY, commands: this.richCommands.length > 0, models: !!this.models }),
+        agentSessionId: this.sessionId,
+        commands: this.richCommands,
+        models: this.models,
+        ...(this.initMeta || { agentName: 'Claude Code', mode: 'default' }),
+      });
+    } catch (_) {}
   }
 
   async pump() {
@@ -134,18 +163,27 @@ class ClaudeSdkAdapter {
     if (!msg || typeof msg !== 'object') return;
     switch (msg.type) {
       case 'system':
+        // The CLI streams a token estimate while it thinks; the working line
+        // shows it live, the way the TUI's spinner does.
+        if (msg.subtype === 'thinking_tokens' && msg.estimated_tokens) {
+          this.emit('status', { state: 'running', tokens: Number(msg.estimated_tokens) || 0 });
+        }
         if (msg.subtype === 'init') {
           this.sessionId = msg.session_id || this.sessionId;
           const commands = Array.isArray(msg.slash_commands) ? msg.slash_commands.slice(0, 200) : [];
-          this.emit('init', {
-            capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
-            agentSessionId: this.sessionId,
-            commands,
+          this.initMeta = {
             agentName: 'Claude Code',
             version: msg.claude_code_version || null,
             model: msg.model || null,
             mode: msg.permissionMode || 'default',
+          };
+          this.emit('init', {
+            capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
+            agentSessionId: this.sessionId,
+            commands,
+            ...this.initMeta,
           });
+
         }
         break;
 
@@ -192,14 +230,20 @@ class ClaudeSdkAdapter {
         break;
       }
 
-      case 'result':
+      case 'result': {
         this.sessionId = msg.session_id || this.sessionId;
+        // Context left, from the usage the channel reports: everything that
+        // went in this turn against the 200k window.
+        const u = msg.usage || {};
+        const used = (Number(u.input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0);
         this.emit('turn_end', {
           durationMs: Number(msg.duration_ms || msg.duration_api_ms) || 0,
           costUsd: Number(msg.total_cost_usd) || 0,
           numTurns: Number(msg.num_turns) || 0,
+          ctxPct: used > 0 ? Math.max(1, Math.min(99, 100 - Math.round(used / 2000))) : undefined,
           ok: !msg.is_error && msg.subtype !== 'error_during_execution',
         });
+      }
         if (msg.is_error && msg.result) this.emit('error', { message: String(msg.result) });
         this.emit('status', { state: 'idle' });
         break;
@@ -259,20 +303,40 @@ class ClaudeSdkAdapter {
         ? { behavior: 'allow', updatedInput: pending.input, updatedPermissions: [s] }
         : { behavior: 'allow', updatedInput: pending.input });
     } else {
-      pending.resolve({ behavior: 'deny', message: 'Denied from the card.' });
+      // Worded to keep the turn alive: a denial is feedback, not a wall.
+      pending.resolve({ behavior: 'deny', message: 'The user declined this action — take a different approach or ask what they would prefer.' });
     }
   }
 
-  // The composer's mode chip: default → acceptEdits → plan, applied live.
+  // The composer's dials, applied live over the channel's own controls.
   setConfigOption(configId, value) {
-    if (configId !== 'mode' || !this.query) return;
-    const apply = this.query.setPermissionMode && this.query.setPermissionMode(String(value));
-    Promise.resolve(apply)
-      .then(() => this.emit('init', {
-        capability: capability(CAPABILITY), agentSessionId: this.sessionId,
-        agentName: 'Claude Code', mode: String(value),
-      }))
-      .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
+    if (!this.query) return;
+    if (configId === 'mode') {
+      const apply = this.query.setPermissionMode && this.query.setPermissionMode(String(value));
+      Promise.resolve(apply)
+        .then(() => {
+          this.initMeta = Object.assign(this.initMeta || {}, { mode: String(value) });
+          this.emit('init', {
+            capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+          });
+        })
+        .catch(() => this.emit('note', { text: `Could not switch to ${value} mode.` }));
+      return;
+    }
+    if (configId === 'model') {
+      const apply = this.query.setModel && this.query.setModel(String(value));
+      Promise.resolve(apply)
+        .then(() => {
+          this.initMeta = Object.assign(this.initMeta || {}, { model: String(value) });
+          if (this.models) this.models.current = String(value);
+          this.emit('init', {
+            capability: capability(CAPABILITY), agentSessionId: this.sessionId,
+            models: this.models || undefined, ...(this.initMeta || { agentName: 'Claude Code' }),
+          });
+        })
+        .catch(() => this.emit('note', { text: `Could not switch model.` }));
+    }
   }
 
   send(text) {
