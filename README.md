@@ -102,4 +102,5 @@ own stack — [dainami.ai](https://dainami.ai/?utm_source=github&utm_medium=read
 or [cal@dainami.ai](mailto:cal@dainami.ai).
 
 MIT licensed · [nami.dainami.ai](https://nami.dainami.ai) ·
-[Terms](https://dainami.ai/terms)
+[Docs](https://nami.dainami.ai/docs/) ·
+[Terms](https://nami.dainami.ai/terms/)
