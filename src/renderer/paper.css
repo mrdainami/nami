@@ -892,10 +892,45 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   font-size: 12.5px; line-height: 1.6;
 }
 .cd-row { min-width: 0; }
-.cd-user { display: flex; gap: 8px; border-left: 2px solid var(--line); padding-left: 9px; }
+/* Your turn is a bubble: right-shifted, tinted, accent-edged — the
+   conversation reads as alternation at a glance. */
+.cd-user {
+  display: flex; gap: 8px; align-self: flex-end; max-width: 85%;
+  background: var(--paper-2); border: 1px solid var(--dash);
+  border-right: 3px solid var(--green);
+  padding: 6px 11px;
+}
 .cd-user .m { color: var(--green); font-weight: 700; flex: none; }
 .cd-user .tx { white-space: pre-wrap; word-break: break-word; }
 .cd-cmd .tx { color: var(--green); }
+
+/* A finished turn's work, folded to one line. */
+.cd-fold-h {
+  font: inherit; font-size: 11px; letter-spacing: 0.04em; color: var(--muted);
+  background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.cd-fold-h:hover { color: var(--ink); }
+.cd-fold-h .arr { font-size: 9px; }
+.cd-fold-b { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Edited N files — name left, counts right, diff behind the row. */
+.cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
+.cd-edits-h {
+  padding: 6px 10px; font-size: 11px; font-weight: 700;
+  border-bottom: 1px solid var(--dash);
+}
+.cd-edits-f {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  width: 100%; font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  background: transparent; color: var(--ink); border: 0; padding: 5px 10px;
+}
+.cd-edits-f:hover { background: var(--hover); }
+.cd-edits-f + .cd-edits-f { border-top: 1px dashed var(--dash); }
+.cd-edits-f .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-edits-f .c { flex: none; }
+.cd-edits .plus { color: var(--diff-add-ink); font-weight: 700; }
+.cd-edits .minus { color: var(--diff-del-ink); font-weight: 700; }
+.cd-edits .cd-diff-body { border-top: 1px solid var(--dash); }
 
 /* Prose rendered as markdown: never poorer than the terminal it filters. */
 .cd-assistant { word-break: break-word; }
