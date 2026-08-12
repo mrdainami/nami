@@ -19,14 +19,30 @@ test('the standard roles survive — losing these loses ⌘C and ⌘Q', () => {
   }
 });
 
-test('off macOS there is no app submenu, so quit moves into File', () => {
+test('off macOS there is no app submenu, so File exists to hold quit', () => {
   const win = build('win32');
   assert.ok(!menuRoles(win).includes('appMenu'));
   const file = win.find((m) => m.label === 'File');
   assert.ok(file.submenu.some((i) => i.role === 'quit'), 'nothing would quit the app');
-  // and on mac it must NOT be there twice — appMenu already carries quit
-  const macFile = build('darwin').find((m) => m.label === 'File');
-  assert.ok(!macFile.submenu.some((i) => i.role === 'quit'));
+});
+
+// The regression this feature nearly shipped. The conventional Mac File menu
+// holds `role: 'close'`, which binds ⌘W — and Nami already binds ⌘W to close
+// the active *pane*. A menu accelerator outranks a renderer keydown, so the
+// conventional item would have silently turned "close this tile" into "close
+// the window", taking every other session in it. Nothing in the app would look
+// broken; the key would just do the wrong thing.
+test('no menu item claims ⌘W — the app needs it for close pane', () => {
+  for (const platform of ['darwin', 'win32']) {
+    for (const top of build(platform)) {
+      for (const item of top.submenu || []) {
+        assert.notEqual(item.role, 'close', `${platform}: role:'close' takes ⌘W from close-pane`);
+        assert.ok(!/CommandOrControl\+W|Cmd\+W/i.test(item.accelerator || ''), `${platform}: ${item.label} binds ⌘W`);
+      }
+    }
+  }
+  // and on macOS that means no File menu at all — appMenu already has ⌘Q
+  assert.equal(build('darwin').find((m) => m.label === 'File'), undefined);
 });
 
 test('Help carries the four ways out, in order', () => {

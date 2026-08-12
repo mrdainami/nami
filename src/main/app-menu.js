@@ -48,18 +48,22 @@ function helpSubmenu(open) {
 }
 
 // `platform` is a parameter for the same reason it is one in platform.js: a
-// test cannot pretend to be Windows any other way. On anything but macOS there
-// is no app submenu, and quit lives at the foot of File instead.
+// test cannot pretend to be Windows any other way.
+//
+// There is deliberately no File menu on macOS, and the reason is ⌘W. The
+// obvious template puts `role: 'close'` there, which is the Mac convention and
+// which binds ⌘W to Close Window — but Nami already binds ⌘W to *close pane*
+// (app.js, onGlobalKey), and a menu accelerator outranks a renderer keydown.
+// Adding the conventional item would have quietly turned "close this tile" into
+// "close the whole window", losing every other session in it. The app submenu
+// already carries ⌘Q, so File has nothing left it needs to say here.
+//
+// Off macOS there is no app submenu, so File exists purely to hold quit.
 function buildMenuTemplate({ open, platform = process.platform, name = 'Nami' } = {}) {
   const mac = platform === 'darwin';
   return [
     ...(mac ? [{ role: 'appMenu', label: name }] : []),
-    {
-      label: 'File',
-      submenu: [
-        ...(mac ? [{ role: 'close' }] : [{ role: 'quit' }]),
-      ],
-    },
+    ...(mac ? [] : [{ label: 'File', submenu: [{ role: 'quit' }] }]),
     { role: 'editMenu' },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
