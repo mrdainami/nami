@@ -249,7 +249,10 @@ function dropFilesOnPanel(p, paths) {
     const p = S.panels.find((x) => x.id === ev.tileId); if (!p) return;
     if (ev.kind === 'init') {
       p.agentCaps = ev.capability || null;
-      p.agentCommands = ev.commands || [];
+      // A partial re-announcement (a mode switch, a commands update) must
+      // never clobber what an earlier, fuller init already delivered.
+      if (ev.commands && ev.commands.length) p.agentCommands = ev.commands;
+      else p.agentCommands = p.agentCommands || [];
       // The adapter resumed (or minted) a conversation; keep the id the next
       // entry will resume — claude's rides p.sid (same rule as /resume in the
       // terminal), an ACP agent's rides its own field.
