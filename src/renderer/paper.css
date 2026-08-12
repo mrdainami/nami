@@ -1150,6 +1150,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
+/* display classes must never beat the hidden attribute */
+.cd-working[hidden], .cd-status[hidden], .cd-menu[hidden], .cd-note[hidden] { display: none; }
+
 /* The working line — spinner, elapsed, live tokens, the way out. */
 .cd-working {
   flex: none; display: flex; align-items: center; gap: 9px;
