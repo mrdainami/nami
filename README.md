@@ -98,7 +98,7 @@ and made **in Nami**. Every release on this page was built in the app you are
 looking at.
 
 **Want Nami for your team?** Custom builds, Windows, or Nami wired into your
-own stack — [dainami.ai/teams](https://dainami.ai/teams?utm_source=github&utm_medium=readme&utm_campaign=teams)
+own stack — [dainami.ai](https://dainami.ai/?utm_source=github&utm_medium=readme&utm_campaign=teams)
 or [cal@dainami.ai](mailto:cal@dainami.ai).
 
 MIT licensed · [nami.dainami.ai](https://nami.dainami.ai) ·
