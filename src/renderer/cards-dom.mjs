@@ -71,23 +71,54 @@ function proseHtml(text) {
 }
 
 // ---- diffs -----------------------------------------------------------------
-function diffEl(diff) {
-  const wrap = document.createElement('div');
-  wrap.className = 'cd-diff';
-  const del = String(diff.oldText || '').split('\n');
-  const add = String(diff.newText || '').split('\n');
-  if (del.length > 1 && del.at(-1) === '') del.pop();
-  if (add.length > 1 && add.at(-1) === '') add.pop();
+// Lessons paid for in screenshots: block spans must never also be joined with
+// newlines inside a pre-wrap container (every line doubles), a diff opens as
+// a one-line summary (`name · +N −M`) not a wall, and an expanded body scrolls
+// inside a cap instead of taking the tile with it.
+function diffLines(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length > 1 && lines.at(-1) === '') lines.pop();
+  return lines.length === 1 && lines[0] === '' ? [] : lines;
+}
+
+export function diffCounts(diff) {
+  return { add: diffLines(diff && diff.newText).length, del: diffLines(diff && diff.oldText).length };
+}
+
+function diffBody(diff) {
+  const body = document.createElement('div');
+  body.className = 'cd-diff-body';
   const cut = (lines, cap, cls, mark) => {
-    if (lines.length === 1 && lines[0] === '') return '';
+    if (!lines.length) return '';
     const shown = lines.slice(0, cap);
-    let html = `<pre class="cd-diff-b ${cls}">${shown.map((l) => `<span>${mark} ${esc(l)}</span>`).join('\n')}</pre>`;
+    let html = `<pre class="cd-diff-b ${cls}">${shown.map((l) => `<span>${mark} ${esc(l)}</span>`).join('')}</pre>`;
     if (lines.length > cap) html += `<div class="cd-diff-more">… ${lines.length - cap} more lines</div>`;
     return html;
   };
-  wrap.innerHTML = `${diff.path ? `<div class="cd-diff-path"><a class="cd-path" data-path="${esc(diff.path)}">${esc(diff.path)}</a></div>` : ''}
-    ${cut(del, DIFF_DEL_CAP, 'del', '−')}${cut(add, DIFF_ADD_CAP, 'add', '+')}
+  body.innerHTML = `${diff.path ? `<div class="cd-diff-path"><a class="cd-path" data-path="${esc(diff.path)}">${esc(diff.path)}</a></div>` : ''}
+    ${cut(diffLines(diff.oldText), DIFF_DEL_CAP, 'del', '−')}${cut(diffLines(diff.newText), DIFF_ADD_CAP, 'add', '+')}
     ${diff.more ? `<div class="cd-diff-more">… and ${diff.more} more edit${diff.more > 1 ? 's' : ''} in this call</div>` : ''}`;
+  return body;
+}
+
+// summary: true → one collapsed line that toggles the body open.
+function diffEl(diff, { summary = false } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cd-diff';
+  if (!summary) { wrap.appendChild(diffBody(diff)); return wrap; }
+  const { add, del } = diffCounts(diff);
+  const name = String(diff.path || '').split('/').filter(Boolean).pop() || 'diff';
+  const sum = document.createElement('button');
+  sum.className = 'cd-diff-sum';
+  sum.innerHTML = `<span class="n">${esc(name)}</span><span class="c"><span class="arr">▸</span> <span class="plus">+${add}</span> <span class="minus">−${del}</span></span>`;
+  const body = diffBody(diff);
+  body.hidden = true;
+  sum.onclick = (e) => {
+    e.stopPropagation();
+    body.hidden = !body.hidden;
+    sum.querySelector('.arr').textContent = body.hidden ? '▸' : '▾';
+  };
+  wrap.append(sum, body);
   return wrap;
 }
 
@@ -248,11 +279,13 @@ function updatePermission(ctx, el, row) {
   const command = row.input && row.input.command;
   if (command) {
     const pre = document.createElement('pre');
-    pre.className = 'cd-body cd-perm-cmd';
+    pre.className = 'cd-body cd-perm-cmd clamp';
     pre.textContent = command;
+    pre.title = 'Click to expand';
+    pre.onclick = () => pre.classList.toggle('clamp');
     q('.cd-perm-diff', el).before(pre);
   }
-  if (row.diff && (row.diff.oldText || row.diff.newText)) q('.cd-perm-diff', el).appendChild(diffEl(row.diff));
+  if (row.diff && (row.diff.oldText || row.diff.newText)) q('.cd-perm-diff', el).appendChild(diffEl(row.diff, { summary: true }));
   const bar = q('.cd-perm-b', el);
   for (const opt of row.options) {
     const b = document.createElement('button');
