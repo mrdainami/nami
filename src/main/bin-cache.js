@@ -25,12 +25,19 @@ const bins = new Map();
 // Take a whole detectAgents() result. Anything that is not a list is ignored
 // rather than treated as "nothing is installed" — a failed scan must not wipe
 // what a good scan found a moment ago.
+//
+// Filed under the registry id AND the program name, because the two halves of
+// the app know an agent by different names: the registry calls Google's agent
+// `antigravity`, its adapter and every tile command call it `agy`. Indexing one
+// of them would make the other silently miss and fall back to the bare name —
+// the exact failure this module exists to remove.
 function rememberBins(list) {
   if (!Array.isArray(list)) return;
   for (const a of list) {
     if (!a || !a.id) continue;
     const p = a.found && typeof a.path === 'string' ? a.path.trim() : '';
     bins.set(String(a.id), p);
+    if (a.bin) bins.set(String(a.bin), p);
   }
 }
 

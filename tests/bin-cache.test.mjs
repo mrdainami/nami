@@ -56,3 +56,21 @@ test('a scan that is not a list leaves what is already known alone', () => {
   rememberBins(undefined);
   assert.equal(knownBin('claude'), '/usr/local/bin/claude');
 });
+
+// The registry calls Google's agent `antigravity`; its adapter and every tile
+// command call it `agy`. Whichever name a caller holds has to work, or the
+// lookup misses and falls back to the bare name it was meant to replace.
+test('an agent is findable by registry id and by program name', () => {
+  forgetBins();
+  rememberBins([{ id: 'antigravity', bin: 'agy', found: true, path: '/Users/x/.local/bin/agy' }]);
+  assert.equal(knownBin('antigravity'), '/Users/x/.local/bin/agy');
+  assert.equal(knownBin('agy'), '/Users/x/.local/bin/agy');
+});
+
+test('losing an agent clears both of its names', () => {
+  forgetBins();
+  rememberBins([{ id: 'antigravity', bin: 'agy', found: true, path: '/Users/x/.local/bin/agy' }]);
+  rememberBins([{ id: 'antigravity', bin: 'agy', found: false, path: '' }]);
+  assert.equal(knownBin('antigravity'), '');
+  assert.equal(knownBin('agy'), '');
+});
