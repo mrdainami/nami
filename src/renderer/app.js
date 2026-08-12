@@ -1786,12 +1786,15 @@ function mountTerminal(p, rec) {
 // Nothing dead is ever offered: a path is stat'd before it underlines, so the
 // only things that light up are things that actually open.
 const LINK_STAT_TTL = 10000;
-const linkStats = new Map(); // `${cwd}\0${token}` -> { at, st }
-async function statLink(token, cwd) {
-  const key = `${cwd || ''}\u0000${token}`;
+const linkStats = new Map(); // `${id}\0${cwd}\0${token}` -> { at, st }
+// The session id is part of the key, not decoration: two tiles opened on the
+// same folder can be sitting in different directories, and a cache keyed on
+// the frozen cwd alone would hand one tile's answer to the other.
+async function statLink(token, cwd, id) {
+  const key = `${id || ''}\u0000${cwd || ''}\u0000${token}`;
   const hit = linkStats.get(key);
   if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
-  const st = await api.statPath({ token, cwd });
+  const st = await api.statPath({ token, cwd, id });
   if (linkStats.size > 400) linkStats.clear();
   linkStats.set(key, { at: Date.now(), st });
   return st;
@@ -1836,7 +1839,7 @@ function registerTerminalLinks(term, p) {
       if (!found.length) { callback(undefined); return; }
       Promise.all(found.map(async (link) => {
         if (link.kind === 'url') return { link, st: null };
-        const st = await statLink(link.text, p.cwd);
+        const st = await statLink(link.text, p.cwd, p.id);
         return st && st.exists ? { link, st } : null;
       })).then((rows) => {
         const links = [];
@@ -1872,7 +1875,7 @@ function oscLinkHandler(p) {
       if (!/^file:\/\//i.test(uri)) return;
       let abs = uri.replace(/^file:\/\/(localhost)?/i, '');
       try { abs = decodeURIComponent(abs); } catch (_) {}
-      const st = await api.statPath({ token: abs, cwd: p.cwd });
+      const st = await api.statPath({ token: abs, cwd: p.cwd, id: p.id });
       if (!st.exists) { toast('Not found: ' + abs); return; }
       openTermLink({ kind: 'path', text: abs }, st, ev);
     },
@@ -2213,7 +2216,7 @@ function mountCards(p, rec) {
     onInterrupt: () => { if (p.agentLive) api.agentInterrupt({ id: p.id }); },
     onMic: () => toggleMic(p),
     onOpenPath: async (token, ev) => {
-      const st = await api.statPath({ token, cwd: p.cwd });
+      const st = await api.statPath({ token, cwd: p.cwd, id: p.id });
       if (!st.exists) { toast('Not found: ' + token); return; }
       openTermLink({ kind: 'path', text: token }, st, ev);
     },
@@ -2343,7 +2346,7 @@ async function openDocLink(href, p, read) {
     return;
   }
   if (t.kind !== 'path') return;
-  const st = await api.statPath({ token: t.target, cwd: p.cwd });
+  const st = await api.statPath({ token: t.target, cwd: p.cwd, id: p.id });
   if (!st.exists) { toast('Not found: ' + shortHome(t.target)); return; }
   if (st.isFile) openFile(st.abs); else api.revealFile(st.abs);
 }
