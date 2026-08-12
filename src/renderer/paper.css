@@ -354,6 +354,39 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tree-path .path { flex: 1; min-width: 0; word-break: break-all; }
 .tree-path .action { flex: none; color: var(--muted-2); cursor: pointer; text-decoration: underline; white-space: nowrap; }
 .tree-path .action:hover { color: var(--ink); }
+/* The ＋. Same tokens as .action but its own class — .action carries an
+   underline, and an underlined plus reads as a typo.
+   The box geometry is load-bearing, and for two separate reasons. Baseline
+   alignment would drop it: an inline SVG baselines on its bottom edge, so the
+   pixel twin hangs below the text. And `align-self: center` is wrong too —
+   .path wraps (flex: 1, word-break: break-all), and centring against a
+   six-line path leaves the ＋ floating in the middle of the block while
+   `show all` stays up at the first line. flex-start pins it to line one where
+   its sibling is; the height and offset centre it on that line, and 16px is a
+   usable target where the 11px glyph was not. */
+.tree-path .tree-new {
+  flex: none; align-self: flex-start;
+  width: 18px; height: 16px; margin-top: -2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted-2); cursor: pointer; line-height: 1; font-size: 13px;
+}
+.tree-path .tree-new:hover { color: var(--ink); }
+.tree-path .tree-new:focus-visible { outline: 1px solid var(--amber-btn); outline-offset: 0; }
+
+/* drag and drop */
+.tree-row.dragging { opacity: 0.4; }
+.tree-row.drop-into, .tree-path.drop-into { background: var(--diff-add-bg); box-shadow: inset 0 0 0 1px var(--green-ok); }
+.tree-row.sel { background: var(--hover); box-shadow: inset 2px 0 0 var(--amber-btn); }
+/* a row that just landed — from a session's write, an import, or a move */
+@keyframes tree-landed { from { background: var(--diff-add-bg); } to { background: transparent; } }
+.tree-row.landed { animation: tree-landed 2.2s ease-out both; }
+.tree-row.landed .name { color: var(--green-ok); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .tree-row.landed { animation: none; } }
+
+.tree-row .tree-rename {
+  flex: 1; min-width: 0; font-family: inherit; font-size: 12px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--amber-btn); padding: 0 4px; outline: none;
+}
 .tree-row {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px;
   cursor: pointer; border-bottom: 1px dotted rgba(120, 95, 60, 0.22);
@@ -639,6 +672,34 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-input { display: flex; align-items: center; gap: 12px; padding: 16px 44px 16px 18px; border-bottom: 2px dashed var(--dash); }
 .picker-input .prompt-mark { font-size: 14px; font-weight: 700; color: var(--green); }
 .picker-input input { flex: 1; font-size: 14px; user-select: text; }
+
+/* The New file / New folder box. Deliberately NOT .picker-input — that row is
+   shared with the launcher and the agent picker, and the nowrap and truncation
+   this box needs would change all of them. Here the destination gets one line
+   and the name field gets the weight, because typing the name is the job. */
+/* 44px on the right is not a margin choice — it is the gutter the overlay's
+   close ✕ sits in. .picker-input reserves the same; dropping it to 16px ran the
+   path under the button. */
+.fs-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 44px 12px 18px; border-bottom: 2px dashed var(--dash); }
+.fs-head .prompt-mark { flex: none; }
+.fs-head .fs-title { flex: none; white-space: nowrap; font-weight: 700; font-size: 14px; }
+/* min-width:0 is what lets it shrink instead of shoving the title into a second
+   line; the text is already tail-truncated by tailPath, and ellipsis catches
+   the narrow-window case */
+.fs-head .fs-where {
+  flex: 1; min-width: 0; margin-left: auto; text-align: right;
+  font-size: 11px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fs-row { display: flex; align-items: center; gap: 8px; padding: 14px 16px 0 18px; }
+.fs-row input {
+  flex: 1; min-width: 0; padding: 10px 12px; border: 1px dashed var(--dash-dark);
+  background: var(--paper); font-family: 'Courier Prime', monospace; font-size: 14px;
+  color: var(--ink); outline: none;
+}
+.fs-row input:focus { border-style: solid; border-color: var(--amber-btn); }
+.fs-row .btn { flex: none; font-size: 12px; padding: 9px 15px; }
+.fs-hint { padding: 9px 16px 14px 18px; font-size: 11px; color: var(--muted-2); }
 .picker-list { max-height: 340px; overflow-y: auto; padding: 8px; }
 .picker-row { display: flex; align-items: center; gap: 12px; padding: 10px 11px; cursor: pointer; border-bottom: 1px dotted #ded3ba; }
 .picker-row:hover, .picker-row.hilite { background: var(--hover); }
@@ -1394,9 +1455,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* workspace context menu */
 .ctx-menu { position: fixed; z-index: 300; min-width: 170px; background: var(--paper); border: 1px solid var(--dash-dark);
   box-shadow: 3px 3px 0 var(--shadow-mid); border-radius: 2px; padding: 4px; font-size: 12px; }
-.ctx-item { padding: 6px 10px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
+.ctx-item { display: flex; align-items: baseline; gap: 18px; padding: 6px 10px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
 .ctx-item:hover { background: var(--paper-2); }
 .ctx-item.danger { color: var(--red-ink); }
+/* the shortcut a row already has, printed where people look for it */
+.ctx-item .ctx-kb { margin-left: auto; font-size: 11px; color: var(--faint); }
 .ctx-sep { border-top: 1px dashed var(--dash); margin: 4px 6px; }
 .ed-path { cursor: pointer; }
 .ed-path:hover { text-decoration: underline; }

@@ -5,7 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
-import { fileKind, shellQuote, fileUrl, docUrl } from './file-kinds.mjs';
+import { fileKind, shellQuote, fileUrl, docUrl, tailPath } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
@@ -156,6 +156,10 @@ const S = {
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
   tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
+  treeSel: null,                   // selected row, for the ＋ target and Enter-to-rename
+  treeEdit: null,                  // { path } while a rename input is open
+  treeDrag: null,                  // path being dragged, for the descendant guard
+  treeFresh: new Set(),            // rows that just landed, briefly marked
   treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
   // Your project's skills are what you came for; other tools' folders and broken
   // links start folded, or 139 borrowed rows sit between you and everything else.
@@ -357,6 +361,18 @@ function showScene(name) {
     });
   }
   if (what === 'projects') return toggleProjectsPop();
+  // newfile / newfolder — the create box. It had no scene, so every screenshot
+  // of this app was taken without it, and its header shipped wrapped across two
+  // lines under a three-line path before anyone saw it.
+  if (what === 'newfile' || what === 'newfolder') {
+    const ready = S.project ? Promise.resolve() : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(() => {
+      S.railTab = 'workspace'; renderRail();
+      // step lets a shot aim at a deep folder, which is the case that broke it
+      const dir = step || (S.project && S.project.path) || '~';
+      openFsName(what === 'newfile' ? 'file' : 'folder', dir);
+    });
+  }
   // The update card only appears when a newer release exists, which is exactly
   // the state you cannot arrange on demand — so the scene fakes the payload.
   // A download in flight and one waiting for a quit are two more states nobody
@@ -512,6 +528,16 @@ function buildShell() {
   document.addEventListener('keydown', onGlobalKey);
   initGlassTilt();
 
+  // A folder changed on disk — usually because a session just wrote to it.
+  if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
+  // Safety net for what the watchers cannot catch: network volumes, anything
+  // past the 64-watcher cap, FSEvents gaps. Costs one pass at the exact moment
+  // you have come back to look at it.
+  window.addEventListener('focus', () => {
+    if (!S.project || S.treeEdit) return;
+    for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir);
+  });
+
   // OS file drops: never let Electron navigate away on a stray drop.
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => e.preventDefault());
@@ -571,6 +597,25 @@ function applyChrome() {
 
 function onGlobalKey(e) {
   const meta = e.metaKey || e.ctrlKey;
+  // Enter renames the selected row and ⌘⌫ trashes it, the way Finder does —
+  // but only when the rail is what you are looking at and nothing else has the
+  // keyboard. ⌘⌫ and not a bare ⌫ is the whole point: Delete on its own is one
+  // mis-keystroke away from destroying something while you meant to rename it.
+  // A peek does not disqualify the rail. Clicking a file both selects the row
+  // and opens its preview — that is one gesture here — and the peek never takes
+  // focus, so the selection is still what the keyboard is aimed at. Same as
+  // Quick Look: space previews, ⌘⌫ still trashes. Any other overlay is a real
+  // modal and does own the keyboard. The activeElement test stays either way:
+  // click into the peek's editor and ⌘⌫ is a text operation again.
+  const peeking = S.overlay && S.overlay.type === 'peek';
+  const inTree = S.railTab === 'workspace' && S.treeSel && !S.treeEdit
+    && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
+  // Rename needs the rail actually in front of you — starting an edit hidden
+  // behind a preview would put your typing somewhere you cannot see it.
+  if (e.key === 'Enter' && !meta && inTree && !S.overlay) { e.preventDefault(); beginTreeRename(S.treeSel); return; }
+  if (meta && (e.key === 'Backspace' || e.key === 'Delete') && inTree && (!S.overlay || peeking)) {
+    e.preventDefault(); trashTreeItem(S.treeSel, dirName(S.treeSel)); return;
+  }
   if (meta && e.shiftKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); api.newWindow(); return; }
   if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
@@ -742,7 +787,24 @@ function refreshWorkspaceRail(c) {
     S.tree = {};
     api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; refreshRail(); });
   };
-  head.appendChild(pathSpan); head.appendChild(toggle); wrap.appendChild(head);
+  // Creating a file has always worked — it was just right-click-only, which for
+  // most people means it did not exist. Same menu the header's context menu
+  // opens, on something you can see. Both glyphs, because glass and graphite
+  // swap every chrome mark for its pixel twin.
+  const plus = document.createElement('span');
+  plus.className = 'tree-new'; plus.title = 'New file or folder';
+  plus.setAttribute('role', 'button'); plus.tabIndex = 0;
+  plus.innerHTML = `<span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span>`;
+  const openNewMenu = (x, y) => showMenu(x, y, [
+    { label: 'New file…', run: () => openFsName('file', newTargetDir()) },
+    { label: 'New folder…', run: () => openFsName('folder', newTargetDir()) },
+  ]);
+  plus.onclick = (e) => { e.stopPropagation(); const r = plus.getBoundingClientRect(); openNewMenu(r.left, r.bottom + 4); };
+  plus.onkeydown = (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); const r = plus.getBoundingClientRect(); openNewMenu(r.left, r.bottom + 4);
+  };
+  head.appendChild(pathSpan); head.appendChild(plus); head.appendChild(toggle); wrap.appendChild(head);
   head.oncontextmenu = (e) => {
     e.preventDefault();
     showMenu(e.clientX, e.clientY, [
@@ -751,23 +813,54 @@ function refreshWorkspaceRail(c) {
       { label: 'New folder…', run: () => openFsName('folder', p.path) },
     ]);
   };
+  // the header stands for the root, so a drag can be dropped on it to move
+  // something back up out of a folder
+  wireDrop(head, () => p.path);
   // first look at this folder (e.g. right after boot): fetch the root level once
   if (!S.tree[p.path]) api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
   renderTreeLevel(wrap, p.path, 0);
   c.appendChild(wrap);
+  syncDirWatch();
+}
+
+// Where the ＋ creates: the folder you have selected, the folder of the file you
+// have selected, or the root.
+function newTargetDir() {
+  const root = S.project.path;
+  const sel = S.treeSel;
+  if (!sel) return root;
+  for (const [dir, rows] of Object.entries(S.tree)) {
+    for (const n of rows || []) if (n.path === sel) return n.kind === 'dir' ? n.path : dir;
+  }
+  return root;
 }
 function renderTreeLevel(container, dir, depth) {
   const children = S.tree[dir];
   if (!children) return;
   for (const n of children) {
     const row = document.createElement('div'); row.className = 'tree-row';
+    if (n.path === S.treeSel) row.classList.add('sel');
+    if (S.treeFresh.has(n.path)) row.classList.add('landed');
     row.style.paddingLeft = (6 + depth * 13) + 'px';
+    row.dataset.path = n.path; row.dataset.kind = n.kind; row.dataset.dir = dir;
     const isOpen = S.expanded.has(n.path);
     const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';
+    if (S.treeEdit && S.treeEdit.path === n.path) { renderRenameRow(row, n, dir, glyph, isOpen); container.appendChild(row); continue; }
+    row.draggable = true;
     row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>
       <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
-    row.onclick = () => { if (n.kind === 'dir') toggleDir(n.path); else openFile(n.path); };
-    row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
+    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path); refreshRail(); } };
+    row.oncontextmenu = (e) => { e.preventDefault(); S.treeSel = n.path; showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
+    row.ondragstart = (e) => {
+      S.treeDrag = n.path;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', n.path); } catch (_) {}
+    };
+    row.ondragend = () => { S.treeDrag = null; row.classList.remove('dragging'); clearDropMarks(); };
+    // A file row stands for the folder that holds it — the same near-miss
+    // forgiveness Finder gives you.
+    wireDrop(row, () => (n.kind === 'dir' ? n.path : dir));
     container.appendChild(row);
     if (n.kind === 'dir' && isOpen) renderTreeLevel(container, n.path, depth + 1);
   }
@@ -778,6 +871,113 @@ async function toggleDir(dir) {
   S.expanded.add(dir); refreshRail();
 }
 
+// ---- rename in place --------------------------------------------------------
+function beginTreeRename(path) { S.treeEdit = { path }; refreshRail(); }
+function renderRenameRow(row, n, dir, glyph, isOpen) {
+  row.classList.add('editing');
+  row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>`;
+  const input = document.createElement('input');
+  input.className = 'tree-rename'; input.value = n.name; input.spellcheck = false;
+  row.appendChild(input);
+  let done = false;
+  const finish = async () => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    S.treeEdit = null;
+    if (!name || name === n.name) { refreshRail(); return; }
+    const res = await api.fsRename({ root: S.project.path, src: n.path, name });
+    if (!res.ok) { toast(res.error || 'Could not rename'); refreshRail(); return; }
+    // the expanded set is keyed on paths, so a renamed folder has to carry its
+    // open state across or it silently collapses under you
+    if (S.expanded.has(n.path)) { S.expanded.delete(n.path); S.expanded.add(res.path); }
+    delete S.tree[n.path];
+    S.treeSel = res.path;
+    await refreshTreeDir(dir);
+  };
+  setTimeout(() => {
+    input.focus();
+    const dot = n.name.lastIndexOf('.');
+    // Finder's rule: select the stem, leave the extension out of it
+    if (n.kind === 'file' && dot > 0) input.setSelectionRange(0, dot); else input.select();
+  }, 20);
+  input.onblur = finish;
+  input.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(); }
+    if (e.key === 'Escape') { e.preventDefault(); done = true; S.treeEdit = null; refreshRail(); }
+  };
+}
+
+// ---- drag: move within the tree, import from outside it ---------------------
+function clearDropMarks() { document.querySelectorAll('.tree-row.drop-into, .tree-path.drop-into').forEach((el) => el.classList.remove('drop-into')); }
+let dropHoverTimer = null, dropHoverPath = null;
+function cancelHoverExpand() { if (dropHoverTimer) clearTimeout(dropHoverTimer); dropHoverTimer = null; dropHoverPath = null; }
+
+function wireDrop(el, destFn) {
+  el.ondragover = (e) => {
+    const dest = destFn();
+    // refuse a folder into itself or below itself before the cursor suggests it
+    if (S.treeDrag && isUnder(S.treeDrag, dest)) { clearDropMarks(); cancelHoverExpand(); return; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = S.treeDrag ? 'move' : 'copy';
+    clearDropMarks(); el.classList.add('drop-into');
+    // hold over a closed folder and it opens, so you can drag somewhere you
+    // have not looked yet
+    if (el.dataset && el.dataset.kind === 'dir' && !S.expanded.has(dest)) {
+      if (dropHoverPath !== dest) {
+        cancelHoverExpand(); dropHoverPath = dest;
+        dropHoverTimer = setTimeout(() => { toggleDir(dest); }, 600);
+      }
+    } else cancelHoverExpand();
+  };
+  el.ondragleave = () => { el.classList.remove('drop-into'); cancelHoverExpand(); };
+  el.ondrop = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    clearDropMarks(); cancelHoverExpand();
+    const dest = destFn();
+    const root = S.project.path;
+    const files = e.dataTransfer.files;
+    if (files && files.length) {
+      // from Finder. droppedFilePath, never File.path — removed in Electron 32.
+      const srcPaths = [...files].map((f) => api.droppedFilePath(f)).filter(Boolean);
+      if (!srcPaths.length) { toast('Could not read what was dropped.'); return; }
+      const res = await api.fsImport({ root, destDir: dest, srcPaths });
+      if (!res.ok) { toast(res.error || 'Could not copy that in'); return; }
+      S.expanded.add(dest);
+      markFresh(res.paths);
+      await refreshTreeDir(dest);
+      toast(res.paths.length === 1 ? 'Copied in ' + baseName(res.paths[0]) + '.' : 'Copied in ' + res.paths.length + ' items.');
+      return;
+    }
+    const src = S.treeDrag; S.treeDrag = null;
+    if (!src) return;
+    const srcDir = dirName(src);
+    if (srcDir === dest) return;
+    const res = await api.fsMove({ root, src, destDir: dest });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(src); delete S.tree[src];
+    S.expanded.add(dest); S.treeSel = res.path;
+    markFresh([res.path]);
+    await refreshTreeDir(srcDir); await refreshTreeDir(dest);
+    toast('Moved ' + baseName(src) + '.');
+  };
+}
+function dirName(p) { const i = String(p).lastIndexOf('/'); return i > 0 ? p.slice(0, i) : p; }
+function baseName(p) { return String(p).slice(String(p).lastIndexOf('/') + 1); }
+// Same rule as isDescendant in fs-actions.js. Duplicated rather than shared
+// because the renderer cannot require a CommonJS main module — and this copy is
+// only ever cosmetic, shaping the drop cursor. The guard that counts is in main.
+function isUnder(parent, child) {
+  return child === parent || String(child).startsWith(parent + '/');
+}
+// A brief green on rows that just appeared, so a watcher-driven change is
+// something you notice rather than something you have to diff by eye.
+function markFresh(paths) {
+  for (const p of paths || []) S.treeFresh.add(p);
+  clearTimeout(markFresh.t);
+  markFresh.t = setTimeout(() => { S.treeFresh.clear(); if (S.railTab === 'workspace') refreshRail(); }, 2400);
+}
+
 // ---- workspace context menu ------------------------------------------------
 function showMenu(x, y, items) {
   hideMenu();
@@ -786,6 +986,9 @@ function showMenu(x, y, items) {
     if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
     const row = document.createElement('div'); row.className = 'ctx-item' + (it.danger ? ' danger' : '');
     row.textContent = it.label;
+    // The menu is where people look for a shortcut they don't know yet, so the
+    // ones that exist say so here rather than staying folklore.
+    if (it.kb) { const k = document.createElement('span'); k.className = 'ctx-kb'; k.textContent = it.kb; row.appendChild(k); }
     row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(); };
     m.appendChild(row);
   }
@@ -800,9 +1003,50 @@ function showMenu(x, y, items) {
   }, 0);
 }
 function escHideMenu(e) { if (e.key === 'Escape') hideMenu(); }
-function hideMenu() { const m = document.getElementById('ctx-menu'); if (m) m.remove(); window.removeEventListener('keydown', escHideMenu); }
+// Every listener showMenu armed has to come back off, not just the keydown one.
+// `once` only fires-and-removes when the event actually arrives, so dismissing a
+// menu with Escape or a click left the *contextmenu* listener armed — and it
+// then bubbled into the next right-click and tore that menu down as it opened.
+// The menu opened once per session and Duplicate, Copy path and Move to Trash
+// were unreachable after it. Present since 0.1.2.
+function hideMenu() {
+  const m = document.getElementById('ctx-menu'); if (m) m.remove();
+  window.removeEventListener('keydown', escHideMenu);
+  window.removeEventListener('click', hideMenu);
+  window.removeEventListener('contextmenu', hideMenu);
+}
 async function refreshTreeDir(dir) {
   S.tree[dir] = await api.listDir(dir, S.treeAll);
+  if (S.railTab === 'workspace') refreshRail();
+}
+
+// ---- keeping the tree honest ------------------------------------------------
+// The renderer declares the whole visible set — root plus every expanded folder
+// — and main diffs it. Full set, not deltas: see src/main/dir-watch.js.
+function syncDirWatch() {
+  if (!api.dirWatch) return;
+  const p = S.project;
+  if (!p) { api.dirWatch([]); return; }
+  const paths = [p.path, ...[...S.expanded].filter((d) => S.tree[d])];
+  api.dirWatch(paths).catch(() => {});
+}
+
+// One directory changed on disk. Re-list just that one; if it has gone, forget
+// it and re-list its parent instead.
+async function onDirChanged(dir) {
+  if (!S.project) return;
+  if (!(dir in S.tree)) return;          // not visible — nothing to correct
+  if (S.treeEdit && dirName(S.treeEdit.path) === dir) return;  // mid-rename; the commit re-lists
+  const before = new Set((S.tree[dir] || []).map((n) => n.path));
+  const rows = await api.listDir(dir, S.treeAll);
+  if (rows == null) {
+    delete S.tree[dir]; S.expanded.delete(dir);
+    if (dir !== S.project.path) await refreshTreeDir(dirName(dir));
+    return;
+  }
+  S.tree[dir] = rows;
+  const fresh = rows.map((n) => n.path).filter((p) => !before.has(p));
+  if (fresh.length) markFresh(fresh);
   if (S.railTab === 'workspace') refreshRail();
 }
 function treeMenu(n, parentDir) {
@@ -812,36 +1056,60 @@ function treeMenu(n, parentDir) {
     items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
     items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
   }
-  items.push({ label: 'Move to…', run: async () => {
-    const dest = await api.chooseFolder(); if (!dest) return;
-    const res = await api.fsMove({ root, src: n.path, destDir: dest });
-    if (!res.ok) { toast(res.error); return; }
-    S.expanded.delete(n.path);
-    await refreshTreeDir(parentDir); await refreshTreeDir(dest);
-    toast('Moved ' + n.name + '.');
+  // "Move to…" is gone: it opened a native picker that would happily let you
+  // choose a folder outside the root, and then movePath refused it — offering a
+  // destination you are not allowed to use. Dragging the row does this now.
+  items.push({ label: 'Rename…', kb: '⏎', run: () => beginTreeRename(n.path) });
+  items.push({ label: 'Duplicate', run: async () => {
+    const res = await api.fsDuplicate({ root, src: n.path });
+    if (!res.ok) { toast(res.error || 'Could not duplicate'); return; }
+    markFresh([res.path]);
+    await refreshTreeDir(parentDir);
+    toast('Duplicated to ' + baseName(res.path) + '.');
+  } });
+  items.push({ label: 'Copy path', run: async () => {
+    try { await navigator.clipboard.writeText(n.path); toast('Path copied.'); }
+    catch (_) { toast('Could not copy that.'); }
   } });
   items.push('-');
   // Direct to Trash: right-click plus a click below a separator is deliberate,
   // and the Trash is recoverable. The library card's Delete keeps its armed
   // second click because it sits next to Save.
-  items.push({ label: 'Move to Trash', danger: true, run: async () => {
-    const res = await api.fsTrash({ root, path: n.path });
-    if (!res.ok) { toast(res.error); return; }
-    S.expanded.delete(n.path);
-    refreshTreeDir(parentDir);
-    toast('Moved to Trash.');
-  } });
+  items.push({ label: 'Move to Trash', danger: true, kb: '⌘⌫', run: () => trashTreeItem(n.path, parentDir) });
   return items;
+}
+
+// Shared by the menu row and ⌘⌫, so the keyboard route cannot drift from the
+// one the menu advertises.
+async function trashTreeItem(path, parentDir) {
+  const res = await api.fsTrash({ root: S.project.path, path });
+  if (!res.ok) { toast(res.error); return; }
+  S.expanded.delete(path); delete S.tree[path];
+  if (S.treeSel === path) S.treeSel = null;
+  // Previewing the thing you just trashed is a window onto a file that is no
+  // longer there — close it rather than leave a stale page up.
+  if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel && S.overlay.panel.filePath === path) closeOverlay();
+  await refreshTreeDir(parentDir);
+  toast('Moved ' + baseName(path) + ' to Trash.');
 }
 function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
 function renderFsName() {
   const o = S.overlay;
+  // Its own header, not .picker-input: that row belongs to the launcher and the
+  // agent picker too, and it has no nowrap on the label and no truncation on the
+  // trailing span — so a deep path wrapped the title onto two lines and then ran
+  // to three of its own, leaving the destination as the biggest thing in a box
+  // whose actual job is a name and a button.
+  const full = shortHome(o.dir);
   const modal = overlay('picker-box', `
-    <div class="picker-input"><span class="prompt-mark">＋</span>
-      <span style="font-weight:700">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--muted)">${esc(shortHome(o.dir))}</span></div>
-    <div class="ni-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
-      <button class="btn btn--go" id="fs-go">Create</button></div>`, { top: true });
+    <div class="fs-head"><span class="prompt-mark">＋</span>
+      <span class="fs-title">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
+      <span class="fs-where" title="${esc(full)}">${esc(tailPath(full))}</span></div>
+    <div class="fs-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
+      <button class="btn btn--go" id="fs-go">Create</button></div>
+    <div class="fs-hint">${o.mode === 'file'
+      ? 'Any extension. It lands empty and opens in the editor.'
+      : 'The folder is created and opened in the tree.'}</div>`, { top: true });
   const input = q('#fs-name', modal); input.value = o.name; setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.name = input.value; };
   const go = async () => {

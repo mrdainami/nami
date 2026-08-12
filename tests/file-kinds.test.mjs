@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileKind, shellQuote, fileUrl } from '../src/renderer/file-kinds.mjs';
+import { tailPath, fileKind, shellQuote, fileUrl } from '../src/renderer/file-kinds.mjs';
 
 test('fileKind: images', () => {
   for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.svg', 'g.bmp', 'h.ico', 'i.avif'])
@@ -32,4 +32,31 @@ test('fileUrl: encodes spaces, keeps slashes', () => {
 });
 test('fileUrl: encodes hash and question mark', () => {
   assert.equal(fileUrl('/tmp/a#b?.png'), 'file:///tmp/a%23b%3F.png');
+});
+
+test('tailPath keeps the end of a path — the part that says which folder', () => {
+  // the head is noise you already chose; the tail answers "landing where?"
+  assert.equal(tailPath('/private/tmp/claude-501/-Users-cal/scratchpad/treedemo/tests'), '…/treedemo/tests');
+  assert.equal(tailPath('/Users/cal/work/atlas/src/main'), '…/src/main');
+});
+
+test('tailPath leaves anything already short alone — no decorative ellipsis', () => {
+  assert.equal(tailPath('/tmp/atlas'), '/tmp/atlas');
+  assert.equal(tailPath('/atlas'), '/atlas');
+  assert.equal(tailPath('/'), '/');
+  assert.equal(tailPath(''), '');
+});
+
+test('tailPath honours the home tilde rather than printing /Users/you', () => {
+  assert.equal(tailPath('~/work/atlas'), '~/work/atlas');
+  assert.equal(tailPath('~/work/atlas/src/renderer'), '…/src/renderer');
+});
+
+test('tailPath takes the segment count it is given', () => {
+  assert.equal(tailPath('/a/b/c/d/e', 3), '…/c/d/e');
+  assert.equal(tailPath('/a/b/c/d/e', 1), '…/e');
+});
+
+test('tailPath ignores a trailing slash instead of returning an empty tail', () => {
+  assert.equal(tailPath('/Users/cal/work/atlas/src/'), '…/atlas/src');
 });
