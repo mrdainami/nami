@@ -95,11 +95,50 @@ export function treeBadgeFor(name) {
 const FOLDER_BODY = 'M1.2 3.4 L1.6 11.2 L13.6 11.4 L14 5 L6.4 4.8 L5.4 2 L1.6 1.8 Z';
 const FOLDER_FLAP = 'M2.4 11.1 L4.6 6 L14.6 6.2 L13.4 11.3 Z';
 
+// Folders wear seven faces; files used to wear one, for all of them — in the one
+// place you are scanning for a file. These sit in the page's lower body, at the
+// same weight as the folder badges, and ride the same tokens: nothing here is
+// coloured, so all four themes re-ink the set without a second set of drawings.
+export const FILE_BADGES = {
+  image: '<circle cx="4.9" cy="7.6" r="0.75" fill="currentColor" stroke="none"/><path d="M3.6 10.9 L5.8 8.7 L7 9.9 L8.3 8.6 L9.6 10.9" stroke-width="1"/>',
+  media: '<path d="M5.2 7.5 L8.9 9.3 L5.2 11.1 Z" fill="currentColor" stroke="none"/>',
+  pdf: '<path d="M3.9 7.4 h5.3 v1.7 h-5.3 z" fill="currentColor" stroke="none"/><path d="M3.9 10.7 h3.5" stroke-width="1"/>',
+  web: '<circle cx="6.5" cy="9.2" r="2.2" stroke-width="0.95"/><path d="M4.3 9.2 h4.4 M6.5 7 c1.15 1.35 1.15 3.05 0 4.4 M6.5 7 c-1.15 1.35 -1.15 3.05 0 4.4" stroke-width="0.85"/>',
+  doc: '<path d="M3.9 7.2 h5.2 M3.9 9 h5.2 M3.9 10.8 h3.2" stroke-width="1"/>',
+  code: '<path d="M5.5 7.5 L4.2 9.2 L5.5 10.9 M7.7 7.5 L9 9.2 L7.7 10.9" stroke-width="1.05" stroke-linecap="round"/>',
+  config: '<circle cx="6.5" cy="9.2" r="1.45" stroke-width="0.95"/><path d="M6.5 6.8 v0.9 M6.5 10.7 v0.9 M4.3 9.2 h0.9 M7.8 9.2 h0.9" stroke-width="0.95" stroke-linecap="round"/>',
+  lock: '<path d="M4.5 8.9 h4 v2.6 h-4 z" stroke-width="1"/><path d="M5.5 8.9 v-1.1 a1 1 0 0 1 2 0 v1.1" stroke-width="1"/>',
+};
+
+const FILE_EXT = {
+  image: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'],
+  media: ['mp4', 'webm', 'mov', 'm4v', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac'],
+  pdf: ['pdf'],
+  web: ['html', 'htm'],
+  doc: ['md', 'mdx', 'txt', 'rst'],
+  code: ['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cpp', 'swift', 'sh'],
+  config: ['json', 'yaml', 'yml', 'toml', 'ini', 'env', 'conf'],
+};
+
+// Which face a file wears. Lock is tested first and by whole name, because
+// package-lock.json is a lock before it is a .json — and it is the file you most
+// want to recognise without reading, so it never has to compete on extension.
+export function fileBadgeFor(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.endsWith('.lock') || n.endsWith('-lock.json')) return 'lock';
+  const i = n.lastIndexOf('.');
+  if (i < 1) return null;   // i === 0 is a dotfile, not an extension
+  const ext = n.slice(i + 1);
+  for (const [badge, exts] of Object.entries(FILE_EXT)) if (exts.includes(ext)) return badge;
+  return null;
+}
+
 export function treeIcon(name, kind, open) {
   if (kind !== 'dir') {
+    const badge = fileBadgeFor(name);
     return `<svg width="13" height="14" viewBox="0 0 13 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true">
       <path d="M2 1.4 L8.6 1.2 L11.2 3.8 L11 12.6 L2.2 12.8 Z" style="fill:var(--tree-fill-file)"/>
-      <path d="M8.4 1.4 L8.6 4 L11 4.1"/><path d="M4 7 L9 7 M4 9.2 L8 9.2" stroke-width="1"/></svg>`;
+      <path d="M8.4 1.4 L8.6 4 L11 4.1"/>${badge ? FILE_BADGES[badge] : '<path d="M4 7 L9 7 M4 9.2 L8 9.2" stroke-width="1"/>'}</svg>`;
   }
   const badge = treeBadgeFor(name);
   if (badge === 'deps') {

@@ -28,6 +28,7 @@ const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = req
 const { deliverAgents, liftToMaster, sweepCopies } = require('./agent-master');
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
+const { createDirWatch } = require('./dir-watch');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
@@ -1034,7 +1035,34 @@ ipcMain.handle('file:reveal', (_e, file) => { try { shell.showItemInFolder(file)
 ipcMain.handle('fs:newFile', (_e, a) => fsActions.newFile(a || {}));
 ipcMain.handle('fs:newFolder', (_e, a) => fsActions.newFolder(a || {}));
 ipcMain.handle('fs:move', (_e, a) => fsActions.movePath(a || {}));
+ipcMain.handle('fs:rename', (_e, a) => fsActions.renamePath(a || {}));
+ipcMain.handle('fs:import', (_e, a) => fsActions.importPaths(a || {}));
+ipcMain.handle('fs:duplicate', (_e, a) => fsActions.duplicatePath(a || {}));
 ipcMain.handle('fs:trash', (_e, a) => fsActions.trashPath({ ...(a || {}), trashFn: (p) => shell.trashItem(p) }));
+
+// ---- the Workspace tree's watchers -----------------------------------------
+// One dir-watch per window, because each window has its own open folder and its
+// own idea of which folders are expanded. The renderer declares the whole
+// visible set; see src/main/dir-watch.js for why that is the full set and not a
+// delta. Closed on window destruction so a closed window leaves no descriptors.
+const dirWatchers = new Map();   // webContents.id -> dir-watch
+function dirWatchFor(wc) {
+  let w = dirWatchers.get(wc.id);
+  if (w) return w;
+  w = createDirWatch({ onChange: (dir) => { try { wc.send('dir:changed', { dir }); } catch (_) {} } });
+  dirWatchers.set(wc.id, w);
+  wc.once('destroyed', () => { w.closeAll(); dirWatchers.delete(wc.id); });
+  return w;
+}
+ipcMain.handle('dir:watch', (e, a) => {
+  const paths = (a && Array.isArray(a.paths)) ? a.paths : [];
+  if (!paths.length) {
+    const existing = dirWatchers.get(e.sender.id);
+    if (existing) existing.closeAll();
+    return { watching: 0, overflow: 0, failed: 0 };
+  }
+  return dirWatchFor(e.sender).declare(paths);
+});
 // Plain directory dialog for Move to…: unlike folder:pick it must NOT remember
 // the choice as a recent project.
 ipcMain.handle('folder:choose', async (e) => {

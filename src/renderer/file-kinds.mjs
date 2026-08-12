@@ -25,6 +25,23 @@ export function fileKind(p) {
   return 'text';
 }
 
+// The end of a path, for a label with one line to spend. A destination answers
+// one question — which folder is this landing in — and the last couple of
+// segments answer it; the head is a prefix you already chose and can't read at
+// 11px anyway. Truncated here rather than with `direction: rtl`, which renders
+// correctly right up until a path contains a bracket and then silently reorders
+// it. Anything already short enough is returned untouched: an ellipsis that
+// hides nothing is just decoration.
+export function tailPath(p, keep = 2) {
+  const s = String(p || '');
+  if (!s || s === '/') return s;
+  const parts = s.replace(/\/+$/, '').split('/');
+  const lead = parts[0];                       // '' for /abs, '~' for home
+  const segs = parts.slice(1).filter(Boolean);
+  if (segs.length <= keep) return lead + '/' + segs.join('/');
+  return '…/' + segs.slice(-keep).join('/');
+}
+
 // POSIX single-quoting: safe to paste into a shell or a chat message.
 export function shellQuote(p) { return "'" + String(p).replace(/'/g, "'\\''") + "'"; }
 
