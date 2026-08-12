@@ -70,14 +70,3 @@ test('the note is named so it sorts to the top of a file tree', async () => {
   // check that the name has not drifted to something like "welcome.md"
   assert.equal(NOTE_NAME, 'Start here.md');
 });
-
-test('the renderer and main agree on the note filename', async () => {
-  // main.js writes it, app.js looks for it, and they cannot share a module —
-  // main is CJS, the renderer is ESM. So the name is restated in two places and
-  // pinned here: a rename on one side that misses the other would quietly turn
-  // the quick start's "See examples" into a dead link to the website.
-  const app = await readFile(new URL('../src/renderer/app.js', import.meta.url), 'utf8');
-  const m = app.match(/^const NOTE_NAME = '([^']+)';/m);
-  assert.ok(m, 'app.js should declare NOTE_NAME');
-  assert.equal(m[1], NOTE_NAME);
-});

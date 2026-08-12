@@ -3961,12 +3961,16 @@ function wireLookPane(modal) {
 // that version off for good (see SKIPPED_UPDATE below), and until now there was
 // no way back to it. Pressing the button clears the mark.
 const REPO_URL = 'https://github.com/mrdainami/nami';
-// Where the quick start sends anyone who wants more than five lines. Kept next
-// to REPO_URL so the two places Nami points outward are read together.
-const GUIDE_URL = 'https://nami.dainami.ai/guide?utm_source=nami-app&utm_medium=quick-start';
-// Must match src/main/start-here.js. The renderer cannot require it — main is
-// CJS, this is a module — so the name is restated and pinned by a test.
-const NOTE_NAME = 'Start here.md';
+// The doc pages the quick start points at. One page per row, so a reader lands
+// on the answer to the row they pressed rather than on a contents page they
+// then have to search. Kept next to REPO_URL so every outward link Nami has is
+// read in one place.
+const DOCS = {
+  start: 'https://nami.dainami.ai/docs/start/',
+  pickAgent: 'https://nami.dainami.ai/docs/pick-an-agent/',
+  examples: 'https://nami.dainami.ai/docs/examples/',
+  permissions: 'https://nami.dainami.ai/docs/permissions/',
+};
 // Where the app sends people who want the person rather than the program.
 //
 // Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
@@ -4518,17 +4522,6 @@ function qsMark(n) {
 }
 function openQuickStart() { S.overlay = { type: 'quickstart' }; renderOverlay(); }
 
-// Row 4 opens Start here.md when there is a folder, because that note already
-// carries the examples and the user owns it. Only with no folder does it fall
-// back to the site — one list of prose, in one file, rather than a second copy
-// in the renderer that drifts from the first.
-function qsExamples() {
-  const note = S.project && (S.project.tree || []).find((f) => f.name === NOTE_NAME);
-  if (!note) { api.openUrl(GUIDE_URL); return; }
-  closeOverlay();
-  openFile(note.path || (S.project.path + '/' + NOTE_NAME), { pin: true });
-}
-
 function quickStartRows() {
   return [
     {
@@ -4546,22 +4539,22 @@ function quickStartRows() {
       ],
     },
     {
-      n: 3, title: 'Nami runs agents — it is not one',
+      n: 3, title: 'Nami can run multiple agents for you',
       sub: 'Claude Code signs in with your Claude account, Codex with your ChatGPT one. No Nami account, no second bill.',
-      acts: [{ label: 'Which should I pick?', run: () => api.openUrl(GUIDE_URL) }],
+      acts: [{ label: 'Which should I pick?', run: () => api.openUrl(DOCS.pickAgent) }],
     },
     {
       n: 4, title: 'Say what you need, in plain English',
       sub: 'No commands to learn. Here are twelve things people actually ask for.',
       acts: [
-        { label: 'See 12 examples', run: qsExamples },
+        { label: 'See 12 examples', run: () => api.openUrl(DOCS.examples) },
         { label: '▶ Watch · 60s', play: 'a-real-job' },
       ],
     },
     {
       n: 5, title: 'It asks before it does anything real',
       sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
-      acts: [{ label: 'How permissions work', run: () => api.openUrl(GUIDE_URL) }],
+      acts: [{ label: 'How permissions work', run: () => api.openUrl(DOCS.permissions) }],
     },
   ];
 }
@@ -4586,7 +4579,7 @@ function renderQuickStart() {
   const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span><span class="qs-esc">esc</span></div>
     <div class="qs-body">${body}</div>
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
-    <a class="qs-link" href="#" data-url="${GUIDE_URL}">Full guide ↗</a></div>`, { top: true });
+    <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
 
   modal.querySelectorAll('[data-act]').forEach((b) => {
     b.onclick = () => {
