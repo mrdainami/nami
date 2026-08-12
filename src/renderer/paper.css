@@ -930,9 +930,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 
 .cd-turn_end {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
   font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint);
   border-top: 1px dashed var(--dash); padding-top: 7px;
 }
+.cd-meter { flex: none; }
+.cd-chip {
+  flex: none; font-size: 10px; letter-spacing: 0; padding: 1px 7px;
+  border: 1px solid var(--dash); background: var(--paper-2); color: var(--muted);
+  cursor: pointer; text-decoration: none;
+}
+.cd-chip:hover { color: var(--green); border-color: var(--green); }
+/* the channel badge: quiet grey fact, amber only when it explains a limit */
+.cd-badge { flex: none; margin-left: auto; color: var(--faint); font-size: 9.5px; text-transform: uppercase; }
+.cd-badge.warn { color: var(--amber-btn); }
 .cd-note { text-align: left; font-size: 11px; color: var(--muted); font-style: italic; }
 .cd-row.cd-note { border-left: 2px solid var(--dash); padding-left: 9px; }
 .cd-error {
@@ -960,7 +971,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--muted); font-size: 11px;
 }
-.cd-row.pending .cd-ic { color: var(--amber-btn); }
+.cd-row.pending .cd-ic { color: var(--amber-btn); animation: cd-pending 1.2s ease-in-out infinite; }
+@keyframes cd-pending { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .cd-row.pending .cd-ic { animation: none; }
+}
 .cd-row.err .cd-line { border-color: var(--red-line); }
 .cd-row.err .cd-ic { color: var(--red-ink); }
 .cd-open { border: 1px solid var(--dash); border-top: 0; background: var(--paper-3); }

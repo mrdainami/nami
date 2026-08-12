@@ -1418,6 +1418,9 @@ function cardAgentFor(p) {
   if (p.kind === 'run') {
     const c = String(p.command || '').trim();
     if (['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(c)) return c;
+    // A bare agent-looking binary we have no adapter for still gets the
+    // switch — its card explains, honestly, why it stays a terminal.
+    if (/^[a-z][\w.-]*$/i.test(c)) return 'unknown:' + c;
   }
   return null;
 }
@@ -1455,6 +1458,16 @@ async function enterCards(p) {
   const rec = tileEls.get(p.id); if (!rec) return;
   const agent = cardAgentFor(p);
   if (!agent) return;
+  if (agent.startsWith('unknown:')) {
+    // Terminal only, and the card says which three doors it tried. The pty
+    // stays live underneath; the composer types into it.
+    const bin = agent.slice(8);
+    p.agentLive = false;
+    p.agentCaps = { channel: 'terminal only', note: '' };
+    p.cardFallback = `${bin} offers none of the three channels cards can read — an ACP endpoint, a JSON stream mode, or a transcript on disk — so this session stays a terminal. The composer still types into it.`;
+    refreshCardNote(p, rec);
+    return;
+  }
   p.cardEvents = [];
   if (agent === 'claude') {
     // What the conversation already holds, from the transcript. An ACP agent
@@ -1532,6 +1545,13 @@ function mountCards(p, rec) {
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
     commands: () => p.agentCommands || [],
+    // The channel badge, quietly on the meter: 'agent sdk · live', turning
+    // amber only when it explains a limitation.
+    badge: () => {
+      const c = p.agentCaps && p.agentCaps.channel;
+      if (!c) return '';
+      return c === 'one-shot' ? 'one-shot' : `${c} · live`;
+    },
   });
   rec.root.appendChild(ui.el);
   rec.cardsUi = ui;
