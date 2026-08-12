@@ -427,15 +427,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .lane-empty .big { font-family: 'Caveat', cursive; font-size: 34px; font-weight: 700; margin-bottom: 6px; }
 .lane-empty .hint { font-size: 13px; color: #7a6f5c; }
-/* Footer weight, and a wider gap than the lane's own 22px, so it reads as a
-   colophon under the desk rather than as a third line of the instruction. */
-.desk-credit { margin-top: 10px; font-size: 11.5px; color: var(--muted); }
-.desk-credit .dc-sep { color: var(--faint); margin: 0 4px; }
-.desk-credit .dc-link {
-  color: var(--green); cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--dash-dark);
+/* Two doors out of the no-folder desk, side by side. The row carries the
+   14px the single .lane-cta used to carry itself, so the buttons keep their
+   distance from the hint whether there are one or two of them. Wraps on a
+   narrow desk rather than pushing either button off the sheet. */
+.lane-empty .lane-ctas {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px;
 }
-.desk-credit .dc-link:hover { color: var(--green-dark); text-decoration-color: currentColor; }
+.lane-empty .lane-ctas .lane-cta { margin-top: 0; }
 
 /* ---- session card ------------------------------------------------------- */
 
