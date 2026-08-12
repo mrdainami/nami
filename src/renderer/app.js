@@ -402,11 +402,11 @@ function showScene(name) {
   S.railTab = 'library';
   // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
   // show project-scoped state (coverage pills need a project's masters).
-  const withFolder = step && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
+  const withFolder = step && step.startsWith('/') && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
   withFolder.then(() => loadLibrary(true)).then(() => {
     renderRail();
     if (what === 'library') return;
-    if (what === 'mcp') return openConnect();
+    if (what === 'mcp') return step === 'own' ? openConnectOwn() : openConnect();
     // create:agent / create:skill — the one-screen sheet ("agent" alone is the
     // agent identity sheet above, so the create scene needs its own name)
     if (what === 'create') return openCreate(step === 'agent' ? 'agent' : 'skill');
