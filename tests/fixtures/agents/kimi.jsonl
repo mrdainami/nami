@@ -1,0 +1,5 @@
+{"role":"meta","type":"system.version","version":"0.34.0"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"Read_0","function":{"name":"Read","arguments":"{\"path\":\"src/greet.js\"}"}}]}
+{"role":"tool","tool_call_id":"Read_0","content":"1\texport function greet(name) {\n2\t  return `hello ${name}`\n3\t}"}
+{"role":"assistant","content":"It exports a `greet` function that returns a \"hello\" greeting for a given name."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_ses_test","command":"kimi -r session_ses_test","content":"To resume this session: kimi -r session_ses_test"}
