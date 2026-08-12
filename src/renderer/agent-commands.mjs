@@ -24,9 +24,11 @@
 const NATIVE_BY_NAME = { model: 'native-model' };
 
 export const STATIC_COMMANDS = {
-  // codex exec is headless; every slash command belongs to the codex TUI.
+  // codex exec is headless, but a setting that is a spawn flag is still
+  // switchable: /model rides the next turn's --model. Only what genuinely
+  // needs the TUI routes to the terminal.
   codex: [
-    { name: 'model', description: 'pick model & reasoning level', route: 'terminal' },
+    { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
     { name: 'approvals', description: 'choose what runs without asking', route: 'terminal' },
     { name: 'review', description: 'review the current changes', route: 'terminal' },
     { name: 'compact', description: 'summarise the conversation to save context', route: 'terminal' },
@@ -34,14 +36,15 @@ export const STATIC_COMMANDS = {
     { name: 'mcp', description: 'list MCP servers', route: 'terminal' },
   ],
   kimi: [
-    { name: 'model', description: 'switch model', route: 'terminal' },
+    { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
     { name: 'clear', description: 'clear the context', route: 'terminal' },
     { name: 'compact', description: 'compact the context', route: 'terminal' },
     { name: 'init', description: 'generate AGENTS.md for this project', route: 'terminal' },
     { name: 'mcp', description: 'manage MCP servers', route: 'terminal' },
   ],
   agy: [
-    // mode rides the adapter's own flags — the one control agy can switch live
+    // model and mode ride the adapter's own flags on the next turn
+    { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
     { name: 'mode', description: 'switch permission mode', route: 'native-mode' },
     { name: 'memory', description: 'manage saved memory', route: 'terminal' },
     { name: 'stats', description: 'session stats', route: 'terminal' },
@@ -81,13 +84,16 @@ export function commandsFor(agent, protocolCommands) {
 }
 
 // What the composer does with a typed command. `null` means it is not a
-// slash command at all — send the text as an ordinary turn.
+// slash command at all — send the text as an ordinary turn. `arg` is
+// whatever followed the name ('/model gpt-5.2-codex' → 'gpt-5.2-codex'),
+// because on the one-shot channels the argument IS the control.
 export function routeCommand(agent, protocolCommands, text) {
   const t = String(text || '');
   if (!t.startsWith('/')) return null;
   const name = t.slice(1).split(/\s/)[0].toLowerCase();
   if (!name) return null;
+  const arg = t.slice(1 + name.length).trim();
   const cmd = commandsFor(agent, protocolCommands).find((c) => c.name.toLowerCase() === name);
-  if (!cmd) return { name, route: 'send' }; // unknown: the channel may still know it
-  return { name: cmd.name, route: cmd.route };
+  if (!cmd) return { name, route: 'send', arg }; // unknown: the channel may still know it
+  return { name: cmd.name, route: cmd.route, arg };
 }

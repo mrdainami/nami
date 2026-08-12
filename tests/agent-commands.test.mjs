@@ -63,3 +63,19 @@ test('static tables never claim a send route on a one-shot channel', () => {
     }
   }
 });
+
+// Calvin's correction, 2026-08-13: a setting that is a spawn flag does not
+// need a live process. /model is native on every channel — one-shots ride
+// the next turn's --model — and the typed argument IS the control.
+test('/model is native on every one-shot channel, not a terminal errand', () => {
+  for (const agent of ['codex', 'kimi', 'agy']) {
+    assert.equal(routeCommand(agent, [], '/model').route, 'native-model', agent);
+  }
+});
+
+test('the argument rides along: /model gpt-5.2-codex carries its value', () => {
+  const r = routeCommand('codex', [], '/model gpt-5.2-codex');
+  assert.equal(r.route, 'native-model');
+  assert.equal(r.arg, 'gpt-5.2-codex');
+  assert.equal(routeCommand('kimi', [], '/model').arg, '');
+});
