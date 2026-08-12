@@ -5,6 +5,7 @@
 // name → kind mapping applies.
 
 const { spawn } = require('child_process');
+const { knownBin } = require('./../bin-cache.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -67,7 +68,7 @@ class KimiAdapter {
       : ['-p', text, '--output-format', 'stream-json'];
     let child;
     try {
-      child = spawn('kimi', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(knownBin('kimi') || 'kimi', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       this.emit('error', { message: `Kimi could not start: ${err.message}` });
       this.emit('status', { state: 'idle' });

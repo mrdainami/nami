@@ -10,6 +10,7 @@
 // are settled rather than left spinning (Hermes never completes its calls).
 
 const { spawn } = require('child_process');
+const { knownBin } = require('./../bin-cache.js');
 const fs = require('fs');
 const path = require('path');
 const { capability, toolKindFor, clip, safeEvent, classifyFailure } = require('./../agent-events.js');
@@ -74,7 +75,7 @@ class AcpAdapter {
     if (!spec) { this.emit('error', { message: `No ACP endpoint for '${this.agent}'.` }); return false; }
 
     try {
-      this.child = spawn(spec.program, spec.args, {
+      this.child = spawn(knownBin(spec.program) || spec.program, spec.args, {
         cwd: this.cwd, env: this.env || process.env, stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
