@@ -10,6 +10,7 @@ const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
 const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { listConversations } = require('./session-store.js');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
@@ -1245,6 +1246,7 @@ ipcMain.handle('agent:permission', (_e, { id, permissionId, optionId }) => ({ ok
 ipcMain.handle('agent:interrupt', (_e, { id }) => ({ ok: agentSessions.interrupt(id) }));
 ipcMain.handle('agent:config', (_e, { id, configId, value }) => ({ ok: agentSessions.config(id, configId, value) }));
 ipcMain.handle('agent:stop', (_e, { id }) => { agentSessions.stop(id); return { ok: true }; });
+ipcMain.handle('agent:conversations', (_e, { agent, cwd }) => listConversations({ agent, cwd }));
 
 // Everything the conversation already holds, read once on a switch to Cards —
 // the backlog a live adapter cannot replay. Bounded exactly like the tail: a

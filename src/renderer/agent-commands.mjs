@@ -20,8 +20,15 @@
 
 // Overrides applied to protocol-published commands: a name the card has its
 // own control for is intercepted rather than sent as prose — the SDK would
-// accept "/model" as text, but the interactive picker is the point.
-const NATIVE_BY_NAME = { model: 'native-model' };
+// accept "/model" as text, but the interactive picker is the point, and
+// /resume /clear are conversation ops the card performs itself (swap or
+// mint the session id) so every agent behaves the same way.
+const NATIVE_BY_NAME = {
+  model: 'native-model',
+  resume: 'native-resume',
+  clear: 'native-clear',
+  new: 'native-clear',
+};
 
 export const STATIC_COMMANDS = {
   // codex exec is headless, but a setting that is a spawn flag is still
@@ -29,15 +36,17 @@ export const STATIC_COMMANDS = {
   // needs the TUI routes to the terminal.
   codex: [
     { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
-    { name: 'approvals', description: 'choose what runs without asking', route: 'terminal' },
+    { name: 'approvals', description: 'sandbox & approval mode for the next turn', route: 'native-mode' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'new', description: 'start a fresh conversation', route: 'native-clear' },
     { name: 'review', description: 'review the current changes', route: 'terminal' },
     { name: 'compact', description: 'summarise the conversation to save context', route: 'terminal' },
-    { name: 'status', description: 'session config & token use', route: 'terminal' },
     { name: 'mcp', description: 'list MCP servers', route: 'terminal' },
   ],
   kimi: [
     { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
-    { name: 'clear', description: 'clear the context', route: 'terminal' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
     { name: 'compact', description: 'compact the context', route: 'terminal' },
     { name: 'init', description: 'generate AGENTS.md for this project', route: 'terminal' },
     { name: 'mcp', description: 'manage MCP servers', route: 'terminal' },
@@ -46,6 +55,8 @@ export const STATIC_COMMANDS = {
     // model and mode ride the adapter's own flags on the next turn
     { name: 'model', description: 'set the model — applies from the next turn', argumentHint: 'model', route: 'native-model' },
     { name: 'mode', description: 'switch permission mode', route: 'native-mode' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
     { name: 'memory', description: 'manage saved memory', route: 'terminal' },
     { name: 'stats', description: 'session stats', route: 'terminal' },
     { name: 'tools', description: 'list available tools', route: 'terminal' },
@@ -56,8 +67,9 @@ export const STATIC_COMMANDS = {
   // adapter runs and nothing was published yet.
   claude: [
     { name: 'model', description: 'pick the model', route: 'native-model' },
+    { name: 'resume', description: 'pick a past conversation to continue', route: 'native-resume' },
+    { name: 'clear', description: 'start a fresh conversation', route: 'native-clear' },
     { name: 'compact', description: 'compact the conversation', route: 'send' },
-    { name: 'clear', description: 'start a fresh context', route: 'send' },
     { name: 'review', description: 'review the current changes', route: 'send' },
   ],
 };

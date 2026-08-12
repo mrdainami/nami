@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('dainami', {
   agentInterrupt: (args) => ipcRenderer.invoke('agent:interrupt', args),
   agentConfig: (args) => ipcRenderer.invoke('agent:config', args),
   agentStop: (args) => ipcRenderer.invoke('agent:stop', args),
+  // /resume's picker: the agent's own past conversations, read from its store.
+  agentConversations: (args) => ipcRenderer.invoke('agent:conversations', args),
   onAgentEvent: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('agent:event', h); return () => ipcRenderer.removeListener('agent:event', h); },
   // What the conversation already holds, read once on a switch to Cards.
   cardsBacklog: (args) => ipcRenderer.invoke('cards:backlog', args),

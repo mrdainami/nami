@@ -18,16 +18,19 @@ export function modeLabel(mode) {
     default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits',
     plan: 'plan', bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
     build: 'build', 'full access': 'full access',
+    // codex's sandbox story, told as modes
+    'read-only': 'read-only', 'workspace-write': 'workspace write', bypass: 'bypass ⚠',
   }[mode] || mode;
 }
 // One stable colour per mode, worn everywhere the mode appears — the chip,
 // the welcome pick, the mode menu — so shift⇥ state reads by hue before the
-// word: neutral asks, blue plans, green accepts edits, amber bypasses.
+// word: neutral asks, blue for the careful modes (plan, read-only), green
+// for pre-approved work (accept edits, workspace write), amber bypasses.
 export function modeClass(mode) {
   const m = String(mode || '');
   if (/bypass|skip/i.test(m)) return 'm-bypass';
-  if (/plan/i.test(m)) return 'm-plan';
-  if (/accept/i.test(m)) return 'm-accept';
+  if (/plan|read-only/i.test(m)) return 'm-plan';
+  if (/accept|workspace/i.test(m)) return 'm-accept';
   return 'm-default';
 }
 function shortModel(m) {

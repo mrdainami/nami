@@ -223,3 +223,30 @@ test('kimi keeps a chosen model; -m sits before -p so it is never swallowed', ()
   const init = events.filter((e) => e.kind === 'init').at(-1);
   assert.equal(init.model, 'kimi-k2.6-turbo');
 });
+
+// codex's approval story, expressed as next-turn flags: default passes
+// nothing (its own config decides), the sandbox pair maps to --sandbox,
+// bypass is the dangerously- flag.
+test('codex modes ride the next turn: sandbox flags, bypass, default-nothing', () => {
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: () => {} });
+  assert.ok(!a.turnArgs('hi').join(' ').includes('--sandbox'));
+  a.setConfigOption('mode', 'read-only');
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', 'hi']);
+  a.setConfigOption('mode', 'workspace-write');
+  assert.ok(a.turnArgs('hi').includes('workspace-write'));
+  a.setConfigOption('mode', 'bypass');
+  assert.ok(a.turnArgs('hi').includes('--dangerously-bypass-approvals-and-sandbox'));
+  a.setConfigOption('mode', 'default');
+  assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously/));
+  a.setConfigOption('mode', 'nonsense'); // unknown value falls back, never a bad flag
+  assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously|nonsense/));
+});
+
+test('codex announces its modes on init, all available', () => {
+  const events = [];
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.emitInit();
+  const init = events.find((e) => e.kind === 'init');
+  assert.deepEqual(init.modes.map((m) => m.id), ['default', 'read-only', 'workspace-write', 'bypass']);
+  assert.equal(init.mode, 'default');
+});

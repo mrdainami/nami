@@ -297,7 +297,7 @@ function dropFilesOnPanel(p, paths) {
       scheduleFeed(p);
       const rec = tileEls.get(p.id);
       if (rec && rec.cardsUi) {
-        rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+        rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: availableModes(p).some((m) => m.available) });
         refreshCardNote(p, rec); // clears the connecting note the moment the channel is real
       }
       refreshChannelBadge(p, rec);
@@ -323,7 +323,7 @@ function dropFilesOnPanel(p, paths) {
     if (ev.kind === 'turn_end' && typeof ev.ctxPct === 'number') {
       p.agentStatus = Object.assign(p.agentStatus || {}, { ctxPct: ev.ctxPct });
       const rec = tileEls.get(p.id);
-      if (rec && rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+      if (rec && rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: availableModes(p).some((m) => m.available) });
     }
     scheduleFeed(p);
     if (ev.kind === 'permission') setAttention(p);
@@ -2335,7 +2335,7 @@ async function driveCards(p) {
   // whatever backlog the conversation already holds.
   const intro = cardIntro(p, agent, { mode: (MODE_CYCLES[agent] || [])[0] || '' });
   p.agentStatus = Object.assign(p.agentStatus || {}, { name: intro.name, mode: intro.mode || undefined });
-  if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[agent] });
+  if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: availableModes(p).some((m) => m.available) });
   p.cardEvents = [intro];
   if (agent === 'claude') {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
@@ -2452,6 +2452,12 @@ function handleSlashCommand(p, text) {
     if (chip && !chip.hidden) openModeMenu(p, chip); else cycleMode(p);
     return true;
   }
+  if (r.route === 'native-clear') { clearConversation(p); return true; }
+  if (r.route === 'native-resume') {
+    const anchor = rec && rec.cardsUi && (rec.cardsUi.el.querySelector('.cd-ask') || rec.cardsUi.el);
+    if (anchor) openResumePicker(p, anchor);
+    return true;
+  }
   if (r.route === 'terminal') {
     const spec = terminalResumeSpec(p);
     p.cardEvents = (p.cardEvents || []).concat({
@@ -2475,6 +2481,48 @@ function availableModes(p) {
 }
 
 // shift⇥: the blind cycle, kept — but only through modes that exist here.
+// /clear and /new: a conversation op, not a setting. The tile stays, the
+// conversation ends — new id, fresh welcome, same folder. Claude keeps a
+// pinned id (both runtimes resume by it); the others mint theirs on first
+// contact, so their handle just drops.
+async function clearConversation(p) {
+  if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
+  if (cardAgentFor(p) === 'claude') p.sid = crypto.randomUUID();
+  p.acpSid = null;
+  p.agentStatus = null; p.agentCommands = [];
+  p.cardEvents = [];
+  savePanels();
+  await driveCards(p);
+}
+
+// /resume: pick a past conversation from the agent's own store and point
+// this tile at it. The picker reuses the head-menu; an agent whose store
+// can't be read says so instead of showing an empty sheet.
+async function openResumePicker(p, anchor) {
+  const agent = cardAgentFor(p);
+  const res = await api.agentConversations({ agent, cwd: p.cwd });
+  const list = (res && res.conversations) || [];
+  const cur = agent === 'claude' ? p.sid : p.acpSid;
+  const items = list.filter((c) => c.id !== cur).slice(0, 9).map((c) => ({
+    label: c.title || c.id.slice(0, 8),
+    desc: [c.age, c.preview].filter(Boolean).join(' · '),
+    run: () => resumeConversation(p, c.id),
+  }));
+  items.push({ label: '＋ Start fresh', desc: 'new conversation, same folder', run: () => clearConversation(p) });
+  if (!items.length) { toast((res && res.note) || 'No past conversations found for this agent here.'); return; }
+  if (list.length === 0 && res && res.note) items.unshift({ label: 'No past conversations found', desc: res.note, disabled: true });
+  showHeadMenu(anchor, items);
+}
+
+async function resumeConversation(p, id) {
+  if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
+  if (cardAgentFor(p) === 'claude') p.sid = id; else p.acpSid = id;
+  p.agentStatus = null; p.agentCommands = [];
+  p.cardEvents = [];
+  savePanels();
+  await driveCards(p); // claude's drive path reloads the backlog for the new id
+}
+
 function cycleMode(p) {
   if (!p.agentLive) return;
   const ids = availableModes(p).filter((m) => m.available).map((m) => m.id);

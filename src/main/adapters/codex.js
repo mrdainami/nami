@@ -12,6 +12,12 @@ const CAPABILITY = {
   note: 'headless: approvals run by its own config',
 };
 
+// The approval story codex exec can express as flags, in cycle order.
+// 'default' passes nothing — codex's own config decides; the sandbox pair
+// maps to --sandbox values; bypass is its dangerously- flag, warned amber
+// in the card like every other bypass.
+const CODEX_MODES = ['default', 'read-only', 'workspace-write', 'bypass'];
+
 function short(s, n) { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 // codex wraps every command in `/bin/zsh -lc "…"`; the row wants the command.
@@ -36,6 +42,7 @@ class CodexAdapter {
     this.child = null;
     this.threadId = null;
     this.model = null; // rides the next turn's flags — the channel is one-shot
+    this.mode = 'default'; // ditto: sandbox/approval flags on the next spawn
     this.turnStarted = 0;
   }
 
@@ -51,15 +58,19 @@ class CodexAdapter {
       agentSessionId: this.threadId,
       commands: [],
       model: this.model || null,
+      mode: this.mode || 'default',
+      // every mode is a spawn flag on this channel, so all are available
+      modes: CODEX_MODES.map((id) => ({ id, available: true })),
     });
   }
 
-  // /model on a one-shot channel: no live process to instruct, but `codex
-  // exec --model` exists — the choice is kept and every following turn
-  // spawns with it. Same pattern as agy's mode.
+  // /model and /approvals on a one-shot channel: no live process to
+  // instruct, but the exec flags exist — the choice is kept and every
+  // following turn spawns with it. Same pattern as agy's mode.
   setConfigOption(configId, value) {
-    if (configId !== 'model') return;
-    this.model = String(value || '') || null;
+    if (configId === 'model') this.model = String(value || '') || null;
+    else if (configId === 'mode') this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'default';
+    else return;
     this.emitInit();
   }
 
@@ -69,6 +80,8 @@ class CodexAdapter {
       ? ['exec', 'resume', this.threadId, '--json', '--skip-git-repo-check']
       : ['exec', '--json', '--skip-git-repo-check'];
     if (this.model) args.push('--model', this.model);
+    if (this.mode === 'bypass') args.push('--dangerously-bypass-approvals-and-sandbox');
+    else if (this.mode && this.mode !== 'default') args.push('--sandbox', this.mode);
     args.push(text);
     return args;
   }
