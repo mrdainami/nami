@@ -1598,6 +1598,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ctx-item { display: flex; align-items: baseline; gap: 18px; padding: 6px 10px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
 .ctx-item:hover { background: var(--paper-2); }
 .ctx-item.danger { color: var(--red-ink); }
+/* A row that is present to explain itself, not to be clicked. --muted-2 rather
+   than --faint: it still reads as disabled next to a live row, and --faint on
+   graphite lands near 3:1 on the menu ground, which is the grey-on-dark the
+   theme was corrected for once already. */
+.ctx-item.off { color: var(--muted-2); cursor: default; }
+.ctx-item.off:hover { background: none; }
+.ctx-item.off .ctx-kb { color: var(--red-ink); }
 /* the shortcut a row already has, printed where people look for it */
 .ctx-item .ctx-kb { margin-left: auto; font-size: 11px; color: var(--faint); }
 .ctx-sep { border-top: 1px dashed var(--dash); margin: 4px 6px; }
