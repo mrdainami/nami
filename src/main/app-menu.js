@@ -17,6 +17,7 @@
 // that hands the result to Electron.
 
 const REPO = 'https://github.com/mrdainami/nami';
+const SITE = 'https://nami.dainami.ai';
 
 // Where the app sends people, and how those visits are told apart later.
 //
@@ -25,9 +26,15 @@ const REPO = 'https://github.com/mrdainami/nami';
 // instead: they cost nothing, they are visible to anyone who looks at the link,
 // and they are read by analytics that already exist on the other end. The
 // medium names the surface so "did the Help menu ever get used" has an answer.
+//
+// docs and terms are the site's own pages, so they get the same treatment as
+// dainami.ai. releases stays bare with the other GitHub links.
 const LINKS = {
   repo: REPO,
   issue: `${REPO}/issues/new`,
+  releases: `${REPO}/releases`,
+  docs: `${SITE}/docs?utm_source=nami-app&utm_medium=help-menu`,
+  terms: `${SITE}/terms?utm_source=nami-app&utm_medium=help-menu`,
   teams: 'https://dainami.ai/?utm_source=nami-app&utm_medium=help-menu&utm_campaign=teams',
   maker: 'https://dainami.ai/links?utm_source=nami-app&utm_medium=help-menu',
 };
