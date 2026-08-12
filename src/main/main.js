@@ -522,7 +522,6 @@ ipcMain.handle('boot', (e) => {
     // ask the provider registry, not the environment — a key typed into Settings
     // counts just as much as an exported one, and the local engine needs neither
     sttInfo: sttStatus(),
-    claudeExe: resolveClaudeExecutable(),
     recentFolders: recentsForRenderer(),
     currentFolder: ok ? scanFolder(folder) : null,
     panels: panelsFor(ok ? folder : null),

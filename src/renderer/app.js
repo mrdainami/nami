@@ -149,7 +149,7 @@ const EVERGREEN_ROWS = [
 
 // ---- state -----------------------------------------------------------------
 const S = {
-  project: null, recents: [], claudeExe: null, demo: false,
+  project: null, recents: [], demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
@@ -215,7 +215,7 @@ function dropFilesOnPanel(p, paths) {
   const b = await api.boot();
   S.winId = b.winId || 0;
   S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
-  S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
@@ -1480,7 +1480,12 @@ function refreshLibraryRail(c) {
   }
   if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }
 }
-function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
+// With no folder there is exactly one thing worth saying, and it is the thing
+// the screen is asking you to fix. This used to announce "claude ready" when the
+// Claude CLI happened to be installed — from when the app only ran that one
+// agent. It named a single agent on the first screen a new user sees, and said
+// it on a screen where no agent can start: every action here needs a folder.
+function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : 'no folder open'; }
 
 // ===========================================================================
 //  Grid of tiles
