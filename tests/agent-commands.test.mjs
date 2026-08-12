@@ -51,8 +51,12 @@ test('plain prose is not a command at all', () => {
 
 test('string-shaped commands from a channel normalize like the richer shape', () => {
   const cmds = commandsFor('opencode', ['compact', 'undo']);
-  assert.deepEqual(cmds.map((c) => c.name), ['compact', 'undo']);
-  for (const c of cmds) assert.equal(c.route, 'send');
+  for (const n of ['compact', 'undo']) {
+    const c = cmds.find((x) => x.name === n);
+    assert.ok(c, n + ' kept');
+    assert.equal(c.route, 'send'); // the channel executes its own commands as text
+  }
+  assert.ok(cmds.some((c) => c.name === 'resume')); // natives still append
 });
 
 test('agy mode switches natively — its adapter owns the flag', () => {
@@ -110,4 +114,18 @@ test('native ops win even when the channel never published the name', () => {
   assert.equal(routeCommand('claude', published, '/model').route, 'native-model');
   const names = commandsFor('claude', published).map((c) => c.name);
   assert.ok(names.includes('resume') && names.includes('clear') && names.includes('compact'));
+});
+
+// The audit, made permanent: no agent's menu is ever empty, no native-owned
+// name ever routes 'send' anywhere, and /mode never mails itself to a
+// channel as text — the exact class of bug this sweep kept finding.
+test('audit: every agent has a menu and native names never leak as send', () => {
+  const NATIVE = ['model', 'mode', 'approvals', 'resume', 'clear', 'new'];
+  for (const agent of ['claude', 'codex', 'kimi', 'agy', 'opencode', 'hermes']) {
+    assert.ok(commandsFor(agent, []).length > 0, agent + ' menu must never be empty');
+    for (const n of NATIVE) {
+      const r = routeCommand(agent, [], '/' + n);
+      assert.ok(r.route.startsWith('native'), `${agent} /${n} → ${r.route}`);
+    }
+  }
 });
