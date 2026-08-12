@@ -1409,6 +1409,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-intro .cd-wn { font-weight: 700; font-size: 14px; }
 .cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: 10.5px; }
 .cd-intro .cd-wf { color: var(--muted); font-size: 10.5px; }
+/* the channel's own caveat, said on the welcome — 'headless: approvals run
+   by its own config' beats finding out by surprise */
+.cd-intro .cd-wnote { color: var(--muted); font-size: 10px; font-style: italic; max-width: 46ch; }
 .cd-intro .cd-wp { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 90%; margin-top: 4px; }
 .cd-wpick {
   display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: 11px;
