@@ -149,7 +149,7 @@ const EVERGREEN_ROWS = [
 
 // ---- state -----------------------------------------------------------------
 const S = {
-  project: null, recents: [], claudeExe: null, demo: false,
+  project: null, recents: [], demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
@@ -215,7 +215,7 @@ function dropFilesOnPanel(p, paths) {
   const b = await api.boot();
   S.winId = b.winId || 0;
   S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
-  S.demo = b.demo; S.claudeExe = b.claudeExe; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
@@ -1480,7 +1480,12 @@ function refreshLibraryRail(c) {
   }
   if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }
 }
-function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : (S.claudeExe ? 'claude ready' : 'no folder open'); }
+// With no folder there is exactly one thing worth saying, and it is the thing
+// the screen is asking you to fix. This used to announce "claude ready" when the
+// Claude CLI happened to be installed — from when the app only ran that one
+// agent. It named a single agent on the first screen a new user sees, and said
+// it on a screen where no agent can start: every action here needs a folder.
+function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : 'no folder open'; }
 
 // ===========================================================================
 //  Grid of tiles
@@ -1532,26 +1537,38 @@ function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
     els.grid.classList.remove('has-focus');
-    // With no folder the desk asks for one instead of offering an action that
-    // would have to stop and ask anyway.
+    // Two empty desks, one shape: a heading, a line of why, and the button that
+    // does the thing. The folder-open one used to be the exception — it told you
+    // to press a key and offered nothing to click, which is the one state in the
+    // app where the next step was homework. Its hint also still named Claude Code
+    // alone, from when that was the only session Nami could start.
     els.grid.innerHTML = S.project
       ? `<div class="lane-empty"><div class="polaroid">nothing open</div>
-      <div><div class="big">Start a session</div><div class="hint">Press ⌘N (or the ＋ New session button) — Claude Code, terminals &amp; harnesses.</div></div></div>`
+      <div><div class="big">Start a session</div>
+      <div class="hint">Agents, terminals and harnesses. They all run in this folder.</div>
+      <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
       : `<div class="lane-empty"><div class="polaroid">no folder</div>
       <div><div class="big">Open a folder to start working</div>
-      <div class="hint">Every session runs inside a folder — that is what keeps it resumable.</div>
+      <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
       <button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button></div></div>`;
-    // The empty desk is the one screen every user sees, on the first launch and
-    // between every job after it — and the only place in the app that says who
-    // made this without being opened first. Footer weight on purpose: it must
-    // never compete with the button above it, and it is deliberately not in the
-    // keyboard-hints strip below, which is one category of thing and would read
-    // as a bug with a link in it.
-    els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
-    els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
-      el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
-    });
+    // The credit belongs to the front door only. It is the first screen anyone
+    // sees and the only place the app says who made it without being opened
+    // first, so it earns the line there. The folder-open desk is somebody
+    // mid-job who just closed their last tile: asking them for a star on their
+    // own desk is asking for a favour in the middle of the work. The one-time
+    // bar after five launches (armStarAsk) is the ask that has been earned; a
+    // line that is always on screen only makes that one read as nagging.
+    // Footer weight on purpose: it must never compete with the button above it,
+    // and it is deliberately not in the keyboard-hints strip below, which is one
+    // category of thing and would read as a bug with a link in it.
+    if (!S.project) {
+      els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
+      els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
+        el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+      });
+    }
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
+    const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
   }
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
@@ -3625,11 +3642,33 @@ function voiceFootHtml() {
     <span class="set-result" id="set-result">${esc(o.test || 'say something and Nami will type it back')}</span>`;
 }
 function voiceFlag(p) {
+  // Ready on a key Nami never saved means the key arrived on the environment
+  // this run was launched with. That is true right now and worth saying, but it
+  // is not durable: user-path.js merges the login shell's PATH into a Dock
+  // launch and nothing else, so from the Dock the variable is absent and this
+  // same provider reports "no API key". Saying only "ready" is what made Voice
+  // and Keys look like they disagreed about the same key.
+  if (p.ready && p.needsKey && !p.keySaved) return 'ready · from your shell';
   if (p.ready) return 'ready';
   if (p.downloadBytes) return mb(p.downloadBytes) + ' to download';
   return p.reason || 'not set up';
 }
 function mb(bytes) { return Math.round(bytes / 1e6) + ' MB'; }
+
+// What a download is doing, said in the units the event actually carries.
+// stt-model counts FILES: { phase: 'download', done: 3, total: 7 }. This used
+// to read that 7 as a byte total and print `mb(0) of mb(7)` — "0 MB of 0 MB",
+// for the entire download, alongside a `loaded` field that has never existed.
+// Real byte progress would mean streaming each file against its content-length;
+// it is not worth it here, because two of the seven files are ~95% of the bytes,
+// so a byte counter would stall twice for a long time and say less than this.
+// Returns null when there is nothing to say, so the caller leaves the note as is.
+function dlProgressText(ev) {
+  if (!ev) return null;
+  if (ev.phase === 'load') return 'Getting the model ready…';
+  if (!ev.total) return null;
+  return `${ev.done || 0} of ${ev.total} files…`;
+}
 
 // The picked row is the only one that opens: a pointer to the Keys tab when the
 // key is missing, or a download button. Keys are typed in exactly one place —
@@ -3639,6 +3678,13 @@ function voiceRowBodyHtml(p) {
     return `<div class="set-opt-body"><div class="setup-note">needs your ${esc(p.keyEnv)} —
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">add it in Keys</span></div>
       ${p.keyHelpUrl ? `<div class="sv-help" data-url="${esc(p.keyHelpUrl)}">where do I find my key?</div>` : ''}</div>`;
+  }
+  // Usable, but on a key Nami is not holding. The row says where it came from
+  // and what would make it survive the next launch.
+  if (p.needsKey && p.ready && !p.keySaved) {
+    return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Nami was started in.
+        Open Nami from the Dock and it will not be there.
+        <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">Save it in Keys</span> to make it stick.</div></div>`;
   }
   if (p.id === 'local' && !p.ready && p.downloadBytes) {
     return `<div class="set-opt-body">
@@ -3688,7 +3734,8 @@ function wireVoicePane(modal) {
     dl.disabled = true; dl.textContent = 'Downloading…';
     const off = api.onSttProgress((ev) => {
       const note = q('#set-dl-note', modal);
-      if (note && ev && ev.total) note.textContent = `${mb(ev.loaded || 0)} of ${mb(ev.total)}…`;
+      const line = dlProgressText(ev);
+      if (note && line) note.textContent = line;
     });
     const res = await api.sttPrepare();
     off();
