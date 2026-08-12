@@ -9,12 +9,16 @@
 // they light up, and fenced code scrolls inside its own block.
 
 import { renderMarkdown } from './md.mjs';
-import { pixIcon } from './icons.mjs';
+import { pixIcon, iconKeyFor, iconSvg } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function modeLabel(mode) {
-  return { default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits', plan: 'plan', bypassPermissions: 'bypass' }[mode] || mode;
+  return {
+    default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits',
+    plan: 'plan', bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
+    build: 'build', 'full access': 'full access',
+  }[mode] || mode;
 }
 function shortModel(m) {
   const s = String(m || '').split('/').pop();
@@ -177,13 +181,28 @@ function renderRow(ctx, row) {
   }
 
   if (row.kind === 'intro') {
-    // The card-native TUI banner: who this is, on what, in which folder.
-    const facts = [row.model, row.mode, shortPath(row.cwd)].filter(Boolean)
-      .map((f) => `<span class="f">${esc(f)}</span>`).join('<span class="dot">·</span>');
+    // The welcome — the card-native TUI banner. Logo, name and version, the
+    // folder, then the session's dials stacked (stable at every width), then
+    // the keys. Pickers are live where the channel can switch; facts where it
+    // cannot.
     el.dataset.n = `${row.model}|${row.mode}`;
-    el.innerHTML = `<div class="t">✳ ${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
-      ${facts ? `<div class="d">${facts}</div>` : ''}
-      <div class="h">/ for commands · esc interrupts · ⌘↑ ⌘↓ walk your turns</div>`;
+    const key = iconKeyFor(row.name || '');
+    const mark = (key && iconSvg(key)) || `<span class="cd-wl-t">${esc(String(row.name || 'A').slice(0, 2).toUpperCase())}</span>`;
+    el.innerHTML = `
+      <div class="cd-wl">${mark}</div>
+      <div class="cd-wn">${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
+      <div class="cd-wf">${esc(shortPath(row.cwd))}</div>
+      <div class="cd-wp">
+        ${row.model ? `<button class="cd-wpick" data-act="model"><span class="lab">model</span><span class="val">${esc(shortModel(row.model))}</span><span class="c">⌄</span></button>` : ''}
+        ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
+      </div>
+      <div class="cd-wh">/ commands · esc interrupts · shift⇥ cycles mode · ⌘↑ ⌘↓ walk turns</div>`;
+    el.querySelectorAll('.cd-wpick').forEach((b) => {
+      b.onclick = () => {
+        if (b.dataset.act === 'mode' && ctx.onMode) ctx.onMode();
+        else if (b.dataset.act === 'model' && ctx.onModelMenu) ctx.onModelMenu();
+      };
+    });
     return el;
   }
 
@@ -373,11 +392,19 @@ export function buildCards(ctx) {
     <div class="cd-menu" hidden></div>
     <div class="cd-ask">
       <span class="m">❯</span>
-      <select class="cd-model" hidden title="Model"></select>
-      <button class="cd-mode" hidden title="Permission mode — click to switch"></button>
-      <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · ⌘↑/⌘↓ walk your turns" />
+      <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · shift⇥ cycles mode · ⌘↑/⌘↓ walk your turns" />
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
+    </div>
+    <div class="cd-status" hidden>
+      <span class="cs-mk">▸▸</span>
+      <button class="cs-mode" title="Click or shift⇥ to cycle"></button>
+      <span class="cs-kb">(shift⇥ cycles)</span>
+      <span class="cs-dot">·</span>
+      <select class="cd-model cs-model" title="Model"></select>
+      <span class="cs-dot cs-ctxdot" hidden>·</span>
+      <span class="cs-ctx" hidden></span>
+      <span class="cs-right">/ commands · esc interrupts</span>
     </div>`;
 
   const list = q('.cd-list', el);
@@ -498,16 +525,19 @@ export function buildCards(ctx) {
     note.classList.toggle('urgent', !!urgent);
   }
 
-  // The composer knows what it's running: a mode chip (click cycles, where
-  // the channel can switch) and a model chip (a real picker where the agent
-  // published a list, a plain fact otherwise).
-  const modelSel = q('.cd-model', el);
-  const modeChip = q('.cd-mode', el);
+  // The status line — the terminal's own bottom line, kept: one fixed-height
+  // strip of text under the input. It never wraps, never crowds the typing.
+  const statusEl = q('.cd-status', el);
+  const modelSel = q('.cs-model', el);
+  const modeChip = q('.cs-mode', el);
   modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
   modelSel.addEventListener('keydown', (e) => e.stopPropagation());
   modeChip.onclick = () => { if (ctx.onMode) ctx.onMode(); };
   function setStatus(st) {
     const models = st && st.models;
+    const hasModel = !!(models && models.options && models.options.length) || !!(st && st.model);
+    const hasMode = !!(st && st.mode);
+    statusEl.hidden = !hasModel && !hasMode;
     if (models && Array.isArray(models.options) && models.options.length) {
       modelSel.innerHTML = models.options.map((m) =>
         `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
@@ -520,14 +550,23 @@ export function buildCards(ctx) {
     } else {
       modelSel.hidden = true;
     }
-    if (st && st.mode) {
+    if (hasMode) {
       modeChip.textContent = modeLabel(st.mode);
       modeChip.hidden = false;
       modeChip.disabled = !st.canSwitchMode;
+      modeChip.classList.toggle('warn', /bypass|skip/i.test(st.mode));
     } else {
       modeChip.hidden = true;
     }
+    const ctxLbl = q('.cs-ctx', el), ctxDot = q('.cs-ctxdot', el);
+    const show = st && typeof st.ctxPct === 'number';
+    ctxLbl.hidden = ctxDot.hidden = !show;
+    if (show) ctxLbl.textContent = st.ctxPct + '% ctx';
   }
+  // shift⇥ cycles the mode from the keyboard, exactly like the TUI
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); e.stopPropagation(); if (ctx.onMode) ctx.onMode(); }
+  });
 
   return {
     el, list, input,

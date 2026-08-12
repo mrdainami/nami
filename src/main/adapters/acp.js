@@ -414,6 +414,8 @@ class AcpAdapter {
           durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0,
           costUsd: usage && usage.cost && usage.cost.currency === 'USD' ? Number(usage.cost.amount) || 0 : 0,
           tokens: usage ? usage.used : 0,
+          // ACP reports used/size directly — the honest context gauge.
+          ctxPct: usage && usage.size > 0 ? Math.max(1, Math.min(99, 100 - Math.round((usage.used / usage.size) * 100))) : undefined,
           ok: !result || result.stopReason !== 'refusal',
         });
         if (result && result.stopReason && result.stopReason !== 'end_turn' && result.stopReason !== 'cancelled') {

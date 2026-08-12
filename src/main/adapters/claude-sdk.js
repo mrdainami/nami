@@ -192,14 +192,20 @@ class ClaudeSdkAdapter {
         break;
       }
 
-      case 'result':
+      case 'result': {
         this.sessionId = msg.session_id || this.sessionId;
+        // Context left, from the usage the channel reports: everything that
+        // went in this turn against the 200k window.
+        const u = msg.usage || {};
+        const used = (Number(u.input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0);
         this.emit('turn_end', {
           durationMs: Number(msg.duration_ms || msg.duration_api_ms) || 0,
           costUsd: Number(msg.total_cost_usd) || 0,
           numTurns: Number(msg.num_turns) || 0,
+          ctxPct: used > 0 ? Math.max(1, Math.min(99, 100 - Math.round(used / 2000))) : undefined,
           ok: !msg.is_error && msg.subtype !== 'error_during_execution',
         });
+      }
         if (msg.is_error && msg.result) this.emit('error', { message: String(msg.result) });
         this.emit('status', { state: 'idle' });
         break;
