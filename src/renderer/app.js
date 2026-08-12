@@ -14,6 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
+import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
@@ -1078,12 +1079,17 @@ function showMenu(x, y, items) {
   const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
   for (const it of items) {
     if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
-    const row = document.createElement('div'); row.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    const row = document.createElement('div');
+    row.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.off ? ' off' : '');
     row.textContent = it.label;
     // The menu is where people look for a shortcut they don't know yet, so the
     // ones that exist say so here rather than staying folklore.
     if (it.kb) { const k = document.createElement('span'); k.className = 'ctx-kb'; k.textContent = it.kb; row.appendChild(k); }
-    row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(); };
+    // An inert row is there to answer "why can't I open this?" — it says the
+    // reason in the shortcut column and does nothing when clicked. Removing it
+    // instead would leave the question unanswered.
+    if (it.off) row.onclick = (e) => e.stopPropagation();
+    else row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(e); };
     m.appendChild(row);
   }
   document.body.appendChild(m);
@@ -1768,6 +1774,7 @@ function mountTerminal(p, rec) {
   term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
+  wireTerminalMenu(term, p, rec);
   // Debounced: a resize drag would otherwise fire a pty resize per frame, and
   // every one of those reflows the scrollback (mid-word wraps, sliced borders).
   let refitTimer = null;
@@ -1837,6 +1844,12 @@ function openTermLink(link, st, ev) {
   else if (st) api.revealFile(st.abs);
 }
 
+// What the pointer is over, per tile, so the right-click menu knows what was
+// right-clicked. xterm already does the hit-testing to fire hover/leave;
+// recomputing a cell from mouse coordinates would be a second implementation of
+// it, free to disagree with the one drawing the underline.
+const hoveredLink = new Map();   // panel id -> { link, st }
+
 function registerTerminalLinks(term, p) {
   if (!term.registerLinkProvider) return;
   term.registerLinkProvider({
@@ -1847,28 +1860,66 @@ function registerTerminalLinks(term, p) {
       Promise.all(found.map(async (link) => {
         if (link.kind === 'url') return { link, st: null };
         const st = await statLink(link.text, p.cwd, p.id);
-        return st && st.exists ? { link, st } : null;
+        // A missed stat is handed over rather than dropped. Undecorated and
+        // inert, it looks and behaves exactly as it does now — but xterm knows
+        // it is there, which is what gives it a right-click. Copying does not
+        // need the file to exist, and gating the menu on the stat would hide it
+        // in the one case it exists for.
+        return { link, st: st && st.exists ? st : null };
       })).then((rows) => {
         const links = [];
         for (const row of rows) {
           if (!row) continue;
           const start = at[row.link.start], end = at[row.link.end - 1];
           if (!start || !end) continue;
+          const live = row.link.kind === 'url' || !!row.st;
           links.push({
             text: row.link.text,
             range: { start, end },
             // Without this xterm decorates nothing: a path that opens on
             // ⌘-click looked exactly like a path that does not, and the only
             // way to find out was to try. Now the cursor and the underline say
-            // so before you commit to the click.
-            decorations: { pointerCursor: true, underline: true },
-            activate: (ev) => { if (ev.metaKey || ev.ctrlKey) openTermLink(row.link, row.st, ev); },
+            // so before you commit to the click. Dead paths stay bare — the
+            // underline has to keep meaning "this opens".
+            decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
+            activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
+            hover: () => hoveredLink.set(p.id, { link: row.link, st: row.st, live }),
+            // Only clear if this link is still the one recorded. Moving from
+            // one link straight onto the next fires the new hover before the
+            // old leave, and an unconditional delete would throw away the link
+            // the pointer is actually on.
+            leave: () => {
+              const cur = hoveredLink.get(p.id);
+              if (cur && cur.link === row.link) hoveredLink.delete(p.id);
+            },
           });
         }
         callback(links.length ? links : undefined);
       }).catch(() => callback(undefined));
     },
   });
+}
+
+// Right-click a link in a session. Away from one this does nothing and the
+// terminal keeps whatever behaviour it had — this is a link menu, not a
+// terminal menu, and copying arbitrary text is what selection is for.
+function wireTerminalMenu(term, p, rec) {
+  rec.body.addEventListener('contextmenu', (e) => {
+    const hit = hoveredLink.get(p.id);
+    if (!hit) return;
+    e.preventDefault();
+    const items = termMenuItems({ kind: hit.link.kind, text: hit.link.text, st: hit.st }).map((it) => {
+      if (it === '-' || it.off) return it;
+      if (it.copy != null) return { ...it, run: () => copyLinkText(it.copy) };
+      return { ...it, run: (ev) => openTermLink(hit.link, hit.st, { altKey: it.label === 'Reveal in Finder', ...(ev || {}) }) };
+    });
+    showMenu(e.clientX, e.clientY, items);
+  });
+}
+
+async function copyLinkText(text) {
+  try { await api.copyText(text); toast('Copied ' + shorten(text, 44) + '.'); }
+  catch (_) { toast('Could not copy that.'); }
 }
 
 // OSC 8 hyperlinks (a CLI marking its own text as a link) come through xterm's
