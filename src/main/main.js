@@ -291,6 +291,35 @@ function recentsForRenderer() {
 function broadcastRecents() {
   const rows = recentsForRenderer();
   for (const w of wins) sendWc(w.webContents, 'recents:changed', rows);
+  refreshAppMenu();   // File > Open Recent is this same list
+}
+
+// ---- the application menu --------------------------------------------------
+// Two things in it are state, so the menu is rebuilt rather than built once:
+// Open Recent is the recents list, and View > Theme ticks the saved theme.
+// Both change while the app runs, and a menu is a snapshot of the moment it was
+// installed.
+//
+// Every Nami item sends a string to the window you are looking at. The focused
+// window and not all of them: two windows are two project spaces, and ⌘N in one
+// must not open a launcher in the other. `win` is the fallback for the moment
+// between a window closing and the next taking focus.
+function menuSend(cmd) {
+  const w = BrowserWindow.getFocusedWindow() || win;
+  if (w) sendWc(w.webContents, 'menu:command', cmd);
+}
+function refreshAppMenu() {
+  installAppMenu({
+    Menu,
+    shell,
+    app,
+    send: menuSend,
+    newWindow: () => createWindow(null),
+    theme: readSettings().theme,
+    // A recents row can outlive its folder, and a menu item that opens nothing
+    // is worse than one that is not there.
+    recents: recentsForRenderer().filter((r) => !r.missing),
+  });
 }
 
 // ---- updates ---------------------------------------------------------------
@@ -422,7 +451,22 @@ app.whenReady().then(() => {
   loadState();
   // Before any window: the menu belongs to the app, and setting it after a
   // window exists makes the first one flash the stock menu bar.
-  installAppMenu({ Menu, shell, app });
+  refreshAppMenu();
+  // No menu item opens the stock About panel any more, but macOS can still
+  // reach it, and it was saying the wrong thing: electron-builder derives
+  // NSHumanReadableCopyright from `author` when the yml does not set
+  // `copyright`, so a company's app credited a person. Fixed in both places,
+  // here for the panel and in electron-builder.yml for the bundle.
+  //
+  // The year is written out rather than taken from the clock. A copyright year
+  // belongs to the release, not to whenever the machine happens to be running
+  // it.
+  app.setAboutPanelOptions({
+    applicationName: 'Nami',
+    applicationVersion: app.getVersion(),
+    copyright: 'Copyright © 2026 Dainami AI',
+    credits: 'AI agent workbench, by Dainami',
+  });
   installDocProtocol();  // serve viewed HTML + its assets from nami-doc://
   // Ask the login shell for the real PATH now, so the answer is already waiting
   // when the first session spawns. Deliberately not awaited: a slow .zshrc must
@@ -826,7 +870,11 @@ ipcMain.handle('url:open', (_e, url) => {
 });
 
 // Theme lives in settings.json so the window background matches on next launch.
-ipcMain.handle('theme:set', (_e, theme) => writeSettings({ theme: settingsStore.normalizeTheme(theme) }));
+ipcMain.handle('theme:set', (_e, theme) => {
+  const saved = writeSettings({ theme: settingsStore.normalizeTheme(theme) });
+  refreshAppMenu();   // View > Theme ticks the saved one, so it has to be rebuilt
+  return saved;
+});
 
 // The Settings page reads and writes settings.json directly. Only these keys are
 // writable from the renderer — panel layout and recents live in state.json and

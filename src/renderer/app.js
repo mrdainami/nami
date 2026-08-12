@@ -361,6 +361,8 @@ function dropFilesOnPanel(p, paths) {
     savePanels();
   });
 
+  api.onMenuCommand((cmd) => runMenuCommand(cmd));
+
   if (S.demo) seedDemo();
   refreshAgents();   // pre-detect so ⌘N is instant
   refreshServices(); // services group in the library + connect sheets
@@ -527,6 +529,91 @@ function showScene(name) {
     if (what !== 'agent' && what !== 'skill') return;
     openCreate(what); // one screen for both — the step argument died with the steps
   });
+}
+
+// ===========================================================================
+//  The menu bar, from this side
+// ===========================================================================
+// Every Nami item in the application menu arrives here as a string. The rule
+// this file keeps is that a menu item never has its own implementation: it
+// calls the same function the keyboard or the button already called, so there
+// is one behaviour per command and the menu only adds a label to it.
+//
+// Which is also why ⌘W is in here at all. A menu accelerator outranks a
+// renderer keydown, so the moment File carries ⌘W the keydown below stops
+// firing for it. Routing it to closeActive() is what keeps the key meaning
+// close *pane* instead of Close Window, which is what the conventional menu
+// item would have made it.
+function runMenuCommand(cmd) {
+  const [what, ...rest] = String(cmd || '').split(':');
+  const arg = rest.join(':'); // an argument can be a path, and paths carry colons' worth of slashes
+  if (what === 'about') return openSettings('about');
+  if (what === 'settings') return openSettings(arg || 'voice');
+  if (what === 'update-check') {
+    openSettings('about');
+    // The pane's own button, pressed. Checking has one implementation and it
+    // lives in wireAboutPane, including the part where asking by hand
+    // un-dismisses a version that was waved away.
+    const act = q('#ab-act');
+    if (act) act.click();
+    return undefined;
+  }
+  if (what === 'new-session') return openLauncher();
+  if (what === 'open-folder') return openFolderDialog();
+  if (what === 'open-recent') return arg ? openFolder(arg) : undefined;
+  if (what === 'new-file' || what === 'new-folder') {
+    if (!S.project) { toast('Open a folder first.'); return openFolderDialog(); }
+    S.railTab = 'workspace'; renderRail();
+    return openFsName(what === 'new-file' ? 'file' : 'folder', S.project.path);
+  }
+  if (what === 'save') { if (!saveActive()) toast('Nothing here to save.'); return undefined; }
+  if (what === 'reveal') {
+    const p = activeFilePanel();
+    if (!p) { toast('Open a file first.'); return undefined; }
+    return api.revealFile(p.filePath);
+  }
+  if (what === 'close-pane') return closeActive();
+  if (what === 'dictate') {
+    const p = S.panels.find((x) => x.id === S.activeId);
+    if (!p) { toast('Start a session first.'); return undefined; }
+    return toggleMic(p);
+  }
+  if (what === 'rail') {
+    if (arg === 'toggle') { S.railCollapsed = !S.railCollapsed; return applyChrome(); }
+    S.railTab = arg;
+    if (arg === 'library') loadLibrary(true);
+    return renderRail();
+  }
+  if (what === 'theme') return setTheme(arg);
+  if (what === 'agents') return openAgentPicker();
+  return undefined;
+}
+
+// Both of these were written inline in onGlobalKey. They are functions now
+// because the menu has to run the same code, and a second copy of "what does
+// ⌘W mean" is exactly how the two would drift apart.
+function closeActive() {
+  if (S.overlay && S.overlay.type === 'peek') requestClosePeek();
+  else if (S.activeId) closePanel(S.activeId);
+}
+// Returns whether it saved anything, because the keydown only swallows ⌘S when
+// there was something to save.
+function saveActive() {
+  const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (pk && pk.kind === 'editor') { saveEditor(pk); return true; }
+  if (pk && pk.kind === 'card') { saveCard(pk); return true; }
+  const p = S.panels.find((x) => x.id === S.activeId);
+  if (p && p.kind === 'editor') { saveEditor(p); return true; }
+  if (p && p.kind === 'card') { saveCard(p); return true; }
+  return false;
+}
+// A peek wins over the tile behind it, same as saving does: it is what you are
+// looking at.
+function activeFilePanel() {
+  const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (pk && pk.filePath) return pk;
+  const p = S.panels.find((x) => x.id === S.activeId);
+  return p && p.filePath ? p : null;
 }
 
 // ===========================================================================
@@ -712,8 +799,11 @@ function onGlobalKey(e) {
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
   if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
   if (meta && e.key === ',') { e.preventDefault(); openSettings(); return; }
-  if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); if (S.overlay && S.overlay.type === 'peek') requestClosePeek(); else if (S.activeId) closePanel(S.activeId); return; }
-  if (meta && (e.key === 's' || e.key === 'S')) { const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel; if (pk && pk.kind === 'editor') { e.preventDefault(); saveEditor(pk); return; } if (pk && pk.kind === 'card') { e.preventDefault(); saveCard(pk); return; } const p = S.panels.find((x) => x.id === S.activeId); if (p && p.kind === 'editor') { e.preventDefault(); saveEditor(p); } else if (p && p.kind === 'card') { e.preventDefault(); saveCard(p); } return; }
+  // ⌘W and ⌘S are also menu items now, and a menu accelerator fires instead of
+  // this handler rather than as well as it. Both paths call the same function,
+  // so which one the keystroke takes cannot change what it does.
+  if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); closeActive(); return; }
+  if (meta && (e.key === 's' || e.key === 'S')) { if (saveActive()) e.preventDefault(); return; }
   if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
@@ -3918,6 +4008,7 @@ function aboutPaneHtml() {
     </div>
     <hr class="ab-rule" />
     <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Cal</a>, in Nami.</div>
+    <div class="ab-copy">© 2026 Dainami AI · MIT licensed</div>
     <div class="ab-team">
       <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Nami for your team? →</button>
     </div>`;
