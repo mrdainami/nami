@@ -76,6 +76,8 @@ function diffEl(diff) {
   wrap.className = 'cd-diff';
   const del = String(diff.oldText || '').split('\n');
   const add = String(diff.newText || '').split('\n');
+  if (del.length > 1 && del.at(-1) === '') del.pop();
+  if (add.length > 1 && add.at(-1) === '') add.pop();
   const cut = (lines, cap, cls, mark) => {
     if (lines.length === 1 && lines[0] === '') return '';
     const shown = lines.slice(0, cap);
@@ -102,6 +104,7 @@ function renderRow(ctx, row) {
   }
 
   if (row.kind === 'assistant') {
+    el.dataset.n = String(row.text || '').length;
     el.appendChild(proseHtml(row.text));
     return el;
   }
@@ -160,6 +163,15 @@ function renderRow(ctx, row) {
 
 function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
+  // Streaming prose: an adapter re-emits the same row id with more text.
+  if (row.kind === 'assistant' || row.kind === 'thinking') {
+    const n = String(row.text || '').length;
+    if (String(el.dataset.n || '') === String(n)) return;
+    el.dataset.n = n;
+    const host = row.kind === 'assistant' ? el : q('.cd-th-body', el);
+    if (host) { const old = q('.cd-md', host); if (old) old.remove(); host.appendChild(proseHtml(row.text)); }
+    return;
+  }
   if (row.kind !== 'tool') return;
   el.classList.toggle('err', !!row.isError);
   el.classList.toggle('pending', !!row.pending);
@@ -248,6 +260,7 @@ export function buildCards(ctx) {
     <div class="cd-menu" hidden></div>
     <div class="cd-ask">
       <span class="m">❯</span>
+      <select class="cd-model" hidden title="Model"></select>
       <input class="cd-input" type="text" placeholder="Reply to this session…" />
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
@@ -342,9 +355,19 @@ export function buildCards(ctx) {
     note.classList.toggle('urgent', !!urgent);
   }
 
+  const modelSel = q('.cd-model', el);
+  modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
+  modelSel.addEventListener('keydown', (e) => e.stopPropagation());
+  function setModels(models) {
+    if (!models || !Array.isArray(models.options) || !models.options.length) { modelSel.hidden = true; return; }
+    modelSel.innerHTML = models.options.map((m) =>
+      `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
+    modelSel.hidden = false;
+  }
+
   return {
     el, list, input,
-    feed, setNote, scrollToEnd,
+    feed, setNote, scrollToEnd, setModels,
     isEmpty: () => !list.children.length,
     insertText: (t) => {
       input.focus();

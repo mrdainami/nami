@@ -148,7 +148,7 @@ class ClaudeSdkAdapter {
           const commands = Array.isArray(msg.slash_commands) ? msg.slash_commands.slice(0, 200) : [];
           this.emit('init', {
             capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
-            claudeSessionId: this.sessionId,
+            agentSessionId: this.sessionId,
             commands,
             model: msg.model || null,
           });
