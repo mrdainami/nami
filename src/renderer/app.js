@@ -2439,7 +2439,15 @@ function handleSlashCommand(p, text) {
   if (!agent || String(agent).startsWith('unknown:')) return false;
   const rec = tileEls.get(p.id);
   if (!p.agentLive && p.cardMode === 'watch') {
-    if (rec && rec.cardsUi) rec.cardsUi.setNote(
+    // The answer opens AT the composer, where the eyes are — the first cut
+    // put it in the top note strip and read as "nothing happened".
+    const anchor = rec && rec.cardsUi && (rec.cardsUi.el.querySelector('.cd-ask') || rec.cardsUi.el);
+    const items = [
+      { label: 'Take over — drive as cards', desc: 'slash commands work natively here after the takeover; the terminal conversation continues as this card', run: () => { p.cardFallback = ''; driveCards(p); } },
+      { label: 'Switch to Term', desc: 'use the terminal\'s own menus', run: () => setView(p, 'term') },
+    ];
+    if (anchor) showHeadMenu(anchor, items);
+    else if (rec && rec.cardsUi) rec.cardsUi.setNote(
       'Slash commands run in the terminal underneath — take over to use them here, or answer in Term.',
       false, { label: 'Take over', run: () => { p.cardFallback = ''; driveCards(p); } });
     return true;
