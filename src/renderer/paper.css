@@ -675,6 +675,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .code[data-brand="openai"]    { --brand-bg: #ffffff; --brand-ink: #0d0d0d; }
 .code[data-brand="opencode"]  { --brand-bg: #fbfaf7; --brand-ink: #14120e; }
 .code[data-brand="gemini"]    { --brand-bg: #e6e7fa; --brand-ink: #4257d0; }
+/* the arch mark is a gradient in the wild; its chip takes the dominant blue */
+.code[data-brand="antigravity"] { --brand-bg: #dbe9fb; --brand-ink: #2f7de1; }
 .code[data-brand="kimi"]      { --brand-bg: #e4e8fc; --brand-ink: #2b4bd4; }
 .code[data-brand="hermes"]    { --brand-bg: #f2c33c; --brand-ink: #241a06; }
 .code[data-brand="ollama"]    { --brand-bg: #f4f2ed; --brand-ink: #17150f; }
