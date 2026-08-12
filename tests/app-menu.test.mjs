@@ -181,3 +181,28 @@ test('no label in the menu bar contains an em dash', () => {
   }
   for (const url of Object.values(LINKS)) assert.ok(!/[—–]/.test(url), url);
 });
+
+// Both ends of a menu command are string literals in different files, and
+// nothing connects them at build time: a typo on either side is a menu item
+// that does nothing and throws nothing. These two read the other files as text,
+// which is crude, and it is the only thing that would have caught it.
+test('every command the menu sends is handled in the renderer', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(new URL('../src/renderer/app.js', import.meta.url), 'utf8');
+  const dispatcher = app.slice(app.indexOf('function runMenuCommand'));
+  assert.ok(dispatcher.length > 400, 'runMenuCommand is not in app.js any more');
+  for (const command of COMMANDS) {
+    assert.ok(
+      dispatcher.includes(`'${command}'`),
+      `runMenuCommand never checks for '${command}'`,
+    );
+  }
+});
+
+test('the channel name is the same string in preload and in main', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const read = (f) => readFile(new URL(`../src/main/${f}`, import.meta.url), 'utf8');
+  const [preload, main] = await Promise.all([read('preload.js'), read('main.js')]);
+  assert.match(preload, /ipcRenderer\.on\('menu:command'/, 'preload does not listen on menu:command');
+  assert.match(main, /'menu:command'/, 'main never sends menu:command');
+});
