@@ -24,6 +24,7 @@ const { runPlan } = require('./connections-deliver');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
+const { deliverAgents, liftToMaster, sweepCopies } = require('./agent-master');
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const settingsStore = require('./settings');
@@ -884,9 +885,34 @@ ipcMain.handle('library:scan', (_e, { projectPath }) => {
   try { const items = scanLibrary({ projectPath }); return { items, edges: extractEdges(items) }; }
   catch (_) { return { items: [], edges: [] }; }
 });
-ipcMain.handle('library:create', (_e, args) => createItem(args || {}));
+ipcMain.handle('library:create', (_e, args) => {
+  const res = createItem(args || {});
+  // A new master is worth nothing until every tool has its copy.
+  if (res.ok && args && args.type === 'agent' && args.platform === 'project') {
+    res.delivered = deliverAgents({ projectPath: args.projectPath, agentIds: args.agentIds || [] });
+  }
+  return res;
+});
 ipcMain.handle('library:duplicate', (_e, args) => duplicateItem(args || {}));
-ipcMain.handle('library:delete', (_e, args) => deleteItem({ ...(args || {}), trashFn: (p) => shell.trashItem(p) }));
+ipcMain.handle('library:delete', async (_e, args) => {
+  const a = args || {};
+  const res = await deleteItem({ ...a, trashFn: (p) => shell.trashItem(p) });
+  // A deleted master takes its delivered copies with it — leaving them behind
+  // would keep the agent alive in every tool with no master to edit.
+  if (res.ok && a.projectPath && String(a.filePath || '').startsWith(path.join(a.projectPath, 'agents') + path.sep)) {
+    res.swept = sweepCopies({ projectPath: a.projectPath, slug: path.basename(a.filePath, '.md') });
+  }
+  return res;
+});
+// Deliver every master to every installed tool (create, save, repair all land here).
+ipcMain.handle('library:deliverAgents', (_e, { projectPath, agentIds } = {}) =>
+  (projectPath ? deliverAgents({ projectPath, agentIds: agentIds || [] }) : []));
+// "Make it everyone's": lift a hand-made platform agent into the drawer.
+ipcMain.handle('library:adoptAgent', (_e, { filePath, platform, projectPath, agentIds } = {}) => {
+  const res = liftToMaster({ filePath, platform, projectPath });
+  if (res.ok) res.delivered = deliverAgents({ projectPath, agentIds: agentIds || [] });
+  return res;
+});
 
 // ---- IPC: the skills pointer ------------------------------------------------
 // Nothing here runs unless the renderer asks. Opening a folder is a read: the
