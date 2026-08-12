@@ -1143,6 +1143,18 @@ function kindLabel(p) {
   return 'run · ' + shortHome(p.cwd);
 }
 
+// One line, three facts: it is free, it can be starred, and a person made it.
+// No social icons — YouTube, LinkedIn and the rest all live behind the one
+// "Cal" link, because a row of platform icons inside a work tool is the fastest
+// way to make it feel like a funnel.
+function deskCreditHtml() {
+  return `<div class="desk-credit">free &amp; open source
+    <span class="dc-sep">·</span>
+    <a class="dc-link" href="#" data-url="${REPO_URL}">★ star Nami</a>
+    <span class="dc-sep">·</span>
+    Made by <a class="dc-link" href="#" data-url="${makerUrl('empty-desk')}">Cal</a>, in Nami.</div>`;
+}
+
 function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
@@ -1156,6 +1168,16 @@ function renderGrid() {
       <div><div class="big">Open a folder to start working</div>
       <div class="hint">Every session runs inside a folder — that is what keeps it resumable.</div>
       <button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button></div></div>`;
+    // The empty desk is the one screen every user sees, on the first launch and
+    // between every job after it — and the only place in the app that says who
+    // made this without being opened first. Footer weight on purpose: it must
+    // never compete with the button above it, and it is deliberately not in the
+    // keyboard-hints strip below, which is one category of thing and would read
+    // as a bug with a link in it.
+    els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
+    els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
+      el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+    });
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     return;
   }
