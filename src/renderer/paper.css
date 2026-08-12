@@ -1765,6 +1765,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* The colophon: who made this, and the one way to ask for it at work. */
 .ab-made { font-size: 12px; color: var(--muted); }
 .ab-made .ab-link { display: inline; font-size: inherit; }
+/* --muted and not --muted-2: this line is quieter than the credit above it by
+   being smaller, not by being fainter. On graphite the fainter token is the one
+   that stops being readable. */
+.ab-copy { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .ab-team { margin-top: 12px; }
 .ab-link {
   font-size: 12px; color: var(--green); cursor: pointer; width: fit-content;
