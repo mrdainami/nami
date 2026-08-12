@@ -2416,14 +2416,16 @@ async function exitCards(p) {
   refreshTileHead(p); refreshRail();
 }
 
-// The welcome's model row and /model both land here: a real picker where the
-// channel switches (the status-line select), the truth said plainly where it
-// cannot.
-function openModelControl(p) {
+// The welcome's model row and /model both land here. Three honest shapes:
+// '/model <name>' sets it outright (on the one-shot channels the choice
+// rides the next turn's flags); bare '/model' opens the picker where the
+// channel published options; with neither, the toast says how.
+function openModelControl(p, value) {
+  if (value) { api.agentConfig({ id: p.id, configId: 'model', value }); return; }
   const rec = tileEls.get(p.id);
   const sel = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-model');
   if (sel && !sel.disabled) { try { sel.showPicker ? sel.showPicker() : sel.focus(); } catch (_) { sel.focus(); } }
-  else toast('This channel sets its model at start — /model where the agent supports it.');
+  else toast('Type /model <name> — it applies from the next turn on this channel.');
 }
 
 // Every `/` the composer sends gets an answer. Native commands open the
@@ -2444,7 +2446,7 @@ function handleSlashCommand(p, text) {
   }
   const r = routeCommand(agent, p.agentCommands, text);
   if (!r) return false;
-  if (r.route === 'native-model') { openModelControl(p); return true; }
+  if (r.route === 'native-model') { openModelControl(p, r.arg); return true; }
   if (r.route === 'native-mode') {
     const chip = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-mode');
     if (chip && !chip.hidden) openModeMenu(p, chip); else cycleMode(p);

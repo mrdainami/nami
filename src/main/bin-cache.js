@@ -50,4 +50,20 @@ function knownBin(id) {
 
 function forgetBins() { bins.clear(); }
 
-module.exports = { rememberBins, knownBin, forgetBins };
+// A run tile types its command into the user's *interactive* shell, and that
+// shell's PATH is not the scan's: an nvm/npm-prefix conflict in .zshrc makes
+// nvm bail before it adds the npm-global dir, so bare `codex` reads as
+// command-not-found in a tile while the launcher says ready. When the scan
+// already knows where the binary lives, the command is typed by that
+// absolute path instead. Anything the scan doesn't know passes untouched.
+function resolveRunCommand(command) {
+  const s = String(command || '');
+  const m = /^([A-Za-z][\w.-]*)(\s[\s\S]*)?$/.exec(s);
+  if (!m) return s;
+  const found = knownBin(m[1]);
+  if (!found || found === m[1]) return s;
+  const head = /[^\w@%+=:,./-]/.test(found) ? `'${found.replace(/'/g, `'\\''`)}'` : found;
+  return head + (m[2] || '');
+}
+
+module.exports = { rememberBins, knownBin, forgetBins, resolveRunCommand };

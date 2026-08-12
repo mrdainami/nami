@@ -198,3 +198,28 @@ test('agy seeds its mode on start, and announces every mode as available', async
   assert.ok(init.modes.every((m) => m.available));
   assert.equal(init.mode, 'accept-edits');
 });
+
+// /model on the one-shot channels: the choice is kept on the adapter and
+// every following turn spawns with the flag — no live process required.
+test('codex keeps a chosen model and spawns the next turn with --model', () => {
+  const events = [];
+  const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', 'hi']);
+  a.setConfigOption('model', 'gpt-5.2-codex');
+  assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', '--model', 'gpt-5.2-codex', 'hi']);
+  a.threadId = 'th_1';
+  assert.deepEqual(a.turnArgs('hi'), ['exec', 'resume', 'th_1', '--json', '--skip-git-repo-check', '--model', 'gpt-5.2-codex', 'hi']);
+  const init = events.filter((e) => e.kind === 'init').at(-1);
+  assert.equal(init.model, 'gpt-5.2-codex');
+});
+
+test('kimi keeps a chosen model; -m sits before -p so it is never swallowed', () => {
+  const events = [];
+  const a = new KimiAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.setConfigOption('model', 'kimi-k2.6-turbo');
+  assert.deepEqual(a.turnArgs('hi'), ['-m', 'kimi-k2.6-turbo', '-p', 'hi', '--output-format', 'stream-json']);
+  a.sessionId = 's1';
+  assert.deepEqual(a.turnArgs('hi'), ['-r', 's1', '-m', 'kimi-k2.6-turbo', '-p', 'hi', '--output-format', 'stream-json']);
+  const init = events.filter((e) => e.kind === 'init').at(-1);
+  assert.equal(init.model, 'kimi-k2.6-turbo');
+});

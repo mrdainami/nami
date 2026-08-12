@@ -26,6 +26,7 @@ class KimiAdapter {
     this.seq = 0;
     this.child = null;
     this.sessionId = null;
+    this.model = null; // rides the next turn's -m flag — the channel is one-shot
     this.turnStarted = 0;
     this.openCalls = new Set();
   }
@@ -42,10 +43,28 @@ class KimiAdapter {
       agentSessionId: this.sessionId,
       commands: [],
       agentName: 'Kimi Code',
-      // display-only: the channel has no live model switch, but the config
-      // says what the next turn will run
-      model: readDefaultModel(),
+      // a chosen model rides the next turn's -m flag; the config's default
+      // says what runs when nothing was chosen
+      model: this.model || readDefaultModel(),
     });
+  }
+
+  // /model on a one-shot channel: `kimi -m` exists, so the choice is kept
+  // and every following turn spawns with it. Same pattern as agy's mode.
+  setConfigOption(configId, value) {
+    if (configId !== 'model') return;
+    this.model = String(value || '') || null;
+    this.emitInit();
+  }
+
+  // The next turn's argv, pure for the tests. -m sits before -p because -p
+  // takes the prompt as its value and flags after it would be swallowed.
+  turnArgs(text) {
+    const args = [];
+    if (this.sessionId) args.push('-r', this.sessionId);
+    if (this.model) args.push('-m', this.model);
+    args.push('-p', text, '--output-format', 'stream-json');
+    return args;
   }
 
   async start({ prompt, sid }) {
@@ -61,11 +80,7 @@ class KimiAdapter {
     this.emit('status', { state: 'running' });
     this.turnStarted = Date.now();
 
-    // -p takes the prompt as its value — flags after it would be swallowed,
-    // so the prompt comes right behind it and the format flag after.
-    const args = this.sessionId
-      ? ['-r', this.sessionId, '-p', text, '--output-format', 'stream-json']
-      : ['-p', text, '--output-format', 'stream-json'];
+    const args = this.turnArgs(text);
     let child;
     try {
       child = spawn(knownBin('kimi') || 'kimi', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });

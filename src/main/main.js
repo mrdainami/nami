@@ -18,7 +18,7 @@ const { oneShotArgs, feedRunDone } = require('./run-done');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
-const { rememberBins, knownBin } = require('./bin-cache');
+const { rememberBins, knownBin, resolveRunCommand } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -1327,9 +1327,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // needs to know the end of, rather than a session that happens to be a
     // shell. It is spawned rather than typed, so the reporting suffix is never
     // echoed back at the user; the header below stands in for the echo.
+    // The typed command uses the scan's absolute path when it has one — the
+    // interactive shell's PATH can miss a binary the launcher calls ready
+    // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
-    if (watchDone) { spawnArgs = oneShotArgs(shellPath, command); echoLine = command; }
-    else afterStart = command;
+    const typed = resolveRunCommand(command);
+    if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
+    else afterStart = typed;
   } else {
     file = shellPath;
   }

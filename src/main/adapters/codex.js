@@ -35,6 +35,7 @@ class CodexAdapter {
     this.seq = 0;
     this.child = null;
     this.threadId = null;
+    this.model = null; // rides the next turn's flags — the channel is one-shot
     this.turnStarted = 0;
   }
 
@@ -49,7 +50,27 @@ class CodexAdapter {
       capability: capability(CAPABILITY),
       agentSessionId: this.threadId,
       commands: [],
+      model: this.model || null,
     });
+  }
+
+  // /model on a one-shot channel: no live process to instruct, but `codex
+  // exec --model` exists — the choice is kept and every following turn
+  // spawns with it. Same pattern as agy's mode.
+  setConfigOption(configId, value) {
+    if (configId !== 'model') return;
+    this.model = String(value || '') || null;
+    this.emitInit();
+  }
+
+  // The next turn's argv, pure for the tests.
+  turnArgs(text) {
+    const args = this.threadId
+      ? ['exec', 'resume', this.threadId, '--json', '--skip-git-repo-check']
+      : ['exec', '--json', '--skip-git-repo-check'];
+    if (this.model) args.push('--model', this.model);
+    args.push(text);
+    return args;
   }
 
   async start({ prompt, sid }) {
@@ -65,9 +86,7 @@ class CodexAdapter {
     this.emit('status', { state: 'running' });
     this.turnStarted = Date.now();
 
-    const args = this.threadId
-      ? ['exec', 'resume', this.threadId, '--json', '--skip-git-repo-check', text]
-      : ['exec', '--json', '--skip-git-repo-check', text];
+    const args = this.turnArgs(text);
     let child;
     try {
       child = spawn(knownBin('codex') || 'codex', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
