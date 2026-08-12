@@ -15,6 +15,11 @@ On an older Intel Mac? [Get the Intel build](https://github.com/mrdainami/nami/r
 
 ![Four sessions running on the Nami desk](docs/media/hero.jpg)
 
+> Nami is free, MIT, and built by one person so that anyone — not just
+> engineers — can put AI agents to work. If it earns a place on your desk, hit
+> the **☆ Star** at the top right. It is the only thing that helps other people
+> find it.
+
 ## What it is
 
 Nami is a desk for AI agents. You open one folder on your Mac, ask for something
@@ -86,5 +91,15 @@ Contributor notes are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-MIT licensed. Built by Calvin at [Dainami AI](https://dainami.ai) ·
-[nami.dainami.ai](https://nami.dainami.ai) · [Terms](https://dainami.ai/terms)
+## Who makes this
+
+Made by [Cal](https://dainami.ai/links?utm_source=github&utm_medium=readme) —
+and made **in Nami**. Every release on this page was built in the app you are
+looking at.
+
+**Want Nami for your team?** Custom builds, Windows, or Nami wired into your
+own stack — [dainami.ai/teams](https://dainami.ai/teams?utm_source=github&utm_medium=readme&utm_campaign=teams)
+or [cal@dainami.ai](mailto:cal@dainami.ai).
+
+MIT licensed · [nami.dainami.ai](https://nami.dainami.ai) ·
+[Terms](https://dainami.ai/terms)
