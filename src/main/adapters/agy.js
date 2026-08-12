@@ -69,8 +69,10 @@ class AgyAdapter {
 
   // Choices ride the next turn's flags — the channel is one-shot.
   setConfigOption(configId, value) {
-    if (configId === 'model') this.model = String(value || '') || null;
-    else if (configId === 'mode') this.mode = String(value || '') || null;
+    if (configId === 'model') {
+      this.model = String(value || '') || null;
+      if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
+    } else if (configId === 'mode') this.mode = String(value || '') || null;
     else return;
     this.emitInit();
   }

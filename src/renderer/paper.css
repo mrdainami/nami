@@ -1490,7 +1490,45 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-top: 1px solid var(--dash); background: var(--paper-3);
   position: sticky; bottom: 0;
 }
-.tile.focused .cd-menu, .tile.focused .cd-open, .tile.focused .cd-body { max-height: 55vh; }
+/* The picker — the terminal's numbered selection surface, kept: model, mode
+   and resume all speak it. Same sheet as the menus; header says what is
+   being chosen, footer says the keys, the current choice wears its ✓. */
+.cd-picker {
+  position: absolute; left: 10px; right: 10px; bottom: 44px;
+  border: 1px solid var(--dash-dark); background: var(--menu-sheet);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
+  display: flex; flex-direction: column; max-height: 300px; z-index: 6;
+}
+.cd-pk-h { padding: 8px 12px 2px; }
+.cd-pk-h b { font-size: calc(12px * var(--cdz, 1)); color: var(--green); }
+.cd-pk-h p { margin: 3px 0 4px; color: var(--muted); font-size: calc(11px * var(--cdz, 1)); line-height: 1.5; }
+.cd-pk-list { overflow-y: auto; overscroll-behavior: contain; }
+.cd-pk-i {
+  display: flex; align-items: baseline; gap: 9px; width: 100%;
+  font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; padding: 6px 12px;
+  background: transparent; color: var(--ink); border: 0; cursor: pointer;
+}
+.cd-pk-i + .cd-pk-i { border-top: 1px dashed var(--dash); }
+.cd-pk-i:hover:not(.dis), .cd-pk-i.on { background: var(--hover); }
+.cd-pk-i .pk-n { color: var(--faint); flex: none; width: 18px; }
+.cd-pk-i .pk-l { font-weight: 700; flex: none; }
+.cd-pk-i.on .pk-l { color: var(--green); }
+.cd-pk-i .pk-cur { color: var(--green-ok); font-weight: 400; font-size: calc(10px * var(--cdz, 1)); }
+.cd-pk-i .pk-d {
+  color: var(--muted); font-size: calc(11px * var(--cdz, 1)); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-pk-i.dis { opacity: 0.55; cursor: default; }
+.cd-pk-f {
+  padding: 4px 12px; font-size: calc(9.5px * var(--cdz, 1)); color: var(--muted);
+  border-top: 1px solid var(--dash); background: var(--paper-3);
+  position: sticky; bottom: 0;
+}
+/* keyboard focus on an approval option — arrow first, so Enter alone never approves */
+.cd-perm-btn.kb { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.tile.focused .cd-menu, .tile.focused .cd-picker, .tile.focused .cd-open, .tile.focused .cd-body { max-height: 55vh; }
 .tile.focused .cd-diff-body { max-height: 45vh; }
 
 /* ---- paper editor ----

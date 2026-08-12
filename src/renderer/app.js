@@ -238,7 +238,11 @@ function dropFilesOnPanel(p, paths) {
     if (q('.projects-pop')) { q('.projects-pop').remove(); toggleProjectsPop(); }
   });
 
-  api.onTermData(({ id, data }) => { const t = tileEls.get(id); if (t && t.term) t.term.write(data); });
+  api.onTermData(({ id, data }) => {
+    const t = tileEls.get(id); if (t && t.term) t.term.write(data);
+    // when a byte last moved — the auto-takeover's "is the terminal mid-task"
+    const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
+  });
 
   // The same session, read out of the transcript it is already writing. Only
   // arrives for tiles that asked (cardsWatch), and `reset` means the
@@ -498,6 +502,14 @@ function showScene(name) {
         { id: 'plan', available: true },
         { id: 'bypassPermissions', available: false, reason: 'disabled in ~/.claude/settings.json' },
       ],
+      models: {
+        current: 'claude-opus-5',
+        options: [
+          { value: 'default', name: 'Default (recommended)', desc: 'Opus 5 · best for everyday, complex tasks' },
+          { value: 'claude-opus-5', name: 'Opus (1M context)', desc: 'Opus 5 with 1M context · long-running work' },
+          { value: 'claude-fable-5', name: 'Fable', desc: 'Fable 5 · most capable, hardest tasks' },
+        ],
+      },
     };
     p.agentCommands = [
       { name: 'model', description: 'Switch the model for this session', argumentHint: 'model name' },
@@ -522,7 +534,8 @@ function showScene(name) {
           rec.cardsUi.input.value = '/re';
           rec.cardsUi.input.dispatchEvent(new Event('input'));
         }
-        if (step === 'mode') openModeMenu(p, rec.cardsUi.el.querySelector('.cs-mode'));
+        if (step === 'mode') openModeMenu(p);
+        if (step === 'model') openModelControl(p);
         if (step === 'bridge') { const b = q('.t-bridge', rec.head); if (b) openBridgeMenu(p, b); }
         if (step === 'full') { S.expandedId = p.id; renderGrid(); }
       }
@@ -2416,16 +2429,29 @@ async function exitCards(p) {
   refreshTileHead(p); refreshRail();
 }
 
-// The welcome's model row and /model both land here. Three honest shapes:
-// '/model <name>' sets it outright (on the one-shot channels the choice
-// rides the next turn's flags); bare '/model' opens the picker where the
-// channel published options; with neither, the toast says how.
+// The welcome's model row, the footer chip and /model all land here. Three
+// honest shapes: '/model <name>' sets it outright (on the one-shot channels
+// the choice rides the next turn's flags); bare '/model' opens the numbered
+// picker over the options the channel reported; with neither, the toast
+// says how.
 function openModelControl(p, value) {
   if (value) { api.agentConfig({ id: p.id, configId: 'model', value }); return; }
   const rec = tileEls.get(p.id);
-  const sel = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-model');
-  if (sel && !sel.disabled) { try { sel.showPicker ? sel.showPicker() : sel.focus(); } catch (_) { sel.focus(); } }
-  else toast('Type /model <name> — it applies from the next turn on this channel.');
+  const models = p.agentStatus && p.agentStatus.models;
+  if (rec && rec.cardsUi && models && Array.isArray(models.options) && models.options.length) {
+    rec.cardsUi.openPicker({
+      header: 'Select model',
+      blurb: 'applies from the next turn',
+      footer: 'Press ⏎ to confirm or esc to go back · 1-9 jump',
+      items: models.options.map((o) => ({
+        label: o.name || o.value, desc: o.desc || '',
+        current: o.value === models.current, value: o.value,
+      })),
+      onPick: (it) => api.agentConfig({ id: p.id, configId: 'model', value: it.value }),
+    });
+    return;
+  }
+  toast('Type /model <name> — it applies from the next turn on this channel.');
 }
 
 // Every `/` the composer sends gets an answer. Native commands open the
@@ -2439,33 +2465,17 @@ function handleSlashCommand(p, text) {
   if (!agent || String(agent).startsWith('unknown:')) return false;
   const rec = tileEls.get(p.id);
   if (!p.agentLive && p.cardMode === 'watch') {
-    // The answer opens AT the composer, where the eyes are — the first cut
-    // put it in the top note strip and read as "nothing happened".
-    const anchor = rec && rec.cardsUi && (rec.cardsUi.el.querySelector('.cd-ask') || rec.cardsUi.el);
-    const items = [
-      { label: 'Take over — drive as cards', desc: 'slash commands work natively here after the takeover; the terminal conversation continues as this card', run: () => { p.cardFallback = ''; driveCards(p); } },
-      { label: 'Switch to Term', desc: 'use the terminal\'s own menus', run: () => setView(p, 'term') },
-    ];
-    if (anchor) showHeadMenu(anchor, items);
-    else if (rec && rec.cardsUi) rec.cardsUi.setNote(
-      'Slash commands run in the terminal underneath — take over to use them here, or answer in Term.',
-      false, { label: 'Take over', run: () => { p.cardFallback = ''; driveCards(p); } });
+    // Acting in the card IS the consent: the takeover happens by itself and
+    // then the command runs. Only a mid-task terminal earns a question.
+    takeoverThen(p, () => handleSlashCommand(p, text));
     return true;
   }
   const r = routeCommand(agent, p.agentCommands, text);
   if (!r) return false;
   if (r.route === 'native-model') { openModelControl(p, r.arg); return true; }
-  if (r.route === 'native-mode') {
-    const chip = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-mode');
-    if (chip && !chip.hidden) openModeMenu(p, chip); else cycleMode(p);
-    return true;
-  }
+  if (r.route === 'native-mode') { openModeMenu(p); return true; }
   if (r.route === 'native-clear') { clearConversation(p); return true; }
-  if (r.route === 'native-resume') {
-    const anchor = rec && rec.cardsUi && (rec.cardsUi.el.querySelector('.cd-ask') || rec.cardsUi.el);
-    if (anchor) openResumePicker(p, anchor);
-    return true;
-  }
+  if (r.route === 'native-resume') { openResumePicker(p); return true; }
   if (r.route === 'terminal') {
     const spec = terminalResumeSpec(p);
     p.cardEvents = (p.cardEvents || []).concat({
@@ -2489,6 +2499,51 @@ function availableModes(p) {
 }
 
 // shift⇥: the blind cycle, kept — but only through modes that exist here.
+// ---- auto-takeover: acting in a watching card IS the consent ---------------
+// A conversation can only be run by one program at a time. Flipping a live
+// terminal to Cards attaches read-only; the moment the user ACTS in the card
+// (types, or runs a / command) the card takes the conversation over by itself
+// and then performs the action. The one surviving question is the honest one:
+// whether to cut a turn the terminal is mid-way through.
+function terminalBusy(p) {
+  return p.started && !p.exited && Date.now() - (p.lastPtyData || 0) < 2500;
+}
+
+function takeoverThen(p, after) {
+  const rec = tileEls.get(p.id);
+  const claude = cardAgentFor(p) === 'claude';
+  const go = async () => {
+    p.cardFallback = '';
+    p.cardEvents = (p.cardEvents || []).concat({
+      kind: 'note', id: 'takeover:' + Date.now(),
+      text: claude
+        ? 'took over — the terminal handed this conversation to the card'
+        : 'took over — the terminal session ends; the card continues from here',
+    });
+    scheduleFeed(p);
+    await driveCards(p);
+    if (after) after();
+  };
+  if (terminalBusy(p) && rec && rec.cardsUi) {
+    rec.cardsUi.openPicker({
+      header: 'The terminal is mid-task',
+      items: [
+        { label: 'Wait for this turn', desc: 'takes over the moment the terminal settles', cls: 'm-accept' },
+        { label: 'Take over now ⚠', desc: 'interrupts the turn the terminal is running', cls: 'm-bypass' },
+      ],
+      onPick: (_it, i) => {
+        if (i === 1) { go(); return; }
+        const t = setInterval(() => {
+          if (cardView(p) !== 'cards' || p.agentLive) { clearInterval(t); return; }
+          if (!terminalBusy(p)) { clearInterval(t); go(); }
+        }, 500);
+      },
+    });
+    return;
+  }
+  go();
+}
+
 // /clear and /new: a conversation op, not a setting. The tile stays, the
 // conversation ends — new id, fresh welcome, same folder. Claude keeps a
 // pinned id (both runtimes resume by it); the others mint theirs on first
@@ -2504,22 +2559,29 @@ async function clearConversation(p) {
 }
 
 // /resume: pick a past conversation from the agent's own store and point
-// this tile at it. The picker reuses the head-menu; an agent whose store
-// can't be read says so instead of showing an empty sheet.
-async function openResumePicker(p, anchor) {
+// this tile at it — on the same numbered picker every other choice uses.
+// An agent whose store can't be read says so instead of an empty sheet.
+async function openResumePicker(p) {
   const agent = cardAgentFor(p);
+  const rec = tileEls.get(p.id);
+  if (!rec || !rec.cardsUi) return;
   const res = await api.agentConversations({ agent, cwd: p.cwd });
-  const list = (res && res.conversations) || [];
+  const convos = (res && res.conversations) || [];
   const cur = agent === 'claude' ? p.sid : p.acpSid;
-  const items = list.filter((c) => c.id !== cur).slice(0, 9).map((c) => ({
+  const items = convos.filter((c) => c.id !== cur).slice(0, 9).map((c) => ({
     label: c.title || c.id.slice(0, 8),
     desc: [c.age, c.preview].filter(Boolean).join(' · '),
-    run: () => resumeConversation(p, c.id),
+    value: c.id,
   }));
-  items.push({ label: '＋ Start fresh', desc: 'new conversation, same folder', run: () => clearConversation(p) });
-  if (!items.length) { toast((res && res.note) || 'No past conversations found for this agent here.'); return; }
-  if (list.length === 0 && res && res.note) items.unshift({ label: 'No past conversations found', desc: res.note, disabled: true });
-  showHeadMenu(anchor, items);
+  if (!items.length && res && res.note) items.push({ label: 'No past conversations found', desc: res.note, disabled: true });
+  items.push({ label: '＋ Start fresh', desc: 'new conversation, same folder', cls: 'm-accept', value: '' });
+  rec.cardsUi.openPicker({
+    header: 'Resume — this folder\'s past conversations',
+    blurb: res && res.note ? res.note : '',
+    footer: 'Press ⏎ to confirm or esc to go back',
+    items,
+    onPick: (it) => { if (it.value) resumeConversation(p, it.value); else clearConversation(p); },
+  });
 }
 
 async function resumeConversation(p, id) {
@@ -2540,22 +2602,26 @@ function cycleMode(p) {
   api.agentConfig({ id: p.id, configId: 'mode', value: next });
 }
 
-// The chip's click: every mode listed, each in its own colour, the current
-// one marked — and an unavailable one shown disabled with the reason, which
-// beats offering a switch that silently fails.
-function openModeMenu(p, anchor) {
-  if (!p.agentLive || !anchor) return;
+// The chip's click: every mode listed on the picker surface, each in its own
+// colour, the current one marked — and an unavailable one shown disabled with
+// the reason, which beats offering a switch that silently fails.
+function openModeMenu(p) {
+  if (!p.agentLive) return;
+  const rec = tileEls.get(p.id);
   const modes = availableModes(p);
-  if (!modes.length) return;
+  if (!rec || !rec.cardsUi || !modes.length) return;
   const cur = p.agentStatus && p.agentStatus.mode;
-  showHeadMenu(anchor, modes.map((m) => ({
-    label: modeLabel(m.id),
-    labelCls: modeClass(m.id),
-    mark: m.id === cur,
-    disabled: !m.available,
-    desc: m.available ? '' : (m.reason || 'not available here'),
-    run: () => api.agentConfig({ id: p.id, configId: 'mode', value: m.id }),
-  })));
+  rec.cardsUi.openPicker({
+    header: 'Permission mode',
+    blurb: 'reported by the agent — what it cannot enter is greyed with the reason',
+    items: modes.map((m) => ({
+      label: modeLabel(m.id), cls: modeClass(m.id),
+      current: m.id === cur, disabled: !m.available,
+      desc: m.available ? '' : (m.reason || 'not available here'),
+      value: m.id,
+    })),
+    onPick: (it) => api.agentConfig({ id: p.id, configId: 'mode', value: it.value }),
+  });
 }
 
 function mountCards(p, rec) {
@@ -2594,7 +2660,14 @@ function mountCards(p, rec) {
         scheduleFeed(p);
         return;
       }
-      // Watch fallback: the pty underneath still holds the keyboard.
+      // Watching a known agent: typing IS the takeover — the card claims the
+      // conversation and the message goes over the drive channel.
+      const agent = cardAgentFor(p);
+      if (p.cardMode === 'watch' && agent && !String(agent).startsWith('unknown:')) {
+        takeoverThen(p, () => { if (p.agentLive) api.agentSend({ id: p.id, text }); });
+        return;
+      }
+      // Terminal-only tile: the pty underneath still holds the keyboard.
       api.termWrite({ id: p.id, data: text });
       setTimeout(() => api.termWrite({ id: p.id, data: '\r' }), 160);
     },

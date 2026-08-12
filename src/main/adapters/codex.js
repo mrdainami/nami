@@ -4,6 +4,9 @@
 // shell command with an exit code, and it reports tokens, not dollars.
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { knownBin } = require('./../bin-cache.js');
 const { capability, clip, safeEvent } = require('./../agent-events.js');
 
@@ -17,6 +20,36 @@ const CAPABILITY = {
 // maps to --sandbox values; bypass is its dangerously- flag, warned amber
 // in the card like every other bypass.
 const CODEX_MODES = ['default', 'read-only', 'workspace-write', 'bypass'];
+
+// The models codex's own /model picker offers (v0.5x) — exec has no way to
+// enumerate them, so the list is curated from the TUI's picker and the
+// current one is read from ~/.codex/config.toml. A model this list doesn't
+// know still works: /model <name> passes any value straight to --model.
+const CODEX_MODELS = [
+  { value: 'gpt-5.6-terra', name: 'gpt-5.6-terra', desc: 'balanced agentic coding model for everyday work' },
+  { value: 'gpt-5.6-luna', name: 'gpt-5.6-luna', desc: 'fast and affordable agentic coding model' },
+  { value: 'gpt-5.5', name: 'gpt-5.5', desc: 'frontier model for complex coding, research and real-world work' },
+  { value: 'gpt-5.4-mini', name: 'gpt-5.4-mini', desc: 'small, fast and cost-efficient for simpler tasks' },
+];
+
+function readDefaultModel() {
+  try {
+    const toml = fs.readFileSync(path.join(os.homedir(), '.codex', 'config.toml'), 'utf8');
+    const m = /^\s*model\s*=\s*"([^"]+)"/m.exec(toml);
+    return m ? m[1] : null;
+  } catch (_) { return null; }
+}
+
+// The current model always appears in its own picker, even when the curated
+// list has never heard of it — a user-configured alias is not a rendering
+// error.
+function modelOptions(current) {
+  const opts = CODEX_MODELS.slice();
+  if (current && !opts.some((o) => o.value === current)) {
+    opts.unshift({ value: current, name: current, desc: 'from your codex config' });
+  }
+  return opts;
+}
 
 function short(s, n) { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
@@ -53,11 +86,13 @@ class CodexAdapter {
   }
 
   emitInit() {
+    const current = this.model || readDefaultModel() || CODEX_MODELS[0].value;
     this.emit('init', {
-      capability: capability(CAPABILITY),
+      capability: capability({ ...CAPABILITY, models: true }),
       agentSessionId: this.threadId,
       commands: [],
-      model: this.model || null,
+      model: current,
+      models: { current, options: modelOptions(current) },
       mode: this.mode || 'default',
       // every mode is a spawn flag on this channel, so all are available
       modes: CODEX_MODES.map((id) => ({ id, available: true })),
@@ -68,9 +103,12 @@ class CodexAdapter {
   // instruct, but the exec flags exist — the choice is kept and every
   // following turn spawns with it. Same pattern as agy's mode.
   setConfigOption(configId, value) {
-    if (configId === 'model') this.model = String(value || '') || null;
-    else if (configId === 'mode') this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'default';
-    else return;
+    if (configId === 'model') {
+      this.model = String(value || '') || null;
+      if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
+    } else if (configId === 'mode') {
+      this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'default';
+    } else return;
     this.emitInit();
   }
 
@@ -245,4 +283,4 @@ class CodexAdapter {
   }
 }
 
-module.exports = { CodexAdapter, unwrapShell };
+module.exports = { CodexAdapter, unwrapShell, modelOptions, CODEX_MODELS };
