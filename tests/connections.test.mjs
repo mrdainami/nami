@@ -204,3 +204,34 @@ test('readNotebooks + coverage: who has it, who is missing it', () => {
   assert.deepEqual(cov.notion.missing.sort(), ['gemini', 'hermes']);
   assert.ok(notebooks.cursor.has('n8n'), 'hand-made entries are visible for adoption');
 });
+
+// ---- the executor -----------------------------------------------------------
+
+test('runPlan merges json, writes the block, records cli and manual honestly', async () => {
+  const { runPlan } = require('../src/main/connections-deliver.js');
+  const io = memIo({ '/proj/opencode.json': JSON.stringify({ mcp: { theirs: { type: 'local' } } }) });
+  const ran = [];
+  const plan = deliveryPlan({
+    masters: { notion: NOTION }, scope: 'project',
+    agentIds: ['claude', 'opencode', 'codex', 'hermes'],
+    projectPath: PROJ, homeDir: HOME,
+  });
+  const results = await runPlan({ plan, io, execCmd: async (cmd) => { ran.push(cmd); return { ok: true }; } });
+  assert.deepEqual(JSON.parse(io.files['/proj/.mcp.json']).mcpServers.notion, NOTION);
+  const oc = JSON.parse(io.files['/proj/opencode.json']);
+  assert.ok(oc.mcp.theirs, 'hand-made opencode entry preserved');
+  assert.equal(oc.mcp.notion.type, 'local');
+  assert.match(io.files['/proj/.codex/config.toml'], /mcp_servers\.notion/);
+  assert.equal(ran.length, 0, 'no cli in project scope');
+  const hermes = results.find((r) => r.agent === 'hermes');
+  assert.equal(hermes.ok, false);
+  assert.ok(hermes.manual);
+});
+
+test('runPlan: a failing cli step is recorded, not thrown', async () => {
+  const { runPlan } = require('../src/main/connections-deliver.js');
+  const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'user', agentIds: ['claude'], projectPath: null, homeDir: HOME });
+  const results = await runPlan({ plan, io: memIo(), execCmd: async () => ({ ok: false, error: 'claude not found' }) });
+  assert.equal(results[0].ok, false);
+  assert.match(results[0].error, /not found/);
+});
