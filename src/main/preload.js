@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('dainami', {
   recentsRemove: (path) => ipcRenderer.invoke('recents:remove', path),
   onRecentsChanged: (cb) => { const h = (_e, rows) => cb(rows); ipcRenderer.on('recents:changed', h); return () => ipcRenderer.removeListener('recents:changed', h); },
   newWindow: (folder) => ipcRenderer.invoke('window:new', { folder }),
+
+  // One channel for the whole menu bar. Every Nami item in it is a string this
+  // window turns into the same call the keyboard already made, so the menu adds
+  // labels rather than a second way for anything to work.
+  onMenuCommand: (cb) => { const h = (_e, cmd) => cb(cmd); ipcRenderer.on('menu:command', h); return () => ipcRenderer.removeListener('menu:command', h); },
   detectAgents: () => ipcRenderer.invoke('agents:detect'),
   agentStatus: (id) => ipcRenderer.invoke('agents:status', { id }),
   agentRemovalPlan: (id, binPath) => ipcRenderer.invoke('agents:removalPlan', { id, binPath }),
