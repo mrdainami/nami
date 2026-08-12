@@ -75,3 +75,33 @@ export function continuesLink(line, next, cols) {
   if (indent < 1 || indent > MAX_INDENT) return false; // col 0 is a soft wrap; deep is a new block
   return LINKISH.test(charAt(next, indent));
 }
+
+// The whole run one hovered row belongs to: soft wraps by xterm's own flag,
+// hard wraps by the guards above. Returns the row span and which of those rows
+// were joined the hard way, because those are the ones whose hanging indent
+// must not be emitted into the middle of the token.
+//
+// Split out of wrappedRow so the walk itself is testable against a plain
+// object rather than a live terminal — the walk is where an off-by-one costs
+// you the first character of every link.
+export function runBounds(buf, y, cols) {
+  const hard = new Set();
+  let top = y - 1;
+  while (top > 0) {
+    const l = buf.getLine(top);
+    if (l && l.isWrapped) { top--; continue; }
+    if (hard.size >= MAX_JOINS) break;
+    const prev = buf.getLine(top - 1);
+    if (l && prev && continuesLink(prev, l, cols)) { hard.add(top); top--; continue; }
+    break;
+  }
+  let bottom = top;
+  while (bottom + 1 < buf.length) {
+    const l = buf.getLine(bottom + 1);
+    if (l && l.isWrapped) { bottom++; continue; }
+    if (hard.size >= MAX_JOINS) break;
+    if (l && continuesLink(buf.getLine(bottom), l, cols)) { bottom++; hard.add(bottom); continue; }
+    break;
+  }
+  return { top, bottom, hard };
+}

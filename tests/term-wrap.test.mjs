@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lastCol, continuesLink, leadingIndent } from '../src/renderer/term-wrap.mjs';
+import { lastCol, continuesLink, leadingIndent, runBounds, MAX_JOINS } from '../src/renderer/term-wrap.mjs';
 
 // The smallest thing that behaves like an xterm buffer line: getCell(x) with
 // getChars(), and a width that pads with blanks the way a real row does. Pure
@@ -80,4 +80,70 @@ test('a bare word tail still joins — the guard is the row edge, not the shape'
   const a = line(full('and the scanner lives in src/renderer/'), COLS);
   const b = line('  term-links.mjs', COLS);
   assert.equal(continuesLink(a, b, COLS), true);
+});
+
+// ---- the walk ---------------------------------------------------------------
+// A stand-in buffer: rows in order, each optionally flagged isWrapped the way
+// xterm flags a soft continuation.
+function buffer(rows, cols = COLS) {
+  const lines = rows.map(([text, wrapped]) => Object.assign(line(text, cols), { isWrapped: !!wrapped }));
+  return { getLine: (i) => lines[i], length: lines.length };
+}
+
+// The real shape: a URL cut mid-token with a two-space hanging indent.
+const SEVERED = [
+  ['a line of prose before it', false],
+  [full('https://claude.ai/code/artifact/84d587ad'), false],
+  ['  e9553c1', false],
+  ['a line of prose after it', false],
+];
+
+test('hovering the head row reaches down to the tail', () => {
+  const { top, bottom, hard } = runBounds(buffer(SEVERED), 2, COLS);
+  assert.deepEqual([top, bottom], [1, 2]);
+  assert.deepEqual([...hard], [2]);
+});
+
+test('hovering the tail row reaches back up to the head', () => {
+  // The fragment you can actually see is often the short one. If the walk only
+  // went down, clicking the tail would resolve nothing.
+  const { top, bottom, hard } = runBounds(buffer(SEVERED), 3, COLS);
+  assert.deepEqual([top, bottom], [1, 2]);
+  assert.deepEqual([...hard], [2]);
+});
+
+test('an ordinary row stays a row of one', () => {
+  const { top, bottom, hard } = runBounds(buffer(SEVERED), 1, COLS);
+  assert.deepEqual([top, bottom], [0, 0]);
+  assert.equal(hard.size, 0);
+});
+
+test('a soft-wrapped run still joins, and is not counted as a hard join', () => {
+  const soft = buffer([
+    [full('https://claude.ai/code/artifact/84d587ad'), false],
+    ['e9553c1', true],
+  ]);
+  const { top, bottom, hard } = runBounds(soft, 2, COLS);
+  assert.deepEqual([top, bottom], [0, 1]);
+  assert.equal(hard.size, 0, 'a soft wrap must not have its column 0 trimmed');
+});
+
+test('soft and hard in one run', () => {
+  const mixed = buffer([
+    [full('https://claude.ai/code/artifact/84d5'), false],
+    [full('87ad-e24e-467a-9689'), true],
+    ['  4dc8de9553c1', false],
+  ]);
+  const { top, bottom, hard } = runBounds(mixed, 1, COLS);
+  assert.deepEqual([top, bottom], [0, 2]);
+  assert.deepEqual([...hard], [2]);
+});
+
+test('the chain is capped — a justified block cannot swallow itself', () => {
+  const rows = [];
+  for (let i = 0; i < 12; i++) rows.push([full('src/renderer/'), false]);
+  rows.forEach((r, i) => { if (i) r[0] = '  ' + full('src/renderer/').slice(2); });
+  const { top, bottom, hard } = runBounds(buffer(rows), 1, COLS);
+  assert.ok(hard.size <= MAX_JOINS, 'joined ' + hard.size + ' rows, cap is ' + MAX_JOINS);
+  assert.ok(bottom - top <= MAX_JOINS);
 });
