@@ -77,3 +77,17 @@ test('the edit-mode highlighter still keeps every character', () => {
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
   assert.equal(text, src + '\n');
 });
+
+// Calvin hit this in a real Notion reply: **[title](url)** rendered as
+// literal bold text, unclickable — the one-pass tokeniser gave the whole
+// span to the strong rule and never parsed inside it. Emphasis recurses now.
+test('a link wrapped in bold is a bold link, not literal brackets', () => {
+  const html = renderMarkdown('**[Invoice Summary](https://app.notion.com/p/x-3ba754)**');
+  assert.match(html, /<strong><a href="https:\/\/app\.notion\.com\/p\/x-3ba754">Invoice Summary<\/a><\/strong>/);
+});
+
+test('emphasis and links nest both ways; code spans stay literal', () => {
+  assert.match(renderMarkdown('*[x](https://e.com/a)*'), /<em><a href="https:\/\/e\.com\/a">x<\/a><\/em>/);
+  assert.match(renderMarkdown('[**x** y](https://e.com/b)'), /<a href="https:\/\/e\.com\/b"><strong>x<\/strong> y<\/a>/);
+  assert.match(renderMarkdown('`**[x](u)**`'), /<code>\*\*\[x\]\(u\)\*\*<\/code>/);
+});
