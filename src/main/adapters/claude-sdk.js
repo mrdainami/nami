@@ -11,6 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const { claudeCandidates } = require('./../platform.js');
+const { knownBin } = require('./../bin-cache.js');
 const { capability, toolKindFor, clip, safeEvent } = require('./../agent-events.js');
 
 // The SDK is ESM; main is CJS — load it once via dynamic import.
@@ -23,10 +24,24 @@ function loadSdk() {
 // Find the user's logged-in claude binary so the session runs on their
 // subscription, not an API key. No fallback on purpose: packaged builds drop
 // the SDK's own 265 MB copy of Claude Code (see electron-builder.yml).
-function resolveClaudeExecutable() {
-  const candidates = claudeCandidates({ home: os.homedir(), env: process.env });
+//
+// The scan goes first, and that ordering is the whole point. This used to be
+// the hardcoded list alone, which meant a claude installed through nvm, volta,
+// asdf, mise or bun read as "ready" in the launcher — which asks the login
+// shell — and as "isn't installed on this Mac yet" in the card view, which came
+// here. Same app, same second, two answers. The list stays as the floor: it is
+// what answers before the first scan lands, and on a machine where the shell
+// probe fails entirely.
+function resolveClaudeExecutable({ home = os.homedir(), env = process.env, exists, detected } = {}) {
+  const there = exists || ((p) => fs.existsSync(p));
+  const scanned = detected === undefined ? knownBin('claude') : detected;
+  const candidates = [
+    env.CLAUDE_CODE_EXECUTABLE,
+    scanned,
+    ...claudeCandidates({ home, env }),
+  ];
   for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch (_) {}
+    try { if (c && there(c)) return c; } catch (_) {}
   }
   return null;
 }

@@ -215,3 +215,61 @@ test('classifyFailure catches the 404 hermes sent as prose, and only that shape'
   assert.equal(classifyFailure('I fixed the error in your code.'), null);
   assert.equal(classifyFailure(''), null);
 });
+
+// ---- where the user's claude actually lives --------------------------------
+// The launcher asks the login shell and finds claude wherever it is. The card
+// view used to re-derive the location from a fixed list of five paths, so a
+// claude installed through a version manager was "ready" in one sheet and
+// "isn't installed on this Mac yet" one click later in the other.
+const { resolveClaudeExecutable } = require('../src/main/adapters/claude-sdk.js');
+const { rememberBins, forgetBins } = require('../src/main/bin-cache.js');
+
+const NVM = '/Users/x/.nvm/versions/node/v22.22.0/bin/claude';
+const only = (...ok) => (p) => ok.includes(p);
+
+test('a claude the scan found beats the hardcoded list', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  // both exist — the scanned one has to win, it is the one the user's shell runs
+  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(NVM, '/Users/x/.local/bin/claude') });
+  assert.equal(exe, NVM);
+});
+
+test('nvm, volta, bun and mise installs stop reading as missing', () => {
+  for (const p of [
+    NVM,
+    '/Users/x/.volta/bin/claude',
+    '/Users/x/.bun/bin/claude',
+    '/Users/x/.local/share/mise/installs/node/22/bin/claude',
+  ]) {
+    forgetBins();
+    rememberBins([{ id: 'claude', found: true, path: p }]);
+    assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(p) }), p);
+  }
+});
+
+test('an explicit CLAUDE_CODE_EXECUTABLE still beats everything', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  const env = { CLAUDE_CODE_EXECUTABLE: '/opt/mine/claude' };
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env, exists: only('/opt/mine/claude', NVM) }), '/opt/mine/claude');
+});
+
+// The list is the floor, not the ceiling: it answers before the first scan
+// lands, and on a machine where the shell probe fails outright.
+test('with nothing scanned it behaves exactly as it did before', () => {
+  forgetBins();
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/Users/x/.local/bin/claude') }), '/Users/x/.local/bin/claude');
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') }), '/opt/homebrew/bin/claude');
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: () => false }), null);
+});
+
+// A scan result that has gone stale — the user removed claude — must not win
+// over a real file. Otherwise the card view spawns ENOENT instead of falling
+// back to whatever is genuinely on disk.
+test('a remembered path that no longer exists falls through', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') });
+  assert.equal(exe, '/opt/homebrew/bin/claude');
+});

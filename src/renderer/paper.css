@@ -702,6 +702,18 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .fs-row .btn { flex: none; font-size: 12px; padding: 9px 15px; }
 .fs-hint { padding: 9px 16px 14px 18px; font-size: 11px; color: var(--muted-2); }
 .picker-list { max-height: 340px; overflow-y: auto; padding: 8px; }
+
+/* An agent that arrived thirty seconds ago looks exactly like one that has been
+   installed for months. It is sorted to the top of the ready list and says so —
+   this list is where a finished install hands the user back to. */
+.picker-row--new { background: var(--diff-add-bg); }
+.row-new {
+  margin-left: auto; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 700; color: var(--diff-add-ink); background: var(--paper);
+  border: 1px solid var(--green-ok); padding: 2px 8px; flex: 0 0 auto;
+}
+.picker-row--new .chev { margin-left: 8px; }
+
 .picker-row { display: flex; align-items: center; gap: 12px; padding: 10px 11px; cursor: pointer; border-bottom: 1px dotted #ded3ba; }
 .picker-row:hover, .picker-row.hilite { background: var(--hover); }
 .picker-row .code { width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
@@ -920,6 +932,27 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 #btn-theme .uni-i, #btn-settings .uni-i { font-size: 15px; line-height: 1; }
 
 .tile-body { flex: 1; min-height: 0; position: relative; padding: 8px 10px; overflow: hidden; }
+
+/* A strip under the tile body: what the errand this tile was opened for came
+   to. Not a toast — a toast is gone in four seconds, and this is the tile's own
+   state, which should still be there when someone looks back at it.
+   flex: 0 0 auto so it takes its height from content and never squeezes the
+   terminal into a scroll it did not have before. */
+.tile-note {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-top: 1px dashed var(--dash);
+  background: var(--paper-2); font-size: 11.5px; line-height: 1.45;
+  animation: rise 0.22s ease both;
+}
+.tile-note .tn-tx { min-width: 0; }
+.tile-note .tn-bt { margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
+.tile-note--ok { background: var(--diff-add-bg); border-top-color: var(--green-ok); color: var(--diff-add-ink); }
+.tile-note--warn { background: var(--amber-bg); border-top-color: var(--amber-line); color: var(--amber-body); }
+.tile-note--warn b, .tile-note--ok b { color: inherit; }
+/* the errand's buttons sit inside a 440px tile, so they give back some padding */
+.btn--small { padding: 5px 9px; font-size: 11px; box-shadow: 1px 1px 0 rgba(90, 72, 44, 0.18); }
+.btn--small:hover { box-shadow: 2px 2px 0 rgba(90, 72, 44, 0.28); }
+
 /* Terminals get more room than an editor does: agent output runs to the edge
    of the pane and, flush against the tile border, reads as a wall.
    The room lives on .xterm, never on the body: addon-fit reads the body's

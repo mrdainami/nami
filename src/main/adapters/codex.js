@@ -4,6 +4,7 @@
 // shell command with an exit code, and it reports tokens, not dollars.
 
 const { spawn } = require('child_process');
+const { knownBin } = require('./../bin-cache.js');
 const { capability, clip, safeEvent } = require('./../agent-events.js');
 
 const CAPABILITY = {
@@ -69,7 +70,7 @@ class CodexAdapter {
       : ['exec', '--json', '--skip-git-repo-check', text];
     let child;
     try {
-      child = spawn('codex', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(knownBin('codex') || 'codex', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       this.emit('error', { message: `Codex could not start: ${err.message}` });
       this.emit('status', { state: 'idle' });

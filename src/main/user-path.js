@@ -58,7 +58,18 @@ function userPath({ exec = probe, env = process.env } = {}) {
   return pending;
 }
 
+// One probe per app run is right for a PATH that does not move — and wrong for
+// the one moment it does. An installer run inside Nami writes a PATH line into
+// .zshrc, and every tile opened afterwards was still being handed the PATH from
+// before the install. Detection did not care (it spawns a fresh login shell
+// each time) but the adapters did: they spawn against this PATH, so an agent
+// Nami had just installed was unspawnable until the app was restarted.
+//
+// So the memo is dropped when something changes it. The next userPath() asks
+// the shell again; nothing else has to know.
+function refreshUserPath() { pending = null; }
+
 // Tests need a clean slate; nothing in the app calls this.
 function resetForTests() { pending = null; }
 
-module.exports = { userPath, mergePath, pathFromOutput, resetForTests };
+module.exports = { userPath, mergePath, pathFromOutput, refreshUserPath, resetForTests };
