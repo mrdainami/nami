@@ -1144,25 +1144,59 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
-.cd-model, .cd-mode {
-  flex: none; max-width: 150px; font: inherit; font-size: 10.5px;
-  color: var(--muted); background: var(--paper-2); border: 1px solid var(--dash);
-  padding: 3px 6px; cursor: pointer;
+/* The status line — the terminal's own bottom line, kept. Fixed height,
+   single line, never wraps; hints give way first on narrow tiles. */
+.cd-status {
+  flex: none; height: 20px; display: flex; align-items: baseline; gap: 6px;
+  padding: 0 14px 6px; font-size: 10px; color: var(--muted);
+  white-space: nowrap; overflow: hidden;
 }
-.cd-model:hover:not(:disabled), .cd-mode:hover:not(:disabled) { color: var(--ink); border-color: var(--dash-dark); }
-.cd-model:disabled { cursor: default; appearance: none; }
-.cd-mode:disabled { cursor: default; }
+.cd-status .cs-mk { color: var(--amber-btn); font-weight: 700; flex: none; }
+.cd-status .cs-dot { color: var(--faint); flex: none; }
+.cd-status .cs-kb, .cd-status .cs-right { color: var(--faint); flex: none; }
+.cd-status .cs-right { margin-left: auto; }
+.cs-mode {
+  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  background: transparent; border: 0; padding: 0; cursor: pointer; flex: none;
+}
+.cs-mode:hover:not(:disabled) { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
+.cs-mode:disabled { cursor: default; }
+.cs-mode.warn { color: var(--amber-btn); }
+.cs-model {
+  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  background: transparent; border: 0; padding: 0; cursor: pointer;
+  max-width: 170px; flex: none; appearance: none; -webkit-appearance: none;
+}
+.cs-model:hover:not(:disabled) { color: var(--green); }
+.cs-model:disabled { cursor: default; color: var(--muted); font-weight: 400; }
+/* narrow tiles: the keyboard hints leave, the facts stay */
+.tile:not(.focused) .cd-status .cs-kb, .tile:not(.focused) .cd-status .cs-right { display: none; }
 
-/* The session introducing itself — the card-native TUI banner. */
+/* The welcome — the session introducing itself, centred like the TUI banner. */
 .cd-intro {
-  border: 1px dashed var(--dash-dark); background: var(--paper-2);
-  padding: 10px 13px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px; padding: 22px 12px 14px;
 }
-.cd-intro .t { font-weight: 700; }
-.cd-intro .t .v { font-weight: 400; color: var(--muted); font-size: 11px; }
-.cd-intro .d { margin-top: 2px; font-size: 11.5px; color: var(--muted); display: flex; gap: 7px; flex-wrap: wrap; }
-.cd-intro .d .dot { color: var(--faint); }
-.cd-intro .h { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
+.cd-intro .cd-wl {
+  width: 52px; height: 52px; border: 1px solid var(--line); background: var(--paper-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.cd-intro .cd-wl svg { width: 26px; height: 26px; }
+.cd-intro .cd-wl-t { font-weight: 700; font-size: 18px; }
+.cd-intro .cd-wn { font-weight: 700; font-size: 14px; }
+.cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: 10.5px; }
+.cd-intro .cd-wf { color: var(--muted); font-size: 10.5px; }
+.cd-intro .cd-wp { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 90%; margin-top: 4px; }
+.cd-wpick {
+  display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: 11px;
+  border: 1px solid var(--dash); background: var(--paper-2); color: var(--ink);
+  padding: 5px 11px; cursor: pointer; text-align: left;
+}
+.cd-wpick:hover { border-color: var(--green); }
+.cd-wpick .lab { color: var(--faint); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.08em; width: 46px; flex: none; }
+.cd-wpick .val { flex: 1; font-weight: 700; }
+.cd-wpick .c { color: var(--faint); }
+.cd-intro .cd-wh { color: var(--faint); font-size: 10px; margin-top: 4px; }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;

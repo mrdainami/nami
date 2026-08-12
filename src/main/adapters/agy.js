@@ -90,7 +90,9 @@ class AgyAdapter {
     if (this.conversationId && this.hasHistory) args.push('--conversation', this.conversationId);
     else if (this.hasHistory) args.push('--continue');
     if (this.model) args.push('--model', this.model);
-    if (this.mode) args.push('--mode', this.mode);
+    // skip-permissions is agy's own flag, not a --mode value
+    if (this.mode === 'skip-permissions') args.push('--dangerously-skip-permissions');
+    else if (this.mode) args.push('--mode', this.mode);
     let child;
     try {
       child = spawn('agy', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });

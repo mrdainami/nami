@@ -266,6 +266,7 @@ function dropFilesOnPanel(p, paths) {
         model: ev.model || (p.agentStatus && p.agentStatus.model),
         mode: ev.mode || (p.agentStatus && p.agentStatus.mode),
         models: ev.models || (p.agentStatus && p.agentStatus.models),
+        ctxPct: (p.agentStatus && p.agentStatus.ctxPct),
       });
       const introId = 'intro:' + p.id;
       const intro = {
@@ -291,6 +292,11 @@ function dropFilesOnPanel(p, paths) {
     }
     p.cardEvents = (p.cardEvents || []).concat(ev);
     p.lastEventAt = Date.now();
+    if (ev.kind === 'turn_end' && typeof ev.ctxPct === 'number') {
+      p.agentStatus = Object.assign(p.agentStatus || {}, { ctxPct: ev.ctxPct });
+      const rec = tileEls.get(p.id);
+      if (rec && rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+    }
     scheduleFeed(p);
     if (ev.kind === 'permission') setAttention(p);
   });
@@ -1505,9 +1511,10 @@ function cardAgentFor(p) {
 function canShowCards(p) { return !!cardAgentFor(p); }
 
 // Which channels can switch mode live, and through what values.
+// Everything the channel really supports — bypass and skip included, warned.
 const MODE_CYCLES = {
-  claude: ['default', 'acceptEdits', 'plan'],
-  agy: ['accept-edits', 'plan'],
+  claude: ['default', 'acceptEdits', 'plan', 'bypassPermissions'],
+  agy: ['accept-edits', 'plan', 'skip-permissions'],
 };
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
@@ -1771,6 +1778,14 @@ function mountCards(p, rec) {
     },
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    onModelMenu: () => {
+      // The welcome's model row: a real picker where the channel switches
+      // (the status-line select), the truth said plainly where it cannot.
+      const rec2 = tileEls.get(p.id);
+      const sel = rec2 && rec2.cardsUi && rec2.cardsUi.el.querySelector('.cs-model');
+      if (sel && !sel.disabled) { try { sel.showPicker ? sel.showPicker() : sel.focus(); } catch (_) { sel.focus(); } }
+      else toast('This channel sets its model at start — /model where the agent supports it.');
+    },
     onMode: () => {
       const cycle = MODE_CYCLES[cardAgentFor(p)];
       if (!cycle || !p.agentLive) return;
