@@ -9,7 +9,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Want Nami for your team?
-    url: https://dainami.ai/teams?utm_source=github&utm_medium=issue-chooser&utm_campaign=teams
+    url: https://dainami.ai/?utm_source=github&utm_medium=issue-chooser&utm_campaign=teams
     about: Custom builds, Windows, or Nami wired into your own stack.
   - name: Made by Cal
     url: https://dainami.ai/links?utm_source=github&utm_medium=issue-chooser
