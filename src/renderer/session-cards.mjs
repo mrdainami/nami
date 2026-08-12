@@ -147,6 +147,17 @@ export function buildRows(events) {
         break;
 
       case 'tool': {
+        // An adapter may re-describe a call it already announced — ACP's
+        // tool_call_update knows more than its tool_call did. Same row,
+        // better words: update in place, never a second row.
+        const seen = e.toolId && byTool.get(e.toolId);
+        if (seen && seen.pending) {
+          const fresh = toolRow(e);
+          seen.name = fresh.name; seen.toolKind = fresh.toolKind; seen.glyph = fresh.glyph;
+          seen.label = fresh.label; seen.detail = fresh.detail;
+          seen.diff = fresh.diff || seen.diff;
+          break;
+        }
         const row = toolRow(e);
         if (e.toolId) byTool.set(e.toolId, row);
         push(e, row);
@@ -159,6 +170,7 @@ export function buildRows(events) {
           row.body = e.body || '';
           row.isError = !!e.isError;
           row.truncated = !!e.truncated;
+          if (e.diff) row.diff = e.diff;
           row.pending = false;
           // A read's one open question is how much came back.
           if (row.toolKind === 'read' && !row.detail && row.body) row.detail = `${lineCount(row.body)} lines`;

@@ -966,6 +966,7 @@ ipcMain.handle('agent:start', async (e, { id, agent, cwd, sid, model, prompt }) 
 ipcMain.handle('agent:send', (_e, { id, text }) => ({ ok: agentSessions.send(id, text) }));
 ipcMain.handle('agent:permission', (_e, { id, permissionId, optionId }) => ({ ok: agentSessions.permission(id, permissionId, optionId) }));
 ipcMain.handle('agent:interrupt', (_e, { id }) => ({ ok: agentSessions.interrupt(id) }));
+ipcMain.handle('agent:config', (_e, { id, configId, value }) => ({ ok: agentSessions.config(id, configId, value) }));
 ipcMain.handle('agent:stop', (_e, { id }) => { agentSessions.stop(id); return { ok: true }; });
 
 // Everything the conversation already holds, read once on a switch to Cards —
