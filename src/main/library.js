@@ -35,6 +35,11 @@ function listMd(dir) {
   catch (_) { return []; }
 }
 
+const { isDelivered } = require('./agent-master');
+function isDeliveredFile(file) {
+  try { return isDelivered(fs.readFileSync(file, 'utf8').slice(0, 4000)); } catch (_) { return false; }
+}
+
 // Skills are folders, and installers routinely place them as symlinks into a
 // shared store — so `isDirectory()` alone silently drops every linked skill,
 // live ones included. A link to a folder that still holds a SKILL.md is a real
@@ -170,9 +175,16 @@ function scanLibrary({ projectPath, homeDir } = {}) {
     }
   };
   if (projectPath) {
-    for (const f of listMd(path.join(projectPath, '.claude/agents'))) items.push(mkItem('agent', 'claude', 'project', f));
+    // Masters first: one agent, one row. Copies Nami delivered into the
+    // platform folders carry the marker and are hidden — listing them too
+    // would turn one agent into six rows the moment it works everywhere.
+    for (const f of listMd(path.join(projectPath, 'agents'))) items.push(mkItem('agent', 'project', 'project', f));
+    for (const f of listMd(path.join(projectPath, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'project', f));
     addSkills(projectPath, PROJECT_SKILL_SOURCES, 'project');
-    for (const f of listMd(path.join(projectPath, '.opencode/agent'))) items.push(mkItem('agent', 'opencode', 'project', f));
+    for (const f of listMd(path.join(projectPath, '.opencode/agent'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
+    for (const f of listMd(path.join(projectPath, '.opencode/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
+    for (const f of listMd(path.join(projectPath, '.gemini/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'gemini', 'project', f));
+    for (const f of listMd(path.join(projectPath, '.kimi-code/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'kimi', 'project', f));
     for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
   }
   for (const f of listMd(path.join(home, '.claude/agents'))) items.push(mkItem('agent', 'claude', 'user', f));
@@ -202,6 +214,19 @@ function kebab(s) {
 }
 
 const TEMPLATES = {
+  // The master: superset frontmatter, no tool's name on it. Copies are
+  // delivered from this file; agent-master.js owns the dialects.
+  'project:agent': (name, slug) => `---
+name: ${slug}
+description: ${name} — describe when to use this agent.
+tools: Read, Grep, Glob
+---
+
+You are ${name}.
+
+Describe the job this agent does, how it should work, and what a good
+result looks like. Keep it specific — vague agents drift.
+`,
   'claude:agent': (name, slug) => `---
 name: ${slug}
 description: ${name} — describe when to use this agent.
@@ -249,6 +274,8 @@ function targetPath({ projectPath, homeDir, type, platform, scope, slug }) {
   // Skills are project-scoped and platform-agnostic — one neutral folder that
   // the pointer announces. See targetDirFor in seed-text.mjs, the same table.
   if (type === 'skill') return projectPath ? path.join(projectPath, 'skills', slug, 'SKILL.md') : null;
+  // The master agent is project-scoped like a skill: the drawer is the project's.
+  if (platform === 'project' && type === 'agent') return projectPath ? path.join(projectPath, 'agents', slug + '.md') : null;
   if (platform === 'claude' && type === 'agent') return path.join(root, scope === 'project' ? '.claude/agents' : '.claude/agents', slug + '.md');
   if (platform === 'opencode' && type === 'agent') {
     return scope === 'project' ? path.join(root, '.opencode/agent', slug + '.md') : path.join(home, '.config/opencode/agent', slug + '.md');
@@ -351,6 +378,7 @@ async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = 
   if (projectPath) {
     for (const s of PROJECT_SKILL_SOURCES) roots.push(path.join(projectPath, s.rel));
     roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
+    roots.push(path.join(projectPath, 'agents'), path.join(projectPath, '.gemini'), path.join(projectPath, '.kimi-code'), path.join(projectPath, '.codex'));
   }
   for (const s of USER_SKILL_SOURCES) roots.push(path.join(home, s.rel));
   roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.config', 'opencode'));
