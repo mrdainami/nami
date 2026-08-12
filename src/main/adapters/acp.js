@@ -24,6 +24,20 @@ const ACP_AGENTS = {
 
 const STDERR_CAP = 16 * 1024; // debug ring; stderr is not content
 
+// The connect calls get deadlines because an ACP rpc only fails when the
+// process EXITS — an agent that stays alive but never answers left the card
+// on "Connecting — resuming…" forever (hermes, on a slow free-tier endpoint,
+// in a real screenshot). A promise that never settles is not an error a
+// try/catch can see; a race against the clock is.
+const CONNECT_MS = 25000;
+function withDeadline(promise, ms, what) {
+  let t;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { t = setTimeout(() => reject(new Error(`${what} did not answer within ${Math.round(ms / 1000)}s`)), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+
 class AcpAdapter {
   constructor({ id, cwd, env, onEvent, agent }) {
     this.id = id;
@@ -121,11 +135,11 @@ class AcpAdapter {
     });
 
     try {
-      const init = await this._rpc('initialize', {
+      const init = await withDeadline(this._rpc('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
         clientInfo: { name: 'nami', version: '0' },
-      });
+      }), CONNECT_MS, `${spec.label} initialize`);
       this.authMethods = (init && init.authMethods) || [];
       this.agentInfo = (init && init.agentInfo) || {};
       const canLoad = !!(init && init.agentCapabilities && init.agentCapabilities.loadSession);
@@ -133,12 +147,15 @@ class AcpAdapter {
       let sess = null;
       if (sid && canLoad) {
         // The same conversation, replayed: session/load re-sends the history
-        // as ordinary updates, which become rows with no special path.
-        try { sess = await this._rpc('session/load', { sessionId: sid, cwd: this.cwd, mcpServers: [] }); } catch (_) {}
+        // as ordinary updates, which become rows with no special path. A load
+        // that fails OR stalls falls back to a fresh session — resuming must
+        // degrade to "new conversation", never to "wait forever".
+        try { sess = await withDeadline(this._rpc('session/load', { sessionId: sid, cwd: this.cwd, mcpServers: [] }), CONNECT_MS, `${spec.label} session/load`); } catch (_) {}
         if (sess) this.sessionId = sid;
+        else this.emit('note', { text: `Couldn't reload the old conversation — starting a fresh one. The old history is still in ${spec.label}'s own terminal.` });
       }
       if (!this.sessionId) {
-        sess = await this._rpc('session/new', { cwd: this.cwd, mcpServers: [] });
+        sess = await withDeadline(this._rpc('session/new', { cwd: this.cwd, mcpServers: [] }), CONNECT_MS, `${spec.label} session/new`);
         this.sessionId = sess && (sess.sessionId || sess.session_id);
       }
       this.readModels(sess);
@@ -476,4 +493,4 @@ function contentDiff(content) {
   return { path: String(d.path || ''), oldText: String(d.oldText || ''), newText: String(d.newText || '') };
 }
 
-module.exports = { AcpAdapter, ACP_AGENTS };
+module.exports = { AcpAdapter, ACP_AGENTS, withDeadline };;
