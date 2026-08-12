@@ -38,6 +38,10 @@ body[data-theme="glass"] {
   --green: #ef6461;            /* primary action → coral, like operator */
   --green-dark: #d95350;
   --green-ok: #2e7d4f;
+  --diff-add-bg: rgba(46, 125, 79, 0.14);
+  --diff-add-ink: #226940;
+  --diff-del-bg: rgba(239, 100, 97, 0.12);
+  --diff-del-ink: #b2322f;
   --amber-bg: rgba(238, 190, 80, 0.2);
   --amber-line: rgba(201, 152, 44, 0.55);
   --amber-ink: #9a6c14;
@@ -433,6 +437,14 @@ body[data-glass] .term-body { padding: 0; }
    the glass panes bleed their blur to the tile edge, so padding the body would
    punch a hard-edged frame out of it */
 body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
+/* the card view — the glass family rounds its edges and lets the pane show
+   through, so the rows are outlines on the slab rather than filled boxes */
+body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
+body[data-glass] .cd-line { border-radius: 8px; background: var(--gl-pane-dim); }
+body[data-glass] .cd-row.open .cd-line { border-radius: 8px 8px 0 0; }
+body[data-glass] .cd-body { border-radius: 0 0 8px 8px; background: var(--gl-well); }
+body[data-glass] .cd-send { border-radius: 6px; }
+body[data-glass] .cd-ask { border-top-color: var(--dash); }
 body[data-glass] .ed-gutter { color: var(--faint); background: none; }
 body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
 body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }

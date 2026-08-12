@@ -59,12 +59,17 @@ contextBridge.exposeInMainWorld('dainami', {
   fsTrash: (args) => ipcRenderer.invoke('fs:trash', args),
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
-  claudeStart: (args) => ipcRenderer.invoke('claude:start', args),
-  claudeSend: (args) => ipcRenderer.invoke('claude:send', args),
-  claudePermission: (args) => ipcRenderer.invoke('claude:permission', args),
-  claudeInterrupt: (args) => ipcRenderer.invoke('claude:interrupt', args),
-  claudeClose: (args) => ipcRenderer.invoke('claude:close', args),
-  onClaudeEvent: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('claude:event', h); return () => ipcRenderer.removeListener('claude:event', h); },
+  // Cards drive mode: one live agent runtime per tile, whichever adapter its
+  // agent speaks. Events arrive one at a time on agent:event, already in the
+  // agent-events.js vocabulary and stamped with the tile id.
+  agentStart: (args) => ipcRenderer.invoke('agent:start', args),
+  agentSend: (args) => ipcRenderer.invoke('agent:send', args),
+  agentPermission: (args) => ipcRenderer.invoke('agent:permission', args),
+  agentInterrupt: (args) => ipcRenderer.invoke('agent:interrupt', args),
+  agentStop: (args) => ipcRenderer.invoke('agent:stop', args),
+  onAgentEvent: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('agent:event', h); return () => ipcRenderer.removeListener('agent:event', h); },
+  // What the conversation already holds, read once on a switch to Cards.
+  cardsBacklog: (args) => ipcRenderer.invoke('cards:backlog', args),
 
   termCreate: (args) => ipcRenderer.invoke('term:create', args),
   termWrite: (args) => ipcRenderer.invoke('term:write', args),
@@ -72,6 +77,13 @@ contextBridge.exposeInMainWorld('dainami', {
   termKill: (args) => ipcRenderer.invoke('term:kill', args),
   onTermData: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
   onTermExit: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
+  // The card view: the same live session, read out of the transcript it is
+  // already writing. cardsWatch turns the tail on for one tile; the events
+  // arrive in batches — { id, events, reset } — with reset meaning "what you
+  // have belongs to a conversation that is gone, start again".
+  cardsWatch: (args) => ipcRenderer.invoke('cards:watch', args),
+  onSessionEvents: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:events', h); return () => ipcRenderer.removeListener('session:events', h); },
+
   // claude worked out a name for this conversation — { id, title }
   onSessionTitle: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:title', h); return () => ipcRenderer.removeListener('session:title', h); },
   // Claude moved this tile to a different conversation (the user ran /resume).
