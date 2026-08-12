@@ -10,11 +10,24 @@ const path = require('node:path');
 const { parseAgentStatus } = require('./agent-status.js');
 const { loginShell, whichCommand, binSearchDirs } = require('./platform.js');
 
+// Every one of these keeps skills somewhere of its own — ~/.claude/skills,
+// ~/.codex/skills, ~/.hermes/skills and so on — so writing a skill into all of
+// them would mean one copy per agent, drifting apart on the first edit. Instead
+// each agent gets *told* where the project's single copy lives, in the file it
+// already opens on startup. That filename is `contextFile`, and it is the whole
+// mechanism: five of the seven read AGENTS.md, so only two need a stub.
+//
+// `projectSkillsDir` is the optional second route. Where an agent's own
+// project-level skills folder is verified, a relative symlink into `skills/`
+// earns native registration — the description lands in context automatically
+// instead of being read as prose. Left unset means pointer-only, which works.
 const KNOWN_AGENTS = [
   { id: 'claude', name: 'Claude Code', bin: 'claude', kind: 'claude',
     sub: 'your subscription · slash commands work',
     install: 'curl -fsSL https://claude.ai/install.sh | bash',
     docs: 'https://docs.anthropic.com/en/docs/claude-code',
+    contextFile: 'CLAUDE.md',
+    projectSkillsDir: '.claude/skills',
     lifecycle: {
       statusCmd: 'claude auth status --json',
       source: 'claude auth status',
@@ -31,6 +44,7 @@ const KNOWN_AGENTS = [
     sub: "OpenAI's coding agent",
     install: 'npm install -g @openai/codex',
     docs: 'https://developers.openai.com/codex/cli',
+    contextFile: 'AGENTS.md',
     // File-verified only. Its login/logout commands are unconfirmed, so the
     // sheet shows identity and no buttons.
     lifecycle: {
@@ -42,6 +56,7 @@ const KNOWN_AGENTS = [
     sub: 'open-source agent · bring any model',
     install: 'curl -fsSL https://opencode.ai/install | bash',
     docs: 'https://opencode.ai/docs',
+    contextFile: 'AGENTS.md',
     lifecycle: {
       statusFiles: ['~/.local/share/opencode/auth.json'],
       source: 'reads its auth file',
@@ -53,8 +68,15 @@ const KNOWN_AGENTS = [
   { id: 'gemini', name: 'Gemini CLI', bin: 'gemini', kind: 'run',
     sub: "Google's coding agent",
     install: 'npm install -g @google/gemini-cli',
-    docs: 'https://github.com/google-gemini/gemini-cli' },
+    docs: 'https://github.com/google-gemini/gemini-cli',
+    contextFile: 'GEMINI.md' },
+  { id: 'cursor', name: 'Cursor', bin: 'cursor-agent', kind: 'run',
+    sub: "Cursor's agent, in the terminal",
+    install: 'curl https://cursor.com/install -fsS | bash',
+    docs: 'https://cursor.com/docs/cli',
+    contextFile: 'AGENTS.md' },
   { id: 'hermes', name: 'Hermes', bin: 'hermes', kind: 'run',
+    contextFile: 'AGENTS.md',
     sub: "Nous Research's agent, learns as it works",
     // chain the guided first-run wizard so the install tile walks the user all the way in
     install: 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash && hermes setup --portal',
@@ -78,8 +100,20 @@ const KNOWN_AGENTS = [
   { id: 'kimi', name: 'Kimi Code', bin: 'kimi', kind: 'run',
     sub: "Moonshot's coding agent",
     install: 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash',
-    docs: 'https://moonshotai.github.io/kimi-code/en/' },
+    docs: 'https://moonshotai.github.io/kimi-code/en/',
+    contextFile: 'AGENTS.md' },
 ];
+
+// The files a project needs so that every installed agent can see its skills.
+// AGENTS.md always carries the block; the other two are three-line redirects to
+// it, which is why one block plus two stubs covers the whole registry.
+const POINTER_FILE = 'AGENTS.md';
+function contextFilesFor(agentIds) {
+  const ids = new Set(agentIds || []);
+  const files = new Set([POINTER_FILE]);
+  for (const a of KNOWN_AGENTS) if (ids.has(a.id) && a.contextFile) files.add(a.contextFile);
+  return [...files];
+}
 
 // An interactive shell reads the user's rc file — which is the point — but that
 // also means anything the rc file prints lands on stdout before our answer.
@@ -185,4 +219,4 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
   }
 }
 
-module.exports = { KNOWN_AGENTS, detectAgents, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
+module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
