@@ -451,6 +451,9 @@ body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
    through, so the rows are outlines on the slab rather than filled boxes */
 body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
 /* round-3: the whole card vocabulary joins the glass material */
+/* menus float over content: near-opaque, or the rows ghost through */
+body[data-glass] .cd-menu { background: rgba(255, 255, 255, 0.96); }
+body[data-theme="graphite"] .cd-menu { background: rgba(30, 30, 38, 0.97); }
 body[data-glass] .cd-user,
 body[data-glass] .cd-diff-sum,
 body[data-glass] .cd-edits,
