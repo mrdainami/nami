@@ -2451,7 +2451,7 @@ async function agentsScan() {
 }
 function repaintAgentOverlays() {
   const ot = S.overlay && S.overlay.type;
-  if (['launcher', 'agent-setup', 'agent-remove', 'connect-form', 'connect-custom', 'create', 'improve-item'].includes(ot)) renderOverlay();
+  if (['launcher', 'agent-setup', 'agent-remove', 'connect-form', 'connect-custom', 'connect-own', 'create', 'improve-item'].includes(ot)) renderOverlay();
 }
 async function refreshAgentStatus(id) {
   try { S.agentStatus[id] = await api.agentStatus(id); } catch (_) { S.agentStatus[id] = null; }
@@ -2864,6 +2864,7 @@ function renderOverlay() {
   if (o.type === 'connect-form') return renderConnectForm();
   if (o.type === 'connect-done') return renderConnectDone();
   if (o.type === 'connect-custom') return renderConnectCustom();
+  if (o.type === 'connect-own') return renderConnectOwn();
   if (o.type === 'improve-item') return renderImproveItem();
   if (o.type === 'fs-name') return renderFsName();
   if (o.type === 'switch-folder') return renderSwitchChoice();
@@ -3307,6 +3308,12 @@ function renderConnectCatalog() {
         ${s.id === 'kie' ? '<span class="sv-by">by Dainami</span>' : ''}
         <span class="sv-go">${connectedIds.has(s.id) ? '<span class="ok">●</span> connected' : 'connect →'}</span>
       </div>`).join('')}</div>
+    <div class="svc-custom" id="svc-own" tabindex="0">
+      <span class="code" data-kind="service">＋</span>
+      <span class="col"><span class="sv-name">Already have one? Add it yourself</span>
+      <span class="sv-desc">paste an address or command — or choose a .mcpb bundle file</span></span>
+      <span class="sv-go">add it →</span>
+    </div>
     <div class="svc-custom" id="svc-custom" tabindex="0">
       <span class="code" data-kind="service">✳</span>
       <span class="col"><span class="sv-name">Something else? It gets built for you</span>
@@ -3325,6 +3332,72 @@ function renderConnectCatalog() {
   });
   q('#svc-custom', modal).onclick = () => openConnectCustom();
   clickOnEnter(q('#svc-custom', modal));
+  q('#svc-own', modal).onclick = () => openConnectOwn();
+  clickOnEnter(q('#svc-own', modal));
+}
+// The "already have it" door: an address, a command line, or a .mcpb bundle.
+// All three end as one master entry, delivered everywhere — same as the catalog.
+function openConnectOwn() {
+  S.overlay = { type: 'connect-own', name: '', address: '', scope: 'project', values: {}, bundle: null };
+  renderOverlay(); if (!S.agents) refreshAgents();
+}
+function renderConnectOwn() {
+  const o = S.overlay;
+  const b = o.bundle;
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" data-kind="service">＋</span>
+      <span class="col"><span class="name">Add your own</span><span class="desc">an address, a command, or a bundle file</span></span></div>
+    ${b ? `<p class="setup-copy"><b>${esc(b.name)}</b>${b.version ? ' · v' + esc(b.version) : ''} — ${esc(b.description || 'unpacked and ready')}</p>`
+        : `<p class="setup-copy">Paste what the service gave you — a URL (https://…) or the command line from its README.</p>`}
+    <div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">Name</span>
+      <input class="text-input" id="own-name" style="flex:1" placeholder="what your agents should call it" spellcheck="false" /></div>
+    ${b ? '' : `<div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">It is</span>
+      <input class="text-input" id="own-addr" style="flex:1" placeholder="https://mcp.example.com/mcp  ·  or:  npx -y some-mcp-server" spellcheck="false" /></div>`}
+    ${(b ? b.fields : []).map((f) => `<div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">${esc(f.label)}</span>
+      <input class="text-input own-field" data-k="${esc(f.id)}" style="flex:1" type="${f.sensitive ? 'password' : 'text'}" placeholder="${esc(f.description || (f.default ? 'default: ' + f.default : ''))}" spellcheck="false" /></div>`).join('')}
+    ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
+    <div class="chip-row" id="own-scope" style="margin:8px 0">
+      <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
+      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">everywhere on this Mac</span></div>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="own-go">Connect</button>
+      ${b ? '<button class="btn" id="own-clear">Different bundle</button>' : '<button class="btn" id="own-bundle">Choose a bundle…</button>'}</div>`);
+  const nameIn = q('#own-name', modal), addrIn = q('#own-addr', modal);
+  nameIn.value = o.name; if (addrIn) addrIn.value = o.address;
+  const keep = () => {
+    o.name = nameIn.value; if (addrIn) o.address = addrIn.value;
+    modal.querySelectorAll('.own-field').forEach((inp) => { o.values[inp.dataset.k] = inp.value.trim(); });
+  };
+  nameIn.oninput = keep; if (addrIn) addrIn.oninput = keep;
+  modal.querySelectorAll('.own-field').forEach((inp) => { inp.value = o.values[inp.dataset.k] || ''; inp.oninput = keep; });
+  q('#own-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { keep(); o.scope = chip.dataset.v; renderOverlay(); }; });
+  const pickBtn = q('#own-bundle', modal);
+  if (pickBtn) pickBtn.onclick = async () => {
+    keep();
+    const res = await api.pickBundle();
+    if (!res) return;
+    if (!res.ok) { toast(res.error || 'Could not read that bundle.'); return; }
+    o.bundle = res;
+    if (!o.name.trim()) o.name = res.name || res.slug;
+    renderOverlay();
+  };
+  const clearBtn = q('#own-clear', modal);
+  if (clearBtn) clearBtn.onclick = () => { o.bundle = null; o.values = {}; renderOverlay(); };
+  q('#own-go', modal).onclick = async () => {
+    keep();
+    if (!o.name.trim()) { toast('Give it a name first.'); return; }
+    if (!b && !o.address.trim()) { toast('Paste an address or command first — or choose a bundle.'); return; }
+    const missing = b ? b.fields.filter((f) => f.required && !o.values[f.id]) : [];
+    if (missing.length) { toast(`Fill in ${missing[0].label} first.`); return; }
+    q('#own-go', modal).textContent = 'Connecting…';
+    const res = await api.connectCustom({
+      name: o.name, address: o.address, values: o.values, bundleDir: b && b.dir,
+      scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path,
+    });
+    refreshServices(); loadLibrary(true);
+    S.overlay = { type: 'connect-done', svc: { name: o.name.trim(), code: '＋', desc: 'your own connection' }, result: res };
+    renderOverlay();
+  };
 }
 function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', values: {} }; renderOverlay(); }
 // Who ends up seeing a new connection: every installed agent, always — the same
@@ -3487,8 +3560,13 @@ function renderConnectCustom() {
     const w = chosenAgent(o);
     if (!o.text.trim() || !w) return;
     closeOverlay();
+    // The agent registers into the master; Nami fans it out when the session
+    // ends — the same rhythm as agent- and skill-building sessions.
+    const onExit = S.project
+      ? () => { refreshServices(); api.deliverServices({ projectPath: S.project.path, agentIds: installedAgentIds() }).then(() => refreshServices()); }
+      : undefined;
     agentSession(w, { title: 'build: connector', code: 'BC', seed:
-      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding it to .mcp.json (and opencode.json if OpenCode is installed), then tell me what tools it exposes.` });
+      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`, onExit });
     toast('Your agent is on it. The service appears under Library when it lands.');
   };
 }
