@@ -101,6 +101,39 @@ export function toolDiff(name, input) {
   return null;
 }
 
+// A representative conversation for `--scene=cards`: one of every row shape,
+// drawn from the shapes the real captures produced. This is what `npm run
+// shot` renders, so the four theme screenshots are a command, not a ritual.
+export function sceneEvents() {
+  return [
+    { kind: 'user', id: 's1', text: 'Tighten up the greeting logic and check the tests still pass' },
+    { kind: 'thinking', id: 's2', text: 'Two call sites use greet(); changing the signature would break the CLI path, so the default parameter is the safer edit.' },
+    { kind: 'tool', id: 's3', toolId: 'x1', name: 'Read', input: { file_path: '/repo/src/greet.js' } },
+    { kind: 'tool_result', id: 's4', toolId: 'x1', body: 'export function greet(name) {\n  return `hello ${name}`\n}\n', truncated: false },
+    { kind: 'tool', id: 's5', toolId: 'x2', name: 'Edit', input: { file_path: '/repo/src/greet.js', old_string: 'export function greet(name) {\n  return `hello ${name}`\n}', new_string: 'export function greet(name = \'there\') {\n  return `hello ${name}`\n}' } },
+    { kind: 'tool_result', id: 's6', toolId: 'x2', body: '', truncated: false },
+    { kind: 'tool', id: 's7', toolId: 'x3', name: 'Bash', input: { command: 'npm test', description: 'Run the test suite' } },
+    { kind: 'tool_result', id: 's8', toolId: 'x3', body: 'ℹ tests 24\nℹ pass 24\nℹ fail 0\n', truncated: false },
+    { kind: 'plan', id: 's9', todos: [
+      { text: 'Read the greeting module', status: 'completed' },
+      { text: 'Default the name parameter', status: 'completed' },
+      { text: 'Run the tests', status: 'in_progress' },
+    ] },
+    { kind: 'assistant', id: 's10', text: 'Done — `greet()` now defaults its name to **there**, so the bare call in `cli.js` stops printing `hello undefined`. All 24 tests pass.' },
+    { kind: 'turn_end', id: 's11', durationMs: 12400, costUsd: 0.09, tokens: 18240 },
+    { kind: 'user', id: 's12', text: 'Now rename it across the repo' },
+    { kind: 'tool', id: 's13', toolId: 'x4', name: 'Grep', input: { pattern: 'greet\\(' } },
+    { kind: 'permission', id: 's14', permissionId: 'sp1', toolName: 'Bash', title: 'Bash',
+      description: 'Rename greet to welcome across src/',
+      input: { command: 'grep -rl \'greet(\' src/ | xargs sed -i \'\' \'s/greet(/welcome(/g\'' },
+      options: [
+        { id: 'allow', label: 'Allow' },
+        { id: 'sugg:0', label: 'Always allow `sed -i s/greet/welcome/`' },
+        { id: 'deny', label: 'Deny' },
+      ] },
+  ];
+}
+
 export function fmtDuration(ms) {
   const n = Math.max(0, Number(ms) || 0);
   if (n < 60000) return `${(n / 1000).toFixed(1)}s`;
@@ -216,7 +249,7 @@ export function buildRows(events) {
       }
 
       case 'note':
-        rows.push({ kind: 'note', id: e.id, at: e.at, text: e.text });
+        rows.push({ kind: 'note', id: e.id, at: e.at, text: e.text, action: e.action || null });
         break;
 
       case 'error':

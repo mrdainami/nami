@@ -950,6 +950,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   display: flex; gap: 8px; border: 1px solid var(--red-line); background: var(--red-bg);
   color: var(--red-ink); padding: 7px 10px; font-size: 12px;
 }
+.cd-note-act {
+  display: block; margin-top: 6px; font: inherit; font-size: 11px;
+  padding: 4px 10px; cursor: pointer; font-style: normal;
+  background: var(--amber-btn); color: var(--paper); border: 1px solid var(--amber-btn-line);
+}
+.cd-note-act:hover { filter: brightness(1.08); }
 .cd-error .m { font-weight: 700; flex: none; }
 .cd-error .tx { white-space: pre-wrap; word-break: break-word; }
 
