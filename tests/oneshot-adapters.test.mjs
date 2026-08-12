@@ -250,3 +250,29 @@ test('codex announces its modes on init, all available', () => {
   assert.deepEqual(init.modes.map((m) => m.id), ['default', 'read-only', 'workspace-write', 'bypass']);
   assert.equal(init.mode, 'default');
 });
+
+// The picker's options are honest per channel: kimi reads the user's own
+// config aliases; codex's curated list always includes the configured
+// current model, even one it has never heard of.
+const { readModelOptions } = require('../src/main/adapters/kimi.js');
+const { modelOptions, CODEX_MODELS } = require('../src/main/adapters/codex.js');
+
+test('kimi model options come from the config\'s [models] sections', () => {
+  const toml = [
+    'default_model = "moonshot-ai/kimi-k2.6"',
+    '[models."moonshot-ai/kimi-k2.6"]', 'model = "kimi-k2.6"',
+    '[models."moonshot-ai/kimi-k3"]', 'model = "kimi-k3"',
+  ].join('\n');
+  const opts = readModelOptions(toml);
+  assert.deepEqual(opts.map((o) => o.value), ['moonshot-ai/kimi-k2.6', 'moonshot-ai/kimi-k3']);
+  assert.equal(opts[0].name, 'kimi-k2.6'); // display drops the provider prefix
+  assert.deepEqual(readModelOptions(''), []);
+});
+
+test('codex options always contain the configured current model', () => {
+  const known = modelOptions(CODEX_MODELS[1].value);
+  assert.equal(known.length, CODEX_MODELS.length);
+  const custom = modelOptions('my-own-alias');
+  assert.equal(custom[0].value, 'my-own-alias');
+  assert.match(custom[0].desc, /config/);
+});

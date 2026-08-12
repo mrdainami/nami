@@ -38,14 +38,18 @@ class KimiAdapter {
   }
 
   emitInit() {
+    // a chosen model rides the next turn's -m flag; the config's default
+    // says what runs when nothing was chosen, and the config's [models]
+    // sections are the picker's options — the user's own list.
+    const current = this.model || readDefaultModel();
+    const options = readModelOptions();
     this.emit('init', {
-      capability: capability(CAPABILITY),
+      capability: capability({ ...CAPABILITY, models: options.length > 0 }),
       agentSessionId: this.sessionId,
       commands: [],
       agentName: 'Kimi Code',
-      // a chosen model rides the next turn's -m flag; the config's default
-      // says what runs when nothing was chosen
-      model: this.model || readDefaultModel(),
+      model: current,
+      models: options.length ? { current, options } : undefined,
     });
   }
 
@@ -54,6 +58,7 @@ class KimiAdapter {
   setConfigOption(configId, value) {
     if (configId !== 'model') return;
     this.model = String(value || '') || null;
+    if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
     this.emitInit();
   }
 
@@ -183,12 +188,28 @@ class KimiAdapter {
   }
 }
 
+// The picker's options come from the user's own config: every
+// [models."alias"] section is a model kimi -m accepts — the honest list,
+// no curation. readConfigToml is split out so both readers share one parse.
+function readConfigToml() {
+  try { return fs.readFileSync(path.join(os.homedir(), '.kimi-code', 'config.toml'), 'utf8'); } catch (_) { return ''; }
+}
+
+function readModelOptions(toml) {
+  const t = toml === undefined ? readConfigToml() : toml;
+  const out = [];
+  const re = /^\[models\."([^"]+)"\]/gm;
+  let m;
+  while ((m = re.exec(t))) out.push({ value: m[1], name: m[1].split('/').pop() });
+  return out;
+}
+
 function readDefaultModel() {
   try {
-    const toml = fs.readFileSync(path.join(os.homedir(), '.kimi-code', 'config.toml'), 'utf8');
+    const toml = readConfigToml();
     const m = /^\s*default_model\s*=\s*"([^"]+)"/m.exec(toml);
     return m ? m[1] : null;
   } catch (_) { return null; }
 }
 
-module.exports = { KimiAdapter, readDefaultModel };
+module.exports = { KimiAdapter, readDefaultModel, readModelOptions };
