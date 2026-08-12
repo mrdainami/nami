@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { ClaudeSdkAdapter } = require('./adapters/claude-sdk.js');
+const { AcpAdapter } = require('./adapters/acp.js');
 // The one slug rule claude itself uses — a private copy here already cost a
 // live-empty backlog once, when `_local` slugged differently in two places.
 const { projectSlug } = require('./claude-args.js');
@@ -17,6 +18,8 @@ const { projectSlug } = require('./claude-args.js');
 // table is how a new agent gets cards.
 const ADAPTERS = {
   claude: ClaudeSdkAdapter,
+  opencode: AcpAdapter,
+  hermes: AcpAdapter,
 };
 
 // The transcript claude would resume for this tile, if it exists yet.
@@ -38,7 +41,7 @@ class AgentSessions {
     if (!Adapter) return { ok: false, reason: `no adapter for '${agent}'` };
     this.stop(id);
 
-    const adapter = new Adapter({ id, cwd, model, env, onEvent });
+    const adapter = new Adapter({ id, cwd, model, env, onEvent, agent });
     this.sessions.set(id, adapter);
     const hasTranscript = agent === 'claude' && !!claudeTranscript(cwd, sid);
     const ok = await adapter.start({ prompt, sid, hasTranscript });
@@ -47,6 +50,11 @@ class AgentSessions {
   }
 
   send(id, text) { const s = this.sessions.get(id); if (s) s.send(text); return !!s; }
+  config(id, configId, value) {
+    const s = this.sessions.get(id);
+    if (s && s.setConfigOption) s.setConfigOption(configId, value);
+    return !!(s && s.setConfigOption);
+  }
   permission(id, permissionId, optionId) {
     const s = this.sessions.get(id);
     if (s) s.resolvePermission(permissionId, optionId);

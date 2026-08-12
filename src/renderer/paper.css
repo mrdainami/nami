@@ -1033,6 +1033,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
+.cd-model {
+  flex: none; max-width: 150px; font: inherit; font-size: 10.5px;
+  color: var(--muted); background: var(--paper-2); border: 1px solid var(--dash);
+  padding: 3px 4px; cursor: pointer;
+}
+.cd-model:hover { color: var(--ink); }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
