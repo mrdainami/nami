@@ -24,9 +24,11 @@ body[data-theme="operator"] {
   --dash-dark: #3d3d3d;
   --rail: #121212;
   --hover: #212121;
+  --menu-sheet: #171717; /* opaque paper — menus need no extra fill here */
   --green: #ef6461;          /* primary action → coral in operator */
   --green-dark: #c14f4d;
   --green-ok: #5aa06e;
+  --mode-plan: #7ea4e0; /* plan hue, lifted for the dark ground */
   --u-bg: rgba(239, 100, 97, 0.09);
   --diff-add-bg: rgba(90, 160, 110, 0.16);
   --diff-add-ink: #8fd3a6;
@@ -228,6 +230,10 @@ body[data-theme="operator"] .t-btn { border-radius: 5px; }
 /* the card view, in the ops console: same rows, softened corners like every
    other control here, and the coral accent the theme uses for anything primary */
 body[data-theme="operator"] .t-view { border-radius: 5px; overflow: hidden; }
+/* operator is dark too: --faint (#4e4c48) dies on the #171717 panel, and the
+   turn meter is now the only turn boundary — same lift the glass family got */
+body[data-theme="operator"] .cd-turn_end { color: var(--muted); }
+body[data-theme="operator"] .cd-menu-i .mi-h { color: var(--muted); }
 body[data-theme="operator"] .cd-line { border-radius: 4px; }
 body[data-theme="operator"] .cd-row.open .cd-line { border-radius: 4px 4px 0 0; }
 body[data-theme="operator"] .cd-body { border-radius: 0 0 4px 4px; }

@@ -13,12 +13,25 @@ import { pixIcon, iconKeyFor, iconSvg } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function modeLabel(mode) {
+export function modeLabel(mode) {
   return {
     default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits',
     plan: 'plan', bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
     build: 'build', 'full access': 'full access',
+    // codex's sandbox story, told as modes
+    'read-only': 'read-only', 'workspace-write': 'workspace write', bypass: 'bypass ⚠',
   }[mode] || mode;
+}
+// One stable colour per mode, worn everywhere the mode appears — the chip,
+// the welcome pick, the mode menu — so shift⇥ state reads by hue before the
+// word: neutral asks, blue for the careful modes (plan, read-only), green
+// for pre-approved work (accept edits, workspace write), amber bypasses.
+export function modeClass(mode) {
+  const m = String(mode || '');
+  if (/bypass|skip/i.test(m)) return 'm-bypass';
+  if (/plan|read-only/i.test(m)) return 'm-plan';
+  if (/accept|workspace/i.test(m)) return 'm-accept';
+  return 'm-default';
 }
 function shortModel(m) {
   const s = String(m || '').split('/').pop();
@@ -185,21 +198,22 @@ function renderRow(ctx, row) {
     // folder, then the session's dials stacked (stable at every width), then
     // the keys. Pickers are live where the channel can switch; facts where it
     // cannot.
-    el.dataset.n = `${row.model}|${row.mode}`;
+    el.dataset.n = `${row.model}|${row.mode}|${row.note || ''}`;
     const key = iconKeyFor(row.name || '');
     const mark = (key && iconSvg(key)) || `<span class="cd-wl-t">${esc(String(row.name || 'A').slice(0, 2).toUpperCase())}</span>`;
     el.innerHTML = `
       <div class="cd-wl">${mark}</div>
       <div class="cd-wn">${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
       <div class="cd-wf">${esc(shortPath(row.cwd))}</div>
+      ${row.note ? `<div class="cd-wnote">${esc(row.note)}</div>` : ''}
       <div class="cd-wp">
         ${row.model ? `<button class="cd-wpick" data-act="model"><span class="lab">model</span><span class="val">${esc(shortModel(row.model))}</span><span class="c">⌄</span></button>` : ''}
-        ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
+        ${row.mode ? `<button class="cd-wpick" data-act="mode"><span class="lab">mode</span><span class="val ${modeClass(row.mode)}">${esc(modeLabel(row.mode))}</span><span class="c">⌄</span></button>` : ''}
       </div>
       <div class="cd-wh">/ commands · esc interrupts · shift⇥ cycles mode · ⌘↑ ⌘↓ walk turns</div>`;
     el.querySelectorAll('.cd-wpick').forEach((b) => {
       b.onclick = () => {
-        if (b.dataset.act === 'mode' && ctx.onMode) ctx.onMode();
+        if (b.dataset.act === 'mode') { if (ctx.onModePick) ctx.onModePick(b); else if (ctx.onMode) ctx.onMode(); }
         else if (b.dataset.act === 'model' && ctx.onModelMenu) ctx.onModelMenu();
       };
     });
@@ -268,12 +282,12 @@ function renderRow(ctx, row) {
   if (row.kind === 'error') { el.innerHTML = `<span class="m">✕</span><span class="tx"></span>`; q('.tx', el).textContent = row.text; return el; }
 
   if (row.kind === 'turn_end') {
+    // The meter alone marks the boundary — the channel badge is session
+    // state and lives in the tile head (.t-channel), said once.
     const meter = [`done in ${row.duration}`];
     if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
-    const badge = (ctx.badge && ctx.badge()) || '';
-    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>` +
-      (badge ? `<span class="cd-badge${/one-shot|terminal|watching/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
+    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>`;
     return el;
   }
 
@@ -290,7 +304,7 @@ function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
   if (row.kind === 'tool') el.dataset.kd = row.toolKind || 'other';
   if (row.kind === 'intro') {
-    const key = `${row.model}|${row.mode}`;
+    const key = `${row.model}|${row.mode}|${row.note || ''}`;
     if (el.dataset.n !== key) { const fresh = renderRow(ctx, row); el.replaceWith(fresh); }
     return;
   }
@@ -407,6 +421,7 @@ export function buildCards(ctx) {
       <span class="cw-esc">esc to interrupt</span>
     </div>
     <div class="cd-menu" hidden></div>
+    <div class="cd-picker" hidden></div>
     <div class="cd-ask">
       <span class="m">❯</span>
       <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · shift⇥ cycles mode · ⌘↑/⌘↓ walk your turns" />
@@ -418,7 +433,7 @@ export function buildCards(ctx) {
       <button class="cs-mode" title="Click or shift⇥ to cycle"></button>
       <span class="cs-kb">(shift⇥ cycles)</span>
       <span class="cs-dot cs-mdot" hidden>·</span>
-      <select class="cd-model cs-model" title="Model"></select>
+      <button class="cs-model" title="Model — click for the picker"></button>
       <span class="cs-dot cs-ctxdot" hidden>·</span>
       <span class="cs-ctx" hidden></span>
       <span class="cs-right">/ commands · esc interrupts</span>
@@ -454,10 +469,62 @@ export function buildCards(ctx) {
     input.value = '';
     arm();
     hideMenu();
+    closePicker();
     ctx.onSend(text);
   };
   sendBtn.onclick = submit;
   micBtn.onclick = (e) => { e.stopPropagation(); ctx.onMic(); };
+
+  // ---- the picker: the terminal's own selection surface, kept ---------------
+  // Numbered choices with descriptions, the current one marked, ↑↓ to move
+  // (disabled rows are skipped), ⏎ confirms, esc goes back, digits 1-9 jump.
+  // One surface serves model, mode and resume — anything that is a choice.
+  const pickerEl = q('.cd-picker', el);
+  let picker = null; // { items:[{label,desc,cls,disabled,current,value}], idx, header, blurb, footer, onPick(item, i) }
+
+  function openPicker(spec) {
+    hideMenu();
+    const items = spec.items || [];
+    let idx = items.findIndex((it) => it.current && !it.disabled);
+    if (idx < 0) idx = items.findIndex((it) => !it.disabled);
+    picker = { ...spec, items, idx: Math.max(0, idx) };
+    paintPicker();
+    input.focus();
+  }
+  function closePicker() { picker = null; pickerEl.hidden = true; pickerEl.innerHTML = ''; }
+  function paintPicker() {
+    if (!picker) return;
+    pickerEl.innerHTML =
+      (picker.header ? `<div class="cd-pk-h"><b>${esc(picker.header)}</b>${picker.blurb ? `<p>${esc(picker.blurb)}</p>` : ''}</div>` : '') +
+      `<div class="cd-pk-list">` +
+      picker.items.map((it, i) =>
+        `<button class="cd-pk-i${i === picker.idx ? ' on' : ''}${it.disabled ? ' dis' : ''}" data-i="${i}">
+          <span class="pk-n">${i + 1}.</span>
+          <span class="pk-l ${it.cls || ''}">${esc(it.label)}${it.current ? ' <span class="pk-cur">✓ current</span>' : ''}</span>
+          ${it.desc ? `<span class="pk-d">${esc(it.desc)}</span>` : ''}
+        </button>`).join('') +
+      `</div><div class="cd-pk-f">${esc(picker.footer || '↑↓ choose · ⏎ confirms · esc goes back · 1-9 jump')}</div>`;
+    pickerEl.hidden = false;
+    pickerEl.querySelectorAll('.cd-pk-i').forEach((b) => {
+      b.onclick = () => { const i = Number(b.dataset.i); if (!picker.items[i].disabled) pickPicker(i); };
+    });
+  }
+  function movePicker(d) {
+    if (!picker || !picker.items.length) return;
+    let i = picker.idx;
+    for (let k = 0; k < picker.items.length; k++) {
+      i = (i + d + picker.items.length) % picker.items.length;
+      if (!picker.items[i].disabled) break;
+    }
+    picker.idx = i; paintPicker();
+  }
+  function pickPicker(i) {
+    const p2 = picker;
+    const it = p2 && p2.items[i ?? p2.idx];
+    if (!it || it.disabled) return;
+    closePicker();
+    if (p2.onPick) p2.onPick(it, i ?? p2.idx);
+  }
 
   // ---- the menus: `/` commands with the agent's own descriptions and
   // argument hints; `@` completes files from the folder the session runs in.
@@ -496,11 +563,17 @@ export function buildCards(ctx) {
   }
   function hideMenu() { menu.hidden = true; menuItems = []; menuKind = null; menuIdx = 0; }
 
-  // Commands arrive as strings or {name, description, argumentHint} — the
-  // richer shape wins where the channel publishes it.
+  // Commands arrive as strings or {name, description, argumentHint, route} —
+  // the richer shape wins where the channel publishes it. A command that runs
+  // somewhere other than this channel says so in the hint slot, so the menu
+  // never promises what the send cannot do.
+  const ROUTE_HINTS = { 'native-model': 'opens the picker', 'native-mode': 'switches mode', terminal: 'terminal' };
   function normCmd(c) {
     if (typeof c === 'string') return { name: c, desc: '', hint: '' };
-    return { name: String(c.name || ''), desc: String(c.description || ''), hint: String(c.argumentHint || c.hint || '') };
+    return {
+      name: String(c.name || ''), desc: String(c.description || ''),
+      hint: String(c.argumentHint || c.hint || '') || ROUTE_HINTS[c.route] || '',
+    };
   }
 
   async function refreshMenu() {
@@ -537,6 +610,18 @@ export function buildCards(ctx) {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       jumpTurn(e.key === 'ArrowUp' ? -1 : 1); e.preventDefault(); e.stopPropagation(); return;
     }
+    // A choice on screen owns the keyboard first — exactly like the TUI.
+    if (picker) {
+      if (e.key === 'ArrowDown') { movePicker(1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'ArrowUp') { movePicker(-1); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { pickPicker(); e.preventDefault(); e.stopPropagation(); return; }
+      if (e.key === 'Escape') { closePicker(); e.preventDefault(); e.stopPropagation(); return; }
+      if (/^[1-9]$/.test(e.key) && !input.value) {
+        const i = Number(e.key) - 1;
+        if (picker.items[i] && !picker.items[i].disabled) { picker.idx = i; paintPicker(); }
+        e.preventDefault(); e.stopPropagation(); return;
+      }
+    }
     if (!menu.hidden) {
       if (e.key === 'ArrowDown') { moveMenu(1); e.preventDefault(); e.stopPropagation(); return; }
       if (e.key === 'ArrowUp') { moveMenu(-1); e.preventDefault(); e.stopPropagation(); return; }
@@ -544,10 +629,35 @@ export function buildCards(ctx) {
       if (e.key === 'Enter') { pickMenu(); e.preventDefault(); e.stopPropagation(); return; }
       if (e.key === 'Escape') { hideMenu(); e.preventDefault(); e.stopPropagation(); return; }
     }
+    // An open approval card takes ↑↓/⏎ when the input is empty — arrow to an
+    // option first, so a stray Enter can never approve anything by itself.
+    if (!input.value && permNav(e)) { e.preventDefault(); e.stopPropagation(); return; }
     if (e.key === 'Enter') { e.preventDefault(); submit(); }
     else if (e.key === 'Escape') { ctx.onInterrupt(); e.preventDefault(); }
     e.stopPropagation();
   });
+
+  // ---- keyboard for the option cards (approvals, agent questions) -----------
+  function openPermRow() {
+    const rows = [...list.querySelectorAll('.cd-perm-open')];
+    return rows.length ? rows[rows.length - 1] : null;
+  }
+  function permNav(e) {
+    const row = openPermRow();
+    if (!row) return false;
+    const btns = [...row.querySelectorAll('.cd-perm-btn')];
+    if (!btns.length) return false;
+    let idx = btns.findIndex((b) => b.classList.contains('kb'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      idx = idx < 0 ? (e.key === 'ArrowDown' ? 0 : btns.length - 1)
+        : (idx + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length;
+      btns.forEach((b, i) => b.classList.toggle('kb', i === idx));
+      row.scrollIntoView({ block: 'nearest' });
+      return true;
+    }
+    if (e.key === 'Enter' && idx >= 0) { btns[idx].click(); return true; }
+    return false;
+  }
 
   // ⌘↑ / ⌘↓ walk the conversation one of your turns at a time.
   function jumpTurn(dir) {
@@ -602,34 +712,31 @@ export function buildCards(ctx) {
   // The status line — the terminal's own bottom line, kept: one fixed-height
   // strip of text under the input. It never wraps, never crowds the typing.
   const statusEl = q('.cd-status', el);
-  const modelSel = q('.cs-model', el);
+  const modelChip = q('.cs-model', el);
   const modeChip = q('.cs-mode', el);
-  modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
-  modelSel.addEventListener('keydown', (e) => e.stopPropagation());
-  modeChip.onclick = () => { if (ctx.onMode) ctx.onMode(); };
+  // Both chips open the same picker surface the /commands use — one selection
+  // language everywhere, exactly like the TUI's numbered lists.
+  modelChip.onclick = () => { if (ctx.onModelMenu) ctx.onModelMenu(); };
+  modeChip.onclick = () => { if (ctx.onModePick) ctx.onModePick(modeChip); else if (ctx.onMode) ctx.onMode(); };
   function setStatus(st) {
     const models = st && st.models;
     const hasModel = !!(models && models.options && models.options.length) || !!(st && st.model);
     const hasMode = !!(st && st.mode);
     statusEl.hidden = !hasModel && !hasMode;
-    if (models && Array.isArray(models.options) && models.options.length) {
-      modelSel.innerHTML = models.options.map((m) =>
-        `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
-      modelSel.hidden = false;
-      modelSel.disabled = false;
-    } else if (st && st.model) {
-      modelSel.innerHTML = `<option selected>${esc(shortModel(st.model))}</option>`;
-      modelSel.hidden = false;
-      modelSel.disabled = true; // a fact, not a control — honestly inert
+    if (hasModel) {
+      const cur = models && Array.isArray(models.options) && models.options.find((m) => m.value === models.current);
+      modelChip.textContent = (cur && (cur.name || cur.value)) || shortModel(st.model || (models && models.current) || '');
+      modelChip.hidden = false;
     } else {
-      modelSel.hidden = true;
+      modelChip.hidden = true;
     }
     const mdot = q('.cs-mdot', el);
-    if (mdot) mdot.hidden = modelSel.hidden;
+    if (mdot) mdot.hidden = modelChip.hidden;
     if (hasMode) {
       modeChip.textContent = modeLabel(st.mode);
       modeChip.hidden = false;
       modeChip.disabled = !st.canSwitchMode;
+      modeChip.className = 'cs-mode ' + modeClass(st.mode);
       modeChip.classList.toggle('warn', /bypass|skip/i.test(st.mode));
     } else {
       modeChip.hidden = true;
@@ -672,12 +779,21 @@ export function buildCards(ctx) {
   return {
     el, list, input,
     feed, setNote, scrollToEnd, setStatus, setWorking,
+    openPicker, closePicker,
     isEmpty: () => !list.children.length,
     insertText: (t) => {
       input.focus();
       try { document.execCommand('insertText', false, t); } catch (_) { input.value += t; }
       arm();
     },
-    setFontSize: (px) => { el.style.fontSize = px ? px + 'px' : ''; },
+    // − / + reach the cards too: every card font is `calc(Npx * var(--cdz))`
+    // in paper.css, so one scale factor moves the whole vocabulary together.
+    // 12 is the terminal's design size; the floor is higher than the
+    // terminal's because 10.5px meters scaled to 8px stop being text.
+    setFontSize: (px) => {
+      const z = px ? Math.min(1.5, Math.max(0.9, px / 12)) : 1;
+      if (z === 1) el.style.removeProperty('--cdz');
+      else el.style.setProperty('--cdz', String(z));
+    },
   };
 }

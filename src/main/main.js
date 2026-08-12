@@ -10,6 +10,7 @@ const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
 const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { listConversations } = require('./session-store.js');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
@@ -18,7 +19,7 @@ const { oneShotArgs, feedRunDone } = require('./run-done');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
-const { rememberBins, knownBin } = require('./bin-cache');
+const { rememberBins, knownBin, resolveRunCommand } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -1245,6 +1246,7 @@ ipcMain.handle('agent:permission', (_e, { id, permissionId, optionId }) => ({ ok
 ipcMain.handle('agent:interrupt', (_e, { id }) => ({ ok: agentSessions.interrupt(id) }));
 ipcMain.handle('agent:config', (_e, { id, configId, value }) => ({ ok: agentSessions.config(id, configId, value) }));
 ipcMain.handle('agent:stop', (_e, { id }) => { agentSessions.stop(id); return { ok: true }; });
+ipcMain.handle('agent:conversations', (_e, { agent, cwd }) => listConversations({ agent, cwd }));
 
 // Everything the conversation already holds, read once on a switch to Cards —
 // the backlog a live adapter cannot replay. Bounded exactly like the tail: a
@@ -1327,9 +1329,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // needs to know the end of, rather than a session that happens to be a
     // shell. It is spawned rather than typed, so the reporting suffix is never
     // echoed back at the user; the header below stands in for the echo.
+    // The typed command uses the scan's absolute path when it has one — the
+    // interactive shell's PATH can miss a binary the launcher calls ready
+    // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
-    if (watchDone) { spawnArgs = oneShotArgs(shellPath, command); echoLine = command; }
-    else afterStart = command;
+    const typed = resolveRunCommand(command);
+    if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
+    else afterStart = typed;
   } else {
     file = shellPath;
   }
