@@ -407,10 +407,11 @@ function showScene(name) {
     renderRail();
     if (what === 'library') return;
     if (what === 'mcp') return openConnect();
+    // create:agent / create:skill — the one-screen sheet ("agent" alone is the
+    // agent identity sheet above, so the create scene needs its own name)
+    if (what === 'create') return openCreate(step === 'agent' ? 'agent' : 'skill');
     if (what !== 'agent' && what !== 'skill') return;
-    openCreate(what);
-    // a skill has no steps to shoot, so `--scene=skill:2` must not fake one
-    if (step && what === 'agent') { S.overlay.step = Number(step) || 1; renderOverlay(); }
+    openCreate(what); // one screen for both — the step argument died with the steps
   });
 }
 
@@ -1092,9 +1093,14 @@ function refreshLibraryRail(c) {
     for (const i of items) {
       const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
       const row = document.createElement('div'); row.className = 'agent-row';
-      // Skills carry what they can do; everything else keeps the scope tag it had.
+      // One vocabulary: skills say what they can do, masters say "everywhere",
+      // and a hand-made platform agent says honestly whose it is.
       const tag = i.type === 'skill' && i.scope !== 'plugin'
         ? (() => { const a = availabilityTag(i); return `<span class="scope-tag" data-tone="${a.tone}" title="${esc(a.title)}">${esc(a.text)}</span>`; })()
+        : i.type === 'agent' && i.platform === 'project'
+          ? '<span class="scope-tag" data-tone="ok" title="The master in agents/ — Nami keeps a copy fresh for every installed tool.">everywhere</span>'
+        : i.type === 'agent' && i.scope !== 'plugin' && ['claude', 'opencode', 'gemini', 'kimi'].includes(i.platform)
+          ? `<span class="scope-tag" title="Lives in this tool's own folder — open the card to make it everyone's.">only ${esc(agentNameOf(i.platform))}</span>`
         : (i.scope === 'plugin' ? '' : `<span class="scope-tag">${scopeTagText(i.scope)}</span>`);
       row.innerHTML = `${chipHtml({ key: i.type, code: chip.code, kind: chip.kind })}
         <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span>
@@ -1948,7 +1954,7 @@ function useHereLabel(item) {
 // is everyone's, and read-only plugin agents are somebody else's to lift.
 function canAdopt(item) {
   return item.type === 'agent' && !item.readOnly && !item.broken && !!S.project
-    && ['claude', 'opencode', 'gemini', 'kimi'].includes(item.platform);
+    && ['claude', 'opencode', 'gemini', 'antigravity', 'kimi'].includes(item.platform);
 }
 async function openCard(item, opts) {
   await loadLibrary();
@@ -2705,97 +2711,37 @@ function renderAgentPickerSheet() {
 // its entrance between steps. State lives on S.overlay and the sheet is rebuilt
 // on every change, so inputs must be flushed into it before any re-render — same
 // discipline as the connect flow.
-const CREATE_PLATFORMS = [
-  { id: 'claude', name: 'Claude Code', code: 'CC' },
-  { id: 'opencode', name: 'OpenCode', code: 'OC' },
-];
-// Agents differ per platform — different frontmatter, `mode:` versus `tools:` —
-// so that question is real for them and stays. Skills never reach here.
-function createSupported(kind, platform) { return kind === 'agent' || platform === 'claude'; }
-// The bare folder shape for a platform, derived from the one path table in seed-text.mjs.
-function relDirFor(kind, platform) {
-  return String(targetDirFor({ type: kind, platform, scope: 'project', projectPath: '' }) || '').replace(/^\.\//, '');
-}
-function createCount(kind, platform) {
-  const n = S.library.items.filter((i) => i.type === kind && i.platform === platform && i.scope !== 'plugin').length;
-  return n ? `${n} here already` : 'nothing here yet';
-}
+// One screen for everything. The brand question died with the drawers: a new
+// agent is a master in agents/ (Builds 1–2 made that the answer), a new skill
+// is a folder in skills/ — nothing left to ask but "what is it?".
 function openCreate(kind) {
-  S.overlay = { type: 'create', kind, step: kind === 'skill' ? 3 : 1, platform: 'claude',
-    scope: kind === 'skill' ? 'project' : (S.project ? 'project' : 'user'), name: '', desc: '' };
+  S.overlay = { type: 'create', kind, platform: kind === 'agent' ? 'project' : 'claude',
+    scope: 'project', name: '', desc: '' };
   renderOverlay(); if (!S.agents) refreshAgents();
 }
 function createHeadHtml(o) {
   return `<div class="picker-input"><span class="prompt-mark">＋</span>
     <span style="font-weight:700">New ${esc(o.kind)}</span>
-    <span class="ni-step">${o.kind === 'skill' ? 'one screen' : `Step ${o.step} of 3`}</span></div>`;
+    <span class="ni-step">one screen</span></div>`;
 }
-// One card per choice, on the .add-card idiom so both themes and the chip recolor come free.
-function createChoiceHtml({ id, name, sub, path, on, off, chip }) {
-  return `<div class="add-card ni-choice${on ? ' on' : ''}${off ? ' off' : ''}" data-c="${esc(id)}"${off ? '' : ' tabindex="0" role="button"'}>
-    ${chip ? chipHtml(chip) : ''}
-    <span class="ac-name">${esc(name)}</span>
-    <span class="ac-desc">${esc(sub)}</span>
-    <span class="ac-go">${esc(path)}</span></div>`;
-}
-function wireCreateChoices(modal, pick) {
-  modal.querySelectorAll('.ni-choice').forEach((el) => {
-    if (el.classList.contains('off')) return;
-    const go = () => pick(el.dataset.c);
-    el.onclick = go;
-    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
-  });
-}
-function createBack(modal, o) {
-  const b = q('.ni-back', modal);
-  if (b) b.onclick = () => { o.step -= 1; o.focused = false; renderOverlay(); };
-}
-function renderCreateSheet() {
-  const o = S.overlay;
-  if (o.step === 1) return renderCreateStep1(o);
-  if (o.step === 2) return renderCreateStep2(o);
-  return renderCreateStep3(o);
-}
-function renderCreateStep1(o) {
-  const cards = CREATE_PLATFORMS.map((p) => {
-    const ok = createSupported(o.kind, p.id);
-    return createChoiceHtml({
-      id: p.id, name: p.name, on: ok && o.platform === p.id, off: !ok,
-      sub: ok ? createCount(o.kind, p.id) : `has no ${o.kind}s yet`,
-      path: ok ? relDirFor(o.kind, p.id) : '—',
-      chip: { key: iconKeyFor(p.id), code: p.code, kind: 'agent' },
-    });
-  }).join('');
-  const modal = overlay('picker-box', `${createHeadHtml(o)}
-    <div class="ni-ask">Where does it live?</div>
-    <div class="ni-choices">${cards}</div>`, { top: true });
-  wireCreateChoices(modal, (id) => { o.platform = id; o.step = 2; renderOverlay(); });
-}
-function renderCreateStep2(o) {
-  const cards = [
-    { id: 'project', name: 'This project', sub: S.project ? S.project.name + ' only' : 'open a folder first', off: !S.project },
-    { id: 'user', name: 'Your machine', sub: 'every project you open', off: false },
-  ].map((s) => createChoiceHtml({
-    id: s.id, name: s.name, sub: s.sub, off: s.off, on: !s.off && o.scope === s.id,
-    path: s.off ? '—' : shortHome(targetDirFor({ type: o.kind, platform: o.platform, scope: s.id, projectPath: S.project && S.project.path })),
-  })).join('');
-  const modal = overlay('picker-box', `${createHeadHtml(o)}
-    <button class="ni-back">‹ back</button>
-    <div class="ni-ask">Whose is it?</div>
-    <div class="ni-choices">${cards}</div>`, { top: true });
-  createBack(modal, o);
-  wireCreateChoices(modal, (id) => { o.scope = id; o.step = 3; renderOverlay(); });
-}
-// Who ends up knowing about a new skill. Every installed agent, always — there is
-// no good reason to leave one out, and a checklist whose boxes are all ticked by
-// default is a decision with an obvious answer, which is a tax. Opting one out is
-// a property of the project, not of each skill, so it does not belong here.
-function knowsLine() {
-  const names = (S.agents || []).filter((a) => a.found).map((a) => a.name);
+function renderCreateSheet() { return renderCreateStep3(S.overlay); }
+// Who ends up knowing about a new skill or agent. Every installed agent,
+// always — there is no good reason to leave one out, and a checklist whose
+// boxes are all ticked by default is a decision with an obvious answer, which
+// is a tax. Opting one out is a property of the project, not of each item.
+// Skills are announced (AGENTS.md); agents are delivered as copies — and
+// Hermes, which runs no custom agents, is named rather than implied.
+function knowsLine(kind) {
+  const canUse = (a) => a.found && (kind !== 'agent' || a.id !== 'hermes');
+  const names = (S.agents || []).filter(canUse).map((a) => a.name);
   if (!names.length) return '';
   const list = names.length === 1 ? names[0]
     : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-  return `${list} will all know — it goes in <b>AGENTS.md</b>${stubCount() ? ` + ${stubCount()} stub${stubCount() > 1 ? 's' : ''}` : ''}`;
+  if (kind === 'agent') {
+    const hermes = (S.agents || []).some((a) => a.found && a.id === 'hermes');
+    return `${esc(list)} will all know — Nami keeps each one's copy fresh${hermes ? ' · Hermes doesn’t run agents' : ''}`;
+  }
+  return `${esc(list)} will all know — it goes in <b>AGENTS.md</b>${stubCount() ? ` + ${stubCount()} stub${stubCount() > 1 ? 's' : ''}` : ''}`;
 }
 function stubCount() {
   const found = new Set((S.agents || []).filter((a) => a.found).map((a) => a.id));
@@ -2807,20 +2753,18 @@ function renderCreateStep3(o) {
   const dir = shortHome(targetDirFor({ type: o.kind, platform: o.platform, scope: o.scope, projectPath: S.project && S.project.path }));
   const skill = o.kind === 'skill';
   const modal = overlay('picker-box', `${createHeadHtml(o)}
-    ${skill ? '' : '<button class="ni-back">‹ back</button>'}
     <div class="ni-ask">What is it?</div>
     <div class="ni-row"><span class="lbl">Name</span>
       <input id="ni-name" placeholder="leave it blank and your agent names it" value="${esc(o.name)}" /></div>
     <div class="ni-row"><span class="lbl">What</span>
       <input id="ni-desc" placeholder="e.g. keeps the README honest after a batch of features lands" value="${esc(o.desc)}" /></div>
     <div class="ni-where">it lands in <b>${esc(dir)}</b></div>
-    ${skill && knowsLine() ? `<div class="ni-where ni-knows">${knowsLine()}</div>` : ''}
+    ${knowsLine(o.kind) ? `<div class="ni-where ni-knows">${knowsLine(o.kind)}</div>` : ''}
     <div class="ni-agent" style="margin:10px 18px 0">${worker
       ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> builds it with you`
       : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
     <div class="ni-row ni-actions"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Build it with my agent</button>
       <span class="action" id="ni-blank" role="button" tabindex="0">write it myself</span></div>`, { top: true });
-  if (!skill) createBack(modal, o);
   const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
   const keep = () => { o.name = nameInput.value; o.desc = descInput.value; };
   // agent detection can land mid-typing and re-render this sheet; keeping o in sync on every
@@ -2834,15 +2778,15 @@ function renderCreateStep3(o) {
     const w = chosenAgent(o);
     if (!o.desc.trim()) { toast('Describe what it should do first.'); return; }
     if (!w) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
-    if (skill && !S.project) { toast('Open a folder first — skills live in the project.'); return; }
+    if (!S.project) { toast(`Open a folder first — ${skill ? 'skills' : 'agents'} live in the project.`); return; }
     const seed = buildCreateSeed({ type: o.kind, platform: o.platform, scope: o.scope, name: o.name, desc: o.desc, projectPath: S.project && S.project.path });
     closeOverlay();
-    // The agent writes SKILL.md, so the pointer can only be written afterwards.
+    // The agent writes the file, so the follow-through can only run afterwards.
     // On exit is the honest moment; and if the session never exits, the rail
-    // already shows the skill as unannounced with a button to fix it.
-    const onExit = o.kind === 'skill' && S.project
+    // still shows the item, just not yet announced or delivered.
+    const onExit = o.kind === 'skill'
       ? () => { loadLibrary(true); api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true)); }
-      : undefined;
+      : () => { loadLibrary(true); api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() }); };
     agentSession(w, { title: 'build: ' + (o.name.trim() || o.kind), code: 'BD', seed, onExit });
     toast('Your agent has a few questions first — check the new tile.');
   };
@@ -2851,16 +2795,20 @@ function renderCreateStep3(o) {
   blankLink.onclick = async () => {
     keep();
     if (!o.name.trim()) { toast('Give it a name first.'); return; }
-    const res = await api.libraryCreate({ projectPath: S.project && S.project.path, type: o.kind, platform: o.platform, scope: o.scope, name: o.name.trim() });
+    if (!S.project) { toast(`Open a folder first — ${skill ? 'skills' : 'agents'} live in the project.`); return; }
+    const res = await api.libraryCreate({ projectPath: S.project.path, type: o.kind, platform: o.platform, scope: o.scope, name: o.name.trim(), agentIds: installedAgentIds() });
     if (!res.ok) { toast(res.error || 'Could not create'); return; }
     closeOverlay();
-    // A skill nobody has been told about is a folder. Announce it in the same
-    // breath as writing it, or "write it myself" leaves you half done.
-    if (o.kind === 'skill' && S.project) {
+    // An item nobody has been told about is just a file. Announce or deliver
+    // in the same breath as writing it, or "write it myself" leaves you half done.
+    if (o.kind === 'skill') {
       const w = await api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() });
       toast(w && w.ok ? `Created ${o.name.trim()} — ${(w.written || []).length ? w.written.join(', ') + ' updated' : 'already announced'}.` : 'Created ' + o.name.trim());
       refreshPointer(true);
-    } else toast('Created ' + o.name.trim());
+    } else {
+      const copies = (res.delivered || []).filter((r) => r.ok && r.file).length;
+      toast(`Created ${o.name.trim()}${copies ? ` — ${copies} ${copies === 1 ? 'copy' : 'copies'} delivered` : ''}.`);
+    }
     S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
     openCard(res.item);
   };

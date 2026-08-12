@@ -235,3 +235,13 @@ test('runPlan: a failing cli step is recorded, not thrown', async () => {
   assert.equal(results[0].ok, false);
   assert.match(results[0].error, /not found/);
 });
+
+test('antigravity aliases the gemini notebook, and unknown tools never read as missing', () => {
+  const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'project', agentIds: ['antigravity'], projectPath: PROJ, homeDir: HOME });
+  assert.equal(plan[0].file, '/proj/.gemini/settings.json');
+  const io = memIo({ '/proj/.mcp.json': JSON.stringify({ mcpServers: { notion: NOTION } }) });
+  const notebooks = readNotebooks({ projectPath: PROJ, homeDir: HOME, agentIds: ['claude', 'someday-tool'], io });
+  assert.ok(!('someday-tool' in notebooks), 'no reader, no verdict');
+  const cov = coverage({ masters: { notion: NOTION }, notebooks });
+  assert.deepEqual(cov.notion.missing, []);
+});

@@ -102,6 +102,7 @@ function copyTargets(projectPath, slug) {
     claude: { kind: 'copy', file: p(`.claude/agents/${slug}.md`) },
     opencode: { kind: 'copy', file: p(`.opencode/agents/${slug}.md`) },
     gemini: { kind: 'copy', file: p(`.gemini/agents/${slug}.md`) },
+    antigravity: { kind: 'copy', file: p(`.gemini/agents/${slug}.md`) }, // ex-Gemini CLI, same folders
     kimi: { kind: 'copy', file: p(`.kimi-code/agents/${slug}.md`) },
     codex: { kind: 'copy', file: p(`.codex/agents/${slug}.toml`) },
     cursor: { kind: 'via', via: 'claude' }, // reads .claude/agents natively
