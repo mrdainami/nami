@@ -1,5 +1,13 @@
 appId: ai.dainami.nami
 productName: Nami
+
+# Nami is Dainami's, and without this line electron-builder said otherwise. With
+# no `copyright` it builds NSHumanReadableCopyright out of `author`, so every
+# shipped bundle carried "Copyright © 2026 Calvin Hia" in its Info.plist and in
+# the About panel, a string nobody had written anywhere. The year is the
+# release's, so it is written out rather than taken from the build machine's
+# clock. main.js sets the same string on the About panel for dev runs.
+copyright: Copyright © 2026 Dainami AI
 directories:
   output: release
   buildResources: build
