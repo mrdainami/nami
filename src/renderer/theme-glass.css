@@ -463,6 +463,9 @@ body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
    per-menu literals graduated into that token so no menu can miss it */
 /* turn meters: --faint vanishes on the dark grounds (graphite rule) */
 body[data-glass] .cd-turn_end { color: var(--muted); }
+/* graphite's --amber-btn is a dim #c98d1a on the dark pane — the most
+   dangerous mode must not be the dimmest chip; its lifted amber ink wins */
+body[data-theme="graphite"] .m-bypass { color: var(--amber-ink); }
 /* the selected launcher pill is coral-filled here; translucent paper as its
    ink would ghost — solid white, same as graphite's .t-surface.cards */
 body[data-glass] .picker-row .way.last { color: #fff; }
