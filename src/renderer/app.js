@@ -333,6 +333,7 @@ function dropFilesOnPanel(p, paths) {
   renderAll();
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
   if (b.scene) showScene(b.scene);
+  armStarAsk();
 })();
 
 // --scene= puts one surface on screen at boot so `npm run shot` can capture it in both
@@ -367,6 +368,12 @@ function showScene(name) {
     offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
     if (staged) paintUpdate(step, { percent: 58, version: '0.2.0', live: 3 });
     return undefined;
+  }
+  // Same problem as the update card: the star ask is gated on five launches and
+  // a 90-second wait, which is not a state anyone can arrange for a screenshot.
+  if (what === 'star') {
+    localStorage.removeItem(STAR_ASKED);
+    return paintStarAsk();
   }
   // rename:tile / rename:rail — the in-place name editor, which you can only
   // otherwise reach by double-clicking a live session
@@ -1136,6 +1143,18 @@ function kindLabel(p) {
   return 'run · ' + shortHome(p.cwd);
 }
 
+// One line, three facts: it is free, it can be starred, and a person made it.
+// No social icons — YouTube, LinkedIn and the rest all live behind the one
+// "Cal" link, because a row of platform icons inside a work tool is the fastest
+// way to make it feel like a funnel.
+function deskCreditHtml() {
+  return `<div class="desk-credit">free &amp; open source
+    <span class="dc-sep">·</span>
+    <a class="dc-link" href="#" data-url="${REPO_URL}">★ star Nami</a>
+    <span class="dc-sep">·</span>
+    Made by <a class="dc-link" href="#" data-url="${makerUrl('empty-desk')}">Cal</a>, in Nami.</div>`;
+}
+
 function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
@@ -1149,6 +1168,16 @@ function renderGrid() {
       <div><div class="big">Open a folder to start working</div>
       <div class="hint">Every session runs inside a folder — that is what keeps it resumable.</div>
       <button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button></div></div>`;
+    // The empty desk is the one screen every user sees, on the first launch and
+    // between every job after it — and the only place in the app that says who
+    // made this without being opened first. Footer weight on purpose: it must
+    // never compete with the button above it, and it is deliberately not in the
+    // keyboard-hints strip below, which is one category of thing and would read
+    // as a bug with a link in it.
+    els.grid.querySelector('.lane-empty').insertAdjacentHTML('beforeend', deskCreditHtml());
+    els.grid.querySelectorAll('.desk-credit [data-url]').forEach((el) => {
+      el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+    });
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     return;
   }
@@ -3084,6 +3113,18 @@ function wireLookPane(modal) {
 // that version off for good (see SKIPPED_UPDATE below), and until now there was
 // no way back to it. Pressing the button clears the mark.
 const REPO_URL = 'https://github.com/mrdainami/nami';
+// Where the app sends people who want the person rather than the program.
+//
+// Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
+// one of the three reasons anyone trusts it, and it cannot be un-spent. So the
+// UTM is the entire measurement story: it costs nothing, it is visible to
+// anyone who reads the link, and dainami.ai's own analytics reads it at the
+// other end. `where` names the surface, so "does the empty desk ever get
+// clicked" has an answer without a single byte leaving the machine.
+//
+// GitHub links stay bare on purpose: there is no analytics there to read them.
+const makerUrl = (where) => `https://dainami.ai/links?utm_source=nami-app&utm_medium=${where}`;
+const teamsUrl = (where) => `https://dainami.ai/?utm_source=nami-app&utm_medium=${where}&utm_campaign=teams`;
 function updatedOn(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -3117,15 +3158,26 @@ function aboutPaneHtml() {
       <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
       <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
     </div>
+    <div class="ab-star">
+      <button class="btn btn--go" data-url="${REPO_URL}">★ Star Nami on GitHub</button>
+    </div>
     <div class="ab-links">
       <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
       <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
       <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">MIT licence <span class="arr">↗</span></a>
+    </div>
+    <hr class="ab-rule" />
+    <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Cal</a>, in Nami.</div>
+    <div class="ab-team">
+      <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Nami for your team? →</button>
     </div>`;
 }
 function wireAboutPane(modal) {
   const o = S.overlay;
-  modal.querySelectorAll('.ab-link[data-url]').forEach((el) => {
+  // [data-url] rather than .ab-link[data-url]: the star and team buttons carry
+  // the same attribute, and a selector that only matched the text links would
+  // have left both of them silently dead.
+  modal.querySelectorAll('[data-url]').forEach((el) => {
     el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
   });
   const act = q('#ab-act', modal);
@@ -3814,6 +3866,73 @@ function paintUpdate(state, ev) {
     localStorage.setItem(SKIPPED_UPDATE, offered.version);
     close();
   };
+}
+
+// ===========================================================================
+//  The one time Nami asks for anything
+// ===========================================================================
+// Nami is free, and the only thing that helps anyone find it is a star. But the
+// app has no account, no telemetry and no way to reach the person using it —
+// which is the point — so the ask has to happen here, and it gets exactly one
+// chance. Once. Dismissed is forever, same as a skipped update.
+//
+// Counted in launches rather than sessions on purpose. Five sessions can all
+// happen in one sitting on the first afternoon, when nobody owes you anything
+// yet; five separate launches means somebody came back, which is the only
+// evidence available that Nami earned its place. Nothing is sent anywhere to
+// learn this — it is a number in localStorage on one machine.
+
+const STAR_ASKED = 'nami-star-asked';
+const LAUNCH_TALLY = 'nami-launches';
+const ASK_AFTER_LAUNCHES = 5;
+// Long enough that the bar is never part of the app opening. Someone who just
+// launched Nami is going somewhere; this waits until they have arrived.
+const ASK_AFTER_MS = 90_000;
+
+function tallyLaunch() {
+  const n = Number(localStorage.getItem(LAUNCH_TALLY) || 0) + 1;
+  // Stop counting once it is moot, so the number cannot grow without bound.
+  if (n <= ASK_AFTER_LAUNCHES) localStorage.setItem(LAUNCH_TALLY, String(n));
+  return n;
+}
+
+// Pure, so the rules are testable without a DOM: asked already, or not enough
+// launches, means never.
+function starAskDue({ asked, launches }) {
+  if (asked) return false;
+  return Number(launches) >= ASK_AFTER_LAUNCHES;
+}
+
+function closeStarAsk() {
+  // Clicked or waved away, it makes no difference: both are an answer, and
+  // asking a second time is how a request becomes a nag.
+  localStorage.setItem(STAR_ASKED, '1');
+  if (els.updateRoot) els.updateRoot.innerHTML = '';
+}
+
+function paintStarAsk() {
+  // An update is always the more important thing in this slot, and it must
+  // never be displaced by a favour. If one is showing, the moment has passed.
+  if (!els.updateRoot || offered || localStorage.getItem(STAR_ASKED)) return;
+  // Green, not amber: amber in Nami means *needs you*, and this does not.
+  els.updateRoot.innerHTML = `<div class="update-note">
+    <span class="un-dot un-done"></span>
+    <span class="un-msg un-ask">Enjoying Nami? A star helps other people find it.</span>
+    <button class="un-act" id="star-go">★ Star it</button>
+    <span class="un-sep">·</span>
+    <button class="un-act un-quiet" id="star-no">no thanks</button>
+  </div>`;
+  q('#star-go', els.updateRoot).onclick = () => { api.openUrl(REPO_URL); closeStarAsk(); };
+  q('#star-no', els.updateRoot).onclick = closeStarAsk;
+}
+
+// Called once at boot. A demo or screenshot run counts nothing — those launches
+// are not a person coming back to the app.
+function armStarAsk() {
+  if (S.demo) return;
+  const launches = tallyLaunch();
+  if (!starAskDue({ asked: localStorage.getItem(STAR_ASKED), launches })) return;
+  setTimeout(paintStarAsk, ASK_AFTER_MS);
 }
 
 // ===========================================================================
