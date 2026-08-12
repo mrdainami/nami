@@ -1066,7 +1066,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    the head. Quiet fact; amber only when it explains a limit (watching,
    one-shot, terminal-only). Hidden entirely in Term view. */
 .t-channel {
-  flex: none; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  flex: none; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted); white-space: nowrap;
 }
 .t-channel.warn { color: var(--amber-btn); }
