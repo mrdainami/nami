@@ -23,6 +23,10 @@ body[data-theme="graphite"] {
   --green: #ef6461;
   --green-dark: #d95350;
   --green-ok: #63c68a;
+  --diff-add-bg: rgba(99, 198, 138, 0.14);
+  --diff-add-ink: #8fd3a6;
+  --diff-del-bg: rgba(239, 100, 97, 0.14);
+  --diff-del-ink: #ff9d9a;
   --amber-bg: rgba(238, 190, 80, 0.14);
   --amber-line: rgba(230, 192, 92, 0.5);
   --amber-ink: #e6c05c;
