@@ -54,7 +54,15 @@
     position: relative; display: flex; flex-direction: column;
     align-items: center; text-align: center;
   }
-  .mascot { width: 132px; height: auto; display: block; margin-bottom: 14px; }
+  .mascot {
+    width: 132px; height: auto; display: block; margin-bottom: 14px;
+    /* the same coral lift the glass topbar gives it */
+    filter: drop-shadow(0 3px 7px rgba(239, 100, 97, 0.35));
+  }
+  /* The body is dots, not a solid fill — theme-glass.css swaps the mascot to
+     url(#nami-dot-lattice) so the silhouette is built from the same grid the
+     Doto wordmark is. A solid blob beside dotted type reads as two logos. */
+  .mascot .nami-body { fill: url(#nami-dot-lattice); }
   .word {
     font-family: 'Doto', monospace; font-weight: 900; font-size: 92px;
     letter-spacing: 0.04em; text-transform: uppercase; color: #1d1d22; line-height: 0.94;
@@ -81,7 +89,14 @@
 <div class="in">
   <!-- the wave blob, same paths the app's topbar draws -->
   <svg class="mascot" viewBox="474 285 1084 1400" aria-hidden="true">
-    <g transform="translate(0,2048) scale(1,-1)" fill="#ef6461">
+    <defs>
+      <!-- same lattice the app defines inline in app.js: one dot per 140 units,
+           r=52, which lands ~8 across the body at the size this card renders -->
+      <pattern id="nami-dot-lattice" width="140" height="140" patternUnits="userSpaceOnUse">
+        <circle cx="70" cy="70" r="52" fill="#ef6461"/>
+      </pattern>
+    </defs>
+    <g class="nami-body" transform="translate(0,2048) scale(1,-1)" fill="#ef6461">
       <path d="M962 1762 c-201 -12 -357 -148 -373 -324 -12 -132 86 -235 207 -219
       86 12 143 93 112 160 -16 34 -52 45 -65 19 -10 -20 -40 -17 -51 6 -20 38 18
       94 74 111 70 20 128 -11 162 -88 12 -30 28 -41 62 -45 98 -11 126 -123 50
@@ -101,5 +116,5 @@
   <div class="word">Nami</div>
   <div class="tag">Your AI Agent Workbench</div>
   <div class="sub">Put the world's best AI agents to work, all in one place.</div>
-  <div class="foot">Free &amp; open source · macOS</div>
+  <div class="foot">Free &amp; open source</div>
 </div>
