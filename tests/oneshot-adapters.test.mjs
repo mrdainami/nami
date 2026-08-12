@@ -1,0 +1,150 @@
+// The one-shot three — Codex, Kimi, Antigravity — tested against the streams
+// the real CLIs produced. handleLine() takes parsed frames directly.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { CodexAdapter, unwrapShell } = require('../src/main/adapters/codex.js');
+const { KimiAdapter } = require('../src/main/adapters/kimi.js');
+const { AgyAdapter, agyToolKind } = require('../src/main/adapters/agy.js');
+const { EVENT_KINDS } = require('../src/main/agent-events.js');
+
+function frames(name) {
+  return fs.readFileSync(new URL(`./fixtures/agents/${name}`, import.meta.url), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l));
+}
+function replay(Adapter, fixture) {
+  const events = [];
+  const a = new Adapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  for (const f of frames(fixture)) a.handleLine(f);
+  a.finishTurn();
+  return { a, events };
+}
+
+test('every event from every one-shot replay is in the vocabulary', () => {
+  for (const [A, f] of [[CodexAdapter, 'codex.jsonl'], [KimiAdapter, 'kimi.jsonl'], [AgyAdapter, 'agy.jsonl'], [AgyAdapter, 'agy2.jsonl']]) {
+    for (const e of replay(A, f).events) {
+      assert.ok(EVENT_KINDS.has(e.kind), `${f}: '${e.kind}' not in vocabulary`);
+    }
+  }
+});
+
+// ---- codex ------------------------------------------------------------------
+
+test('codex: rows are commands with exit codes, prose interleaves, tokens not dollars', () => {
+  const { a, events } = replay(CodexAdapter, 'codex.jsonl');
+  const tools = events.filter((e) => e.kind === 'tool');
+  assert.ok(tools.length >= 2);
+  for (const t of tools) assert.equal(t.toolKind, 'execute');
+  // the zsh -lc wrapper is unwrapped so the row reads as the command
+  assert.ok(tools.some((t) => t.input.command.startsWith('sed -n')), 'wrapper must be stripped');
+  const results = events.filter((e) => e.kind === 'tool_result');
+  assert.ok(results.some((r) => r.body.includes('hello ${name}')));
+  const prose = events.filter((e) => e.kind === 'assistant');
+  assert.ok(prose.length >= 3, 'prose interleaves between commands');
+  const end = events.find((e) => e.kind === 'turn_end');
+  assert.ok(end.tokens > 0, 'tokens ride the meter');
+  assert.equal(end.costUsd, 0, 'codex reports tokens, not dollars');
+  assert.equal(a.threadId, 'ses_test', 'the thread id is kept for resume');
+});
+
+test('codex: the same command item is one row started and completed', () => {
+  const { events } = replay(CodexAdapter, 'codex.jsonl');
+  const toolIds = events.filter((e) => e.kind === 'tool').map((e) => e.toolId);
+  assert.equal(new Set(toolIds).size, toolIds.length, 'no duplicate rows per item');
+});
+
+test('unwrapShell leaves a bare command alone', () => {
+  assert.equal(unwrapShell('ls -la'), 'ls -la');
+  assert.equal(unwrapShell('/bin/zsh -lc "ls -la"'), 'ls -la');
+});
+
+// ---- kimi -------------------------------------------------------------------
+
+test('kimi: OpenAI-shaped calls become kind-typed rows and results pair by id', () => {
+  const { a, events } = replay(KimiAdapter, 'kimi.jsonl');
+  const tool = events.find((e) => e.kind === 'tool');
+  assert.equal(tool.name, 'Read');
+  assert.equal(tool.toolKind, 'read');
+  assert.deepEqual(tool.input, { path: 'src/greet.js' });
+  const result = events.find((e) => e.kind === 'tool_result');
+  assert.equal(result.toolId, tool.toolId);
+  assert.ok(result.body.includes('greet'));
+  const prose = events.find((e) => e.kind === 'assistant');
+  assert.match(prose.text, /greet/);
+});
+
+test('kimi: the resume hint becomes the session id the composer continues with', () => {
+  const { a, events } = replay(KimiAdapter, 'kimi.jsonl');
+  assert.equal(a.sessionId, 'session_ses_test');
+  const init = events.filter((e) => e.kind === 'init').at(-1);
+  assert.equal(init.agentSessionId, 'session_ses_test');
+});
+
+// ---- antigravity ------------------------------------------------------------
+
+test('agy: the step timeline becomes tool rows with outputs and errors', () => {
+  const { events } = replay(AgyAdapter, 'agy2.jsonl');
+  const tools = events.filter((e) => e.kind === 'tool');
+  assert.ok(tools.some((t) => t.name === 'list_dir' && t.toolKind === 'search'));
+  assert.ok(tools.some((t) => t.name === 'view_file' && t.toolKind === 'read'));
+  const results = events.filter((e) => e.kind === 'tool_result');
+  assert.ok(results.some((r) => r.body.includes('README.md')), 'tool output lands on the row');
+});
+
+test('agy: an ERROR step is an errored row, not silence', () => {
+  const { events } = replay(AgyAdapter, 'agy.jsonl');
+  const errs = events.filter((e) => e.kind === 'tool_result' && e.isError);
+  assert.ok(errs.length >= 2, 'the capture has two failing tools');
+  assert.ok(errs.some((r) => r.body.length > 0), 'the error message rides the body');
+});
+
+test('agy: checkpoints are their own kind of row', () => {
+  const { events } = replay(AgyAdapter, 'agy.jsonl');
+  const cp = events.find((e) => e.kind === 'tool' && e.toolKind === 'checkpoint');
+  assert.ok(cp, 'checkpoint step must surface');
+});
+
+test('agy: response deltas grow one row, and the final response is not said twice', () => {
+  const { events } = replay(AgyAdapter, 'agy2.jsonl');
+  const deltas = events.filter((e) => e.kind === 'assistant' && e.id.includes(':r'));
+  assert.ok(deltas.length >= 2, 'deltas re-emit the growing text');
+  assert.equal(new Set(deltas.map((e) => e.id)).size, 1, 'one growing row per step');
+  const finals = events.filter((e) => e.kind === 'assistant' && !e.id.includes(':r'));
+  assert.equal(finals.length, 0, 'the result.response was already streamed');
+  assert.match(deltas.at(-1).text, /greet/);
+});
+
+test('agy: a run that never streamed prose says the result once', () => {
+  const { events } = replay(AgyAdapter, 'agy.jsonl');
+  // agy.jsonl has an empty response and no deltas — nothing to say, no error
+  const finals = events.filter((e) => e.kind === 'assistant');
+  assert.equal(finals.length, 0);
+  const end = events.find((e) => e.kind === 'turn_end');
+  assert.equal(end.ok, true);
+  assert.ok(end.tokens > 0);
+  assert.ok(end.durationMs > 8000, 'duration comes from the result frame');
+});
+
+test('agy: tool kinds map by what the tool does', () => {
+  assert.equal(agyToolKind('run_command'), 'execute');
+  assert.equal(agyToolKind('grep_search'), 'search');
+  assert.equal(agyToolKind('view_file'), 'read');
+  assert.equal(agyToolKind('write_to_file'), 'edit');
+  assert.equal(agyToolKind('read_url_content'), 'fetch');
+  assert.equal(agyToolKind('browser_click_element'), 'fetch');
+  assert.equal(agyToolKind('totally_new'), 'other');
+});
+
+// ---- the shared one-shot contract ------------------------------------------
+
+test('one-shots declare their channel honestly: no ask, one-shot badge', () => {
+  for (const [A, f] of [[CodexAdapter, 'codex.jsonl'], [KimiAdapter, 'kimi.jsonl'], [AgyAdapter, 'agy.jsonl']]) {
+    const { events } = replay(A, f);
+    const init = events.find((e) => e.kind === 'init');
+    assert.equal(init.capability.ask, false, `${f}: headless cannot be asked`);
+    assert.equal(init.capability.channel, 'one-shot');
+    assert.ok(init.capability.note, `${f}: the limitation must be said`);
+  }
+});
