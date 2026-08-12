@@ -278,5 +278,56 @@ export function buildRows(events) {
   // would otherwise leave spinners forever. The final settle happens at
   // turn_end in the live path; here every dangling call after the last
   // turn_end of the stream keeps its pending mark — the DOM decides.
-  return rows;
+  return groupTurns(rows);
+}
+
+// A finished turn folds its work — the Codex reading: your bubble, then
+// `worked for 12.4s · 6 steps ▸`, then the prose, then an Edited-N-files
+// card, then the meter. Only completed turns fold; the live one is watched.
+function groupTurns(rows) {
+  const out = [];
+  let turn = [];   // everything since the last user row
+
+  const flush = (ended) => {
+    if (!turn.length) { return; }
+    if (!ended) { out.push(...turn); turn = []; return; }
+    const meter = turn.at(-1); // the turn_end that ended this turn
+    const body = turn.slice(0, -1);
+
+    // What folds: the activity. What stays: what was said, what failed, and
+    // anything still waiting on the user.
+    const folded = [];
+    const visible = [];
+    const edited = [];
+    for (const r of body) {
+      if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) {
+        folded.push(r);
+        if (r.kind === 'tool' && r.toolKind === 'edit' && !r.isError) {
+          const path = (r.diff && r.diff.path) || '';
+          edited.push({ path: path || r.label.replace(/^\S+\s+/, ''), diff: r.diff || null });
+        }
+      } else {
+        visible.push(r);
+      }
+    }
+
+    if (folded.length) {
+      out.push({
+        kind: 'fold', id: `fold:${meter.id}`,
+        count: folded.length, duration: meter.duration, children: folded,
+      });
+    }
+    out.push(...visible);
+    if (edited.length) out.push({ kind: 'edits', id: `edits:${meter.id}`, files: edited });
+    out.push(meter);
+    turn = [];
+  };
+
+  for (const r of rows) {
+    if (r.kind === 'user') { flush(false); out.push(r); continue; }
+    turn.push(r);
+    if (r.kind === 'turn_end') flush(true);
+  }
+  flush(false);
+  return out;
 }

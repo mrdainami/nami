@@ -168,6 +168,39 @@ function renderRow(ctx, row) {
     return el;
   }
 
+  if (row.kind === 'fold') {
+    // A finished turn's work, folded to one line. Children render lazily —
+    // most folds are never opened, and a long session holds many.
+    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> worked for ${esc(row.duration)} · ${row.count} step${row.count > 1 ? 's' : ''}</button><div class="cd-fold-b" hidden></div>`;
+    const body = q('.cd-fold-b', el);
+    q('.cd-fold-h', el).onclick = () => {
+      const open = el.classList.toggle('open');
+      if (open && !body.childElementCount) for (const c of row.children) body.appendChild(renderRow(ctx, c));
+      body.hidden = !open;
+      q('.arr', el).textContent = open ? '▾' : '▸';
+    };
+    return el;
+  }
+
+  if (row.kind === 'edits') {
+    el.innerHTML = `<div class="cd-edits-h">Edited ${row.files.length} file${row.files.length > 1 ? 's' : ''}</div>`;
+    for (const f of row.files) {
+      const name = String(f.path || '').split('/').filter(Boolean).pop() || f.path;
+      const { add, del } = f.diff ? diffCounts(f.diff) : { add: 0, del: 0 };
+      const line = document.createElement('button');
+      line.className = 'cd-edits-f';
+      line.innerHTML = `<span class="n" title="${esc(f.path)}">${esc(name)}</span><span class="c"><span class="plus">+${add}</span> <span class="minus">−${del}</span></span>`;
+      el.appendChild(line);
+      if (f.diff) {
+        const body = diffBody(f.diff);
+        body.hidden = true;
+        el.appendChild(body);
+        line.onclick = () => { body.hidden = !body.hidden; };
+      }
+    }
+    return el;
+  }
+
   if (row.kind === 'plan') {
     const marks = { completed: '☑', in_progress: '◐', pending: '☐' };
     el.innerHTML = `<div class="cd-plan-t">Plan</div>` + row.todos.map((t) =>
@@ -199,13 +232,9 @@ function renderRow(ctx, row) {
     const meter = [`done in ${row.duration}`];
     if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
-    const chips = (row.files || []).slice(0, 6).map((f) => {
-      const name = f.split('/').filter(Boolean).pop();
-      return `<a class="cd-chip cd-path" data-path="${esc(f)}" title="${esc(f)}">${esc(name)}</a>`;
-    }).join('');
     const badge = (ctx.badge && ctx.badge()) || '';
-    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>${chips}` +
-      (badge ? `<span class="cd-badge${/one-shot|terminal/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
+    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>` +
+      (badge ? `<span class="cd-badge${/one-shot|terminal|watching/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
     return el;
   }
 
@@ -411,6 +440,10 @@ export function buildCards(ctx) {
   function feed(rows, full) {
     if (full) { list.innerHTML = ''; rowEls.clear(); }
     const stick = nearBottom();
+    const live = new Set(rows.map((r) => r.id));
+    for (const [id, rowEl] of rowEls) {
+      if (!live.has(id)) { rowEl.remove(); rowEls.delete(id); }
+    }
     for (const row of rows) {
       const seen = rowEls.get(row.id);
       if (seen) { updateRow(ctx, seen, row); continue; }

@@ -42,7 +42,7 @@ test('a capped body brings its flag with it, so the card can admit the cut', () 
   assert.equal(row.truncated, true);
 });
 
-test('rows keep the order things happened in', () => {
+test('a finished turn folds its work; the prose and the meter stay out', () => {
   const rows = buildRows([
     { kind: 'user', id: 'u1', text: 'do it' },
     { kind: 'thinking', id: 'k1', text: 'weighing it up' },
@@ -51,7 +51,44 @@ test('rows keep the order things happened in', () => {
     { kind: 'assistant', id: 'a1', text: 'done' },
     { kind: 'turn_end', id: 'e1', durationMs: 5662 },
   ]);
-  assert.deepEqual(rows.map((r) => r.kind), ['user', 'thinking', 'tool', 'assistant', 'turn_end']);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'assistant', 'turn_end']);
+  const fold = rows[1];
+  assert.equal(fold.count, 2, 'the thought and the read fold');
+  assert.deepEqual(fold.children.map((c) => c.kind), ['thinking', 'tool']);
+  assert.equal(fold.duration, '5.7s');
+});
+
+test('the live turn never folds — you watch it happen', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', text: 'do it' },
+    use('t1', 'Read', { file_path: '/a/b.js' }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'tool']);
+});
+
+test('edits in a finished turn become an Edited-files card; errors stay visible', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'tool', id: 'a', toolId: 't1', name: 'Edit', input: { file_path: '/repo/app.js', old_string: 'a', new_string: 'b\nc' } },
+    { kind: 'tool_result', id: 'b', toolId: 't1', body: '' },
+    { kind: 'error', id: 'err', message: 'HTTP 500' },
+    { kind: 'turn_end', id: 'e1', durationMs: 1000 },
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'error', 'edits', 'turn_end']);
+  assert.equal(rows[3].files.length, 1);
+  assert.equal(rows[3].files[0].path, '/repo/app.js');
+  assert.ok(rows[3].files[0].diff);
+});
+
+test('an unresolved approval never folds; a resolved one does', () => {
+  const mk = (resolved) => buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'permission', id: 'p', permissionId: 'pp', toolName: 'Bash', title: 'Bash', options: [] },
+    ...(resolved ? [{ kind: 'permission_resolved', id: 'q', permissionId: 'pp', optionId: 'allow' }] : []),
+    { kind: 'turn_end', id: 'e1', durationMs: 1000 },
+  ]);
+  assert.deepEqual(mk(false).map((r) => r.kind), ['user', 'permission', 'turn_end']);
+  assert.deepEqual(mk(true).map((r) => r.kind), ['user', 'fold', 'turn_end']);
 });
 
 test('a turn_end row carries a duration a person can read', () => {
