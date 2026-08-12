@@ -47,3 +47,47 @@ test('projectSlug matches claude transcript folder naming', () => {
   assert.equal(projectSlug('/Users/dev/code/nami'), '-Users-dev-code-nami');
   assert.equal(projectSlug('/tmp/a.b_c'), '-tmp-a-b-c');
 });
+
+// ---- what actually gets typed on the fallback path -------------------------
+// With no resolvable binary, Nami spawns a shell and types the claude command
+// into it. That path used to be reached through a seed marker that made it type
+// a bare `claude`, dropping --session-id, --resume and --name. The id was then
+// never pinned, so the title watcher followed a transcript nothing wrote and
+// the tile came back empty on the next launch.
+const { shellQuote } = require('../src/main/claude-args.js');
+const typed = (o) => ['claude', ...claudeSpawnArgs(o)].map(shellQuote).join(' ');
+
+test('the shell fallback types the whole command, not a bare claude', () => {
+  assert.equal(
+    typed({ sid: '90a00e7a-98c8-4d98-8f03-6a536cfd1aeb', cont: false, hasTranscript: false, name: null }),
+    'claude --session-id 90a00e7a-98c8-4d98-8f03-6a536cfd1aeb',
+  );
+  assert.equal(
+    typed({ sid: '90a00e7a', cont: true, hasTranscript: true, name: null }),
+    'claude --resume 90a00e7a',
+  );
+  assert.equal(typed({ cont: true, sid: null }), 'claude --continue');
+});
+
+// A name is a sentence. Unquoted it arrives as four arguments and claude either
+// errors or takes the first word as the name.
+test('a multi-word session name survives being typed into a shell', () => {
+  assert.equal(
+    typed({ sid: 'abc', cont: false, hasTranscript: false, name: 'Add the export button' }),
+    "claude --session-id abc --name 'Add the export button'",
+  );
+});
+
+test('shellQuote leaves plain arguments alone and neutralises the rest', () => {
+  assert.equal(shellQuote('--session-id'), '--session-id');
+  assert.equal(shellQuote('/Users/x/.local/bin/claude'), '/Users/x/.local/bin/claude');
+  assert.equal(shellQuote('two words'), "'two words'");
+  assert.equal(shellQuote(''), "''");
+  // nothing inside single quotes expands: no variable, no subshell, no glob
+  assert.equal(shellQuote('$HOME'), "'$HOME'");
+  assert.equal(shellQuote('`whoami`'), "'`whoami`'");
+  assert.equal(shellQuote('a; rm -rf /'), "'a; rm -rf /'");
+  assert.equal(shellQuote('*'), "'*'");
+  // the one character single quotes cannot carry, closed and reopened
+  assert.equal(shellQuote("Cal's button"), "'Cal'\\''s button'");
+});

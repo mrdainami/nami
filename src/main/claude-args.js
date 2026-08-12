@@ -27,4 +27,20 @@ function projectSlug(cwd) {
   return String(cwd || '').replace(/[^a-zA-Z0-9]/g, '-');
 }
 
-module.exports = { claudeSpawnArgs, projectSlug };
+// One argument, safe to type into a shell. Only needed on the fallback path,
+// where there is no resolvable binary and the command is typed rather than
+// spawned — a spawn passes an array and none of this arises.
+//
+// Single quotes, because inside them a shell expands nothing at all: no $, no
+// backtick, no glob, no history bang. The one character single quotes cannot
+// carry is a single quote, which is why it is closed, escaped and reopened.
+// A session named "Cal's export button" is an ordinary thing to have.
+function shellQuote(arg) {
+  const s = String(arg == null ? '' : arg);
+  if (s === '') return "''";
+  // plain enough to need nothing — keeps the common command readable in the tile
+  if (/^[A-Za-z0-9_\-./:=@]+$/.test(s)) return s;
+  return "'" + s.replace(/'/g, `'\\''`) + "'";
+}
+
+module.exports = { claudeSpawnArgs, projectSlug, shellQuote };
