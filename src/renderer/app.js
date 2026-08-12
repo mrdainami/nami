@@ -293,6 +293,7 @@ function dropFilesOnPanel(p, paths) {
       if (rec && rec.cardsUi) {
         rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
       }
+      refreshChannelBadge(p, rec);
       return;
     }
     if (ev.kind === 'status') {
@@ -1755,7 +1756,8 @@ function mountTile(p) {
       ${panelChip(p)}
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
-      ${canShowCards(p) ? `<span class="t-surface" aria-label="Surface"></span>
+      ${canShowCards(p) ? `<span class="t-channel" hidden></span>
+      <span class="t-surface" aria-label="Surface"></span>
       <button class="t-btn t-bridge" title="Open in the other surface / settings"><span class="uni-i">⌄</span><span class="pix-i">${pixIcon('chevron')}</span></button>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
       ${['card', 'viewer', 'editor'].includes(p.kind) ? '' : `
@@ -2208,6 +2210,23 @@ function applyView(p, rec) {
   }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
   else requestAnimationFrame(() => safeFit(rec));
+  refreshChannelBadge(p, rec);
+}
+
+// The channel badge, once, in the head: 'agent sdk · driving', turning amber
+// only when it explains a limitation (watching, one-shot, terminal-only).
+// It used to repeat on every turn_end row — session state misfiled as turn
+// state — so it moved up here.
+function refreshChannelBadge(p, rec) {
+  rec = rec || tileEls.get(p.id);
+  const elb = rec && q('.t-channel', rec.head);
+  if (!elb) return;
+  const c = p.agentCaps && p.agentCaps.channel;
+  const text = !c ? '' : (p.cardMode === 'watch' ? `${c} · watching` : (c === 'one-shot' ? 'one-shot' : `${c} · driving`));
+  const show = cardView(p) === 'cards' && !!text;
+  elb.hidden = !show;
+  elb.textContent = show ? text : '';
+  elb.classList.toggle('warn', show && /one-shot|terminal|watching/.test(text));
 }
 
 // Into Cards: the backlog first (what the conversation already holds, read
@@ -2413,14 +2432,6 @@ function mountCards(p, rec) {
     },
     onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
     commands: () => p.agentCommands || [],
-    // The channel badge, quietly on the meter: 'agent sdk · live', turning
-    // amber only when it explains a limitation.
-    badge: () => {
-      const c = p.agentCaps && p.agentCaps.channel;
-      if (!c) return '';
-      if (p.cardMode === 'watch') return `${c} · watching`;
-      return c === 'one-shot' ? 'one-shot' : `${c} · driving`;
-    },
   });
   rec.root.appendChild(ui.el);
   rec.cardsUi = ui;
@@ -2429,6 +2440,7 @@ function mountCards(p, rec) {
 
 function refreshCardNote(p, rec) {
   if (!rec || !rec.cardsUi) return;
+  refreshChannelBadge(p, rec);
   let text = '', urgent = false;
   // The runtime swap takes a moment on a long conversation — say so rather
   // than sitting silent while the SDK boots and resumes.

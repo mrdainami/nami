@@ -48,6 +48,10 @@
   --dash-dark: #c9b98f;
   --rail: #f1e7d1;
   --hover: #f3ead4;
+  /* anything that floats over card content fills with this, never bare
+     --paper: the glass family's paper is translucent by design, and a menu
+     over live rows must be near-solid (each theme sets its own value) */
+  --menu-sheet: #fffdf6;
   --green: #4a6b52;
   --green-dark: #33503b;
   --green-ok: #4a7a4a;
@@ -1055,11 +1059,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .t-surface.cards { background: var(--green); color: var(--paper); }
 .t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
+/* the channel badge: which structured channel this card speaks, said once in
+   the head. Quiet fact; amber only when it explains a limit (watching,
+   one-shot, terminal-only). Hidden entirely in Term view. */
+.t-channel {
+  flex: none; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+.t-channel.warn { color: var(--amber-btn); }
 
-/* the ⌄ menu those labels defer to */
+/* the ⌄ menu those labels defer to — it floats over card text, so it fills
+   with the menu sheet, and the blur backs it up on the glass family */
 .head-menu {
   position: fixed; z-index: 300; min-width: 240px; max-width: 320px;
-  background: var(--paper); border: 1px solid var(--dash-dark);
+  background: var(--menu-sheet); border: 1px solid var(--dash-dark);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
   display: flex; flex-direction: column;
 }
@@ -1073,15 +1087,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .hm-item .hm-l { font-weight: 700; }
 .hm-item .hm-d { font-size: 10.5px; color: var(--muted); }
 
-/* the birth choice on a launcher row */
+/* the birth choice on a launcher row — same convention as .t-surface: the
+   remembered pick wears the solid accent, the other stays a quiet outline.
+   Two border shades apart was invisible; fill vs no-fill is not. */
 .picker-row .ways { flex: none; display: flex; gap: 6px; margin-right: 4px; }
 .picker-row .way {
   position: relative; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
   padding: 5px 11px; margin-top: 5px; cursor: pointer;
-  background: var(--paper-2); color: var(--muted); border: 1px solid var(--dash);
+  background: transparent; color: var(--muted); border: 1px solid var(--dash);
 }
 .picker-row .way:hover { border-color: var(--green); color: var(--ink); }
-.picker-row .way.last { border-color: var(--dash-dark); color: var(--ink); }
+.picker-row .way.last {
+  background: var(--green); border-color: var(--green-dark);
+  color: var(--paper); font-weight: 700;
+}
+.picker-row .way.last:hover { background: var(--green-dark); color: var(--paper); }
 .picker-row .way--cards { font-weight: 700; }
 /* In Cards the mic lives in the composer; the head keeps everything else —
    − ＋ size the card text exactly as they size terminal cells. */
@@ -1166,10 +1186,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-left: 2px dashed var(--dash); padding-left: 9px;
 }
 
+/* A finished turn is marked by air, not a line: the composer's dashed top
+   edge is the one dashed bar at the bottom of a card — a second one 30px
+   above it read as a duplicate input field. The meter row alone is the
+   boundary, with breathing room so it never crowds the composer. */
 .cd-turn_end {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
   font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint);
-  border-top: 1px dashed var(--dash); padding-top: 7px;
+  margin: 2px 0 8px; padding-top: 2px;
 }
 .cd-meter { flex: none; }
 .cd-chip {
@@ -1178,9 +1202,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   cursor: pointer; text-decoration: none;
 }
 .cd-chip:hover { color: var(--green); border-color: var(--green); }
-/* the channel badge: quiet grey fact, amber only when it explains a limit */
-.cd-badge { flex: none; margin-left: auto; color: var(--faint); font-size: 9.5px; text-transform: uppercase; }
-.cd-badge.warn { color: var(--amber-btn); }
+/* the channel badge moved to the tile head (.t-channel) — it is session
+   state, not turn state, so it says itself once instead of on every turn */
 .cd-note { text-align: left; font-size: 11px; color: var(--muted); font-style: italic; }
 .cd-row.cd-note { border-left: 2px solid var(--dash); padding-left: 9px; }
 .cd-error {
@@ -1418,9 +1441,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* `/` offers the agent's own commands. */
 .cd-menu {
   position: absolute; left: 10px; right: 10px; bottom: 44px;
-  border: 1px solid var(--dash-dark); background: var(--paper);
-  /* the glass family's paper is translucent by design; the blur is what
-     keeps a menu readable over content there — same material as its popovers */
+  border: 1px solid var(--dash-dark); background: var(--menu-sheet);
   -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
   box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
   display: flex; flex-direction: column; max-height: 240px; overflow-y: auto;

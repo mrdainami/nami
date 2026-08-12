@@ -268,12 +268,12 @@ function renderRow(ctx, row) {
   if (row.kind === 'error') { el.innerHTML = `<span class="m">✕</span><span class="tx"></span>`; q('.tx', el).textContent = row.text; return el; }
 
   if (row.kind === 'turn_end') {
+    // The meter alone marks the boundary — the channel badge is session
+    // state and lives in the tile head (.t-channel), said once.
     const meter = [`done in ${row.duration}`];
     if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
-    const badge = (ctx.badge && ctx.badge()) || '';
-    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>` +
-      (badge ? `<span class="cd-badge${/one-shot|terminal|watching/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
+    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>`;
     return el;
   }
 

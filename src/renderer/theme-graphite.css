@@ -20,6 +20,9 @@ body[data-theme="graphite"] {
   --dash-dark: rgba(255, 255, 255, 0.2);
   --rail: rgba(30, 31, 38, 0.3);
   --hover: rgba(255, 255, 255, 0.08);
+  /* menus float over live card text: near-solid, darker than the pane —
+     a 0.44 fill let the transcript read straight through the labels */
+  --menu-sheet: rgba(30, 30, 38, 0.97);
   --green: #ef6461;
   --green-dark: #d95350;
   --green-ok: #63c68a;

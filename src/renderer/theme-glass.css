@@ -35,6 +35,8 @@ body[data-theme="glass"] {
   --dash-dark: rgba(29, 29, 34, 0.2);
   --rail: rgba(255, 255, 255, 0.18);
   --hover: rgba(255, 255, 255, 0.55);
+  /* menus float over live card text: near-opaque, or the rows ghost through */
+  --menu-sheet: rgba(255, 255, 255, 0.96);
   --green: #ef6461;            /* primary action → coral, like operator */
   --green-dark: #d95350;
   --green-ok: #2e7d4f;
@@ -456,9 +458,13 @@ body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
    through, so the rows are outlines on the slab rather than filled boxes */
 body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
 /* round-3: the whole card vocabulary joins the glass material */
-/* menus float over content: near-opaque, or the rows ghost through */
-body[data-glass] .cd-menu { background: rgba(255, 255, 255, 0.96); }
-body[data-theme="graphite"] .cd-menu { background: rgba(30, 30, 38, 0.97); }
+/* menus fill with --menu-sheet (set in each theme's tokens) — the old
+   per-menu literals graduated into that token so no menu can miss it */
+/* turn meters: --faint vanishes on the dark grounds (graphite rule) */
+body[data-glass] .cd-turn_end { color: var(--muted); }
+/* the selected launcher pill is coral-filled here; translucent paper as its
+   ink would ghost — solid white, same as graphite's .t-surface.cards */
+body[data-glass] .picker-row .way.last { color: #fff; }
 body[data-glass] .cd-user,
 body[data-glass] .cd-diff-sum,
 body[data-glass] .cd-edits,
