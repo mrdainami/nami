@@ -13,6 +13,14 @@ import { pixIcon } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+function modeLabel(mode) {
+  return { default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits', plan: 'plan', bypassPermissions: 'bypass' }[mode] || mode;
+}
+function shortModel(m) {
+  const s = String(m || '').split('/').pop();
+  return s.length > 24 ? s.slice(0, 23) + '…' : s;
+}
+
 // Line art for paper and operator; the glass themes flip to pixel glyphs via
 // the same .uni-i / .pix-i pattern the head buttons use.
 const SEND_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 12.2V4.2M4.6 7.6 8 4.2l3.4 3.4"/></svg>`;
@@ -71,23 +79,54 @@ function proseHtml(text) {
 }
 
 // ---- diffs -----------------------------------------------------------------
-function diffEl(diff) {
-  const wrap = document.createElement('div');
-  wrap.className = 'cd-diff';
-  const del = String(diff.oldText || '').split('\n');
-  const add = String(diff.newText || '').split('\n');
-  if (del.length > 1 && del.at(-1) === '') del.pop();
-  if (add.length > 1 && add.at(-1) === '') add.pop();
+// Lessons paid for in screenshots: block spans must never also be joined with
+// newlines inside a pre-wrap container (every line doubles), a diff opens as
+// a one-line summary (`name · +N −M`) not a wall, and an expanded body scrolls
+// inside a cap instead of taking the tile with it.
+function diffLines(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length > 1 && lines.at(-1) === '') lines.pop();
+  return lines.length === 1 && lines[0] === '' ? [] : lines;
+}
+
+export function diffCounts(diff) {
+  return { add: diffLines(diff && diff.newText).length, del: diffLines(diff && diff.oldText).length };
+}
+
+function diffBody(diff) {
+  const body = document.createElement('div');
+  body.className = 'cd-diff-body';
   const cut = (lines, cap, cls, mark) => {
-    if (lines.length === 1 && lines[0] === '') return '';
+    if (!lines.length) return '';
     const shown = lines.slice(0, cap);
-    let html = `<pre class="cd-diff-b ${cls}">${shown.map((l) => `<span>${mark} ${esc(l)}</span>`).join('\n')}</pre>`;
+    let html = `<pre class="cd-diff-b ${cls}">${shown.map((l) => `<span>${mark} ${esc(l)}</span>`).join('')}</pre>`;
     if (lines.length > cap) html += `<div class="cd-diff-more">… ${lines.length - cap} more lines</div>`;
     return html;
   };
-  wrap.innerHTML = `${diff.path ? `<div class="cd-diff-path"><a class="cd-path" data-path="${esc(diff.path)}">${esc(diff.path)}</a></div>` : ''}
-    ${cut(del, DIFF_DEL_CAP, 'del', '−')}${cut(add, DIFF_ADD_CAP, 'add', '+')}
+  body.innerHTML = `${diff.path ? `<div class="cd-diff-path"><a class="cd-path" data-path="${esc(diff.path)}">${esc(diff.path)}</a></div>` : ''}
+    ${cut(diffLines(diff.oldText), DIFF_DEL_CAP, 'del', '−')}${cut(diffLines(diff.newText), DIFF_ADD_CAP, 'add', '+')}
     ${diff.more ? `<div class="cd-diff-more">… and ${diff.more} more edit${diff.more > 1 ? 's' : ''} in this call</div>` : ''}`;
+  return body;
+}
+
+// summary: true → one collapsed line that toggles the body open.
+function diffEl(diff, { summary = false } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cd-diff';
+  if (!summary) { wrap.appendChild(diffBody(diff)); return wrap; }
+  const { add, del } = diffCounts(diff);
+  const name = String(diff.path || '').split('/').filter(Boolean).pop() || 'diff';
+  const sum = document.createElement('button');
+  sum.className = 'cd-diff-sum';
+  sum.innerHTML = `<span class="n">${esc(name)}</span><span class="c"><span class="arr">▸</span> <span class="plus">+${add}</span> <span class="minus">−${del}</span></span>`;
+  const body = diffBody(diff);
+  body.hidden = true;
+  sum.onclick = (e) => {
+    e.stopPropagation();
+    body.hidden = !body.hidden;
+    sum.querySelector('.arr').textContent = body.hidden ? '▸' : '▾';
+  };
+  wrap.append(sum, body);
   return wrap;
 }
 
@@ -137,6 +176,51 @@ function renderRow(ctx, row) {
     return el;
   }
 
+  if (row.kind === 'intro') {
+    // The card-native TUI banner: who this is, on what, in which folder.
+    const facts = [row.model, row.mode, shortPath(row.cwd)].filter(Boolean)
+      .map((f) => `<span class="f">${esc(f)}</span>`).join('<span class="dot">·</span>');
+    el.dataset.n = `${row.model}|${row.mode}`;
+    el.innerHTML = `<div class="t">✳ ${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
+      ${facts ? `<div class="d">${facts}</div>` : ''}
+      <div class="h">/ for commands · esc interrupts · ⌘↑ ⌘↓ walk your turns</div>`;
+    return el;
+  }
+
+  if (row.kind === 'fold') {
+    // A finished turn's work, folded to one line. Children render lazily —
+    // most folds are never opened, and a long session holds many.
+    const worked = row.duration ? `worked for ${esc(row.duration)}` : 'worked';
+    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> ${worked} · ${row.count} step${row.count > 1 ? 's' : ''}</button><div class="cd-fold-b" hidden></div>`;
+    const body = q('.cd-fold-b', el);
+    q('.cd-fold-h', el).onclick = () => {
+      const open = el.classList.toggle('open');
+      if (open && !body.childElementCount) for (const c of row.children) body.appendChild(renderRow(ctx, c));
+      body.hidden = !open;
+      q('.arr', el).textContent = open ? '▾' : '▸';
+    };
+    return el;
+  }
+
+  if (row.kind === 'edits') {
+    el.innerHTML = `<div class="cd-edits-h">Edited ${row.files.length} file${row.files.length > 1 ? 's' : ''}</div>`;
+    for (const f of row.files) {
+      const name = String(f.path || '').split('/').filter(Boolean).pop() || f.path;
+      const { add, del } = f.diff ? diffCounts(f.diff) : { add: 0, del: 0 };
+      const line = document.createElement('button');
+      line.className = 'cd-edits-f';
+      line.innerHTML = `<span class="n" title="${esc(f.path)}">${esc(name)}</span><span class="c"><span class="plus">+${add}</span> <span class="minus">−${del}</span></span>`;
+      el.appendChild(line);
+      if (f.diff) {
+        const body = diffBody(f.diff);
+        body.hidden = true;
+        el.appendChild(body);
+        line.onclick = () => { body.hidden = !body.hidden; };
+      }
+    }
+    return el;
+  }
+
   if (row.kind === 'plan') {
     const marks = { completed: '☑', in_progress: '◐', pending: '☐' };
     el.innerHTML = `<div class="cd-plan-t">Plan</div>` + row.todos.map((t) =>
@@ -168,13 +252,9 @@ function renderRow(ctx, row) {
     const meter = [`done in ${row.duration}`];
     if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
-    const chips = (row.files || []).slice(0, 6).map((f) => {
-      const name = f.split('/').filter(Boolean).pop();
-      return `<a class="cd-chip cd-path" data-path="${esc(f)}" title="${esc(f)}">${esc(name)}</a>`;
-    }).join('');
     const badge = (ctx.badge && ctx.badge()) || '';
-    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>${chips}` +
-      (badge ? `<span class="cd-badge${/one-shot|terminal/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
+    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>` +
+      (badge ? `<span class="cd-badge${/one-shot|terminal|watching/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
     return el;
   }
 
@@ -182,8 +262,18 @@ function renderRow(ctx, row) {
   return el;
 }
 
+function shortPath(p) {
+  const s = String(p || '');
+  return s.replace(/^\/Users\/[^/]+/, '~');
+}
+
 function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
+  if (row.kind === 'intro') {
+    const key = `${row.model}|${row.mode}`;
+    if (el.dataset.n !== key) { const fresh = renderRow(ctx, row); el.replaceWith(fresh); }
+    return;
+  }
   // Streaming prose: an adapter re-emits the same row id with more text.
   if (row.kind === 'assistant' || row.kind === 'thinking') {
     const n = String(row.text || '').length;
@@ -248,11 +338,13 @@ function updatePermission(ctx, el, row) {
   const command = row.input && row.input.command;
   if (command) {
     const pre = document.createElement('pre');
-    pre.className = 'cd-body cd-perm-cmd';
+    pre.className = 'cd-body cd-perm-cmd clamp';
     pre.textContent = command;
+    pre.title = 'Click to expand';
+    pre.onclick = () => pre.classList.toggle('clamp');
     q('.cd-perm-diff', el).before(pre);
   }
-  if (row.diff && (row.diff.oldText || row.diff.newText)) q('.cd-perm-diff', el).appendChild(diffEl(row.diff));
+  if (row.diff && (row.diff.oldText || row.diff.newText)) q('.cd-perm-diff', el).appendChild(diffEl(row.diff, { summary: true }));
   const bar = q('.cd-perm-b', el);
   for (const opt of row.options) {
     const b = document.createElement('button');
@@ -282,6 +374,7 @@ export function buildCards(ctx) {
     <div class="cd-ask">
       <span class="m">❯</span>
       <select class="cd-model" hidden title="Model"></select>
+      <button class="cd-mode" hidden title="Permission mode — click to switch"></button>
       <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · ⌘↑/⌘↓ walk your turns" />
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
@@ -378,6 +471,10 @@ export function buildCards(ctx) {
   function feed(rows, full) {
     if (full) { list.innerHTML = ''; rowEls.clear(); }
     const stick = nearBottom();
+    const live = new Set(rows.map((r) => r.id));
+    for (const [id, rowEl] of rowEls) {
+      if (!live.has(id)) { rowEl.remove(); rowEls.delete(id); }
+    }
     for (const row of rows) {
       const seen = rowEls.get(row.id);
       if (seen) { updateRow(ctx, seen, row); continue; }
@@ -388,25 +485,53 @@ export function buildCards(ctx) {
     if (stick) scrollToEnd(false);
   }
 
-  function setNote(text, urgent) {
+  function setNote(text, urgent, action) {
     note.textContent = text || '';
-    note.hidden = !text;
+    if (action && action.label) {
+      const b = document.createElement('button');
+      b.className = 'cd-note-btn';
+      b.textContent = action.label;
+      b.onclick = action.run;
+      note.appendChild(b);
+    }
+    note.hidden = !text && !action;
     note.classList.toggle('urgent', !!urgent);
   }
 
+  // The composer knows what it's running: a mode chip (click cycles, where
+  // the channel can switch) and a model chip (a real picker where the agent
+  // published a list, a plain fact otherwise).
   const modelSel = q('.cd-model', el);
+  const modeChip = q('.cd-mode', el);
   modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
   modelSel.addEventListener('keydown', (e) => e.stopPropagation());
-  function setModels(models) {
-    if (!models || !Array.isArray(models.options) || !models.options.length) { modelSel.hidden = true; return; }
-    modelSel.innerHTML = models.options.map((m) =>
-      `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
-    modelSel.hidden = false;
+  modeChip.onclick = () => { if (ctx.onMode) ctx.onMode(); };
+  function setStatus(st) {
+    const models = st && st.models;
+    if (models && Array.isArray(models.options) && models.options.length) {
+      modelSel.innerHTML = models.options.map((m) =>
+        `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
+      modelSel.hidden = false;
+      modelSel.disabled = false;
+    } else if (st && st.model) {
+      modelSel.innerHTML = `<option selected>${esc(shortModel(st.model))}</option>`;
+      modelSel.hidden = false;
+      modelSel.disabled = true; // a fact, not a control — honestly inert
+    } else {
+      modelSel.hidden = true;
+    }
+    if (st && st.mode) {
+      modeChip.textContent = modeLabel(st.mode);
+      modeChip.hidden = false;
+      modeChip.disabled = !st.canSwitchMode;
+    } else {
+      modeChip.hidden = true;
+    }
   }
 
   return {
     el, list, input,
-    feed, setNote, scrollToEnd, setModels,
+    feed, setNote, scrollToEnd, setStatus,
     isEmpty: () => !list.children.length,
     insertText: (t) => {
       input.focus();

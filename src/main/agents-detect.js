@@ -65,16 +65,20 @@ const KNOWN_AGENTS = [
       configPath: '~/.config/opencode/opencode.json',
       removePaths: ['~/.local/share/opencode/auth.json'],
     } },
-  { id: 'gemini', name: 'Gemini CLI', bin: 'gemini', kind: 'run',
-    sub: "Google's coding agent",
-    install: 'npm install -g @google/gemini-cli',
-    docs: 'https://github.com/google-gemini/gemini-cli',
-    contextFile: 'GEMINI.md' },
-  { id: 'cursor', name: 'Cursor', bin: 'cursor-agent', kind: 'run',
-    sub: "Cursor's agent, in the terminal",
-    install: 'curl https://cursor.com/install -fsS | bash',
-    docs: 'https://cursor.com/docs/cli',
-    contextFile: 'AGENTS.md' },
+  // Gemini CLI is gone — Google shut it down 2026-06-18; Antigravity (agy)
+  // is its replacement and lives in the same ~/.gemini home, GEMINI.md
+  // context file included.
+  { id: 'antigravity', name: 'Antigravity', bin: 'agy', kind: 'run',
+    sub: "Google's coding agent (replaced Gemini CLI)",
+    install: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+    docs: 'https://antigravity.google/docs/cli',
+    contextFile: 'GEMINI.md',
+    lifecycle: {
+      // First run opens a Google sign-in; identity lands in these files.
+      statusFiles: ['~/.gemini/oauth_creds.json', '~/.gemini/google_accounts.json'],
+      source: 'reads ~/.gemini',
+      configPath: '~/.gemini/settings.json',
+    } },
   { id: 'hermes', name: 'Hermes', bin: 'hermes', kind: 'run',
     contextFile: 'AGENTS.md',
     sub: "Nous Research's agent, learns as it works",
@@ -101,7 +105,15 @@ const KNOWN_AGENTS = [
     sub: "Moonshot's coding agent",
     install: 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash',
     docs: 'https://moonshotai.github.io/kimi-code/en/',
-    contextFile: 'AGENTS.md' },
+    contextFile: 'AGENTS.md',
+    // `kimi login` exists but the CLI has no logout, and a sheet that can
+    // sign you in but never out strands people — so neither button shows.
+    lifecycle: {
+      statusFiles: ['~/.kimi-code/config.toml'],
+      source: 'reads ~/.kimi-code',
+      health: 'kimi doctor',
+      configPath: '~/.kimi-code/config.toml',
+    } },
 ];
 
 // The files a project needs so that every installed agent can see its skills.

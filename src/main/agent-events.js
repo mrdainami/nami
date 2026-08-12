@@ -25,6 +25,7 @@
 const EVENT_KINDS = new Set([
   'user', 'assistant', 'thinking', 'tool', 'tool_result', 'turn_end',
   'plan', 'permission', 'permission_resolved', 'note', 'error', 'init', 'status',
+  'intro', // the session introducing itself: agent, version, model, mode, folder
 ]);
 
 // Rows are keyed to what a tool DID, never to what it is called — ACP already

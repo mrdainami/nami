@@ -257,8 +257,31 @@ function dropFilesOnPanel(p, paths) {
         if (cardAgentFor(p) === 'claude' && p.sid !== ev.agentSessionId) { p.sid = ev.agentSessionId; savePanels(); }
         else if (cardAgentFor(p) !== 'claude' && p.acpSid !== ev.agentSessionId) { p.acpSid = ev.agentSessionId; savePanels(); }
       }
+      // What the composer shows and the intro card says. init can fire again
+      // (a commands update, a mode switch) — the status merges, the intro
+      // updates in place under its stable id.
+      p.agentStatus = Object.assign(p.agentStatus || {}, {
+        name: ev.agentName || (p.agentStatus && p.agentStatus.name),
+        version: ev.version || (p.agentStatus && p.agentStatus.version),
+        model: ev.model || (p.agentStatus && p.agentStatus.model),
+        mode: ev.mode || (p.agentStatus && p.agentStatus.mode),
+        models: ev.models || (p.agentStatus && p.agentStatus.models),
+      });
+      const introId = 'intro:' + p.id;
+      const intro = {
+        kind: 'intro', id: introId,
+        name: p.agentStatus.name, version: p.agentStatus.version,
+        model: p.agentStatus.model, mode: p.agentStatus.mode,
+        cwd: p.cwd, channel: p.agentCaps && p.agentCaps.channel,
+      };
+      const at = (p.cardEvents || []).findIndex((e) => e && e.id === introId);
+      if (at >= 0) p.cardEvents[at] = intro;
+      else p.cardEvents = (p.cardEvents || []).concat(intro);
+      scheduleFeed(p);
       const rec = tileEls.get(p.id);
-      if (rec && rec.cardsUi) rec.cardsUi.setModels(ev.models || null);
+      if (rec && rec.cardsUi) {
+        rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: !!MODE_CYCLES[cardAgentFor(p)] });
+      }
       return;
     }
     if (ev.kind === 'status') {
@@ -360,9 +383,14 @@ function showScene(name) {
     if (!p) return;
     p.view = 'cards';
     p.agentCaps = { channel: 'agent sdk' };
+    p.agentStatus = { name: 'Claude Code', model: 'claude-opus-5', mode: 'default' };
     p.cardEvents = sceneEvents();
     const rec = tileEls.get(p.id);
-    if (rec) { applyView(p, rec); feedCards(p, true); }
+    if (rec) {
+      applyView(p, rec);
+      feedCards(p, true);
+      if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: true });
+    }
     return;
   }
   if (what === 'theme') return toggleThemePop();
@@ -1466,6 +1494,12 @@ function cardAgentFor(p) {
   return null;
 }
 function canShowCards(p) { return !!cardAgentFor(p); }
+
+// Which channels can switch mode live, and through what values.
+const MODE_CYCLES = {
+  claude: ['default', 'acceptEdits', 'plan'],
+  agy: ['accept-edits', 'plan'],
+};
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
 function setView(p, view) {
@@ -1503,24 +1537,60 @@ async function enterCards(p) {
     // Terminal only, and the card says which three doors it tried. The pty
     // stays live underneath; the composer types into it.
     const bin = agent.slice(8);
-    p.agentLive = false;
+    p.agentLive = false; p.cardMode = 'watch';
     p.agentCaps = { channel: 'terminal only', note: '' };
     p.cardFallback = `${bin} offers none of the three channels cards can read — an ACP endpoint, a JSON stream mode, or a transcript on disk — so this session stays a terminal. The composer still types into it.`;
     refreshCardNote(p, rec);
     return;
   }
+
+  // The one rule that keeps switching free: a running terminal is never
+  // killed by a view change. Cards ATTACH to it — and only DRIVE when the
+  // tile has no terminal (opened in Cards, restored in Cards, or it died).
+  // Taking over is a button, a deliberate act, never a side effect.
+  if (p.started && !p.exited) {
+    if (agent === 'claude') {
+      p.cardMode = 'watch';
+      p.agentLive = false;
+      p.agentCaps = { channel: 'transcript' };
+      p.cardFallback = '';
+      p.cardEvents = [];
+      const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
+      if (cardView(p) !== 'cards') return;
+      p.cardEvents = (back && back.events) || [];
+      feedCards(p, true);
+      if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
+      api.cardsWatch({ id: p.id, on: true });
+    } else {
+      // A live TUI with no readable side-channel: the card says so, and
+      // offers the takeover instead of springing it.
+      p.cardMode = 'watch';
+      p.agentLive = false;
+      p.agentCaps = { channel: 'terminal' };
+      p.cardFallback = 'This agent\'s terminal has no readable side-channel. Take over to drive it as cards — the terminal conversation ends, a card conversation starts.';
+      refreshCardNote(p, rec);
+    }
+    return;
+  }
+  await driveCards(p);
+}
+
+// The drive path: the card owns the tile. Kills any leftover pty first —
+// two runtimes never overlap on one conversation.
+async function driveCards(p) {
+  const rec = tileEls.get(p.id); if (!rec) return;
+  const agent = cardAgentFor(p);
+  if (!agent || agent.startsWith('unknown:')) return;
+  p.cardMode = 'drive';
   p.cardEvents = [];
   if (agent === 'claude') {
-    // What the conversation already holds, from the transcript. An ACP agent
-    // replays its own history through session/load instead — same rows,
-    // different door.
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
+    if (cardView(p) !== 'cards') return;
     p.cardEvents = (back && back.events) || [];
-    if (cardView(p) !== 'cards') return; // switched away while we read
   }
+  p.connecting = true;
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
-  if (rec.cardsUi) rec.cardsUi.setNote('Connecting…', false);
 
   if (p.started && !p.exited) {
     p.viewSwitching = true;
@@ -1529,32 +1599,41 @@ async function enterCards(p) {
   }
   const sid = agent === 'claude' ? p.sid : (p.acpSid || null);
   const res = await api.agentStart({ id: p.id, agent, cwd: p.cwd, sid });
+  p.connecting = false;
   if (cardView(p) !== 'cards') { if (res && res.ok) api.agentStop({ id: p.id }); return; }
   p.agentLive = !!(res && res.ok);
   p.cardFallback = '';
   if (!p.agentLive && agent === 'claude') {
     // Read-only fallback: restart the pty (hidden under the card) and tail
-    // the transcript it writes. The composer still works — it types into the
-    // terminal, the way dictation always has.
+    // the transcript it writes.
+    p.cardMode = 'watch';
+    p.agentCaps = { channel: 'transcript' };
     p.cardFallback = 'Read-only: driving needs the claude CLI. The terminal still runs underneath.';
     p.started = false; p.exited = false;
     if (rec.term) startProcess(p, rec.term.cols, rec.term.rows).then(() => api.cardsWatch({ id: p.id, on: true }));
   } else if (!p.agentLive) {
     // The adapter said why (error + note rows). Bring the terminal back so
     // the tile is never a dead end.
+    p.cardMode = 'watch';
     p.started = false; p.exited = false;
     if (rec.term) startProcess(p, rec.term.cols, rec.term.rows);
   }
   refreshCardNote(p, rec);
 }
 
-// Back to Term: the adapter stops, the pty resumes the same conversation.
-// The terminal is reset first — its scrollback belongs to the previous run.
+// Back to Term. A watching card never touched the pty, so there is nothing
+// to do but show it. A driving card stops its runtime and the pty resumes
+// the same conversation — the one deliberate restart left.
 async function exitCards(p) {
   const rec = tileEls.get(p.id); if (!rec) return;
   api.cardsWatch({ id: p.id, on: false });
+  if (p.cardMode === 'watch' && p.started && !p.exited) {
+    p.cardMode = 'off';
+    requestAnimationFrame(() => safeFit(rec));
+    return;
+  }
   if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
-  if (p.started && !p.exited) return; // fallback pty is already live — keep it
+  p.cardMode = 'off';
   p.exited = false; p.status = 'live'; p.started = false;
   if (rec.term) {
     try { rec.term.reset(); } catch (_) {}
@@ -1586,6 +1665,13 @@ function mountCards(p, rec) {
     },
     onOpenUrl: (url) => api.openUrl(url),
     onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    onMode: () => {
+      const cycle = MODE_CYCLES[cardAgentFor(p)];
+      if (!cycle || !p.agentLive) return;
+      const cur = (p.agentStatus && p.agentStatus.mode) || cycle[0];
+      const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+      api.agentConfig({ id: p.id, configId: 'mode', value: next });
+    },
     onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
     commands: () => p.agentCommands || [],
     // The channel badge, quietly on the meter: 'agent sdk · live', turning
@@ -1593,7 +1679,8 @@ function mountCards(p, rec) {
     badge: () => {
       const c = p.agentCaps && p.agentCaps.channel;
       if (!c) return '';
-      return c === 'one-shot' ? 'one-shot' : `${c} · live`;
+      if (p.cardMode === 'watch') return `${c} · watching`;
+      return c === 'one-shot' ? 'one-shot' : `${c} · driving`;
     },
   });
   rec.root.appendChild(ui.el);
@@ -1604,11 +1691,21 @@ function mountCards(p, rec) {
 function refreshCardNote(p, rec) {
   if (!rec || !rec.cardsUi) return;
   let text = '', urgent = false;
-  if (p.exited && !p.agentLive) text = 'This session has ended.';
+  // The runtime swap takes a moment on a long conversation — say so rather
+  // than sitting silent while the SDK boots and resumes.
+  let action = null;
+  if (p.connecting) text = 'Connecting — resuming this conversation…';
+  else if (p.exited && !p.agentLive) text = 'This session has ended.';
   else if (p.attention && !p.agentLive) { text = 'This session is waiting on you — answer it in Term.'; urgent = true; }
   else if (p.cardFallback) text = p.cardFallback;
+  else if (p.cardMode === 'watch' && cardAgentFor(p) === 'claude') {
+    text = 'Watching the terminal\'s conversation. Approvals live in Term — or take over to drive from here.';
+  }
   else if (rec.cardsUi.isEmpty()) text = 'Waiting for the first turn.';
-  rec.cardsUi.setNote(text, urgent);
+  if (p.cardMode === 'watch' && !p.connecting && !p.exited && cardAgentFor(p) && !String(cardAgentFor(p)).startsWith('unknown:')) {
+    action = { label: 'Take over', run: () => { p.cardFallback = ''; driveCards(p); } };
+  }
+  rec.cardsUi.setNote(text, urgent, action);
 }
 
 // Streaming floods batch here: however many events land in one frame, the
