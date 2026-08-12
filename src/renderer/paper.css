@@ -694,8 +694,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); animation: rise 0.18s ease both;
 }
 .qs-head { padding: 14px 44px 10px 18px; border-bottom: 2px dashed var(--dash); }
-.qs-head { display: flex; align-items: baseline; gap: 12px; }
-.qs-esc { margin-left: auto; margin-right: 20px; font-size: 11px; color: var(--muted); }
 .qs-head .title { font-family: 'Caveat', cursive; font-size: 27px; font-weight: 700; line-height: 1; }
 .qs-body {
   padding: 24px 18px; max-height: 52vh; overflow-y: auto; line-height: 24px;

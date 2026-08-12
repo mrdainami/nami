@@ -4576,7 +4576,7 @@ function renderQuickStart() {
       <div class="qs-s">${esc(r.sub)}</div>${acts}</div></div>`;
   }).join('');
 
-  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span><span class="qs-esc">esc</span></div>
+  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
     <div class="qs-body">${body}</div>
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
     <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
