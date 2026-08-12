@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { userPath, mergePath, pathFromOutput, resetForTests } = require('../src/main/user-path.js');
+const { userPath, mergePath, pathFromOutput, refreshUserPath, resetForTests } = require('../src/main/user-path.js');
 
 // A Dock-launched app is handed launchd's stump and nothing else. Everything
 // here is about turning that back into the PATH the user actually has.
@@ -61,4 +61,22 @@ test('a shell that hangs and returns empty still yields a usable PATH', async ()
   resetForTests();
   const out = await userPath({ exec: async () => '', env: { PATH: LAUNCHD } });
   assert.equal(out, LAUNCHD);
+});
+
+// One probe per app run is right for a PATH that does not move — and wrong for
+// the one moment it does. An installer run inside Nami writes a PATH line into
+// the rc file, and every tile opened afterwards was still being handed the
+// answer from before the install, so an agent Nami had just installed could not
+// be spawned until the app was restarted.
+test('after an install the shell is asked again', async () => {
+  resetForTests();
+  let asked = 0;
+  const answers = ['/usr/bin', '/Users/x/.local/bin:/usr/bin'];
+  const exec = async () => answers[asked++] || '';
+  assert.equal(await userPath({ exec, env: { PATH: '' } }), '/usr/bin');
+
+  refreshUserPath();
+
+  assert.equal(await userPath({ exec, env: { PATH: '' } }), '/Users/x/.local/bin:/usr/bin');
+  assert.equal(asked, 2, 'the memo must actually have been dropped');
 });

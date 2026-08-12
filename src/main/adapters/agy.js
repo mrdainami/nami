@@ -8,6 +8,7 @@
 // the flag.
 
 const { spawn } = require('child_process');
+const { knownBin } = require('./../bin-cache.js');
 const { capability, clip, safeEvent } = require('./../agent-events.js');
 
 const CAPABILITY = {
@@ -95,7 +96,7 @@ class AgyAdapter {
     else if (this.mode) args.push('--mode', this.mode);
     let child;
     try {
-      child = spawn('agy', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(knownBin('agy') || 'agy', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       this.emit('error', { message: `Antigravity could not start: ${err.message}` });
       this.emit('status', { state: 'idle' });

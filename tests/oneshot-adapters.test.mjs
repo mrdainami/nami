@@ -148,3 +148,39 @@ test('one-shots declare their channel honestly: no ask, one-shot badge', () => {
     assert.ok(init.capability.note, `${f}: the limitation must be said`);
   }
 });
+
+// ---- every adapter spawns the program the scan found -----------------------
+// These four used to spawn a bare name against a login PATH captured once at
+// app start. Install an agent inside Nami and its card view kept failing with
+// ENOENT until the app was restarted, while the launcher — which re-probes the
+// shell on every ⌘N — insisted it was ready. Checked at the source so an
+// adapter added next year cannot quietly reintroduce it.
+test('no adapter spawns a bare program name any more', () => {
+  const files = ['acp.js', 'codex.js', 'kimi.js', 'agy.js'];
+  let checked = 0;
+  for (const f of files) {
+    // comments stripped first — these files explain spawn() in prose, and prose
+    // about a call is not a call
+    const src = fs.readFileSync(new URL(`../src/main/adapters/${f}`, import.meta.url), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    for (const m of src.matchAll(/(?:=|await)\s*spawn\(([^,]+),/g)) {
+      const arg = m[1].trim();
+      checked++;
+      assert.ok(
+        arg.includes('knownBin('),
+        `${f} spawns ${arg} without consulting the scan — see src/main/bin-cache.js`,
+      );
+    }
+  }
+  // a guard that inspects nothing passes forever; these four each spawn once
+  assert.equal(checked, 4, 'expected one spawn call per adapter — did one move?');
+});
+
+// The fallback is what keeps this safe: before the first scan lands, and on a
+// machine where the shell probe fails entirely, the bare name is still used.
+test('the known-path lookup always falls back to the bare name', () => {
+  const { knownBin, forgetBins } = require('../src/main/bin-cache.js');
+  forgetBins();
+  assert.equal(knownBin('opencode') || 'opencode', 'opencode');
+  assert.equal(knownBin('codex') || 'codex', 'codex');
+});

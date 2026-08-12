@@ -8,15 +8,17 @@ const os = require('os');
 const fs = require('fs');
 const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
 const { AgentSessions, claudeTranscript } = require('./agent-session.js');
-const { claudeSpawnArgs, projectSlug } = require('./claude-args');
+const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
+const { oneShotArgs, feedRunDone } = require('./run-done');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
+const { rememberBins, knownBin } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -32,7 +34,7 @@ const { createDirWatch } = require('./dir-watch');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { loginShell, windowChrome } = require('./platform');
-const { userPath } = require('./user-path');
+const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
@@ -641,7 +643,14 @@ function liveSessionCount() {
 ipcMain.handle('update:sessions', () => liveSessionCount());
 
 // Which of the curated agent CLIs are on this Mac (via the user's login shell).
-ipcMain.handle('agents:detect', () => detectAgents());
+// Every scan writes down where it found each program, because the scan is the
+// only code that asks the user's own shell. Everything that spawns an agent
+// reads that memo instead of guessing (bin-cache.js says why).
+ipcMain.handle('agents:detect', async () => {
+  const agents = await detectAgents();
+  rememberBins(agents);
+  return agents;
+});
 // Who is signed in to one of them. Lazy and per-agent — a CLI that hangs must
 // never stall the launcher, so every failure lands on signedIn: null.
 ipcMain.handle('agents:status', (_e, { id } = {}) => agentStatus(id));
@@ -1175,7 +1184,7 @@ function sessionEnv(path) {
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
-ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name }) => {
+ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name, watchDone }) => {
   const wc = e.sender;
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   // Primed at startup, so by the time anyone opens a tile this is already
@@ -1185,7 +1194,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
-  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null;
+  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null;
   if (kind === 'claude') {
     // sid: the panel's own conversation id, minted in the renderer at first spawn.
     // A fresh spawn pins it with --session-id; a restored panel resumes it with
@@ -1202,12 +1211,24 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // after the spawn below, because following it needs the pty's pid.
     if (transcript) claudeWatch = { transcript, sid, cwd };
     if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
-    else { file = shellPath; afterStart = ['claude', ...claudeArgs].join(' '); }
-    if (seed) afterStart = (afterStart ? afterStart + '\r' : '') + '\u0000SEED\u0000'; // handled below
+    // No resolvable binary: type the command into a shell instead. It has to be
+    // the WHOLE command. A session spawned with a first message used to fall
+    // into a marker branch below that typed a bare `claude`, dropping
+    // --session-id, --resume and --name — so the pinned id was never used, the
+    // title watcher followed a transcript nothing ever wrote, and the tile came
+    // back empty on the next launch. Quoted because --name carries a sentence,
+    // and an unquoted sentence arrives as four arguments.
+    else { file = shellPath; afterStart = ['claude', ...claudeArgs].map(shellQuote).join(' '); }
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
-    file = shellPath; afterStart = command;
+    // watchDone marks a one-shot: a command Nami ran on the user's behalf and
+    // needs to know the end of, rather than a session that happens to be a
+    // shell. It is spawned rather than typed, so the reporting suffix is never
+    // echoed back at the user; the header below stands in for the echo.
+    file = shellPath;
+    if (watchDone) { spawnArgs = oneShotArgs(shellPath, command); echoLine = command; }
+    else afterStart = command;
   } else {
     file = shellPath;
   }
@@ -1229,9 +1250,29 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // the transcript, it is still right after the user runs /resume inside the
   // tile and lands in a different conversation. feedOscTitle reports only when
   // the name changes, so the spinner glyph never re-renders the rail.
+  // Display-only: straight to the renderer, never into the pty. A spawned
+  // one-shot echoes nothing, and a tile that opens on silent output does not
+  // say what it is doing.
+  if (echoLine) sendWc(wc, 'term:data', { id, data: `\x1b[38;2;141;128;101m$ ${echoLine}\x1b[0m\r\n` });
+
   const osc = { last: null };
+  const done = { buf: '' };
+  let reported = false;
   p.onData((data) => {
     sendWc(wc, 'term:data', { id, data });
+    // A one-shot command announcing its own exit code. Same channel as the
+    // title below, opposite direction: the shell talking to Nami.
+    if (watchDone && !reported) {
+      const code = feedRunDone(done, data);
+      if (code !== null) {
+        reported = true;
+        // An installer writes a PATH line into the user's rc file. The memo we
+        // hand every session was taken before that, so it is now wrong — drop
+        // it and the next tile asks the shell again (user-path.js).
+        refreshUserPath();
+        sendWc(wc, 'term:command-done', { id, code });
+      }
+    }
     if (kind !== 'claude') return;
     const t = feedOscTitle(osc, data);
     if (t) sendWc(wc, 'session:title', { id, title: t });
@@ -1245,8 +1286,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   });
 
   // Run a launch command in a plain shell (kind 'run' / fallback claude-in-shell).
-  if (afterStart && afterStart.indexOf('\u0000SEED\u0000') < 0) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
-  else if (afterStart) setTimeout(() => { try { p.write('claude\r'); } catch (_) {} }, 200);
+  // One branch, and it writes what it was given. The seed is a separate thing
+  // on its own timer below; conflating the two is what dropped claude's args.
+  if (afterStart) setTimeout(() => { try { p.write(afterStart + '\r'); } catch (_) {} }, 200);
 
   // Seed a first message into an interactive session once it's ready
   // (claude spawns fast; run-kind agent TUIs draw slower, give them longer).
