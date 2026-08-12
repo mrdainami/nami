@@ -407,6 +407,9 @@ function showScene(name) {
     renderRail();
     if (what === 'library') return;
     if (what === 'mcp') return openConnect();
+    // create:agent / create:skill — the one-screen sheet ("agent" alone is the
+    // agent identity sheet above, so the create scene needs its own name)
+    if (what === 'create') return openCreate(step === 'agent' ? 'agent' : 'skill');
     if (what !== 'agent' && what !== 'skill') return;
     openCreate(what); // one screen for both — the step argument died with the steps
   });
@@ -1948,7 +1951,7 @@ function useHereLabel(item) {
 // is everyone's, and read-only plugin agents are somebody else's to lift.
 function canAdopt(item) {
   return item.type === 'agent' && !item.readOnly && !item.broken && !!S.project
-    && ['claude', 'opencode', 'gemini', 'kimi'].includes(item.platform);
+    && ['claude', 'opencode', 'gemini', 'antigravity', 'kimi'].includes(item.platform);
 }
 async function openCard(item, opts) {
   await loadLibrary();
