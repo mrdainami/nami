@@ -233,11 +233,15 @@ class AcpAdapter {
           .map((o) => ({ id: String(o.optionId), label: String(o.name || o.optionId), kind: o.kind }));
         const permissionId = `${this.id}:p${++this.seq}`;
         this.pendingPermissions.set(permissionId, { rpcId: msg.id });
+        // OpenCode titles a write ask with the file's whole absolute path;
+        // the card wants a name, and the path once, as a link.
+        const rawTitle = String(tc.title || 'Permission');
+        const title = rawTitle.includes('/') ? (rawTitle.split('/').filter(Boolean).pop() || rawTitle) : rawTitle;
         this.emit('permission', {
           permissionId,
-          toolName: String(tc.title || 'tool'),
-          title: String(tc.title || 'Permission'),
-          description: (tc.locations && tc.locations[0] && tc.locations[0].path) || '',
+          toolName: title,
+          title,
+          description: '',
           input: tc.rawInput || {},
           diff: contentDiff(tc.content),
           options,

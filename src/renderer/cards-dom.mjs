@@ -76,6 +76,8 @@ function diffEl(diff) {
   wrap.className = 'cd-diff';
   const del = String(diff.oldText || '').split('\n');
   const add = String(diff.newText || '').split('\n');
+  if (del.length > 1 && del.at(-1) === '') del.pop();
+  if (add.length > 1 && add.at(-1) === '') add.pop();
   const cut = (lines, cap, cls, mark) => {
     if (lines.length === 1 && lines[0] === '') return '';
     const shown = lines.slice(0, cap);
