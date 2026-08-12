@@ -354,6 +354,34 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tree-path .path { flex: 1; min-width: 0; word-break: break-all; }
 .tree-path .action { flex: none; color: var(--muted-2); cursor: pointer; text-decoration: underline; white-space: nowrap; }
 .tree-path .action:hover { color: var(--ink); }
+/* The ＋. Same tokens as .action but its own class — .action carries an
+   underline, and an underlined plus reads as a typo. The fixed box with
+   align-self is load-bearing: .tree-path is baseline-aligned and an inline SVG
+   baselines on its bottom edge, so the pixel glyph would otherwise hang below
+   the path text. It also lifts the target from 11px to 18px without moving a
+   character of the text beside it. */
+.tree-path .tree-new {
+  flex: none; align-self: center; width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted-2); cursor: pointer; line-height: 1; font-size: 13px;
+}
+.tree-path .tree-new:hover { color: var(--ink); }
+.tree-path .tree-new:focus-visible { outline: 1px solid var(--amber-btn); outline-offset: 0; }
+
+/* drag and drop */
+.tree-row.dragging { opacity: 0.4; }
+.tree-row.drop-into, .tree-path.drop-into { background: var(--diff-add-bg); box-shadow: inset 0 0 0 1px var(--green-ok); }
+.tree-row.sel { background: var(--hover); box-shadow: inset 2px 0 0 var(--amber-btn); }
+/* a row that just landed — from a session's write, an import, or a move */
+@keyframes tree-landed { from { background: var(--diff-add-bg); } to { background: transparent; } }
+.tree-row.landed { animation: tree-landed 2.2s ease-out both; }
+.tree-row.landed .name { color: var(--green-ok); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .tree-row.landed { animation: none; } }
+
+.tree-row .tree-rename {
+  flex: 1; min-width: 0; font-family: inherit; font-size: 12px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--amber-btn); padding: 0 4px; outline: none;
+}
 .tree-row {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 6px;
   cursor: pointer; border-bottom: 1px dotted rgba(120, 95, 60, 0.22);
