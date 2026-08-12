@@ -332,6 +332,9 @@ function dropFilesOnPanel(p, paths) {
   refreshServices(); // services group in the library + connect sheets
   renderAll();
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
+  // Nothing auto-starts: an empty desk lands on the session page, where the
+  // agent and the surface are chosen. Scenes keep the desk to themselves.
+  else if (!S.demo && !b.scene && S.project) openLauncher();
   if (b.scene) showScene(b.scene);
 })();
 
@@ -1232,10 +1235,8 @@ function mountTile(p) {
       ${panelChip(p)}
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
-      ${canShowCards(p) ? `<span class="t-view" role="group" aria-label="View">
-        <button class="t-vb" data-view="cards" title="Drive this session as cards">Cards<span class="t-beta">beta</span></button>
-        <button class="t-vb" data-view="term" title="The terminal itself">Term</button>
-      </span>` : ''}
+      ${canShowCards(p) ? `<span class="t-surface" aria-label="Surface"></span>
+      <button class="t-btn t-bridge" title="Open in the other surface / settings"><span class="uni-i">⌄</span><span class="pix-i">${pixIcon('flag')}</span></button>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
       ${['card', 'viewer', 'editor'].includes(p.kind) ? '' : `
       <button class="t-btn t-zoom-out" title="Smaller terminal text"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
@@ -1267,9 +1268,8 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  for (const b of head.querySelectorAll('.t-vb')) {
-    b.onclick = (e) => { e.stopPropagation(); setView(p, b.dataset.view); };
-  }
+  const bridge = q('.t-bridge', head);
+  if (bridge) bridge.onclick = (e) => { e.stopPropagation(); openBridgeMenu(p, bridge); };
 
   if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
   if (canShowCards(p)) { mountCards(p, rec); applyView(p, rec); }
@@ -1511,6 +1511,99 @@ const MODE_CYCLES = {
 };
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
+// The agent's own resume handle, for reopening this conversation in its TUI.
+// Only handles that were verified on this Mac; anything else starts fresh and
+// the menu says so.
+function terminalResumeSpec(p) {
+  const agent = cardAgentFor(p);
+  if (agent === 'claude') return { kind: 'claude', sid: p.sid, cont: !!p.sid, resumes: true };
+  if (agent === 'codex' && p.acpSid) return { kind: 'run', command: `codex resume ${p.acpSid}`, resumes: true };
+  if (agent === 'kimi' && p.acpSid) return { kind: 'run', command: `kimi -r ${p.acpSid}`, resumes: true };
+  if (agent === 'agy' && p.acpSid) return { kind: 'run', command: `agy --conversation ${p.acpSid}`, resumes: true };
+  return { kind: 'run', command: p.command, resumes: false };
+}
+
+// A new tile takes over this conversation on the other surface; this one
+// closes. Chosen from the ⌄ menu — never sprung by a view toggle.
+function moveToSurface(p, surface) {
+  const spec = terminalResumeSpec(p);
+  const opts = {
+    title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind,
+    cwd: p.cwd, view: surface, acpSid: p.acpSid,
+  };
+  if (spec.kind === 'claude') Object.assign(opts, { kind: 'claude', sid: p.sid, cont: spec.cont });
+  else Object.assign(opts, { kind: 'run', command: surface === 'term' ? spec.command : p.command });
+  closePanel(p.id);
+  startPanel(opts);
+}
+
+function openBridgeMenu(p, anchor) {
+  const agent = cardAgentFor(p);
+  const inCards = cardView(p) === 'cards';
+  const spec = terminalResumeSpec(p);
+  const items = [];
+  if (inCards) {
+    items.push({
+      label: 'Open in a new Terminal session',
+      desc: spec.resumes ? 'same conversation — this card view closes' : 'starts its own conversation — this card view closes',
+      run: () => moveToSurface(p, 'term'),
+    });
+  } else {
+    if (agent === 'claude') {
+      items.push({
+        label: 'Watch as cards here',
+        desc: 'live filter — the terminal keeps running',
+        run: () => setView(p, 'cards'),
+      });
+      items.push({
+        label: 'Move to a Cards session',
+        desc: 'same conversation, driven — this terminal closes',
+        run: () => moveToSurface(p, 'cards'),
+      });
+    } else {
+      items.push({
+        label: 'Start a Cards session',
+        desc: 'its own conversation — this terminal stays',
+        run: () => startPanel({ kind: 'run', title: p.title, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, view: 'cards' }),
+      });
+    }
+  }
+  if (inCards && agent === 'claude' && p.cardMode === 'watch') {
+    items.push({ label: 'Back to Term', desc: 'the terminal was never touched', run: () => setView(p, 'term') });
+  }
+  items.push({ label: 'Rename this session', desc: '', run: () => { const t = tileEls.get(p.id); if (t) beginRename(p, q('.t-title', t.head)); } });
+  const reg = (S.agents || []).find((a) => a.bin === p.command || (agent === 'claude' && a.id === 'claude'));
+  if (reg) items.push({ label: 'Agent settings', desc: reg.name, run: () => openAgentSheet(reg) });
+  showHeadMenu(anchor, items);
+}
+
+// One tiny popover for tile-head menus. Closes on pick, escape, or any
+// click elsewhere.
+function showHeadMenu(anchor, items) {
+  closeHeadMenu();
+  const menu = document.createElement('div');
+  menu.className = 'head-menu';
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.className = 'hm-item';
+    b.innerHTML = `<span class="hm-l">${esc(it.label)}</span>${it.desc ? `<span class="hm-d">${esc(it.desc)}</span>` : ''}`;
+    b.onclick = (e) => { e.stopPropagation(); closeHeadMenu(); it.run(); };
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth)) + 'px';
+  const away = (e) => { if (!menu.contains(e.target)) closeHeadMenu(); };
+  const key = (e) => { if (e.key === 'Escape') closeHeadMenu(); };
+  setTimeout(() => { document.addEventListener('mousedown', away, { once: true }); document.addEventListener('keydown', key, { once: true }); }, 0);
+  menu._cleanup = () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key); };
+}
+function closeHeadMenu() {
+  const m = document.querySelector('.head-menu');
+  if (m) { if (m._cleanup) m._cleanup(); m.remove(); }
+}
+
 function setView(p, view) {
   const next = view === 'cards' ? 'cards' : 'term';
   if (cardView(p) === next) return;
@@ -1529,7 +1622,11 @@ function applyView(p, rec) {
   if (rec.cardsUi) rec.cardsUi.el.style.display = on ? 'flex' : 'none';
   rec.body.style.display = on ? 'none' : '';
   rec.root.classList.toggle('cards-on', on);
-  for (const b of rec.head.querySelectorAll('.t-vb')) b.classList.toggle('on', b.dataset.view === view);
+  const surf = q('.t-surface', rec.head);
+  if (surf) {
+    surf.className = 't-surface' + (on ? ' cards' : ' term');
+    surf.innerHTML = on ? `CARDS<span class="t-stamp">BETA</span>` : 'TERM';
+  }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
   else requestAnimationFrame(() => safeFit(rec));
 }
@@ -2486,16 +2583,30 @@ function renderLauncher() {
     const row = document.createElement('div'); row.className = 'picker-row';
     const st = statusLineFor(a);
     const manageable = !!a.lifecycle;
+    // Which agents can be born as cards: claude plus every bin the adapter
+    // table drives. The surface is chosen here, at birth; the row remembers
+    // each agent's last pick.
+    const cardable = a.kind === 'claude' || ['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(a.bin);
+    const lastPick = (() => { try { return localStorage.getItem('nami.surface.' + a.id) || 'term'; } catch (_) { return 'term'; } })();
     row.innerHTML = `${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
       <span class="col"><span class="name">${esc(a.name)}</span>
       <span class="desc"><span class="ok${st.dot === 'warn' ? ' ok--warn' : ''}">●</span> ready · ${esc(st.text)}</span></span>
+      ${cardable ? `<span class="ways">
+        <button class="way way--cards${lastPick === 'cards' ? ' last' : ''}" data-w="cards">Cards<span class="t-stamp">BETA</span></button>
+        <button class="way${lastPick === 'term' ? ' last' : ''}" data-w="term">Terminal</button>
+      </span>` : ''}
       ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;
-    row.onclick = async (e) => {
-      // The chevron manages the agent; anywhere else on the row still launches.
-      if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
+    const launch = async (surface) => {
       closeOverlay(); if (!(await ensureFolder())) return;
-      if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC' });
-      startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin });
+      try { localStorage.setItem('nami.surface.' + a.id, surface); } catch (_) {}
+      if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', view: surface });
+      startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin, view: cardable ? surface : undefined });
+    };
+    row.onclick = async (e) => {
+      if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
+      const way = e.target.closest('.way');
+      if (way) { launch(way.dataset.w); return; }
+      launch(cardable ? lastPick : 'term');
     };
     list.appendChild(row);
   }

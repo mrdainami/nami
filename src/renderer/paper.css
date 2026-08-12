@@ -869,21 +869,54 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    The same live session, read out of the transcript it is already writing. It
    sits as a sibling of .tile-body so the terminal keeps every rule it has: only
    one of the two is ever displayed, and the hidden one is never torn down. */
-.t-view { flex: none; display: flex; border: 1px solid var(--dash); }
-.t-vb {
-  font: inherit; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 4px 7px; border: 0; background: var(--paper); color: var(--muted); cursor: pointer;
+/* The surface is a state, not a toggle: one small label, stamped when beta.
+   Switching surfaces is an explicit act in the ⌄ menu. */
+.t-surface {
+  position: relative; flex: none; font-size: 9px; letter-spacing: 0.08em;
+  padding: 4px 9px; font-weight: 700;
 }
-.t-vb + .t-vb { border-left: 1px solid var(--dash); }
-.t-vb:hover { background: var(--hover); color: var(--ink); }
-.t-vb.on { background: var(--green); color: var(--paper); font-weight: 700; }
+.t-surface.cards { background: var(--green); color: var(--paper); }
+.t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
+/* the beta stamp: a side hat on the top-left corner, tilted, never clipped */
+.t-stamp {
+  position: absolute; top: -7px; left: -7px; transform: rotate(-14deg);
+  transform-origin: bottom left; font-size: 5.5px; letter-spacing: 0.1em;
+  font-weight: 700; line-height: 1; padding: 1.5px 3px;
+  border: 1px solid var(--green); border-radius: 2px;
+  background: var(--paper); color: var(--green); pointer-events: none; white-space: nowrap;
+}
+
+/* the ⌄ menu those labels defer to */
+.head-menu {
+  position: fixed; z-index: 300; min-width: 240px; max-width: 320px;
+  background: var(--paper); border: 1px solid var(--dash-dark);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  display: flex; flex-direction: column;
+}
+.hm-item {
+  font: inherit; font-size: 12px; text-align: left; padding: 8px 12px;
+  background: transparent; color: var(--ink); border: 0; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.hm-item + .hm-item { border-top: 1px dashed var(--dash); }
+.hm-item:hover { background: var(--hover); }
+.hm-item .hm-l { font-weight: 700; }
+.hm-item .hm-d { font-size: 10.5px; color: var(--muted); }
+
+/* the birth choice on a launcher row */
+.picker-row .ways { flex: none; display: flex; gap: 6px; margin-right: 4px; }
+.picker-row .way {
+  position: relative; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
+  padding: 5px 11px; margin-top: 5px; cursor: pointer;
+  background: var(--paper-2); color: var(--muted); border: 1px solid var(--dash);
+}
+.picker-row .way:hover { border-color: var(--green); color: var(--ink); }
+.picker-row .way.last { border-color: var(--dash-dark); color: var(--ink); }
+.picker-row .way--cards { font-weight: 700; }
+.picker-row .way .t-stamp { background: var(--paper-2); }
 /* In Cards the mic lives in the composer; the head keeps everything else —
    − ＋ size the card text exactly as they size terminal cells. */
 .tile.cards-on .t-mic { display: none; }
-.t-beta {
-  font-size: 6.5px; letter-spacing: 0.08em; vertical-align: super;
-  margin-left: 3px; opacity: 0.75; text-transform: lowercase;
-}
 
 .tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .cd-list {
