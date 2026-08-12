@@ -322,7 +322,11 @@ class AcpAdapter {
 
       case 'available_commands_update': {
         const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
-        this.commands = list.map((c) => String(c && c.name || '')).filter(Boolean).slice(0, 200);
+        // name AND description ride through — the menu shows what each does.
+        this.commands = list
+          .filter((c) => c && c.name)
+          .slice(0, 200)
+          .map((c) => ({ name: String(c.name), description: String(c.description || '') }));
         this.emitInit();
         return;
       }

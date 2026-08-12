@@ -137,15 +137,21 @@ class ClaudeSdkAdapter {
         if (msg.subtype === 'init') {
           this.sessionId = msg.session_id || this.sessionId;
           const commands = Array.isArray(msg.slash_commands) ? msg.slash_commands.slice(0, 200) : [];
-          this.emit('init', {
-            capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
-            agentSessionId: this.sessionId,
-            commands,
+          this.initMeta = {
             agentName: 'Claude Code',
             version: msg.claude_code_version || null,
             model: msg.model || null,
             mode: msg.permissionMode || 'default',
+          };
+          this.emit('init', {
+            capability: capability({ ...CAPABILITY, commands: commands.length > 0 }),
+            agentSessionId: this.sessionId,
+            commands,
+            ...this.initMeta,
           });
+          // The names arrived on the init frame; the descriptions and argument
+          // hints live behind supportedCommands(). Fetch once, re-announce.
+          this.fetchCommands();
         }
         break;
 
@@ -213,6 +219,22 @@ class ClaudeSdkAdapter {
       default:
         break;
     }
+  }
+
+  fetchCommands() {
+    Promise.resolve(this.query && this.query.supportedCommands && this.query.supportedCommands())
+      .then((cmds) => {
+        if (!Array.isArray(cmds) || !cmds.length || this.closed) return;
+        this.emit('init', {
+          capability: capability({ ...CAPABILITY, commands: true }),
+          agentSessionId: this.sessionId,
+          commands: cmds.slice(0, 200).map((c) => ({
+            name: String(c.name || ''), description: String(c.description || ''), argumentHint: String(c.argumentHint || ''),
+          })),
+          ...(this.initMeta || {}),
+        });
+      })
+      .catch(() => {});
   }
 
   // canUseTool, surfaced. The event carries what the agent sent — its own
