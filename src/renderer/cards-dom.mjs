@@ -13,6 +13,14 @@ import { pixIcon } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+function modeLabel(mode) {
+  return { default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits', plan: 'plan', bypassPermissions: 'bypass' }[mode] || mode;
+}
+function shortModel(m) {
+  const s = String(m || '').split('/').pop();
+  return s.length > 24 ? s.slice(0, 23) + '…' : s;
+}
+
 // Line art for paper and operator; the glass themes flip to pixel glyphs via
 // the same .uni-i / .pix-i pattern the head buttons use.
 const SEND_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 12.2V4.2M4.6 7.6 8 4.2l3.4 3.4"/></svg>`;
@@ -168,10 +176,22 @@ function renderRow(ctx, row) {
     return el;
   }
 
+  if (row.kind === 'intro') {
+    // The card-native TUI banner: who this is, on what, in which folder.
+    const facts = [row.model, row.mode, shortPath(row.cwd)].filter(Boolean)
+      .map((f) => `<span class="f">${esc(f)}</span>`).join('<span class="dot">·</span>');
+    el.dataset.n = `${row.model}|${row.mode}`;
+    el.innerHTML = `<div class="t">✳ ${esc(row.name)}${row.version ? ` <span class="v">v${esc(row.version)}</span>` : ''}</div>
+      ${facts ? `<div class="d">${facts}</div>` : ''}
+      <div class="h">/ for commands · esc interrupts · ⌘↑ ⌘↓ walk your turns</div>`;
+    return el;
+  }
+
   if (row.kind === 'fold') {
     // A finished turn's work, folded to one line. Children render lazily —
     // most folds are never opened, and a long session holds many.
-    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> worked for ${esc(row.duration)} · ${row.count} step${row.count > 1 ? 's' : ''}</button><div class="cd-fold-b" hidden></div>`;
+    const worked = row.duration ? `worked for ${esc(row.duration)}` : 'worked';
+    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> ${worked} · ${row.count} step${row.count > 1 ? 's' : ''}</button><div class="cd-fold-b" hidden></div>`;
     const body = q('.cd-fold-b', el);
     q('.cd-fold-h', el).onclick = () => {
       const open = el.classList.toggle('open');
@@ -242,8 +262,18 @@ function renderRow(ctx, row) {
   return el;
 }
 
+function shortPath(p) {
+  const s = String(p || '');
+  return s.replace(/^\/Users\/[^/]+/, '~');
+}
+
 function updateRow(ctx, el, row) {
   if (row.kind === 'permission') { updatePermission(ctx, el, row); return; }
+  if (row.kind === 'intro') {
+    const key = `${row.model}|${row.mode}`;
+    if (el.dataset.n !== key) { const fresh = renderRow(ctx, row); el.replaceWith(fresh); }
+    return;
+  }
   // Streaming prose: an adapter re-emits the same row id with more text.
   if (row.kind === 'assistant' || row.kind === 'thinking') {
     const n = String(row.text || '').length;
@@ -344,6 +374,7 @@ export function buildCards(ctx) {
     <div class="cd-ask">
       <span class="m">❯</span>
       <select class="cd-model" hidden title="Model"></select>
+      <button class="cd-mode" hidden title="Permission mode — click to switch"></button>
       <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · ⌘↑/⌘↓ walk your turns" />
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
@@ -460,19 +491,40 @@ export function buildCards(ctx) {
     note.classList.toggle('urgent', !!urgent);
   }
 
+  // The composer knows what it's running: a mode chip (click cycles, where
+  // the channel can switch) and a model chip (a real picker where the agent
+  // published a list, a plain fact otherwise).
   const modelSel = q('.cd-model', el);
+  const modeChip = q('.cd-mode', el);
   modelSel.onchange = () => { if (ctx.onModel) ctx.onModel(modelSel.value); };
   modelSel.addEventListener('keydown', (e) => e.stopPropagation());
-  function setModels(models) {
-    if (!models || !Array.isArray(models.options) || !models.options.length) { modelSel.hidden = true; return; }
-    modelSel.innerHTML = models.options.map((m) =>
-      `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
-    modelSel.hidden = false;
+  modeChip.onclick = () => { if (ctx.onMode) ctx.onMode(); };
+  function setStatus(st) {
+    const models = st && st.models;
+    if (models && Array.isArray(models.options) && models.options.length) {
+      modelSel.innerHTML = models.options.map((m) =>
+        `<option value="${esc(m.value)}"${m.value === models.current ? ' selected' : ''}>${esc(m.name)}</option>`).join('');
+      modelSel.hidden = false;
+      modelSel.disabled = false;
+    } else if (st && st.model) {
+      modelSel.innerHTML = `<option selected>${esc(shortModel(st.model))}</option>`;
+      modelSel.hidden = false;
+      modelSel.disabled = true; // a fact, not a control — honestly inert
+    } else {
+      modelSel.hidden = true;
+    }
+    if (st && st.mode) {
+      modeChip.textContent = modeLabel(st.mode);
+      modeChip.hidden = false;
+      modeChip.disabled = !st.canSwitchMode;
+    } else {
+      modeChip.hidden = true;
+    }
   }
 
   return {
     el, list, input,
-    feed, setNote, scrollToEnd, setModels,
+    feed, setNote, scrollToEnd, setStatus,
     isEmpty: () => !list.children.length,
     insertText: (t) => {
       input.focus();
