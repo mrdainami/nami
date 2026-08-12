@@ -169,3 +169,8 @@ test('sweepCopies removes marked copies only, and reports what it left', () => {
   assert.ok('/proj/.opencode/agents/release-scribe.md' in io.files, 'unmarked file survives');
   assert.deepEqual(res.left, ['/proj/.opencode/agents/release-scribe.md']);
 });
+
+test('antigravity gets the gemini-folder copy', () => {
+  const plan = agentDeliveryPlan({ slug: 'x', agentIds: ['antigravity'], projectPath: PROJ });
+  assert.equal(plan[0].file, '/proj/.gemini/agents/x.md');
+});

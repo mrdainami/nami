@@ -156,6 +156,9 @@ function presentInYaml(text, id) {
 // ---- where each agent keeps its notebook, per scope -------------------------
 // json: merge into `section`; block: the codex marker block; cli: the tool's
 // own command owns the write; manual: we won't write it, and we say so.
+// Antigravity replaced Gemini CLI and reads the same ~/.gemini files, so both
+// ids alias one notebook. An agent with no entry here is skipped everywhere —
+// including coverage, where counting it would mean a permanent false "missing".
 
 function notebookTargets({ scope, projectPath, homeDir }) {
   const p = (rel) => (projectPath ? path.join(projectPath, rel) : null);
@@ -165,6 +168,7 @@ function notebookTargets({ scope, projectPath, homeDir }) {
       claude: { kind: 'json', file: p('.mcp.json'), section: 'mcpServers' },
       cursor: { kind: 'json', file: p('.cursor/mcp.json'), section: 'mcpServers' },
       gemini: { kind: 'json', file: p('.gemini/settings.json'), section: 'mcpServers' },
+      antigravity: { kind: 'json', file: p('.gemini/settings.json'), section: 'mcpServers' },
       kimi: { kind: 'json', file: p('.kimi-code/mcp.json'), section: 'mcpServers' },
       opencode: { kind: 'json', file: p('opencode.json'), section: 'mcp', translate: true },
       codex: { kind: 'block', file: p('.codex/config.toml') },
@@ -175,6 +179,7 @@ function notebookTargets({ scope, projectPath, homeDir }) {
     claude: { kind: 'cli', cmdFor: (id, entry) => `claude mcp add-json --scope user ${id} ${JSON.stringify(JSON.stringify(entry))}` },
     cursor: { kind: 'json', file: h('.cursor/mcp.json'), section: 'mcpServers' },
     gemini: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
+    antigravity: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
     kimi: { kind: 'json', file: h('.kimi-code/mcp.json'), section: 'mcpServers' },
     opencode: { kind: 'json', file: h('.config/opencode/opencode.json'), section: 'mcp', translate: true },
     codex: { kind: 'block', file: h('.codex/config.toml') },
@@ -222,6 +227,8 @@ function readNotebooks({ projectPath, homeDir, agentIds, io = fsIo }) {
   };
   const out = {};
   for (const agent of agentIds) {
+    // No reader for this tool → leave it out entirely, never report "missing".
+    if (!reads[agent] && !both.some((t) => t[agent]) && agent !== 'hermes') continue;
     const ids = new Set();
     const files = reads[agent]
       ? reads[agent].filter(Boolean).map((file) => ({ kind: 'json', file, section: 'mcpServers' }))
