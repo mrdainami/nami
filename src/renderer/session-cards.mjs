@@ -36,6 +36,7 @@ function short(s, n) {
 }
 function baseName(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || ''; }
 function lineCount(s) { return String(s == null ? '' : s) ? String(s).split('\n').length : 0; }
+function nLines(n) { return `${n} line${n === 1 ? '' : 's'}`; }
 
 // What the row is called — the vocabulary the tile uses everywhere else.
 export function toolLabel(name, input) {
@@ -69,7 +70,7 @@ function toolDetail(name, input) {
     const d = editCounts(i);
     return d ? `+${d.add} −${d.del}` : '';
   }
-  if (name === 'Write') return `${lineCount(i.content)} lines`;
+  if (name === 'Write') return nLines(lineCount(i.content));
   if (i.file_path) return short(i.file_path, MAX_DETAIL);
   return '';
 }
@@ -173,7 +174,7 @@ export function buildRows(events) {
           if (e.diff) row.diff = e.diff;
           row.pending = false;
           // A read's one open question is how much came back.
-          if (row.toolKind === 'read' && !row.detail && row.body) row.detail = `${lineCount(row.body)} lines`;
+          if (row.toolKind === 'read' && !row.detail && row.body) row.detail = nLines(lineCount(row.body));
           byTool.delete(e.toolId);
           break;
         }

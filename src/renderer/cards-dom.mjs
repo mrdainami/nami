@@ -281,7 +281,11 @@ export function buildCards(ctx) {
     ev.preventDefault();
     if (a.classList.contains('cd-path')) { ctx.onOpenPath(a.dataset.path, ev); return; }
     const href = a.getAttribute('href') || '';
-    if (/^https?:/i.test(href)) ctx.onOpenUrl(href);
+    if (/^https?:/i.test(href)) { ctx.onOpenUrl(href); return; }
+    // Antigravity links files as file:// URLs; they resolve like a bare path.
+    if (/^file:/i.test(href)) {
+      try { ctx.onOpenPath(decodeURIComponent(new URL(href).pathname), ev); } catch (_) {}
+    }
   });
 
   // Filled means armed; empty means outline and muted.

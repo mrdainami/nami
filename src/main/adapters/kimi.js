@@ -53,9 +53,11 @@ class KimiAdapter {
     this.emit('status', { state: 'running' });
     this.turnStarted = Date.now();
 
+    // -p takes the prompt as its value — flags after it would be swallowed,
+    // so the prompt comes right behind it and the format flag after.
     const args = this.sessionId
-      ? ['-r', this.sessionId, '-p', '--output-format', 'stream-json', text]
-      : ['-p', '--output-format', 'stream-json', text];
+      ? ['-r', this.sessionId, '-p', text, '--output-format', 'stream-json']
+      : ['-p', text, '--output-format', 'stream-json'];
     let child;
     try {
       child = spawn('kimi', args, { cwd: this.cwd, env: this.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
