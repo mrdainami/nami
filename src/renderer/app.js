@@ -251,8 +251,14 @@ function dropFilesOnPanel(p, paths) {
       p.agentCaps = ev.capability || null;
       p.agentCommands = ev.commands || [];
       // The adapter resumed (or minted) a conversation; keep the id the next
-      // launch will resume — same rule as /resume inside the terminal.
-      if (ev.claudeSessionId && p.sid !== ev.claudeSessionId) { p.sid = ev.claudeSessionId; savePanels(); }
+      // entry will resume — claude's rides p.sid (same rule as /resume in the
+      // terminal), an ACP agent's rides its own field.
+      if (ev.agentSessionId) {
+        if (cardAgentFor(p) === 'claude' && p.sid !== ev.agentSessionId) { p.sid = ev.agentSessionId; savePanels(); }
+        else if (cardAgentFor(p) !== 'claude' && p.acpSid !== ev.agentSessionId) { p.acpSid = ev.agentSessionId; savePanels(); }
+      }
+      const rec = tileEls.get(p.id);
+      if (rec && rec.cardsUi) rec.cardsUi.setModels(ev.models || null);
       return;
     }
     if (ev.kind === 'status') {
@@ -1404,7 +1410,18 @@ function clearAttention(p) { if (!p.attention) return; p.attention = false; refr
 // both runtimes resume. A legacy --continue tile has none and stays Term-only.
 const CARD_EVENT_CAP = 900;
 
-function canShowCards(p) { return p && p.kind === 'claude' && !!p.sid && !S.demo; }
+// Which adapter can drive this tile's agent, or null. A claude tile needs its
+// conversation id; an ACP agent tile is one whose command is exactly the bin.
+function cardAgentFor(p) {
+  if (!p || S.demo) return null;
+  if (p.kind === 'claude') return p.sid ? 'claude' : null;
+  if (p.kind === 'run') {
+    const c = String(p.command || '').trim();
+    if (c === 'opencode' || c === 'hermes') return c;
+  }
+  return null;
+}
+function canShowCards(p) { return !!cardAgentFor(p); }
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
 function setView(p, view) {
@@ -1436,10 +1453,17 @@ function applyView(p, rec) {
 // comes back and the card watches the transcript instead.
 async function enterCards(p) {
   const rec = tileEls.get(p.id); if (!rec) return;
+  const agent = cardAgentFor(p);
+  if (!agent) return;
   p.cardEvents = [];
-  const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
-  p.cardEvents = (back && back.events) || [];
-  if (cardView(p) !== 'cards') return; // switched away while we read
+  if (agent === 'claude') {
+    // What the conversation already holds, from the transcript. An ACP agent
+    // replays its own history through session/load instead — same rows,
+    // different door.
+    const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
+    p.cardEvents = (back && back.events) || [];
+    if (cardView(p) !== 'cards') return; // switched away while we read
+  }
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
 
@@ -1448,17 +1472,23 @@ async function enterCards(p) {
     await api.termKill({ id: p.id });
     p.started = false;
   }
-  const res = await api.agentStart({ id: p.id, agent: 'claude', cwd: p.cwd, sid: p.sid });
+  const sid = agent === 'claude' ? p.sid : (p.acpSid || null);
+  const res = await api.agentStart({ id: p.id, agent, cwd: p.cwd, sid });
   if (cardView(p) !== 'cards') { if (res && res.ok) api.agentStop({ id: p.id }); return; }
   p.agentLive = !!(res && res.ok);
   p.cardFallback = '';
-  if (!p.agentLive) {
+  if (!p.agentLive && agent === 'claude') {
     // Read-only fallback: restart the pty (hidden under the card) and tail
     // the transcript it writes. The composer still works — it types into the
     // terminal, the way dictation always has.
     p.cardFallback = 'Read-only: driving needs the claude CLI. The terminal still runs underneath.';
     p.started = false; p.exited = false;
     if (rec.term) startProcess(p, rec.term.cols, rec.term.rows).then(() => api.cardsWatch({ id: p.id, on: true }));
+  } else if (!p.agentLive) {
+    // The adapter said why (error + note rows). Bring the terminal back so
+    // the tile is never a dead end.
+    p.started = false; p.exited = false;
+    if (rec.term) startProcess(p, rec.term.cols, rec.term.rows);
   }
   refreshCardNote(p, rec);
 }
@@ -1500,6 +1530,7 @@ function mountCards(p, rec) {
       openTermLink({ kind: 'path', text: token }, st, ev);
     },
     onOpenUrl: (url) => api.openUrl(url),
+    onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
     commands: () => p.agentCommands || [],
   });
   rec.root.appendChild(ui.el);
@@ -2046,7 +2077,7 @@ function panelSnapshot() {
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
     if (p.kind === 'card') return { kind: 'card', item: p.item };
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, view: p.view };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view };
   });
 }
 function savePanels() {
@@ -2076,7 +2107,7 @@ async function restorePanels(snaps) {
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
-      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, view: s.view, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
     } catch (_) {}
   }
   S.activeId = S.panels[0] ? S.panels[0].id : null;

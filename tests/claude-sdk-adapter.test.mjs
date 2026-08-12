@@ -175,5 +175,5 @@ test('init announces the channel and what it can do', () => {
   assert.equal(init.capability.ask, true);
   assert.equal(init.capability.interrupt, true);
   assert.equal(init.capability.channel, 'agent sdk');
-  assert.ok(init.claudeSessionId);
+  assert.ok(init.agentSessionId);
 });
