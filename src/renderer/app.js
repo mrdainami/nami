@@ -1774,7 +1774,7 @@ function mountTerminal(p, rec) {
   term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
-  wireTerminalMenu(term, p, rec);
+  wireTerminalMenu(p, rec);
   // Debounced: a resize drag would otherwise fire a pty resize per frame, and
   // every one of those reflows the scrollback (mid-word wraps, sliced borders).
   let refitTimer = null;
@@ -1783,7 +1783,8 @@ function mountTerminal(p, rec) {
     refitTimer = setTimeout(() => safeFit(rec), 90);
   });
   ro.observe(rec.body);
-  rec.disposeRo = () => { clearTimeout(refitTimer); ro.disconnect(); };
+  // a closed tile must not leave the link it was hovering behind in the map
+  rec.disposeRo = () => { clearTimeout(refitTimer); ro.disconnect(); hoveredLink.delete(p.id); };
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -1903,7 +1904,7 @@ function registerTerminalLinks(term, p) {
 // Right-click a link in a session. Away from one this does nothing and the
 // terminal keeps whatever behaviour it had — this is a link menu, not a
 // terminal menu, and copying arbitrary text is what selection is for.
-function wireTerminalMenu(term, p, rec) {
+function wireTerminalMenu(p, rec) {
   rec.body.addEventListener('contextmenu', (e) => {
     const hit = hoveredLink.get(p.id);
     if (!hit) return;
@@ -1911,7 +1912,9 @@ function wireTerminalMenu(term, p, rec) {
     const items = termMenuItems({ kind: hit.link.kind, text: hit.link.text, st: hit.st }).map((it) => {
       if (it === '-' || it.off) return it;
       if (it.copy != null) return { ...it, run: () => copyLinkText(it.copy) };
-      return { ...it, run: (ev) => openTermLink(hit.link, hit.st, { altKey: it.label === 'Reveal in Finder', ...(ev || {}) }) };
+      // Reveal is the alt route openTermLink already understands; naming it
+      // here keeps the menu and the modifier on one implementation.
+      return { ...it, run: () => openTermLink(hit.link, hit.st, { altKey: it.label === 'Reveal in Finder' }) };
     });
     showMenu(e.clientX, e.clientY, items);
   });
