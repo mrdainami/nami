@@ -149,6 +149,8 @@ const PIX = {
   plus: 'M3 0h1v2H3z M3 5h1v2H3z M0 3h2v1H0z M5 3h2v1H5z M3 2h1v1H3z M3 4h1v1H3z M2 3h1v1H2z M4 3h1v1H4z',
   flag: 'M1 0h1v7H1z M2 0h4v1H2z M2 3h4v1H2z M6 1h1v2H6z',
   minus: 'M1 3h5v1H1z',
+  // a small v — the tile head's "more surfaces / settings" menu
+  chevron: 'M0 2h1v1H0z M1 3h1v1H1z M2 4h1v1H2z M3 5h1v1H3z M4 4h1v1H4z M5 3h1v1H5z M6 2h1v1H6z',
   // the card composer: an up arrow to send, a capsule-and-cradle mic
   send: 'M3 0h1v7H3z M2 1h1v1H2z M4 1h1v1H4z M1 2h1v1H1z M5 2h1v1H5z M0 3h1v1H0z M6 3h1v1H6z',
   mic: 'M2 0h3v4H2z M1 3h1v2H1z M5 3h1v2H5z M2 5h3v1H2z M3 6h1v1H3z',
