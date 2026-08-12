@@ -109,6 +109,11 @@ body[data-theme="operator"] .nami-mascot {
 /* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
    lowercase, so operator keeps it centred */
 body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; }
+/* --faint is #4e4c48 here, which is 2.2:1 on operator's near-black sheet — a
+   smudge, not a word. The caption is meant to be quiet, not invisible, so it
+   steps one rung up the same scale (3.6:1). Paper and graphite keep --faint;
+   only this theme's ground is dark enough to need it. */
+body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; }
 body[data-theme="operator"] .brand::before {
   content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center;
   background: var(--op-accent); box-shadow: 0 0 8px var(--op-accent);
