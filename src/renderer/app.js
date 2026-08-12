@@ -1765,7 +1765,7 @@ function bumpTermFont(dir) {
     if (r.term) { r.term.options.fontSize = next; safeFit(r); }
     if (r.cardsUi) r.cardsUi.setFontSize(next); // cards read at the same size the terminal does
   });
-  toast('Terminal text · ' + next + 'px');
+  toast('Text size · ' + next + 'px'); // one dial for both surfaces — cards scale with it too
 }
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;

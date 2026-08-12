@@ -1124,7 +1124,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-list {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
-  font-size: 12.5px; line-height: 1.6;
+  font-size: calc(12.5px * var(--cdz, 1)); line-height: 1.6;
 }
 .cd-row { min-width: 0; }
 /* Your turn is a bubble: right-shifted, tinted, accent-edged — the
@@ -1141,22 +1141,22 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* A finished turn's work, folded to one line. */
 .cd-fold-h {
-  font: inherit; font-size: 11px; letter-spacing: 0.04em; color: var(--muted);
+  font: inherit; font-size: calc(11px * var(--cdz, 1)); letter-spacing: 0.04em; color: var(--muted);
   background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
 }
 .cd-fold-h:hover { color: var(--ink); }
-.cd-fold-h .arr { font-size: 9px; }
+.cd-fold-h .arr { font-size: calc(9px * var(--cdz, 1)); }
 .cd-fold-b { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 
 /* Edited N files — name left, counts right, diff behind the row. */
 .cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
 .cd-edits-h {
-  padding: 6px 10px; font-size: 11px; font-weight: 700;
+  padding: 6px 10px; font-size: calc(11px * var(--cdz, 1)); font-weight: 700;
   border-bottom: 1px solid var(--dash);
 }
 .cd-edits-f {
   display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  width: 100%; font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  width: 100%; font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; cursor: pointer;
   background: transparent; color: var(--ink); border: 0; padding: 5px 10px;
 }
 .cd-edits-f:hover { background: var(--hover); }
@@ -1181,7 +1181,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-md pre {
   background: var(--paper-3); border: 1px solid var(--dash);
   padding: 8px 10px; margin: 0.35em 0 0.55em;
-  overflow-x: auto; font-size: 11.5px; line-height: 1.5;
+  overflow-x: auto; font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5;
 }
 .cd-md pre code { background: transparent; border: 0; padding: 0; }
 .cd-md a { color: var(--green); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
@@ -1189,11 +1189,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* Thought is context, not content: one quiet line until asked. */
 .cd-th-head {
-  font: inherit; font-size: 11.5px; color: var(--muted); font-style: italic;
+  font: inherit; font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted); font-style: italic;
   background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
 }
 .cd-th-head:hover { color: var(--ink); }
-.cd-th-arr { font-style: normal; font-size: 9px; }
+.cd-th-arr { font-style: normal; font-size: calc(9px * var(--cdz, 1)); }
 .cd-th-body {
   margin-top: 4px; color: var(--muted); font-style: italic;
   border-left: 2px dashed var(--dash); padding-left: 9px;
@@ -1205,26 +1205,26 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    boundary, with breathing room so it never crowds the composer. */
 .cd-turn_end {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint);
+  font-size: calc(10.5px * var(--cdz, 1)); letter-spacing: 0.06em; color: var(--faint);
   margin: 2px 0 8px; padding-top: 2px;
 }
 .cd-meter { flex: none; }
 .cd-chip {
-  flex: none; font-size: 10px; letter-spacing: 0; padding: 1px 7px;
+  flex: none; font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0; padding: 1px 7px;
   border: 1px solid var(--dash); background: var(--paper-2); color: var(--muted);
   cursor: pointer; text-decoration: none;
 }
 .cd-chip:hover { color: var(--green); border-color: var(--green); }
 /* the channel badge moved to the tile head (.t-channel) — it is session
    state, not turn state, so it says itself once instead of on every turn */
-.cd-note { text-align: left; font-size: 11px; color: var(--muted); font-style: italic; }
+.cd-note { text-align: left; font-size: calc(11px * var(--cdz, 1)); color: var(--muted); font-style: italic; }
 .cd-row.cd-note { border-left: 2px solid var(--dash); padding-left: 9px; }
 .cd-error {
   display: flex; gap: 8px; border: 1px solid var(--red-line); background: var(--red-bg);
-  color: var(--red-ink); padding: 7px 10px; font-size: 12px;
+  color: var(--red-ink); padding: 7px 10px; font-size: calc(12px * var(--cdz, 1));
 }
 .cd-note-act {
-  display: block; margin-top: 6px; font: inherit; font-size: 11px;
+  display: block; margin-top: 6px; font: inherit; font-size: calc(11px * var(--cdz, 1));
   padding: 4px 10px; cursor: pointer; font-style: normal;
   background: var(--amber-btn); color: var(--paper); border: 1px solid var(--amber-btn-line);
 }
@@ -1237,7 +1237,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-tool .cd-line {
   display: flex; align-items: baseline; gap: 8px;
   border: 1px solid var(--dash); background: var(--paper-2);
-  padding: 6px 9px; font-size: 12px;
+  padding: 6px 9px; font-size: calc(12px * var(--cdz, 1));
 }
 .cd-row[data-body="1"] .cd-line { cursor: pointer; }
 .cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
@@ -1253,7 +1253,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-line .cd-dt {
   flex: 0 1 auto; min-width: 0; max-width: 45%; text-align: right;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted); font-size: 11px;
+  color: var(--muted); font-size: calc(11px * var(--cdz, 1));
 }
 .cd-row.pending .cd-ic { color: var(--amber-btn); animation: cd-pending 1.2s ease-in-out infinite; }
 @keyframes cd-pending { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
@@ -1265,16 +1265,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-open { border: 1px solid var(--dash); border-top: 0; background: var(--paper-3); }
 .cd-body {
   margin: 0; padding: 8px 10px; max-height: 260px; overflow: auto;
-  font-family: inherit; font-size: 11.5px; line-height: 1.5;
+  font-family: inherit; font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5;
   white-space: pre-wrap; word-break: break-word; color: var(--muted);
   background: transparent; border: 0;
 }
 
 /* Diffs: what left, what landed — the call's own strings, tinted by tokens. */
-.cd-diff { font-size: 11.5px; line-height: 1.5; }
+.cd-diff { font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5; }
 .cd-diff-sum {
   display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  width: 100%; font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+  width: 100%; font: inherit; font-size: calc(11.5px * var(--cdz, 1)); text-align: left; cursor: pointer;
   background: var(--paper-2); color: var(--ink); border: 1px solid var(--dash);
   padding: 5px 10px;
 }
@@ -1284,20 +1284,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-diff .plus { color: var(--diff-add-ink); font-weight: 700; }
 .cd-diff .minus { color: var(--diff-del-ink); font-weight: 700; }
 .cd-diff-body { max-height: 260px; overflow: auto; }
-.cd-diff-path { padding: 5px 10px 0; font-size: 10.5px; color: var(--muted); }
+.cd-diff-path { padding: 5px 10px 0; font-size: calc(10.5px * var(--cdz, 1)); color: var(--muted); }
 .cd-diff-b { margin: 4px 0 0; padding: 4px 10px; white-space: pre-wrap; word-break: break-word; font-family: inherit; }
 .cd-diff-b span { display: block; }
 .cd-diff-b.del { background: var(--diff-del-bg); color: var(--diff-del-ink); }
 .cd-diff-b.add { background: var(--diff-add-bg); color: var(--diff-add-ink); }
-.cd-diff-more { padding: 3px 10px; font-size: 10.5px; color: var(--faint); }
+.cd-diff-more { padding: 3px 10px; font-size: calc(10.5px * var(--cdz, 1)); color: var(--faint); }
 
 /* A sub-agent folds under the Task that spawned it. */
 .cd-sub { padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 7px; }
-.cd-sub-t { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.cd-sub-t { font-size: calc(10.5px * var(--cdz, 1)); letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
 
 /* The agent's plan, as it keeps it. */
-.cd-plan { border: 1px dashed var(--dash); background: var(--paper-2); padding: 7px 10px; font-size: 12px; }
-.cd-plan-t { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+.cd-plan { border: 1px dashed var(--dash); background: var(--paper-2); padding: 7px 10px; font-size: calc(12px * var(--cdz, 1)); }
+.cd-plan-t { font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
 .cd-plan-i { display: flex; gap: 7px; }
 .cd-plan-i .mk { flex: none; color: var(--muted); }
 .cd-plan-i.completed { color: var(--muted); }
@@ -1312,7 +1312,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-perm-t { display: flex; gap: 8px; align-items: baseline; }
 .cd-perm-mk { flex: none; font-weight: 700; color: var(--amber-btn); }
 .cd-perm-name { font-weight: 700; color: var(--amber-ink); }
-.cd-perm-d { color: var(--amber-body); font-size: 12px; word-break: break-word; }
+.cd-perm-d { color: var(--amber-body); font-size: calc(12px * var(--cdz, 1)); word-break: break-word; }
 .cd-perm-cmd { max-height: 200px; border: 1px solid var(--amber-line); background: var(--paper-3); cursor: pointer; }
 .cd-perm-cmd.clamp { max-height: 56px; overflow: hidden; position: relative; }
 .cd-perm-diff:empty { display: none; }
@@ -1321,23 +1321,23 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* Secondary buttons draw with the card's own ink, so they hold on every
    theme's amber ground — paper-grey on graphite's dark red was invisible. */
 .cd-perm-btn {
-  font: inherit; font-size: 11px; padding: 5px 11px; cursor: pointer;
+  font: inherit; font-size: calc(11px * var(--cdz, 1)); padding: 5px 11px; cursor: pointer;
   background: transparent; color: var(--amber-ink); border: 1px solid var(--amber-ink);
 }
 .cd-perm-btn:hover { background: var(--hover); }
 .cd-perm-btn.allow { background: var(--amber-btn); border-color: var(--amber-btn-line); color: var(--paper); font-weight: 700; }
 .cd-perm-btn.allow:hover { filter: brightness(1.08); }
-.cd-perm-done { font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; }
+.cd-perm-done { font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted); display: flex; gap: 8px; }
 .cd-perm-done .cd-kd { flex: none; }
 
 /* The card's own status line, above the list. */
 .tile-cards > .cd-note {
-  flex: none; padding: 8px 14px; font-size: 11.5px; color: var(--muted);
+  flex: none; padding: 8px 14px; font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted);
   border-bottom: 1px dashed var(--dash); font-style: normal; border-left: 0;
 }
 .tile-cards > .cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
 .cd-note-btn {
-  margin-left: 10px; font: inherit; font-size: 10px; letter-spacing: 0.06em;
+  margin-left: 10px; font: inherit; font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0.06em;
   text-transform: uppercase; padding: 2px 9px; cursor: pointer;
   background: transparent; color: var(--green); border: 1px solid var(--green);
 }
@@ -1350,7 +1350,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-ask .m { color: var(--green); font-weight: 700; }
 .cd-input {
-  flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--ink);
+  flex: 1; min-width: 0; font: inherit; font-size: calc(12.5px * var(--cdz, 1)); color: var(--ink);
   background: transparent; border: 0; outline: none;
 }
 .cd-input::placeholder { color: var(--faint); }
@@ -1360,7 +1360,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* The working line — spinner, elapsed, live tokens, the way out. */
 .cd-working {
   flex: none; display: flex; align-items: center; gap: 9px;
-  padding: 6px 14px; font-size: 11px; color: var(--muted);
+  padding: 6px 14px; font-size: calc(11px * var(--cdz, 1)); color: var(--muted);
   border-top: 1px dashed var(--dash);
 }
 .cd-working .cw-sp {
@@ -1370,7 +1370,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 @keyframes cd-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cd-working .cw-sp { animation: none; } }
-.cd-working .cw-esc { margin-left: auto; color: var(--faint); font-size: 10px; }
+.cd-working .cw-esc { margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1)); }
 
 /* a sub-agent's live lane, indented under its Task row */
 .cd-lane {
@@ -1382,7 +1382,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    single line, never wraps; hints give way first on narrow tiles. */
 .cd-status {
   flex: none; height: 20px; display: flex; align-items: baseline; gap: 6px;
-  padding: 0 14px 6px; font-size: 10px; color: var(--muted);
+  padding: 0 14px 6px; font-size: calc(10px * var(--cdz, 1)); color: var(--muted);
   white-space: nowrap; overflow: hidden;
 }
 .cd-status .cs-mk { color: var(--amber-btn); font-weight: 700; flex: none; }
@@ -1390,7 +1390,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-status .cs-kb, .cd-status .cs-right { color: var(--faint); flex: none; }
 .cd-status .cs-right { margin-left: auto; }
 .cs-mode {
-  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  font: inherit; font-size: calc(10px * var(--cdz, 1)); font-weight: 700; color: var(--ink);
   background: transparent; border: 0; padding: 0; cursor: pointer; flex: none;
 }
 .cs-mode:hover:not(:disabled) { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
@@ -1406,7 +1406,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .hm-item:disabled:hover { background: transparent; }
 .hm-item .hm-mark { color: var(--green); }
 .cs-model {
-  font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
+  font: inherit; font-size: calc(10px * var(--cdz, 1)); font-weight: 700; color: var(--ink);
   background: transparent; border: 0; padding: 0; cursor: pointer;
   max-width: 170px; flex: none; appearance: none; -webkit-appearance: none;
 }
@@ -1425,24 +1425,24 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   display: flex; align-items: center; justify-content: center;
 }
 .cd-intro .cd-wl svg { width: 26px; height: 26px; }
-.cd-intro .cd-wl-t { font-weight: 700; font-size: 18px; }
-.cd-intro .cd-wn { font-weight: 700; font-size: 14px; }
-.cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: 10.5px; }
-.cd-intro .cd-wf { color: var(--muted); font-size: 10.5px; }
+.cd-intro .cd-wl-t { font-weight: 700; font-size: calc(18px * var(--cdz, 1)); }
+.cd-intro .cd-wn { font-weight: 700; font-size: calc(14px * var(--cdz, 1)); }
+.cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: calc(10.5px * var(--cdz, 1)); }
+.cd-intro .cd-wf { color: var(--muted); font-size: calc(10.5px * var(--cdz, 1)); }
 /* the channel's own caveat, said on the welcome — 'headless: approvals run
    by its own config' beats finding out by surprise */
-.cd-intro .cd-wnote { color: var(--muted); font-size: 10px; font-style: italic; max-width: 46ch; }
+.cd-intro .cd-wnote { color: var(--muted); font-size: calc(10px * var(--cdz, 1)); font-style: italic; max-width: 46ch; }
 .cd-intro .cd-wp { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 90%; margin-top: 4px; }
 .cd-wpick {
-  display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: 11px;
+  display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: calc(11px * var(--cdz, 1));
   border: 1px solid var(--dash); background: var(--paper-2); color: var(--ink);
   padding: 5px 11px; cursor: pointer; text-align: left;
 }
 .cd-wpick:hover { border-color: var(--green); }
-.cd-wpick .lab { color: var(--faint); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.08em; width: 46px; flex: none; }
+.cd-wpick .lab { color: var(--faint); font-size: calc(8.5px * var(--cdz, 1)); text-transform: uppercase; letter-spacing: 0.08em; width: 46px; flex: none; }
 .cd-wpick .val { flex: 1; font-weight: 700; }
 .cd-wpick .c { color: var(--faint); }
-.cd-intro .cd-wh { color: var(--faint); font-size: 10px; margin-top: 4px; }
+.cd-intro .cd-wh { color: var(--faint); font-size: calc(10px * var(--cdz, 1)); margin-top: 4px; }
 .cd-mic-btn, .cd-send-btn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -1474,19 +1474,19 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-menu-i {
   display: flex; align-items: baseline; gap: 10px;
-  font: inherit; font-size: 12px; text-align: left; padding: 6px 11px;
+  font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; padding: 6px 11px;
   background: transparent; color: var(--ink); border: 0; cursor: pointer;
 }
 .cd-menu-i + .cd-menu-i { border-top: 1px dashed var(--dash); }
 .cd-menu-i:hover, .cd-menu-i.on { background: var(--hover); }
 .cd-menu-i .mi-n { color: var(--green); font-weight: 700; flex: none; }
 .cd-menu-i .mi-d {
-  color: var(--muted); font-size: 11px; min-width: 0;
+  color: var(--muted); font-size: calc(11px * var(--cdz, 1)); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cd-menu-i .mi-h { margin-left: auto; color: var(--faint); font-size: 10px; flex: none; }
+.cd-menu-i .mi-h { margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1)); flex: none; }
 .cd-menu-f {
-  padding: 4px 11px; font-size: 9.5px; color: var(--faint);
+  padding: 4px 11px; font-size: calc(9.5px * var(--cdz, 1)); color: var(--faint);
   border-top: 1px solid var(--dash); background: var(--paper-3);
   position: sticky; bottom: 0;
 }

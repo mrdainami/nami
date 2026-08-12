@@ -698,6 +698,14 @@ export function buildCards(ctx) {
       try { document.execCommand('insertText', false, t); } catch (_) { input.value += t; }
       arm();
     },
-    setFontSize: (px) => { el.style.fontSize = px ? px + 'px' : ''; },
+    // − / + reach the cards too: every card font is `calc(Npx * var(--cdz))`
+    // in paper.css, so one scale factor moves the whole vocabulary together.
+    // 12 is the terminal's design size; the floor is higher than the
+    // terminal's because 10.5px meters scaled to 8px stop being text.
+    setFontSize: (px) => {
+      const z = px ? Math.min(1.5, Math.max(0.9, px / 12)) : 1;
+      if (z === 1) el.style.removeProperty('--cdz');
+      else el.style.setProperty('--cdz', String(z));
+    },
   };
 }
