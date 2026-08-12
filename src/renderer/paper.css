@@ -355,13 +355,18 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tree-path .action { flex: none; color: var(--muted-2); cursor: pointer; text-decoration: underline; white-space: nowrap; }
 .tree-path .action:hover { color: var(--ink); }
 /* The ＋. Same tokens as .action but its own class — .action carries an
-   underline, and an underlined plus reads as a typo. The fixed box with
-   align-self is load-bearing: .tree-path is baseline-aligned and an inline SVG
-   baselines on its bottom edge, so the pixel glyph would otherwise hang below
-   the path text. It also lifts the target from 11px to 18px without moving a
-   character of the text beside it. */
+   underline, and an underlined plus reads as a typo.
+   The box geometry is load-bearing, and for two separate reasons. Baseline
+   alignment would drop it: an inline SVG baselines on its bottom edge, so the
+   pixel twin hangs below the text. And `align-self: center` is wrong too —
+   .path wraps (flex: 1, word-break: break-all), and centring against a
+   six-line path leaves the ＋ floating in the middle of the block while
+   `show all` stays up at the first line. flex-start pins it to line one where
+   its sibling is; the height and offset centre it on that line, and 16px is a
+   usable target where the 11px glyph was not. */
 .tree-path .tree-new {
-  flex: none; align-self: center; width: 18px; height: 18px;
+  flex: none; align-self: flex-start;
+  width: 18px; height: 16px; margin-top: -2px;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--muted-2); cursor: pointer; line-height: 1; font-size: 13px;
 }
