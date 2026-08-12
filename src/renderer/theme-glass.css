@@ -172,6 +172,26 @@ body[data-glass] .say--user { font-family: var(--gl-sans); font-size: 13px; line
 
 body[data-glass] .brand-name { font-size: 19px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
 body[data-glass] .brand-sub { font-family: var(--gl-dot); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; align-self: flex-end; padding-bottom: 4px; }
+/* the version caption speaks the same dot type as the tagline it ranks with.
+   Doto is a lattice of round dots, so it needs the extra tracking to stay
+   readable at 9px — the letters run together without it. The 2px nudge paper
+   uses to clear Caveat's left side bearing comes back off: Doto's grid starts
+   at the box edge, so 2px would sit the caption right of the N above it.
+
+   It also hangs 2px lower than paper's. The measured gap is already the larger
+   of the two (2.9px against paper's 2.5px), but Caveat ends in a swash and Doto
+   ends in a flat row of dots, so the caption's own dots read as one more row of
+   the wordmark's grid. The number that matters is the one your eye reports. */
+body[data-glass] .brand-ver {
+  font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.18em;
+  left: 0; top: calc(100% - 1px);
+}
+/* Glass is the one theme where --faint fails: #b4b5be on its pale aurora is
+   1.5:1, which is not quiet, it is absent. One rung up puts it at 2.5:1 —
+   still clearly below the tagline's 3.7:1, which is the rank we want.
+   Graphite keeps --faint precisely because it is the dark twin: the same token
+   reads 3.2:1 there, better than --muted-3 would. */
+body[data-theme="glass"] .brand-ver { color: var(--muted-3); }
 body[data-glass] .nami-mascot {
   --nami-foam: transparent;
   height: 25px;
