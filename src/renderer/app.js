@@ -14,7 +14,7 @@ import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
-import { continuesLink, leadingIndent, MAX_JOINS } from './term-wrap.mjs';
+import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards } from './cards-dom.mjs';
 
@@ -1813,24 +1813,7 @@ async function statLink(token, cwd, id) {
 function wrappedRow(term, y) {
   const buf = term.buffer.active;
   const cols = term.cols;
-  const hard = new Set();   // rows joined despite isWrapped being false
-  let top = y - 1;
-  while (top > 0) {
-    const l = buf.getLine(top);
-    if (l && l.isWrapped) { top--; continue; }
-    if (hard.size >= MAX_JOINS) break;
-    const prev = buf.getLine(top - 1);
-    if (l && prev && continuesLink(prev, l, cols)) { hard.add(top); top--; continue; }
-    break;
-  }
-  let bottom = top;
-  while (bottom + 1 < buf.length) {
-    const l = buf.getLine(bottom + 1);
-    if (l && l.isWrapped) { bottom++; continue; }
-    if (hard.size >= MAX_JOINS) break;
-    if (l && continuesLink(buf.getLine(bottom), l, cols)) { bottom++; hard.add(bottom); continue; }
-    break;
-  }
+  const { top, bottom, hard } = runBounds(buf, y, cols);
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
