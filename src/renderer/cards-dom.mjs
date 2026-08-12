@@ -491,7 +491,7 @@ export function buildCards(ctx) {
     paintPicker();
     input.focus();
   }
-  function closePicker() { picker = null; pickerEl.hidden = true; }
+  function closePicker() { picker = null; pickerEl.hidden = true; pickerEl.innerHTML = ''; }
   function paintPicker() {
     if (!picker) return;
     pickerEl.innerHTML =

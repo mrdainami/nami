@@ -1355,7 +1355,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-input::placeholder { color: var(--faint); }
 /* display classes must never beat the hidden attribute */
-.cd-working[hidden], .cd-status[hidden], .cd-menu[hidden], .cd-note[hidden] { display: none; }
+.cd-working[hidden], .cd-status[hidden], .cd-menu[hidden], .cd-picker[hidden], .cd-note[hidden] { display: none; }
 
 /* The working line — spinner, elapsed, live tokens, the way out. */
 .cd-working {
