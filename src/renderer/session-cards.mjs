@@ -123,6 +123,7 @@ export function buildRows(events) {
   const rows = [];
   const byTool = new Map();  // toolId -> the row waiting for its result
   const byPerm = new Map();  // permissionId -> the approval row
+  let turnFiles = [];        // files edited since the last meter, for its chips
 
   // A sub-agent's turns belong under the Task row that spawned it, folded —
   // the card shows one line, expandable, not the sub-agent's whole life
@@ -148,6 +149,8 @@ export function buildRows(events) {
         break;
 
       case 'tool': {
+        const file = e.input && (e.input.file_path || e.input.filepath || e.input.AbsolutePath || e.input.TargetFile);
+        if (file && (e.toolKind === 'edit' || toolKind(e.name) === 'edit') && !turnFiles.includes(file)) turnFiles.push(file);
         // An adapter may re-describe a call it already announced — ACP's
         // tool_call_update knows more than its tool_call did. Same row,
         // better words: update in place, never a second row.
@@ -225,7 +228,10 @@ export function buildRows(events) {
           kind: 'turn_end', id: e.id, at: e.at,
           duration: fmtDuration(e.durationMs),
           costUsd: Number(e.costUsd) || 0,
+          tokens: Number(e.tokens) || 0,
+          files: turnFiles,
         });
+        turnFiles = [];
         break;
 
       // init and status shape the tile (badge, composer, commands), not the

@@ -206,3 +206,18 @@ test('init and status shape the tile, not the list', () => {
   ]);
   assert.equal(rows.length, 0);
 });
+
+test('the meter carries tokens and chips for the files the turn touched', () => {
+  const rows = buildRows([
+    { kind: 'tool', id: 'a', toolId: 't1', name: 'Edit', input: { file_path: '/repo/app.js', old_string: 'a', new_string: 'b' } },
+    { kind: 'tool_result', id: 'b', toolId: 't1', body: '' },
+    { kind: 'tool', id: 'c', toolId: 't2', name: 'Read', input: { file_path: '/repo/other.js' } },
+    { kind: 'turn_end', id: 'd', durationMs: 4000, tokens: 12345 },
+    { kind: 'tool', id: 'e', toolId: 't3', name: 'Write', input: { file_path: '/repo/new.js', content: 'x' } },
+    { kind: 'turn_end', id: 'f', durationMs: 1000 },
+  ]);
+  const meters = rows.filter((r) => r.kind === 'turn_end');
+  assert.deepEqual(meters[0].files, ['/repo/app.js'], 'edits chip, reads do not');
+  assert.equal(meters[0].tokens, 12345);
+  assert.deepEqual(meters[1].files, ['/repo/new.js'], 'chips reset per turn');
+});

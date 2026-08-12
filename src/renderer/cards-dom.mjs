@@ -153,7 +153,16 @@ function renderRow(ctx, row) {
   if (row.kind === 'error') { el.innerHTML = `<span class="m">✕</span><span class="tx"></span>`; q('.tx', el).textContent = row.text; return el; }
 
   if (row.kind === 'turn_end') {
-    el.textContent = `done in ${row.duration}` + (row.costUsd ? ` · $${row.costUsd.toFixed(2)}` : '');
+    const meter = [`done in ${row.duration}`];
+    if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
+    if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
+    const chips = (row.files || []).slice(0, 6).map((f) => {
+      const name = f.split('/').filter(Boolean).pop();
+      return `<a class="cd-chip cd-path" data-path="${esc(f)}" title="${esc(f)}">${esc(name)}</a>`;
+    }).join('');
+    const badge = (ctx.badge && ctx.badge()) || '';
+    el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>${chips}` +
+      (badge ? `<span class="cd-badge${/one-shot|terminal/.test(badge) ? ' warn' : ''}">${esc(badge)}</span>` : '');
     return el;
   }
 
@@ -261,7 +270,7 @@ export function buildCards(ctx) {
     <div class="cd-ask">
       <span class="m">❯</span>
       <select class="cd-model" hidden title="Model"></select>
-      <input class="cd-input" type="text" placeholder="Reply to this session…" />
+      <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · ⌘↑/⌘↓ walk your turns" />
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
     </div>`;
@@ -319,6 +328,9 @@ export function buildCards(ctx) {
 
   input.addEventListener('input', () => { arm(); refreshMenu(); });
   input.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      jumpTurn(e.key === 'ArrowUp' ? -1 : 1); e.preventDefault(); e.stopPropagation(); return;
+    }
     if (e.key === 'Enter') { e.preventDefault(); submit(); }
     else if (e.key === 'Escape') {
       if (!menu.hidden) hideMenu();
@@ -330,6 +342,17 @@ export function buildCards(ctx) {
     }
     e.stopPropagation();
   });
+
+  // ⌘↑ / ⌘↓ walk the conversation one of your turns at a time.
+  function jumpTurn(dir) {
+    const users = [...list.querySelectorAll('.cd-user')];
+    if (!users.length) return;
+    const top = list.scrollTop;
+    let target = null;
+    if (dir < 0) target = [...users].reverse().find((u) => u.offsetTop < top - 4) || users[0];
+    else target = users.find((u) => u.offsetTop > top + 4) || users.at(-1);
+    list.scrollTo({ top: target.offsetTop - 6, behavior: 'smooth' });
+  }
 
   function nearBottom() { return list.scrollHeight - list.scrollTop - list.clientHeight < 80; }
   function scrollToEnd(now) {
