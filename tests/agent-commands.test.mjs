@@ -32,7 +32,7 @@ test('/model is intercepted to the native picker even when the channel published
 });
 
 test('a terminal-only command routes to the terminal, not into the channel', () => {
-  const r = routeCommand('codex', [], '/approvals');
+  const r = routeCommand('codex', [], '/mcp');
   assert.equal(r.route, 'terminal');
 });
 
@@ -78,4 +78,20 @@ test('the argument rides along: /model gpt-5.2-codex carries its value', () => {
   assert.equal(r.route, 'native-model');
   assert.equal(r.arg, 'gpt-5.2-codex');
   assert.equal(routeCommand('kimi', [], '/model').arg, '');
+});
+
+// Conversation ops are native everywhere: /resume opens the card's own
+// picker, /clear and /new mint a fresh conversation — including when the
+// channel published its own list (claude), where the override wins.
+test('/resume and /clear are conversation ops on every agent', () => {
+  for (const agent of ['claude', 'codex', 'kimi', 'agy']) {
+    assert.equal(routeCommand(agent, [], '/resume').route, 'native-resume', agent);
+  }
+  assert.equal(routeCommand('claude', [{ name: 'clear' }, { name: 'resume' }], '/clear').route, 'native-clear');
+  assert.equal(routeCommand('claude', [{ name: 'resume' }], '/resume').route, 'native-resume');
+  assert.equal(routeCommand('codex', [], '/new').route, 'native-clear');
+});
+
+test('codex /approvals opens the native mode menu now', () => {
+  assert.equal(routeCommand('codex', [], '/approvals').route, 'native-mode');
 });

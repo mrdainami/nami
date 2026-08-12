@@ -1,0 +1,78 @@
+// /resume's list, per agent, read from each agent's real store shape (the
+// fixtures mirror what is actually on disk: claude project transcripts,
+// codex rollout session_meta heads, kimi's session_index, agy's .pb blobs).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { listConversations } = require('../src/main/session-store.js');
+const { projectSlug } = require('../src/main/claude-args');
+
+function fixtureHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-store-'));
+  const cwd = '/repo/atlas';
+  // claude: two transcripts for this project, one line each
+  const cdir = path.join(home, '.claude', 'projects', projectSlug(cwd));
+  fs.mkdirSync(cdir, { recursive: true });
+  fs.writeFileSync(path.join(cdir, 'ses_old.jsonl'), JSON.stringify({ type: 'user', message: { content: 'hello' } }) + '\n');
+  fs.writeFileSync(path.join(cdir, 'ses_new.jsonl'), JSON.stringify({ type: 'user', message: { content: 'newer' } }) + '\n');
+  fs.utimesSync(path.join(cdir, 'ses_old.jsonl'), new Date(Date.now() - 86400e3), new Date(Date.now() - 86400e3));
+  // codex: one rollout in this cwd, one elsewhere
+  const xdir = path.join(home, '.codex', 'sessions', '2026', '08', '13');
+  fs.mkdirSync(xdir, { recursive: true });
+  fs.writeFileSync(path.join(xdir, 'rollout-a.jsonl'),
+    JSON.stringify({ type: 'session_meta', payload: { id: 'th_here', cwd } }) + '\n');
+  fs.writeFileSync(path.join(xdir, 'rollout-b.jsonl'),
+    JSON.stringify({ type: 'session_meta', payload: { id: 'th_elsewhere', cwd: '/other' } }) + '\n');
+  // kimi: index with one session here, one elsewhere, one duplicate
+  const kdir = path.join(home, '.kimi-code');
+  fs.mkdirSync(kdir, { recursive: true });
+  fs.writeFileSync(path.join(kdir, 'session_index.jsonl'), [
+    JSON.stringify({ sessionId: 's_here', sessionDir: kdir, workDir: cwd }),
+    JSON.stringify({ sessionId: 's_elsewhere', sessionDir: kdir, workDir: '/other' }),
+    JSON.stringify({ sessionId: 's_here', sessionDir: kdir, workDir: cwd }),
+  ].join('\n') + '\n');
+  // agy: two protobuf blobs, ids in the names
+  const adir = path.join(home, '.gemini', 'antigravity', 'conversations');
+  fs.mkdirSync(adir, { recursive: true });
+  fs.writeFileSync(path.join(adir, 'conv-1.pb'), 'x');
+  fs.writeFileSync(path.join(adir, 'conv-2.pb'), 'x');
+  return { home, cwd };
+}
+
+test('claude lists this project\'s transcripts, newest first', () => {
+  const { home, cwd } = fixtureHome();
+  const { conversations } = listConversations({ agent: 'claude', cwd, home });
+  assert.deepEqual(conversations.map((c) => c.id), ['ses_new', 'ses_old']);
+  assert.ok(conversations.every((c) => c.age));
+});
+
+test('codex lists only rollouts whose session_meta cwd matches', () => {
+  const { home, cwd } = fixtureHome();
+  const { conversations } = listConversations({ agent: 'codex', cwd, home });
+  assert.deepEqual(conversations.map((c) => c.id), ['th_here']);
+});
+
+test('kimi filters by workDir and dedupes the index', () => {
+  const { home, cwd } = fixtureHome();
+  const { conversations } = listConversations({ agent: 'kimi', cwd, home });
+  assert.deepEqual(conversations.map((c) => c.id), ['s_here']);
+});
+
+test('agy lists ids from the blob names and says it cannot file by folder', () => {
+  const { home, cwd } = fixtureHome();
+  const res = listConversations({ agent: 'agy', cwd, home });
+  assert.deepEqual(new Set(res.conversations.map((c) => c.id)), new Set(['conv-1', 'conv-2']));
+  assert.match(res.note, /folder/);
+});
+
+test('an agent with no readable store returns an empty list and a note, never a throw', () => {
+  const { conversations, note } = listConversations({ agent: 'hermes', cwd: '/x', home: '/nonexistent' });
+  assert.deepEqual(conversations, []);
+  assert.ok(note);
+  const missing = listConversations({ agent: 'claude', cwd: '/x', home: '/nonexistent' });
+  assert.deepEqual(missing.conversations, []);
+});
