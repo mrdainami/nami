@@ -484,11 +484,21 @@ function showScene(name) {
     //   cards:full     the same, tile focused (bodies breathe)
     //   cards:welcome  the card-born welcome alone
     //   cards:menu     the slash menu open over content
+    //   cards:mode     the mode menu open (bypass disabled, as settings can)
+    //   cards:bridge   the ⌄ head menu open over content
     const p = startPanel({ kind: 'claude', title: 'Agent cards', code: 'AC', sid: 'ses_scene', sceneStatic: true, cwd: (S.project && S.project.path) || '/tmp' });
     if (!p) return;
     p.view = 'cards';
+    p.agentLive = true; // the fixture drives nothing, but live-only controls must be photographable
     p.agentCaps = { channel: 'agent sdk' };
-    p.agentStatus = { name: 'Claude Code', model: 'claude-opus-5', mode: 'default', ctxPct: 62 };
+    p.agentStatus = {
+      name: 'Claude Code', model: 'claude-opus-5', mode: 'default', ctxPct: 62,
+      modes: [
+        { id: 'default', available: true }, { id: 'acceptEdits', available: true },
+        { id: 'plan', available: true },
+        { id: 'bypassPermissions', available: false, reason: 'disabled in ~/.claude/settings.json' },
+      ],
+    };
     p.agentCommands = [
       { name: 'model', description: 'Switch the model for this session', argumentHint: 'model name' },
       { name: 'review-pr', description: 'Review a pull request with severity labels', argumentHint: 'PR number' },
@@ -512,6 +522,8 @@ function showScene(name) {
           rec.cardsUi.input.value = '/re';
           rec.cardsUi.input.dispatchEvent(new Event('input'));
         }
+        if (step === 'mode') openModeMenu(p, rec.cardsUi.el.querySelector('.cs-mode'));
+        if (step === 'bridge') { const b = q('.t-bridge', rec.head); if (b) openBridgeMenu(p, b); }
         if (step === 'full') { S.expandedId = p.id; renderGrid(); }
       }
     }
