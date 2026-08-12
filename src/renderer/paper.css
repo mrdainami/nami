@@ -1040,12 +1040,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-perm-diff:empty { display: none; }
 .cd-perm-diff { border: 1px solid var(--dash); background: var(--paper-3); }
 .cd-perm-b { display: flex; gap: 7px; flex-wrap: wrap; }
+/* Secondary buttons draw with the card's own ink, so they hold on every
+   theme's amber ground — paper-grey on graphite's dark red was invisible. */
 .cd-perm-btn {
   font: inherit; font-size: 11px; padding: 5px 11px; cursor: pointer;
-  background: var(--paper); color: var(--ink); border: 1px solid var(--dash-dark);
+  background: transparent; color: var(--amber-ink); border: 1px solid var(--amber-ink);
 }
 .cd-perm-btn:hover { background: var(--hover); }
 .cd-perm-btn.allow { background: var(--amber-btn); border-color: var(--amber-btn-line); color: var(--paper); font-weight: 700; }
+.cd-perm-btn.allow:hover { filter: brightness(1.08); }
 .cd-perm-done { font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; }
 .cd-perm-done .cd-kd { flex: none; }
 
