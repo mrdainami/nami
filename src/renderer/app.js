@@ -17,7 +17,7 @@ import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
-import { buildCards } from './cards-dom.mjs';
+import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
 
 const api = window.dainami;
@@ -278,6 +278,7 @@ function dropFilesOnPanel(p, paths) {
         model: ev.model || (p.agentStatus && p.agentStatus.model),
         mode: ev.mode || (p.agentStatus && p.agentStatus.mode),
         models: ev.models || (p.agentStatus && p.agentStatus.models),
+        modes: ev.modes || (p.agentStatus && p.agentStatus.modes), // availability, per mode
         ctxPct: (p.agentStatus && p.agentStatus.ctxPct),
       });
       const introId = 'intro:' + p.id;
@@ -2186,13 +2187,18 @@ function showHeadMenu(anchor, items) {
   for (const it of items) {
     const b = document.createElement('button');
     b.className = 'hm-item';
-    b.innerHTML = `<span class="hm-l">${esc(it.label)}</span>${it.desc ? `<span class="hm-d">${esc(it.desc)}</span>` : ''}`;
-    b.onclick = (e) => { e.stopPropagation(); closeHeadMenu(); it.run(); };
+    if (it.disabled) b.disabled = true;
+    b.innerHTML = `<span class="hm-l${it.labelCls ? ' ' + it.labelCls : ''}">${esc(it.label)}${it.mark ? ' <span class="hm-mark">✓</span>' : ''}</span>${it.desc ? `<span class="hm-d">${esc(it.desc)}</span>` : ''}`;
+    b.onclick = (e) => { e.stopPropagation(); if (it.disabled) return; closeHeadMenu(); it.run(); };
     menu.appendChild(b);
   }
   document.body.appendChild(menu);
   const r = anchor.getBoundingClientRect();
-  menu.style.top = (r.bottom + 4) + 'px';
+  // Below the anchor by default; above it when the bottom of the window is
+  // closer than the menu is tall (the mode chip lives on the card's floor).
+  let top = r.bottom + 4;
+  if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - menu.offsetHeight - 4);
+  menu.style.top = top + 'px';
   menu.style.left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth)) + 'px';
   const away = (e) => { if (!menu.contains(e.target)) closeHeadMenu(); };
   const key = (e) => { if (e.key === 'Escape') closeHeadMenu(); };
@@ -2427,7 +2433,11 @@ function handleSlashCommand(p, text) {
   const r = routeCommand(agent, p.agentCommands, text);
   if (!r) return false;
   if (r.route === 'native-model') { openModelControl(p); return true; }
-  if (r.route === 'native-mode') { cycleMode(p); return true; }
+  if (r.route === 'native-mode') {
+    const chip = rec && rec.cardsUi && rec.cardsUi.el.querySelector('.cs-mode');
+    if (chip && !chip.hidden) openModeMenu(p, chip); else cycleMode(p);
+    return true;
+  }
   if (r.route === 'terminal') {
     const spec = terminalResumeSpec(p);
     p.cardEvents = (p.cardEvents || []).concat({
@@ -2441,12 +2451,41 @@ function handleSlashCommand(p, text) {
   return false; // 'send': the channel executes it as text
 }
 
+// The mode options are whatever the agent reported it can actually enter
+// (init.modes, availability included) — the hardcoded cycle is only the
+// fallback for a channel that hasn't said yet.
+function availableModes(p) {
+  const listed = p.agentStatus && Array.isArray(p.agentStatus.modes) && p.agentStatus.modes.length
+    ? p.agentStatus.modes : null;
+  return listed || (MODE_CYCLES[cardAgentFor(p)] || []).map((id) => ({ id, available: true }));
+}
+
+// shift⇥: the blind cycle, kept — but only through modes that exist here.
 function cycleMode(p) {
-  const cycle = MODE_CYCLES[cardAgentFor(p)];
-  if (!cycle || !p.agentLive) return;
-  const cur = (p.agentStatus && p.agentStatus.mode) || cycle[0];
-  const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+  if (!p.agentLive) return;
+  const ids = availableModes(p).filter((m) => m.available).map((m) => m.id);
+  if (!ids.length) return;
+  const cur = (p.agentStatus && p.agentStatus.mode) || ids[0];
+  const next = ids[(ids.indexOf(cur) + 1) % ids.length];
   api.agentConfig({ id: p.id, configId: 'mode', value: next });
+}
+
+// The chip's click: every mode listed, each in its own colour, the current
+// one marked — and an unavailable one shown disabled with the reason, which
+// beats offering a switch that silently fails.
+function openModeMenu(p, anchor) {
+  if (!p.agentLive || !anchor) return;
+  const modes = availableModes(p);
+  if (!modes.length) return;
+  const cur = p.agentStatus && p.agentStatus.mode;
+  showHeadMenu(anchor, modes.map((m) => ({
+    label: modeLabel(m.id),
+    labelCls: modeClass(m.id),
+    mark: m.id === cur,
+    disabled: !m.available,
+    desc: m.available ? '' : (m.reason || 'not available here'),
+    run: () => api.agentConfig({ id: p.id, configId: 'mode', value: m.id }),
+  })));
 }
 
 function mountCards(p, rec) {
@@ -2520,6 +2559,7 @@ function mountCards(p, rec) {
     },
     onModelMenu: () => openModelControl(p),
     onMode: () => cycleMode(p),
+    onModePick: (anchor) => openModeMenu(p, anchor),
     onRunCommand: (command) => startPanel({ kind: 'run', title: command, code: code2(command), cwd: p.cwd, command }),
     // The channel's own list when it published one, the curated static table
     // otherwise — so the `/` menu works on every agent, watch mode included.

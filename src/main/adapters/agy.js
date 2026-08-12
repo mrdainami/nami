@@ -16,6 +16,10 @@ const CAPABILITY = {
   note: 'headless: approvals run by its own config',
 };
 
+// The modes agy's flags can express, in the order the cycle walks them.
+// skip-permissions is --dangerously-skip-permissions, not a --mode value.
+const AGY_MODES = ['accept-edits', 'plan', 'skip-permissions'];
+
 // agy's forty tools, keyed to what each one does. Anything unknown is other.
 function agyToolKind(name) {
   const n = String(name || '');
@@ -58,6 +62,8 @@ class AgyAdapter {
       agentName: 'Antigravity',
       model: this.model || null,
       mode: this.mode || null,
+      // every mode is a spawn flag on this channel, so all are available
+      modes: AGY_MODES.map((id) => ({ id, available: true })),
     });
   }
 
@@ -74,6 +80,10 @@ class AgyAdapter {
     // a restored sid means a turn has run here before.
     this.hasHistory = !!sid;
     this.conversationId = sid || null;
+    // Displayed state IS sent state: the welcome shows accept-edits, so the
+    // first turn spawns with --mode accept-edits. Before this seed the chip
+    // said one thing and the flags said nothing.
+    if (!this.mode) this.mode = AGY_MODES[0];
     this.emitInit();
     if (prompt) this.send(prompt);
     return true;

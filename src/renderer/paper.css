@@ -55,6 +55,7 @@
   --green: #4a6b52;
   --green-dark: #33503b;
   --green-ok: #4a7a4a;
+  --mode-plan: #3d6bb3; /* plan mode's stable hue, dark enough for cream */
   /* diffs, in the card view: what left, what landed */
   --u-bg: #e7eee3;               /* your turn's tint — the bubble reads at a glance */
   --diff-add-bg: #e4efe0;
@@ -1385,6 +1386,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cs-mode:hover:not(:disabled) { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
 .cs-mode:disabled { cursor: default; }
 .cs-mode.warn { color: var(--amber-btn); }
+/* One stable colour per mode, wherever a mode appears (chip, welcome pick,
+   mode menu): neutral asks, blue plans, green accepts edits, amber bypasses.
+   shift⇥ state reads by hue before the word. */
+.m-plan { color: var(--mode-plan); }
+.m-accept { color: var(--green-ok); }
+.m-bypass { color: var(--amber-btn); }
+.hm-item:disabled { opacity: 0.55; cursor: default; }
+.hm-item:disabled:hover { background: transparent; }
+.hm-item .hm-mark { color: var(--green); }
 .cs-model {
   font: inherit; font-size: 10px; font-weight: 700; color: var(--ink);
   background: transparent; border: 0; padding: 0; cursor: pointer;

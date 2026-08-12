@@ -184,3 +184,17 @@ test('the known-path lookup always falls back to the bare name', () => {
   assert.equal(knownBin('opencode') || 'opencode', 'opencode');
   assert.equal(knownBin('codex') || 'codex', 'codex');
 });
+
+// Displayed state is sent state: the welcome shows accept-edits, so the first
+// turn must spawn with that mode — before the seed, the chip said one thing
+// and the flags said nothing.
+test('agy seeds its mode on start, and announces every mode as available', async () => {
+  const events = [];
+  const a = new AgyAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  await a.start({ prompt: null, sid: null });
+  assert.equal(a.mode, 'accept-edits');
+  const init = events.find((e) => e.kind === 'init');
+  assert.deepEqual(init.modes.map((m) => m.id), ['accept-edits', 'plan', 'skip-permissions']);
+  assert.ok(init.modes.every((m) => m.available));
+  assert.equal(init.mode, 'accept-edits');
+});

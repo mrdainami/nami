@@ -40,6 +40,7 @@ body[data-theme="glass"] {
   --green: #ef6461;            /* primary action → coral, like operator */
   --green-dark: #d95350;
   --green-ok: #2e7d4f;
+  --mode-plan: #3d6bb3;
   --u-bg: rgba(224, 92, 80, 0.10);
   --diff-add-bg: rgba(46, 125, 79, 0.14);
   --diff-add-ink: #226940;
