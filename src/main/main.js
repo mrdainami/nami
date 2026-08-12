@@ -120,7 +120,11 @@ if (SHOT_PATH) {
 // app impossible to daily-drive while developing, and makes a clean first launch
 // impossible to see at all without deleting your own config. Development gets its own
 // directory instead. Must run before anything reads userData, hence module scope.
-if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
+// --user-data <dir> gives a run its own profile — two dev sessions sharing
+// Nami-dev otherwise restore each other's desks into every screenshot.
+const UD_IDX = process.argv.indexOf('--user-data');
+if (UD_IDX >= 0 && process.argv[UD_IDX + 1]) app.setPath('userData', path.resolve(process.argv[UD_IDX + 1]));
+else if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
