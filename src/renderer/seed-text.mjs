@@ -8,6 +8,8 @@
 export function targetDirFor({ type, platform, scope, projectPath }) {
   const root = scope === 'project' ? (projectPath || '.') : '~';
   if (type === 'skill') return (projectPath || '.') + '/skills';
+  // The master agent drawer — project-scoped and platform-neutral, like skills.
+  if (platform === 'project' && type === 'agent') return (projectPath || '.') + '/agents';
   if (platform === 'claude' && type === 'agent') return root + '/.claude/agents';
   if (platform === 'opencode' && type === 'agent') {
     return scope === 'project' ? root + '/.opencode/agent' : '~/.config/opencode/agent';
@@ -40,6 +42,20 @@ export function buildCreateSeed({ type, platform, scope, name, desc, projectPath
       + 'instructions and no placeholder text. Keep it agent-agnostic — any coding agent should be '
       + 'able to follow it, so do not mention a specific tool unless the skill is genuinely about '
       + 'one. Then tell me its final name and where it landed.';
+  }
+  // A master agent is not built "for" any one tool — Nami copies it to each
+  // tool's folder afterwards, so the prompt asks for the superset frontmatter
+  // and stays quiet about brands for the same reason the skill seed does.
+  if (type === 'agent' && platform === 'project') {
+    return `I want a new agent that does this: ${desc.trim()}. ${naming} `
+      + 'Do not write any files yet. First, ask me 2 to 4 short numbered questions in one message — '
+      + 'when it should be used, which tools it needs, what a good result looks like, and anything '
+      + 'else you would otherwise have to guess at. Then show me the plan: the final name, the '
+      + 'frontmatter you intend to write, and a short outline of the instructions. Wait for me to '
+      + `say go. Only after I say go, write it as ${shape}, with frontmatter fields name, `
+      + 'description and tools (plus model or mode only if they matter), real instructions and no '
+      + 'placeholder text. Keep the instructions agent-agnostic — several different coding agents '
+      + 'will run this same file. Then tell me its final name and where it landed.';
   }
   return `I want a new ${platform} ${type} that does this: ${desc.trim()}. ${naming} `
     + 'Do not write any files yet. First, ask me 2 to 4 short numbered questions in one message — '
