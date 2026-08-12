@@ -661,6 +661,7 @@ function buildShell() {
         <div class="topbar-center" id="topbar-center"></div>
         <div class="topbar-right">
           <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
+          <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
           <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
           <button class="btn" id="btn-agents">Agents<span class="kb"> ⌘K</span></button>
@@ -698,6 +699,7 @@ function buildShell() {
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
+  q('#btn-help').onclick = () => openQuickStart();
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
   document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
@@ -3714,6 +3716,7 @@ function renderOverlay() {
   if (o.type === 'fs-name') return renderFsName();
   if (o.type === 'switch-folder') return renderSwitchChoice();
   if (o.type === 'settings') return renderSettings();
+  if (o.type === 'quickstart') return renderQuickStart();
 }
 function closeOverlay() { S.overlay = null; renderOverlay(); }
 
@@ -3956,6 +3959,12 @@ function wireLookPane(modal) {
 // that version off for good (see SKIPPED_UPDATE below), and until now there was
 // no way back to it. Pressing the button clears the mark.
 const REPO_URL = 'https://github.com/mrdainami/nami';
+// Where the quick start sends anyone who wants more than five lines. Kept next
+// to REPO_URL so the two places Nami points outward are read together.
+const GUIDE_URL = 'https://nami.dainami.ai/guide?utm_source=nami-app&utm_medium=quick-start';
+// Must match src/main/start-here.js. The renderer cannot require it — main is
+// CJS, this is a module — so the name is restated and pinned by a test.
+const NOTE_NAME = 'Start here.md';
 // Where the app sends people who want the person rather than the program.
 //
 // Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
@@ -4478,6 +4487,103 @@ function startGuidedSetup(svc, worker) {
   toast('Your agent will walk you through it, right in the tile.');
 }
 let overlayStill = false;
+// ---- quick start -----------------------------------------------------------
+//
+// The one place in the window that answers "what is this and what do I do now".
+// Nami had no such place: the Help menu is five outbound links, and the person
+// this is for does not look in the menu bar.
+//
+// A checklist, not a tour. Coach marks have to be maintained across four themes
+// and every layout change, they get skipped, and they teach before anyone has a
+// reason to care — VS Code and Zed both landed on a resumable list instead.
+// Every button here does the real thing rather than describing it, and rows
+// tick off as they are done so leaving and coming back keeps your place.
+const QS_DONE = 'nami-quickstart-done';
+function qsDone() {
+  try { return new Set(JSON.parse(localStorage.getItem(QS_DONE) || '[]')); } catch { return new Set(); }
+}
+function qsMark(n) {
+  const done = qsDone(); done.add(n);
+  try { localStorage.setItem(QS_DONE, JSON.stringify([...done])); } catch { /* private mode */ }
+}
+function openQuickStart() { S.overlay = { type: 'quickstart' }; renderOverlay(); }
+
+// Row 4 opens Start here.md when there is a folder, because that note already
+// carries the examples and the user owns it. Only with no folder does it fall
+// back to the site — one list of prose, in one file, rather than a second copy
+// in the renderer that drifts from the first.
+function qsExamples() {
+  const note = S.project && (S.project.tree || []).find((f) => f.name === NOTE_NAME);
+  if (!note) { api.openUrl(GUIDE_URL); return; }
+  closeOverlay();
+  openFile(note.path || (S.project.path + '/' + NOTE_NAME), { pin: true });
+}
+
+function quickStartRows() {
+  return [
+    {
+      n: 1, title: 'Pick one folder to work in',
+      sub: 'Nami only ever looks inside it. No folder yet? It will make you one.',
+      done: !!S.project,
+      acts: S.project ? [] : [{ label: 'Make me a folder', go: true, run: () => { closeOverlay(); makeFolderDialog(); } }],
+    },
+    {
+      n: 2, title: 'Press New session and pick who runs it',
+      sub: 'The list shows what is on your Mac. Anything missing installs from the same list.',
+      acts: [{ label: 'New session ⌘N', go: true, run: () => { closeOverlay(); openLauncher(); } }],
+    },
+    {
+      n: 3, title: 'Nami runs agents — it is not one',
+      sub: 'Claude Code signs in with your Claude account, Codex with your ChatGPT one. No Nami account, no second bill.',
+      acts: [{ label: 'Which should I pick?', run: () => api.openUrl(GUIDE_URL) }],
+    },
+    {
+      n: 4, title: 'Say what you need, in plain English',
+      sub: 'No commands to learn. There are examples in the note Nami left in your folder.',
+      acts: [{ label: 'See examples', run: qsExamples }],
+    },
+    {
+      n: 5, title: 'It asks before it does anything real',
+      sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
+      acts: [{ label: 'How permissions work', run: () => api.openUrl(GUIDE_URL) }],
+    },
+  ];
+}
+
+function renderQuickStart() {
+  const done = qsDone();
+  const rows = quickStartRows();
+  const body = rows.map((r) => {
+    const ticked = r.done || done.has(r.n);
+    const acts = r.acts.length
+      ? `<div class="qs-acts">${r.acts.map((a, i) =>
+          `<button class="qs-mini${a.go ? ' qs-mini--go' : ''}" data-row="${r.n}" data-act="${i}">${esc(a.label)}</button>`).join('')}</div>`
+      : '';
+    return `<div class="qs-row"${ticked ? ' data-done' : ''}>
+      <div class="qs-n">0${r.n}</div>
+      <div><div class="qs-t">${esc(r.title)}</div>
+      <div class="qs-s">${esc(r.sub)}</div>${acts}</div></div>`;
+  }).join('');
+
+  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
+    <div class="qs-body">${body}</div>
+    <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
+    <a class="qs-link" href="#" data-url="${GUIDE_URL}">Full guide ↗</a></div>`, { top: true });
+
+  modal.querySelectorAll('[data-act]').forEach((b) => {
+    b.onclick = () => {
+      const row = rows.find((r) => r.n === +b.dataset.row);
+      const act = row && row.acts[+b.dataset.act];
+      if (!act) return;
+      qsMark(row.n);
+      act.run();
+    };
+  });
+  modal.querySelectorAll('.qs-link[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+}
+
 function overlay(cls, inner, opts) {
   const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
   const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
