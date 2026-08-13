@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('dainami', {
   libraryDuplicate: (args) => ipcRenderer.invoke('library:duplicate', args),
   libraryDelete: (args) => ipcRenderer.invoke('library:delete', args),
   deliverAgents: (args) => ipcRenderer.invoke('library:deliverAgents', args),
+  agentDelivery: (args) => ipcRenderer.invoke('library:agentDelivery', args),
   adoptAgent: (args) => ipcRenderer.invoke('library:adoptAgent', args),
   pointerStatus: (args) => ipcRenderer.invoke('pointer:status', args),
   pointerWrite: (args) => ipcRenderer.invoke('pointer:write', args),
