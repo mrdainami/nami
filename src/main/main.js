@@ -40,6 +40,7 @@ const { seedStartHere } = require('./start-here');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
+const { sendPing } = require('./ping');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
 const { parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
 const stt = require('./stt');
@@ -488,6 +489,14 @@ app.whenReady().then(() => {
   else createWindow();
   if (process.argv.includes('--second-window')) createWindow(null); // dev: multi-window smoke test
   startUpdatePolling();
+  // The silent ping — anonymous "launched today" note, deduped server-side to
+  // one per user per day. Not awaited: a launch never waits on the network,
+  // and sendPing resolves (never rejects) whatever happens. See ping.js.
+  sendPing({
+    settings: readSettings(), saveSettings: writeSettings,
+    isPackaged: app.isPackaged, env: process.env,
+    version: app.getVersion(), arch: process.arch,
+  });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
