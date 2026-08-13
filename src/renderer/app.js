@@ -3501,7 +3501,7 @@ function renderFolderFirst() {
       <button class="ff-other" id="ff-pick"><span class="plus">＋</span><span>Choose another folder…</span><span class="kbd">opens the Mac dialog</span></button>`
     : `<div class="ff-empty">
         <div class="ff-msg">No folders here yet</div>
-        <div class="ff-sub">a folder is where your files and the session live — one of your projects, or an empty one to start in</div>
+        <div class="ff-sub">a folder is where your files and the session live. One of your projects, or an empty one to start in</div>
         <button class="btn btn--go" id="ff-pick">Choose a folder…</button>
         <div class="ff-hint">opens the Mac folder dialog</div>
       </div>`}`, { top: true });
