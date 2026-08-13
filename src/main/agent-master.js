@@ -31,9 +31,14 @@ function isDelivered(text) { return String(text || '').slice(0, 4000).includes(M
 // ---- parse ------------------------------------------------------------------
 // The same forgiving frontmatter read library.js uses, plus the body — kept
 // local so this module stays main-process-pure and testable.
-const FIELDS = ['name', 'description', 'tools', 'model', 'mode'];
+// `tool` (singular) is Nami's own: which tool this agent was written for. It is
+// a hint the picker reads, never a lock, and no dialect renderer touches it —
+// putting an unknown key in somebody else's format is a change to their format.
+// It sits next to `tools` (plural, the permission list) and the exact-match
+// lookup below is what keeps the two apart.
+const FIELDS = ['name', 'description', 'tools', 'model', 'mode', 'tool'];
 function parseAgentMd(text) {
-  const out = { name: '', description: '', tools: '', model: '', mode: '', body: String(text || '') };
+  const out = { name: '', description: '', tools: '', model: '', mode: '', tool: '', body: String(text || '') };
   const m = String(text || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!m) return out;
   out.body = String(text).slice(m[0].length).replace(/^\r?\n/, '');
@@ -115,6 +120,32 @@ function agentDeliveryPlan({ slug, agentIds, projectPath }) {
   return agentIds.map((agent) => ({ agent, slug, ...targets[agent] })).filter((s) => s.kind);
 }
 
+// What is true right now for one agent across a set of tools, without changing
+// any of it. Five answers, none of them stored anywhere: copyTargets knows the
+// path for every pair, and the marker at that path says the rest.
+//
+//   here   — the copy is on disk
+//   soon   — nothing there; delivery writes it
+//   theirs — a file of that name exists without the marker. It is somebody's
+//            hand work, it wins, and the master stays out.
+//   via    — this tool reads another tool's copy (Cursor reads Claude's)
+//   none   — this tool has no custom agents at all (Hermes)
+//
+// Read-only by construction: it never calls io.write.
+function deliveryState({ projectPath, slug, agentIds, io = fsIo }) {
+  const targets = copyTargets(projectPath, slug);
+  return (agentIds || []).map((agent) => {
+    const t = targets[agent];
+    if (!t) return { agent, slug, state: 'none', reason: `Nami has no agent format for ${agent}` };
+    if (t.kind === 'via') return { agent, slug, state: 'via', via: t.via };
+    if (t.kind === 'none') return { agent, slug, state: 'none', reason: t.reason };
+    if (!io.exists(t.file)) return { agent, slug, state: 'soon', file: t.file };
+    let text = '';
+    try { text = io.read(t.file); } catch (_) { /* unreadable reads as theirs */ }
+    return { agent, slug, state: isDelivered(text) ? 'here' : 'theirs', file: t.file };
+  });
+}
+
 // One pass for every master × every installed tool. A hand-made file with the
 // same name is reported as theirs and left alone.
 function deliverAgents({ projectPath, agentIds, io = fsIo }) {
@@ -143,6 +174,11 @@ function liftToMaster({ filePath, platform, projectPath, io = fsIo }) {
   let text;
   try { text = io.read(filePath); } catch (_) { return { ok: false, error: 'That agent\'s file is missing.' }; }
   if (isDelivered(text)) return { ok: false, error: 'Already a delivered copy — edit its master instead.' };
+  // Masters are markdown with frontmatter. Handed a TOML agent, parseAgentMd
+  // finds no fence, returns the whole file as the body, and the write-back
+  // below would then overwrite the user's own file with a copy of itself
+  // nested inside developer_instructions. Refuse rather than mangle.
+  if (!filePath.endsWith('.md')) return { ok: false, error: 'Only markdown agents can be lifted into agents/ — this one is ' + path.extname(filePath) + '.' };
   const slug = path.basename(filePath, path.extname(filePath));
   const masterPath = path.join(mastersDir(projectPath), slug + '.md');
   if (io.exists(masterPath)) return { ok: false, error: `agents/${slug}.md already exists — rename one of them first.` };
@@ -171,5 +207,5 @@ function sweepCopies({ projectPath, slug, io = fsIo }) {
 
 module.exports = {
   fsIo, MARKER_HEAD, isDelivered, parseAgentMd, renderCopy,
-  readAgentMasters, agentDeliveryPlan, deliverAgents, liftToMaster, sweepCopies,
+  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, sweepCopies, copyTargets,
 };

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   parseAgentMd, renderCopy, isDelivered, MARKER,
-  readAgentMasters, agentDeliveryPlan, deliverAgents, liftToMaster, sweepCopies,
+  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, sweepCopies,
 } = require('../src/main/agent-master.js');
 
 function memIo(seed = {}) {
@@ -173,4 +173,65 @@ test('sweepCopies removes marked copies only, and reports what it left', () => {
 test('antigravity gets the gemini-folder copy', () => {
   const plan = agentDeliveryPlan({ slug: 'x', agentIds: ['antigravity'], projectPath: PROJ });
   assert.equal(plan[0].file, '/proj/.gemini/agents/x.md');
+});
+
+// ---- the tool: hint ---------------------------------------------------------
+// Which tool a master prefers is Nami's own business. It rides in the superset
+// frontmatter so it travels with the repo, and it must never reach a copy — no
+// tool has ever heard of the key, and an unknown key in a dialect file is a
+// change in somebody else's format.
+
+test('tool: is parsed off the master and is not the same field as tools:', () => {
+  const a = parseAgentMd('---\nname: ui-polisher\ntools: Read, Grep\ntool: codex\nmodel: sonnet\n---\nbody\n');
+  assert.equal(a.tool, 'codex');
+  assert.equal(a.tools, 'Read, Grep');
+});
+
+test('tool: never reaches any dialect copy', () => {
+  const a = parseAgentMd('---\nname: x\ndescription: d\ntool: codex\nmode: subagent\nmodel: sonnet\n---\nbody\n');
+  for (const platform of ['claude', 'opencode', 'gemini', 'kimi', 'codex']) {
+    const copy = renderCopy(platform, 'x', a);
+    assert.ok(!/^tool[:=]/m.test(copy), `${platform} copy leaked the tool key:\n${copy}`);
+  }
+});
+
+// ---- delivery state ---------------------------------------------------------
+// Four answers per agent × tool, none of them stored: copyTargets knows the
+// path, the marker at that path says the rest.
+
+test('deliveryState reports here / soon / theirs / none / via', () => {
+  const io = memIo({ '/proj/agents/release-scribe.md': MASTER_MD });
+  deliverAgents({ projectPath: PROJ, agentIds: ['claude'], io });
+  io.files['/proj/.gemini/agents/release-scribe.md'] = 'hand-made, same name\n';
+  const rows = deliveryState({
+    projectPath: PROJ, slug: 'release-scribe',
+    agentIds: ['claude', 'codex', 'antigravity', 'hermes', 'cursor'], io,
+  });
+  const by = Object.fromEntries(rows.map((r) => [r.agent, r]));
+  assert.equal(by.claude.state, 'here');
+  assert.equal(by.claude.file, '/proj/.claude/agents/release-scribe.md');
+  assert.equal(by.codex.state, 'soon');
+  assert.equal(by.codex.file, '/proj/.codex/agents/release-scribe.toml');
+  assert.equal(by.antigravity.state, 'theirs');
+  assert.equal(by.hermes.state, 'none');
+  assert.ok(by.hermes.reason);
+  assert.equal(by.cursor.state, 'via');
+  assert.equal(by.cursor.via, 'claude');
+});
+
+test('deliveryState never writes anything', () => {
+  const io = memIo({ '/proj/agents/release-scribe.md': MASTER_MD });
+  const before = Object.keys(io.files).length;
+  deliveryState({ projectPath: PROJ, slug: 'release-scribe', agentIds: ['claude', 'codex'], io });
+  assert.equal(Object.keys(io.files).length, before);
+});
+
+test('liftToMaster refuses a TOML agent rather than mangling it', () => {
+  const io = memIo({ '/proj/.codex/agents/tomlish.toml': 'name = "tomlish"\ndescription = "d"\n' });
+  const res = liftToMaster({ filePath: '/proj/.codex/agents/tomlish.toml', platform: 'codex', projectPath: PROJ, io });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /markdown/i);
+  assert.equal(io.files['/proj/.codex/agents/tomlish.toml'], 'name = "tomlish"\ndescription = "d"\n',
+    'the user’s own file is untouched');
+  assert.ok(!('/proj/agents/tomlish.md' in io.files), 'and no master was written');
 });
