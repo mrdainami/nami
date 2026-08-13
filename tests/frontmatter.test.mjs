@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDoc, getField, setField, serializeDoc } from '../src/renderer/frontmatter.mjs';
+import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from '../src/renderer/frontmatter.mjs';
 
 const AGENT = `---
 name: collector
@@ -95,4 +95,31 @@ test('malformed frontmatter (unterminated fence) is flagged, not mangled', () =>
 test('quoted values are unquoted on read', () => {
   const doc = parseDoc(`---\ndescription: "hello: world"\n---\nb\n`);
   assert.equal(getField(doc, 'description'), 'hello: world');
+});
+
+// ---- which files may be edited through the form at all ----------------------
+
+test('only markdown edits as frontmatter', () => {
+  assert.equal(editsAsFrontmatter('/p/.claude/agents/foo.md'), true);
+  assert.equal(editsAsFrontmatter('/p/agents/foo.markdown'), true);
+  assert.equal(editsAsFrontmatter('/p/.codex/agents/foo.toml'), false);
+  assert.equal(editsAsFrontmatter('/p/.opencode/opencode.json'), false);
+  assert.equal(editsAsFrontmatter(''), false);
+  assert.equal(editsAsFrontmatter(null), false);
+});
+
+// Why the guard has to exist upstream rather than inside setField: on a file
+// with no fence, creating frontmatter is the *correct* behaviour for markdown.
+// It is only wrong because the file might not be markdown.
+test('setField fabricates frontmatter on a fenceless file — which is why TOML must never reach it', () => {
+  const toml = 'name = "toml-critic"\ndescription = "Reads the TOML nobody else reads."\n'
+    + 'developer_instructions = """\nBe exacting.\n"""\n';
+  const doc = parseDoc(toml);
+  assert.equal(doc.hasFrontmatter, false, 'no --- fence, so it parses as bare body');
+  setField(doc, 'name', 'toml-critic');
+  const out = serializeDoc(doc);
+  assert.match(out, /^---\nname: toml-critic\n---/, 'a YAML block is prepended');
+  assert.match(out, /name = "toml-critic"/, 'and the original TOML is still below it');
+  assert.equal(editsAsFrontmatter('/p/.codex/agents/toml-critic.toml'), false,
+    'which is exactly what the guard prevents');
 });
