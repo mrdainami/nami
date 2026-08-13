@@ -400,6 +400,14 @@ function showScene(name) {
   // open:<abs path> — pin any file as a tile, which is how a new viewer kind
   // gets screenshotted without a folder open and a tree to click through.
   if (what === 'open' && step) return openFile(step, { pin: true });
+  // The folder-first card asks where a session should run when no folder is
+  // open. :empty shoots the first-run face (no recents on file).
+  if (what === 'folder-first') {
+    if (step === 'empty') S.recents = [];
+    S.project = null;
+    S.overlay = { type: 'folder-first', run: () => {}, who: 'Claude' };
+    return renderOverlay();
+  }
   // agent surfaces need the detect pass to have landed, and the sheet also
   // needs that agent's identity, so both wait rather than shooting "checking…"
   if (what === 'launcher' || what === 'agent' || what === 'agent-remove') {
@@ -3465,10 +3473,55 @@ function reorderPanels(fromId, toId) {
 // ===========================================================================
 //  Launcher
 // ===========================================================================
-async function ensureFolder() {
-  if (S.project) return true;
-  const info = await api.pickFolder(); if (!info) { toast('Open a folder to start a session.'); return false; }
-  await switchToFolder(info); return true;
+// A session runs inside a folder. With one open, launch straight away; without,
+// the folder-first card asks where — recents are one click, and the OS dialog
+// only appears from its "another folder" row. The continuation rides on the
+// overlay itself: Esc / ✕ / click-out use the generic dismiss and simply drop
+// it, so nothing awaits and nothing can hang.
+function withFolder(run, who) {
+  if (S.project) return run();
+  S.overlay = { type: 'folder-first', run, who };
+  renderOverlay();
+}
+function renderFolderFirst() {
+  const o = S.overlay;
+  const who = o.who || 'this session';
+  const recents = (S.recents || []).filter((r) => !r.missing);
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span>
+    <span style="font-weight:700">Where should ${esc(who)} work?</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">then your session starts</span></div>
+    ${recents.length
+    ? `<div class="ff-lead">a session runs inside a folder. Pick one and ${esc(who)} starts there</div>
+      <div class="picker-list" id="ff-list">${recents.map((r, i) => `
+        <div class="picker-row" data-i="${i}" title="${esc(r.path)}">
+          <span class="folder-glyph">${treeIcon('', 'dir', false)}</span>
+          <span class="col"><span class="name">${esc(r.name)}</span><span class="desc">${esc(r.pathShort)}</span></span>
+          ${r.pinned ? '<span class="ff-pin">pinned</span>' : ''}
+        </div>`).join('')}</div>
+      <button class="ff-other" id="ff-pick"><span class="plus">＋</span><span>Choose another folder…</span><span class="kbd">opens the Mac dialog</span></button>`
+    : `<div class="ff-empty">
+        <div class="ff-msg">No folders here yet</div>
+        <div class="ff-sub">a folder is where your files and the session live. One of your projects, or an empty one to start in</div>
+        <button class="btn btn--go" id="ff-pick">Choose a folder…</button>
+        <div class="ff-hint">opens the Mac folder dialog</div>
+      </div>`}`, { top: true });
+  // A pick has to outlive the overlay: closeOverlay() nulls S.overlay, so the
+  // continuation is captured before anything closes.
+  const run = o.run;
+  modal.querySelectorAll('.picker-row').forEach((row) => {
+    row.onclick = async () => {
+      const r = recents[+row.dataset.i]; if (!r) return;
+      closeOverlay();
+      await openFolder(r.path);
+      if (S.project) run();
+    };
+  });
+  q('#ff-pick', modal).onclick = async () => {
+    const info = await api.pickFolder(); if (!info) return;
+    closeOverlay();
+    await switchToFolder(info);
+    if (S.project) run();
+  };
 }
 
 // Callers await this, so a scan already in flight must hand back the SAME
@@ -3544,11 +3597,13 @@ function renderLauncher() {
         <button class="way${lastPick === 'term' ? ' last' : ''}" data-w="term">Terminal</button>
       </span>` : ''}
       ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;
-    const launch = async (surface) => {
-      closeOverlay(); if (!(await ensureFolder())) return;
-      try { localStorage.setItem('nami.surface.' + a.id, surface); } catch (_) {}
-      if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', view: surface });
-      startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin, view: cardable ? surface : undefined });
+    const launch = (surface) => {
+      closeOverlay();
+      withFolder(() => {
+        try { localStorage.setItem('nami.surface.' + a.id, surface); } catch (_) {}
+        if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', view: surface });
+        startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin, view: cardable ? surface : undefined });
+      }, a.name);
     };
     row.onclick = async (e) => {
       if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
@@ -3562,7 +3617,7 @@ function renderLauncher() {
     const row = document.createElement('div'); row.className = 'picker-row';
     row.innerHTML = `<span class="code" data-kind="${esc(h.chipKind || 'shell')}">${esc(h.code)}</span>
       <span class="col"><span class="name">${esc(h.name)}</span><span class="desc">${esc(h.sub)}</span></span>`;
-    row.onclick = async () => { closeOverlay(); if (!(await ensureFolder())) return; launchHarness(h); };
+    row.onclick = () => { closeOverlay(); withFolder(() => launchHarness(h), 'the terminal'); };
     list.appendChild(row);
   }
   // add section: every not-yet-installed agent from the curated registry
@@ -3717,17 +3772,17 @@ function renderAgentInstall(a) {
     <p class="setup-note">Install it for me opens a terminal tile and runs the line above. Copy puts it on
       your clipboard. Read the guide opens the official ${esc(a.name)} page in your browser.</p>`);
   q('.su-back', modal).onclick = () => openLauncher();
-  q('#su-run', modal).onclick = async () => {
-    closeOverlay(); if (!(await ensureFolder())) return;
+  q('#su-run', modal).onclick = () => {
+    closeOverlay();
     // oneShot + watchDone: this tile exists to run one command Nami chose, and
     // the tile itself reports when that command lands. Before, the only signal
     // was the shell dying — which for an install is never — so the toast asked
     // the user to go and press ⌘N themselves.
-    startPanel({
+    withFolder(() => startPanel({
       kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install,
       oneShot: true, watchDone: true, agentId: a.id,
       onExit: () => refreshAgents(),
-    });
+    }), 'this install');
   };
   q('#su-copy', modal).onclick = async () => { await api.copyText(a.install); toast('Copied.'); };
   q('#su-docs', modal).onclick = () => api.openUrl(a.docs);
@@ -4004,6 +4059,7 @@ function renderOverlay() {
   lastOverlayType = o ? o.type : null;
   if (!o) return;
   if (o.type === 'launcher') return renderLauncher();
+  if (o.type === 'folder-first') return renderFolderFirst();
   if (o.type === 'peek') return renderPeek();
   if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agent-remove') return renderAgentRemove();

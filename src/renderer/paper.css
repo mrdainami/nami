@@ -803,6 +803,24 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row .chev { flex: none; font-size: 14px; color: var(--faint); padding: 0 2px 0 6px; }
 .picker-row:hover .chev { color: var(--muted); }
 
+/* folder-first: the card that asks where a session should run when no folder
+   is open. Rows are .picker-row so every theme comes free; only the lead line,
+   the foot action and the first-run face are new. */
+.ff-lead { font-size: 12px; color: var(--muted); padding: 10px 18px 4px; }
+.ff-pin { flex: none; font-size: 10.5px; color: var(--faint); }
+.ff-other { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 19px;
+  cursor: pointer; font-size: 12.5px; color: var(--amber-ink); border: 0;
+  border-top: 1px dashed var(--dash); background: none; text-align: left; font-family: inherit; }
+.ff-other:hover { text-decoration: underline; }
+.ff-other .plus { font-weight: 700; }
+.ff-other .kbd { margin-left: auto; font-size: 10.5px; color: var(--faint); }
+.ff-empty { display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 30px 24px 28px; text-align: center; }
+.ff-msg { font-size: 14px; font-weight: 700; }
+.ff-sub { font-size: 12px; color: var(--muted); max-width: 40ch; }
+.ff-empty .btn--go { margin-top: 12px; }
+.ff-hint { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+
 /* launcher add-section: small cards for agents you could add */
 .picker-divider { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
   color: var(--muted); padding: 10px 12px 2px; border-top: 1px dashed var(--dash); }
