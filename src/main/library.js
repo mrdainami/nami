@@ -251,6 +251,9 @@ function scanLibrary({ projectPath, homeDir } = {}) {
   for (const f of listMd(path.join(home, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'user', f));
   addSkills(home, USER_SKILL_SOURCES, 'user');
   for (const f of listMd(path.join(home, '.config/opencode/agent'))) items.push(mkItem('agent', 'opencode', 'user', f));
+  // Codex keeps personal agents at ~/.codex/agents — TOML, like its project
+  // folder. Scanned so the copy-over drawer can offer them.
+  for (const f of listToml(path.join(home, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'user', f));
   for (const f of listMd(path.join(home, '.config/opencode/command'))) items.push(mkItem('command', 'opencode', 'user', f));
   const plugin = [];
   walkPlugins(path.join(home, '.claude/plugins'), plugin);

@@ -28,7 +28,7 @@ const { runPlan } = require('./connections-deliver');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
-const { deliverAgents, deliveryState, liftToMaster, sweepCopies } = require('./agent-master');
+const { deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies } = require('./agent-master');
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
@@ -1098,6 +1098,16 @@ ipcMain.handle('library:delete', async (_e, args) => {
 ipcMain.handle('library:agentDelivery', (_e, { projectPath, slug, agentIds } = {}) =>
   (projectPath && slug ? deliveryState({ projectPath, slug, agentIds: agentIds || [] }) : []));
 
+// The copy-over drawer: lift a personal agent from a home folder into agents/
+// as a master, then deliver it. The source is the user's own file and is read,
+// never written — unlike adoption, which converts a file inside the project.
+ipcMain.handle('library:importAgent', (_e, { filePath, projectPath, agentIds } = {}) => {
+  const res = importToMaster({ filePath, projectPath });
+  if (res.ok) res.delivered = deliverAgents({ projectPath, agentIds: agentIds || [] });
+  return res;
+});
+
+// Deliver every master to every installed tool (create, save, repair all land here).
 ipcMain.handle('library:deliverAgents', (_e, { projectPath, agentIds } = {}) =>
   (projectPath ? deliverAgents({ projectPath, agentIds: agentIds || [] }) : []));
 // "Make it everyone's": lift a hand-made platform agent into the drawer.

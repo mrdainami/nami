@@ -175,6 +175,45 @@ function deliverAgents({ projectPath, agentIds, io = fsIo, homeDir }) {
 // The original file becomes the marked copy for its own platform in the same
 // breath — leaving it unmarked would make delivery skip it forever, and the
 // "everyone's" promise would silently exclude the tool it came from.
+// ---- importing an agent that lives elsewhere --------------------------------
+// The copy-over drawer's mechanic. Unlike liftToMaster below — which converts a
+// file inside the project and replaces it with a delivered copy — the source
+// here is the user's personal file in a home folder. It is read, never written:
+// their ~/.codex/agents is theirs, and the project gets its own master.
+//
+// Codex sources are TOML, so this needs the read half of the dialect renderCopy
+// writes: name, description, and the developer_instructions block as the body.
+function parseAgentToml(text) {
+  const src = String(text || '');
+  const out = { name: '', description: '', tools: '', model: '', mode: '', tool: '', body: '' };
+  // the prompt block first, so a key inside it can never win
+  const bodyM = src.match(/^developer_instructions\s*=\s*"""\r?\n?([\s\S]*?)"""/m)
+    || src.match(/^developer_instructions\s*=\s*'''\r?\n?([\s\S]*?)'''/m);
+  if (bodyM) out.body = bodyM[1].replace(/\\(["\\])/g, '$1').trim();
+  const head = bodyM ? src.slice(0, src.indexOf(bodyM[0])) : src;
+  for (const key of ['name', 'description', 'model']) {
+    const m = head.match(new RegExp('^' + key + '\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"', 'm'));
+    if (m) out[key] = m[1].replace(/\\(["\\])/g, '$1');
+  }
+  return out;
+}
+
+function importToMaster({ filePath, projectPath, io = fsIo }) {
+  if (!filePath || !projectPath) return { ok: false, error: 'Open a folder first — the master lands in it.' };
+  let text;
+  try { text = io.read(filePath); } catch (_) { return { ok: false, error: 'That file is missing.' }; }
+  const slug = path.basename(filePath, path.extname(filePath));
+  const masterPath = path.join(mastersDir(projectPath), slug + '.md');
+  if (io.exists(masterPath)) return { ok: false, error: `agents/${slug}.md already exists — rename one of them first.` };
+  const a = filePath.endsWith('.toml') ? parseAgentToml(text) : parseAgentMd(text);
+  const master = fmBlock([
+    ['name', a.name || slug], ['description', a.description], ['tools', a.tools],
+    ['model', a.model], ['mode', a.mode],
+  ]) + '\n' + (a.body || '').trim() + '\n';
+  io.write(masterPath, master);
+  return { ok: true, masterPath, slug };
+}
+
 function liftToMaster({ filePath, platform, projectPath, io = fsIo }) {
   if (!projectPath) return { ok: false, error: 'Open a folder first — masters live in the project.' };
   let text;
@@ -213,5 +252,5 @@ function sweepCopies({ projectPath, slug, io = fsIo, homeDir }) {
 
 module.exports = {
   fsIo, MARKER_HEAD, isDelivered, parseAgentMd, renderCopy,
-  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, sweepCopies, copyTargets,
+  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies, copyTargets,
 };
