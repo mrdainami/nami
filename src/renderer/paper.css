@@ -1153,6 +1153,28 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row .way[disabled]:hover { border-color: var(--dash); color: var(--muted); background: transparent; }
 .picker-row .way .tool { font-weight: 700; }
 
+/* ---- the agent picker's sections and rows -------------------------------- */
+/* Calvin's four headers in ownership order. The row itself is the launch —
+   no button; the resolved tool sits as a quiet label before the ›. */
+.picker-sec {
+  padding: 9px 14px 4px; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3);
+  border-bottom: 1px dotted var(--dash);
+}
+.picker-sec--toggle { cursor: pointer; }
+.picker-sec--toggle:hover { color: var(--ink); }
+.picker-sec .sec-arr { display: inline-block; width: 14px; }
+.picker-row--go { cursor: pointer; }
+.picker-row--go.dead { cursor: default; }
+.picker-row--go.dead .name { color: var(--muted-2); }
+.picker-row .row-tool {
+  flex: none; display: flex; align-items: center; gap: 6px; margin-right: 2px;
+  font-size: 10px; letter-spacing: 0.04em; color: var(--muted-2);
+}
+.picker-row .row-tool svg { width: 12px; height: 12px; opacity: 0.75; }
+.picker-row--go:hover .row-tool { color: var(--ink); }
+.picker-row--go.dead .row-tool { color: var(--muted-3); }
+
 /* ---- the agent picker's tool list ---------------------------------------- */
 /* Where one agent's copies stand, opened by the row's ›. Built from the
    picker's own vocabulary — dotted rules, 11.5px, a dot per state — so it reads

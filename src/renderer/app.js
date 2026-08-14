@@ -4152,6 +4152,13 @@ function toolListHtml(item) {
       Files without Nami's marker are somebody's hand work and are never touched.</div></div>`;
 }
 
+// Calvin's four sections, in ownership order — the closer to you, the higher:
+// masters this folder shares, this folder's per-CLI files, the agents that
+// follow you between folders, and the read-only ones that came with packs.
+// Plugins is the one section that is third-party AND numerous, so it alone
+// collapses; a live search opens it, because a hidden match reads as a bug.
+const PICKER_SECTIONS = ['IN THIS FOLDER', 'PER MODEL', 'FROM YOUR CLIS', 'PLUGINS'];
+
 function renderAgentPickerSheet() {
   const o = S.overlay; const agents = pickerAgents();
   const query = o.query.toLowerCase();
@@ -4159,19 +4166,26 @@ function renderAgentPickerSheet() {
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span>
       <input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div>
     <div class="picker-list" id="ap-list"></div>
-    <div class="picker-foot"><span><b>New</b> → a session, invoked in that tool's own words</span>
+    <div class="picker-foot"><span>click a row → a session as that agent</span>
       <span><b>›</b> → run it on another tool</span></div>`, { top: true });
+  // Sections first, so the keyboard and the clicks walk the same visible list:
+  // a collapsed Plugins section keeps its rows out of arrow-reach too.
+  const plugOpen = !!o.plugOpen || !!query;
+  const groups = [[], [], [], []];
+  filtered.forEach((a) => groups[sortKey(a)].push(a));
+  const visible = groups[0].concat(groups[1], groups[2], plugOpen ? groups[3] : []);
+  if (o.hi > visible.length - 1) o.hi = Math.max(0, visible.length - 1);
   const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.query = input.value; o.hi = 0; o.open = null; renderOverlay(); };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      const a = filtered[o.hi]; const t = a && rowTool(a);
+      const a = visible[o.hi]; const t = a && rowTool(a);
       if (a && t) launchAgent(a, t);
       // A key that does nothing reads as a broken key. The click path already
-      // says why on a disabled button; this says the same thing out loud.
+      // says why on a dead row; this says the same thing out loud.
       else if (a) toast(`Nothing installed can run ${a.slug}.`);
     }
-    if (e.key === 'ArrowDown') { o.hi = Math.min(filtered.length - 1, o.hi + 1); renderOverlay(); }
+    if (e.key === 'ArrowDown') { o.hi = Math.min(visible.length - 1, o.hi + 1); renderOverlay(); }
     if (e.key === 'ArrowUp') { o.hi = Math.max(0, o.hi - 1); renderOverlay(); }
   });
   const list = q('#ap-list', modal);
@@ -4184,40 +4198,50 @@ function renderAgentPickerSheet() {
         Agents you keep in <b>~/.claude/agents</b> would show up here too, in every folder.</div>`;
     return;
   }
-  filtered.forEach((a, i) => {
-    const tool = rowTool(a);
-    const tag = a.scope === 'plugin' ? '<span class="picker-tag">plugin</span>'
-      : a.scope === 'user' ? '<span class="picker-tag">yours</span>' : '';
-    const row = document.createElement('div');
-    row.className = 'picker-row' + (i === o.hi ? ' hilite' : '');
-    row.innerHTML = `${chipHtml({ key: null, code: code2(a.slug), kind: 'agent' })}
-      <span class="col"><span class="name">${esc(a.slug)}</span>
-      <span class="desc">${esc(originLine(a, toolNameOf))}</span></span>
-      ${tag}
-      <span class="ways">
-        <button class="way way--cards last" data-w="new"${tool ? '' : ' disabled'}
-          title="${tool ? 'Start a new session on ' + esc(toolNameOf(tool)) : 'Nothing installed can run this agent'}"
-          >New${tool ? ' · <span class="tool">' + esc(toolNameOf(tool)) + '</span>' : ''}</button>
-        <span class="chev" role="button" tabindex="0" title="${isMaster(a) ? 'Run it on another tool' : 'Where this agent can run'}">›</span>
-      </span>`;
-    row.onclick = (e) => {
-      if (e.target.closest('.chev')) { openToolList(a); return; }
-      const way = e.target.closest('.way');
-      if (way && way.disabled) return;
-      if (tool) launchAgent(a, tool);
-      else toast(`Nothing installed can run ${a.slug}.`);
-    };
-    list.appendChild(row);
-    if (o.open === a.slug) {
-      const wrap = document.createElement('div');
-      wrap.innerHTML = toolListHtml(a);
-      const block = wrap.firstElementChild;
-      block.querySelectorAll('.tool-row[data-tool]').forEach((tr) => {
-        tr.onclick = () => { rememberTool(a, tr.dataset.tool); o.open = null; o.delivery = null; renderOverlay(); };
-        tr.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tr.click(); } };
-      });
-      list.appendChild(block);
-    }
+  let vi = 0;
+  groups.forEach((g, gi) => {
+    if (!g.length) return;
+    const head = document.createElement('div');
+    head.className = 'picker-sec';
+    if (gi === 3) {
+      head.classList.add('picker-sec--toggle');
+      head.setAttribute('role', 'button'); head.tabIndex = 0;
+      head.innerHTML = `<span class="sec-arr">${plugOpen ? '▾' : '▸'}</span>${PICKER_SECTIONS[3]} · ${g.length}`;
+      head.onclick = () => { o.plugOpen = !o.plugOpen; renderOverlay(); };
+      head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); head.click(); } };
+    } else head.textContent = PICKER_SECTIONS[gi];
+    list.appendChild(head);
+    if (gi === 3 && !plugOpen) return;
+    g.forEach((a) => {
+      const i = vi++;
+      const tool = rowTool(a);
+      const row = document.createElement('div');
+      row.className = 'picker-row picker-row--go' + (i === o.hi ? ' hilite' : '') + (tool ? '' : ' dead');
+      row.title = tool ? `Start a session as ${a.slug} on ${toolNameOf(tool)}` : 'Nothing installed can run this agent';
+      row.innerHTML = `${chipHtml({ key: null, code: code2(a.slug), kind: 'agent' })}
+        <span class="col"><span class="name">${esc(a.slug)}</span>
+        <span class="desc">${esc(a.description || originLine(a, toolNameOf))}</span></span>
+        <span class="row-tool">${tool
+    ? (iconSvg(iconKeyFor(tool) || '') || '') + '<span>' + esc(toolNameOf(tool)) + '</span>'
+    : '<span>no tool for it</span>'}</span>
+        <span class="chev" role="button" tabindex="0" title="${isMaster(a) ? 'Run it on another tool' : 'Where this agent can run'}">›</span>`;
+      row.onclick = (e) => {
+        if (e.target.closest('.chev')) { openToolList(a); return; }
+        if (tool) launchAgent(a, tool);
+        else toast(`Nothing installed can run ${a.slug}.`);
+      };
+      list.appendChild(row);
+      if (o.open === a.slug) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = toolListHtml(a);
+        const block = wrap.firstElementChild;
+        block.querySelectorAll('.tool-row[data-tool]').forEach((tr) => {
+          tr.onclick = () => { rememberTool(a, tr.dataset.tool); o.open = null; o.delivery = null; renderOverlay(); };
+          tr.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tr.click(); } };
+        });
+        list.appendChild(block);
+      }
+    });
   });
 }
 
