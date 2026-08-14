@@ -1147,11 +1147,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .picker-row .way.last:hover { background: var(--green-dark); color: var(--paper); }
 .picker-row .way--cards { font-weight: 700; }
-/* A way that cannot be taken says so by looking untakeable, and keeps its
-   tooltip — the reason is the useful part. */
-.picker-row .way[disabled] { opacity: 0.4; cursor: default; }
-.picker-row .way[disabled]:hover { border-color: var(--dash); color: var(--muted); background: transparent; }
-.picker-row .way .tool { font-weight: 700; }
 
 /* ---- the agent picker's sections and rows -------------------------------- */
 /* Calvin's four headers in ownership order. The row itself is the launch —
@@ -1188,10 +1183,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-foot {
   padding: 9px 14px; border-top: 2px dashed var(--dash);
   font-size: 10.5px; color: var(--muted-2); display: flex; gap: 14px; flex-wrap: wrap;
-}
-.picker-tag {
-  flex: none; font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--muted-3); border: 1px solid var(--dash); padding: 2px 5px;
 }
 .tool-list { padding: 2px 0 6px 42px; border-bottom: 1px dotted var(--dash-dark); background: var(--u-bg); }
 .tool-row {
@@ -2105,24 +2096,3 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 #rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sheet.rail-collapsed .rail { width: 46px; overflow: hidden; }
 .sheet.rail-collapsed #rail-content { display: none; }
-
-/* ---- the copy-over drawer ------------------------------------------------ */
-/* Personal agents of other tools, one copy away from being this folder's
-   masters. A collapsed offer under the runnable rows — never a second
-   population competing with them. */
-.co-head {
-  display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px;
-  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--muted-2); cursor: pointer; border-top: 2px dashed var(--dash);
-  margin-top: 6px;
-}
-.co-head:hover { color: var(--ink); }
-.co-head .arr { font-size: 11px; }
-.co-head .cnt { margin-left: auto; font-size: 10px; color: var(--muted-3); text-transform: none; letter-spacing: 0; }
-.co-row { opacity: 0.92; }
-.co-row .btn-copy {
-  flex: none; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
-  padding: 5px 11px; margin-top: 5px; cursor: pointer;
-  background: transparent; color: var(--muted); border: 1px dashed var(--dash-dark);
-}
-.co-row .btn-copy:hover { border-color: var(--green); border-style: solid; color: var(--ink); }

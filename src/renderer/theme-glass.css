@@ -605,10 +605,7 @@ body[data-glass] .picker-row { border-bottom-color: var(--dash); border-radius: 
    the block still ends cleanly against the next agent. */
 body[data-glass] .tool-list { border-radius: 12px; border-bottom: 0; background: var(--gl-pane-dim); margin: 0 0 4px 42px; padding-left: 10px; }
 body[data-glass] .tool-row { border-bottom: 0; border-radius: 9px; }
-body[data-glass] .picker-tag { border-radius: 999px; border-color: var(--gl-rim-dim); }
 body[data-glass] .picker-foot { border-top: 1px solid var(--dash); }
-body[data-glass] .co-head { border-top: 1px solid var(--dash); }
-body[data-glass] .co-row .btn-copy { border-radius: 9px; }
 body[data-glass] .text-input { box-shadow: none; border-radius: 12px; background: var(--gl-pane-dim); }
 body[data-glass] .pick-chip, body[data-glass] .who-tile, body[data-glass] .add-card { border-radius: 14px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
 body[data-glass] .pick-chip:hover, body[data-glass] .who-tile:hover, body[data-glass] .add-card:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
