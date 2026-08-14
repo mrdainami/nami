@@ -64,3 +64,17 @@ function unquote(v) {
   if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
   return v;
 }
+
+// Which files this module is allowed to edit at all.
+//
+// setField deliberately *creates* frontmatter on a markdown file that has none
+// — that is the affordance which lets a bare prompt grow a name. Point it at a
+// file in another format and the same kindness becomes damage: a Codex agent is
+// TOML, has no `---` fence, and the first edit writes a YAML block on top of
+// somebody's hand-written file, leaving something Codex can no longer parse.
+//
+// So the rule lives here, next to the code it protects, rather than as a
+// condition remembered at each call site.
+export function editsAsFrontmatter(filePath) {
+  return /\.(md|markdown)$/i.test(String(filePath || ''));
+}

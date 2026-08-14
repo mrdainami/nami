@@ -1147,6 +1147,81 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .picker-row .way.last:hover { background: var(--green-dark); color: var(--paper); }
 .picker-row .way--cards { font-weight: 700; }
+/* A way that cannot be taken says so by looking untakeable, and keeps its
+   tooltip — the reason is the useful part. */
+.picker-row .way[disabled] { opacity: 0.4; cursor: default; }
+.picker-row .way[disabled]:hover { border-color: var(--dash); color: var(--muted); background: transparent; }
+.picker-row .way .tool { font-weight: 700; }
+
+/* ---- the agent picker's sections and rows -------------------------------- */
+/* Calvin's four headers in ownership order. The row itself is the launch —
+   no button; the resolved tool sits as a quiet label before the ›. */
+.picker-sec {
+  padding: 9px 14px 4px; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3);
+  border-bottom: 1px dotted var(--dash);
+}
+.picker-sec--toggle { cursor: pointer; }
+.picker-sec--toggle:hover { color: var(--ink); }
+.picker-sec .sec-arr { display: inline-block; width: 14px; }
+.picker-row--go { cursor: pointer; }
+.picker-row--go.dead { cursor: default; }
+.picker-row--go.dead .name { color: var(--muted-2); }
+.picker-row .row-tool {
+  flex: none; display: flex; align-items: center; gap: 6px; margin-right: 2px;
+  font-size: 10px; letter-spacing: 0.04em; color: var(--muted-2);
+}
+.picker-row .row-tool svg { width: 12px; height: 12px; opacity: 0.75; }
+.picker-row--go:hover .row-tool { color: var(--ink); }
+.picker-row--go.dead .row-tool { color: var(--muted-3); }
+
+/* The copy action atop a non-master's tool list — the one row that acts. */
+.tool-row.co-act { cursor: pointer; }
+.tool-row.co-act .tl-mark { color: var(--green-dark); font-weight: 700; }
+.tool-row.co-act .tl-name { color: var(--green-dark); font-weight: 700; }
+.tool-row.co-act:hover .tl-name { text-decoration: underline; }
+
+/* ---- the agent picker's tool list ---------------------------------------- */
+/* Where one agent's copies stand, opened by the row's ›. Built from the
+   picker's own vocabulary — dotted rules, 11.5px, a dot per state — so it reads
+   as part of the row rather than a panel that landed on top of it. */
+.picker-foot {
+  padding: 9px 14px; border-top: 2px dashed var(--dash);
+  font-size: 10.5px; color: var(--muted-2); display: flex; gap: 14px; flex-wrap: wrap;
+}
+.picker-tag {
+  flex: none; font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted-3); border: 1px solid var(--dash); padding: 2px 5px;
+}
+.tool-list { padding: 2px 0 6px 42px; border-bottom: 1px dotted var(--dash-dark); background: var(--u-bg); }
+.tool-row {
+  display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 0;
+  cursor: pointer; font-size: 11.5px; border-bottom: 1px dotted var(--dash);
+}
+.tool-row:last-of-type { border-bottom: 0; }
+.tool-row:hover { background: var(--hover); }
+.tool-row .tl-mark {
+  width: 16px; height: 16px; flex: none; display: flex; align-items: center;
+  justify-content: center; color: var(--muted); font-size: 8px; font-weight: 700;
+}
+.tool-row .tl-mark svg { width: 13px; height: 13px; }
+.tool-row .tl-name { font-weight: 700; min-width: 92px; flex: none; }
+.tool-row .tl-note { color: var(--muted-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-row .tl-dot { margin-left: auto; flex: none; font-size: 10px; }
+.tool-row .tl-dot.on { color: var(--green-ok); }
+.tool-row .tl-dot.soon { color: var(--amber-btn); }
+/* Somebody's own file, in the way and winning. Not a fault and not a success —
+   grey rather than green or amber. */
+.tool-row .tl-dot.theirs { color: var(--muted-2); }
+/* A tool that cannot take this agent is not clickable, but its reason is the
+   most useful line in the list — so the name recedes and the reason does not.
+   Blanket opacity greyed the reason too, which on graphite put faint grey on a
+   dark ground: the one thing this palette must never do. */
+.tool-row.dead { cursor: default; }
+.tool-row.dead .tl-mark, .tool-row.dead .tl-name { color: var(--muted-3); font-weight: 400; }
+.tool-row.dead:hover { background: none; }
+.tool-row.picked .tl-name { color: var(--green); }
+.tool-foot { padding: 8px 12px 2px 0; font-size: 10.5px; color: var(--muted-3); line-height: 1.5; }
 /* In Cards the mic lives in the composer; the head keeps everything else —
    − ＋ size the card text exactly as they size terminal cells. */
 .tile.cards-on .t-mic { display: none; }
@@ -2030,3 +2105,24 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 #rail-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sheet.rail-collapsed .rail { width: 46px; overflow: hidden; }
 .sheet.rail-collapsed #rail-content { display: none; }
+
+/* ---- the copy-over drawer ------------------------------------------------ */
+/* Personal agents of other tools, one copy away from being this folder's
+   masters. A collapsed offer under the runnable rows — never a second
+   population competing with them. */
+.co-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px;
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted-2); cursor: pointer; border-top: 2px dashed var(--dash);
+  margin-top: 6px;
+}
+.co-head:hover { color: var(--ink); }
+.co-head .arr { font-size: 11px; }
+.co-head .cnt { margin-left: auto; font-size: 10px; color: var(--muted-3); text-transform: none; letter-spacing: 0; }
+.co-row { opacity: 0.92; }
+.co-row .btn-copy {
+  flex: none; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
+  padding: 5px 11px; margin-top: 5px; cursor: pointer;
+  background: transparent; color: var(--muted); border: 1px dashed var(--dash-dark);
+}
+.co-row .btn-copy:hover { border-color: var(--green); border-style: solid; color: var(--ink); }
