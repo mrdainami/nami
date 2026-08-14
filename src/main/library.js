@@ -54,7 +54,7 @@ function listToml(dir) {
 function readTomlMeta(file) {
   try {
     const raw = fs.readFileSync(file, 'utf8').slice(0, 4000);
-    const cut = Math.min(...[raw.indexOf('"""'), raw.search(/^\s*\[/m)].filter((i) => i >= 0), raw.length);
+    const cut = Math.min(...[raw.indexOf('"""'), raw.indexOf("'''"), raw.search(/^\s*\[/m)].filter((i) => i >= 0), raw.length);
     const txt = raw.slice(0, cut);
     const out = {};
     for (const key of ['name', 'description']) {
