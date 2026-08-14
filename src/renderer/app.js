@@ -10,7 +10,8 @@ import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from '
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
-import { resolveTool, originLine, sortKey, canRunOn, isMaster } from './agent-reach.mjs';
+import { resolveTool, originLine, sortKey, canRunOn, isMaster, reachOf } from './agent-reach.mjs';
+import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
@@ -4053,6 +4054,12 @@ async function reallyLaunchAgent(item, toolId) {
   if (!worker || !worker.found) { toast(`${toolNameOf(toolId)} is not on this Mac.`); return; }
   rememberTool(item, toolId);
   const was = await ensureDelivered(item, toolId);
+  // How the session becomes the agent comes from the launch table, which knows
+  // two mechanics and never blurs them: flag tools (claude, opencode,
+  // antigravity) launch with --agent and the session opens already being the
+  // agent; seed tools (codex, kimi) get one summoning sentence typed in their
+  // own idiom. Both are probe-backed — see agent-launch.mjs.
+  const launch = agentLaunch(toolId, item.slug);
   // No `view`, so cardView() reads 'term' — the surface master always gave.
   // `"<Name> session"` rather than the slug, because isGenericTitle keys on
   // that word: a name Nami merely assembled has to stay weak enough for the
@@ -4062,9 +4069,11 @@ async function reallyLaunchAgent(item, toolId) {
   // does the freezing.
   const p = startPanel({
     kind: worker.kind === 'claude' ? 'claude' : 'run',
-    command: worker.kind === 'claude' ? undefined : worker.bin,
+    command: worker.kind === 'claude' ? undefined
+      : launch.kind === 'flag' ? worker.bin + ' ' + launch.argv.join(' ') : worker.bin,
+    args: worker.kind === 'claude' && launch.kind === 'flag' ? [...launch.argv] : undefined,
     title: item.name + ' session', code: code2(item.name),
-    seed: `Use the ${item.slug} agent.`,
+    seed: launch.kind === 'seed' ? launch.seed : undefined,
   });
   if (!p) return;
   announce(p, deliveryNote(item, toolId, was));
@@ -4085,7 +4094,9 @@ async function openToolList(item) {
   const o = S.overlay;
   if (o.open === item.slug) { o.open = null; o.delivery = null; renderOverlay(); return; }
   o.open = item.slug; o.delivery = null; renderOverlay();
-  if (!S.project) return;
+  // A non-master's list is local arithmetic — where the file sits is the whole
+  // answer — so there is nothing to ask the disk.
+  if (!isMaster(item) || !S.project) return;
   const rows = await api.agentDelivery({
     projectPath: S.project.path, slug: item.slug, agentIds: installedAgentIds(),
   });
@@ -4106,6 +4117,23 @@ function deliveryLine(row) {
 
 function toolListHtml(item) {
   const o = S.overlay;
+  // Not a master: the file sits in one tool's folder and that tool is the whole
+  // answer. The other rows say what would change it — a copy into agents/ —
+  // which is the drawer's Copy action, not a delivery that will never happen.
+  if (!isMaster(item)) {
+    const reach = reachOf(item);
+    const rows = installedAgentIds().map((id) => {
+      const runs = reach.includes(id);
+      return `<div class="tool-row${runs ? ' picked' : ' dead'}">
+        <span class="tl-mark">${iconSvg(iconKeyFor(id) || '') || esc(code2(toolNameOf(id)))}</span>
+        <span class="tl-name">${esc(toolNameOf(id))}</span>
+        <span class="tl-note">${runs ? 'runs here — its own folder' : 'copy to this folder first, then it runs here'}</span>
+        <span class="tl-dot ${runs ? 'on' : ''}">${runs ? '●' : '—'}</span></div>`;
+    }).join('');
+    return `<div class="tool-list">${rows}
+      <div class="tool-foot">Copied into <b>agents/</b>, this agent becomes a master that runs on every tool.
+        The original file is never touched.</div></div>`;
+  }
   if (!o.delivery) return '<div class="tool-list"><div class="tool-foot">looking…</div></div>';
   const rows = o.delivery.map((r) => {
     const dead = r.state === 'none';
@@ -4167,7 +4195,7 @@ function renderAgentPickerSheet() {
         <button class="way way--cards last" data-w="new"${tool ? '' : ' disabled'}
           title="${tool ? 'Start a new session on ' + esc(toolNameOf(tool)) : 'Nothing installed can run this agent'}"
           >New${tool ? ' · <span class="tool">' + esc(toolNameOf(tool)) + '</span>' : ''}</button>
-        ${isMaster(a) ? '<span class="chev" role="button" tabindex="0" title="Run it on another tool">›</span>' : ''}
+        <span class="chev" role="button" tabindex="0" title="${isMaster(a) ? 'Run it on another tool' : 'Where this agent can run'}">›</span>
       </span>`;
     row.onclick = (e) => {
       if (e.target.closest('.chev')) { openToolList(a); return; }
