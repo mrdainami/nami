@@ -140,3 +140,15 @@ test('shadow detection covers every copy target, not just the two already tested
     assert.equal(row.shadows, slug, `${platform} copy target should be marked a shadow`);
   }
 });
+
+test('readTomlMeta stops at the other fence too', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-fence-'));
+  const proj = path.join(root, 'proj');
+  write(path.join(proj, '.codex/agents/prompt-first.toml'),
+    "developer_instructions = '''\nname = \"inside\"\ndescription = \"fake\"\n'''\nname = \"prompt-first\"\n");
+  const [row] = scanLibrary({ projectPath: proj, homeDir: path.join(root, 'home') })
+    .filter((i) => i.type === 'agent' && i.slug === 'prompt-first');
+  assert.ok(row, 'listed');
+  assert.notEqual(row.name, 'inside', 'the prompt cannot name the agent');
+  assert.notEqual(row.description, 'fake');
+});
