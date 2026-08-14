@@ -3963,7 +3963,10 @@ async function ensureDelivered(item, toolId) {
   if (!isMaster(item) || !S.project) return null;
   const before = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
   const was = (before && before[0]) || null;
-  if (!was || was.state === 'here' || was.state === 'theirs' || was.state === 'none') return was;
+  // `here` is not a skip: the copy regenerates so a dialect fix (opencode's
+  // mode, say) reaches copies delivered before it. Marked files are Nami's to
+  // rewrite; `theirs` and `none` stay untouched as ever.
+  if (!was || was.state === 'theirs' || was.state === 'none' || was.state === 'via') return was;
   // Report what delivery actually did, not what it was asked to do. Saying
   // "delivered just now" about a write that failed is the same false claim this
   // whole surface exists to avoid — and deliverAgents already answers per pair.

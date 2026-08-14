@@ -74,8 +74,11 @@ function renderCopy(platform, slug, a) {
     ].join('\n');
   }
   if (platform === 'opencode') {
-    // OpenCode names agents by filename and requires a mode.
-    return fmBlock([['description', a.description], ['mode', a.mode || 'subagent'], ['model', a.model]])
+    // OpenCode names agents by filename and requires a mode. The default is
+    // `all`, probe-proven both ways: `subagent` makes `opencode --agent x`
+    // silently fall back to the build agent, and a ⌘K launch as the agent is
+    // this copy's first job; `all` keeps it @-mentionable inside sessions too.
+    return fmBlock([['description', a.description], ['mode', a.mode || 'all'], ['model', a.model]])
       + '\n' + marker(slug) + '\n\n' + body;
   }
   // claude / gemini / kimi read the same core four; mode is nobody's here.

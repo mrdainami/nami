@@ -63,7 +63,10 @@ test('claude copy keeps tools and model, drops mode, and carries the marker', ()
 test('opencode copy speaks its dialect: description + mode, no name key', () => {
   const text = renderCopy('opencode', 'release-scribe', parseAgentMd(MASTER_MD));
   assert.match(text, /description: Turns git history/);
-  assert.match(text, /mode: subagent/);
+  // `all`, not `subagent`: probe-proven that subagent-mode agents are not
+  // selectable by `opencode --agent` — the session silently falls back to
+  // `build`. `all` launches AND stays @-mentionable.
+  assert.match(text, /mode: all/);
   assert.ok(!/^name:/m.test(text), 'opencode names agents by filename');
   assert.ok(isDelivered(text));
 });
@@ -115,7 +118,7 @@ test('deliverAgents writes marked copies but never overwrites a hand-made file',
     '/proj/.claude/agents/release-scribe.md': '---\nname: release-scribe\n---\ntheir own version\n',
   });
   const results = deliverAgents({ projectPath: PROJ, agentIds: ['claude', 'opencode', 'codex'], io });
-  assert.match(io.files['/proj/.opencode/agents/release-scribe.md'], /mode: subagent/);
+  assert.match(io.files['/proj/.opencode/agents/release-scribe.md'], /mode: all/);
   assert.match(io.files['/proj/.codex/agents/release-scribe.toml'], /developer_instructions/);
   assert.match(io.files['/proj/.claude/agents/release-scribe.md'], /their own version/, 'hand-made wins');
   const claude = results.find((r) => r.agent === 'claude' && r.slug === 'release-scribe');
