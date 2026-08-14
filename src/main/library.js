@@ -117,13 +117,13 @@ function skillIdentity(entry) {
 // the singular. Matching on the real target path rather than on the slug is
 // what keeps a hand-made `.opencode/agent/foo.md` from vanishing behind an
 // unrelated master called `foo`.
-function markShadows(items, projectPath) {
+function markShadows(items, projectPath, homeDir) {
   const masters = new Set(items.filter((i) => i.type === 'agent' && i.platform === 'project').map((i) => i.slug));
   if (!masters.size) return;
   for (const i of items) {
     if (i.type !== 'agent' || i.platform === 'project' || i.scope !== 'project') continue;
     if (!masters.has(i.slug)) continue;
-    const t = copyTargets(projectPath, i.slug)[i.platform];
+    const t = copyTargets(projectPath, i.slug, homeDir)[i.platform];
     if (t && t.kind === 'copy' && path.resolve(t.file) === path.resolve(i.filePath)) i.shadows = i.slug;
   }
 }
@@ -243,7 +243,7 @@ function scanLibrary({ projectPath, homeDir } = {}) {
     for (const f of listToml(path.join(projectPath, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'project', f));
     for (const f of listMd(path.join(projectPath, '.kimi-code/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'kimi', 'project', f));
     for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
-    markShadows(items, projectPath);
+    markShadows(items, projectPath, home);
   }
   // Marker-filtered like every other scan. Delivery is project-scoped today, so
   // nothing here carries a marker yet — but the one scan that trusts whatever it
