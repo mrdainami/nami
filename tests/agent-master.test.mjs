@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   parseAgentMd, renderCopy, isDelivered, MARKER,
-  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, sweepCopies,
+  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies,
 } = require('../src/main/agent-master.js');
 
 function memIo(seed = {}) {
@@ -237,4 +237,70 @@ test('liftToMaster refuses a TOML agent rather than mangling it', () => {
   assert.equal(io.files['/proj/.codex/agents/tomlish.toml'], 'name = "tomlish"\ndescription = "d"\n',
     'the user’s own file is untouched');
   assert.ok(!('/proj/agents/tomlish.md' in io.files), 'and no master was written');
+});
+
+// ---- importing an agent that lives elsewhere --------------------------------
+// The copy-over drawer: an agent in ~/.codex/agents or ~/.config/opencode/agent
+// becomes a master here. Unlike liftToMaster — which converts a file inside the
+// project and replaces it with a delivered copy — the source lives outside the
+// project and is the user's personal file. It is read, never written.
+
+test('importToMaster lifts a personal Codex TOML into agents/ and leaves the source alone', () => {
+  const src = '/home/u/.codex/agents/legal-drafter.toml';
+  const toml = 'name = "legal-drafter"\ndescription = "Drafts the boring parts."\n'
+    + 'developer_instructions = """\nBe precise. Cite clauses.\n"""\n';
+  const io = memIo({ [src]: toml });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  const master = io.files['/proj/agents/legal-drafter.md'];
+  assert.match(master, /name: legal-drafter/);
+  assert.match(master, /description: Drafts the boring parts\./);
+  assert.match(master, /Be precise\. Cite clauses\./);
+  assert.equal(io.files[src], toml, 'the personal file is untouched');
+});
+
+test('importToMaster lifts a personal markdown agent the same way', () => {
+  const src = '/home/u/.config/opencode/agent/sql-tuner.md';
+  const md = '---\ndescription: Makes queries fast.\nmode: subagent\n---\n\nTune them.\n';
+  const io = memIo({ [src]: md });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files['/proj/agents/sql-tuner.md'], /description: Makes queries fast\./);
+  assert.match(io.files['/proj/agents/sql-tuner.md'], /Tune them\./);
+  assert.equal(io.files[src], md, 'the personal file is untouched');
+});
+
+test('importToMaster refuses a name a master already owns', () => {
+  const io = memIo({
+    '/proj/agents/legal-drafter.md': MASTER_MD,
+    '/home/u/.codex/agents/legal-drafter.toml': 'name = "legal-drafter"\ndescription = "d"\n',
+  });
+  const res = importToMaster({ filePath: '/home/u/.codex/agents/legal-drafter.toml', projectPath: PROJ, io });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already exists/);
+});
+
+test('a TOML whose prompt discusses TOML does not leak keys into the master', () => {
+  const src = '/home/u/.codex/agents/meta.toml';
+  const io = memIo({ [src]:
+    'name = "meta"\ndescription = "Talks about config."\n'
+    + 'developer_instructions = """\nAgent files start with\nname = "not-me"\n"""\n' });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files['/proj/agents/meta.md'], /^name: meta$/m);
+  assert.match(io.files['/proj/agents/meta.md'], /not-me/, 'the prompt text itself survives into the body');
+});
+
+test('importToMaster reads the other TOML fence too', () => {
+  const src = '/home/u/.codex/agents/quoter.toml';
+  const io = memIo({ [src]: "name = \"quoter\"\ndescription = \"d\"\ndeveloper_instructions = '''\nname = \"inside\"\nBody here.\n'''\n" });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files['/proj/agents/quoter.md'], /^name: quoter$/m, 'the fenced key stays in the body');
+  assert.match(io.files['/proj/agents/quoter.md'], /Body here\./);
+});
+
+test('importToMaster refuses a missing project rather than resolving paths against nothing', () => {
+  const res = importToMaster({ filePath: '/home/u/.codex/agents/x.toml', projectPath: '', io: memIo() });
+  assert.equal(res.ok, false);
 });
