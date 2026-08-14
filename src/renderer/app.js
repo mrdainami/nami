@@ -10,7 +10,7 @@ import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from '
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
-import { resolveTool, originLine, sortKey, canRunOn, isMaster, reachOf } from './agent-reach.mjs';
+import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
 import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
