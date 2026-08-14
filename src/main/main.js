@@ -1328,7 +1328,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // conversation, so the watcher re-reads the live id and follows it. Started
     // after the spawn below, because following it needs the pty's pid.
     if (transcript) claudeWatch = { transcript, sid, cwd };
-    if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
+    // Extra args ride along — the agents picker launches claude as the agent
+    // with `--agent <slug>` (probe-backed; see agent-launch.mjs).
+    const extraArgs = Array.isArray(args) ? args : [];
+    if (claudeExe) { file = claudeExe; spawnArgs = [...claudeArgs, ...extraArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
     // into a marker branch below that typed a bare `claude`, dropping
@@ -1336,7 +1339,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // title watcher followed a transcript nothing ever wrote, and the tile came
     // back empty on the next launch. Quoted because --name carries a sentence,
     // and an unquoted sentence arrives as four arguments.
-    else { file = shellPath; afterStart = ['claude', ...claudeArgs].map(shellQuote).join(' '); }
+    else { file = shellPath; afterStart = ['claude', ...claudeArgs, ...extraArgs].map(shellQuote).join(' '); }
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
