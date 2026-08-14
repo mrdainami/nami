@@ -3956,6 +3956,29 @@ function rowTool(item) {
   });
 }
 
+// Any agent that is not a master is one copy away from being one. A markdown
+// file the project owns is lifted — the original becomes a marked copy that
+// regenerates from the new master. Everything else — plugins, user-scope
+// files, Codex TOML — is imported, and the source is read, never written.
+async function copyToMaster(item) {
+  if (!S.project) { toast('Open a folder first — the master lands in it.'); return; }
+  const args = { projectPath: S.project.path, agentIds: installedAgentIds() };
+  const lift = item.scope === 'project' && !item.readOnly && /\.(md|markdown)$/i.test(item.filePath || '');
+  const res = lift
+    ? await api.adoptAgent({ ...args, filePath: item.filePath, platform: item.platform })
+    : await api.importAgent({ ...args, filePath: item.filePath });
+  if (!res || !res.ok) { toast((res && res.error) || 'Could not copy it.'); return; }
+  await loadLibrary(true); // force — the scan must see the new master
+  toast(`${item.slug} runs anywhere now — it lives in agents/${item.slug}.md.`);
+  if (S.overlay && S.overlay.type === 'agents') {
+    // Reopen as the master it just became, so the delivery dots light up in
+    // place — openToolList toggles, so the slot must be cleared first.
+    S.overlay.open = null; S.overlay.delivery = null;
+    const master = pickerAgents().find((a) => a.slug === item.slug && isMaster(a));
+    if (master) await openToolList(master); else renderOverlay();
+  }
+}
+
 // Make sure this agent has a copy on the tool about to run it. Delivery is
 // tool-scoped, not agent-scoped — one pass regenerates every master for that
 // one tool — which is what keeps ⌘K from quietly rewriting five other folders.
@@ -4131,17 +4154,24 @@ function toolListHtml(item) {
   // which is the drawer's Copy action, not a delivery that will never happen.
   if (!isMaster(item)) {
     const reach = reachOf(item);
+    const act = `<div class="tool-row co-act" data-copy role="button" tabindex="0"
+        title="Copy into agents/ — becomes a master that runs on every tool">
+      <span class="tl-mark">＋</span>
+      <span class="tl-name">Copy to this folder</span>
+      <span class="tl-note">becomes agents/${esc(item.slug)}.md and runs on every tool below</span>
+      <span class="tl-dot on">›</span></div>`;
     const rows = installedAgentIds().map((id) => {
       const runs = reach.includes(id);
       return `<div class="tool-row${runs ? ' picked' : ' dead'}">
         <span class="tl-mark">${iconSvg(iconKeyFor(id) || '') || esc(code2(toolNameOf(id)))}</span>
         <span class="tl-name">${esc(toolNameOf(id))}</span>
-        <span class="tl-note">${runs ? 'runs here — its own folder' : 'copy to this folder first, then it runs here'}</span>
+        <span class="tl-note">${runs ? 'runs here — its own folder' : 'after the copy, runs here too'}</span>
         <span class="tl-dot ${runs ? 'on' : ''}">${runs ? '●' : '—'}</span></div>`;
     }).join('');
-    return `<div class="tool-list">${rows}
-      <div class="tool-foot">Copied into <b>agents/</b>, this agent becomes a master that runs on every tool.
-        The original file is never touched.</div></div>`;
+    return `<div class="tool-list">${act}${rows}
+      <div class="tool-foot">${item.scope === 'plugin'
+    ? 'The plugin\'s own file is read, never written.'
+    : 'The original file is never touched.'}</div></div>`;
   }
   if (!o.delivery) return '<div class="tool-list"><div class="tool-foot">looking…</div></div>';
   const rows = o.delivery.map((r) => {
@@ -4245,6 +4275,11 @@ function renderAgentPickerSheet() {
           tr.onclick = () => { rememberTool(a, tr.dataset.tool); o.open = null; o.delivery = null; renderOverlay(); };
           tr.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tr.click(); } };
         });
+        const cp = block.querySelector('[data-copy]');
+        if (cp) {
+          cp.onclick = () => copyToMaster(a);
+          cp.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); cp.click(); } };
+        }
         list.appendChild(block);
       }
     });
