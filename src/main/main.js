@@ -28,7 +28,7 @@ const { runPlan } = require('./connections-deliver');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
 const { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges } = require('./library');
-const { deliverAgents, liftToMaster, sweepCopies } = require('./agent-master');
+const { deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies } = require('./agent-master');
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
@@ -1092,6 +1092,22 @@ ipcMain.handle('library:delete', async (_e, args) => {
   return res;
 });
 // Deliver every master to every installed tool (create, save, repair all land here).
+// Where one agent's copies stand, for the picker's tool list. Read-only, so it
+// is safe to call every time a row opens — nothing is written until a launch
+// asks for it.
+ipcMain.handle('library:agentDelivery', (_e, { projectPath, slug, agentIds } = {}) =>
+  (projectPath && slug ? deliveryState({ projectPath, slug, agentIds: agentIds || [] }) : []));
+
+// The copy-over drawer: lift a personal agent from a home folder into agents/
+// as a master, then deliver it. The source is the user's own file and is read,
+// never written — unlike adoption, which converts a file inside the project.
+ipcMain.handle('library:importAgent', (_e, { filePath, projectPath, agentIds } = {}) => {
+  const res = importToMaster({ filePath, projectPath });
+  if (res.ok) res.delivered = deliverAgents({ projectPath, agentIds: agentIds || [] });
+  return res;
+});
+
+// Deliver every master to every installed tool (create, save, repair all land here).
 ipcMain.handle('library:deliverAgents', (_e, { projectPath, agentIds } = {}) =>
   (projectPath ? deliverAgents({ projectPath, agentIds: agentIds || [] }) : []));
 // "Make it everyone's": lift a hand-made platform agent into the drawer.
@@ -1322,7 +1338,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // conversation, so the watcher re-reads the live id and follows it. Started
     // after the spawn below, because following it needs the pty's pid.
     if (transcript) claudeWatch = { transcript, sid, cwd };
-    if (claudeExe) { file = claudeExe; spawnArgs = claudeArgs; }
+    // Extra args ride along — the agents picker launches claude as the agent
+    // with `--agent <slug>` (probe-backed; see agent-launch.mjs).
+    const extraArgs = Array.isArray(args) ? args : [];
+    if (claudeExe) { file = claudeExe; spawnArgs = [...claudeArgs, ...extraArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
     // into a marker branch below that typed a bare `claude`, dropping
@@ -1330,7 +1349,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // title watcher followed a transcript nothing ever wrote, and the tile came
     // back empty on the next launch. Quoted because --name carries a sentence,
     // and an unquoted sentence arrives as four arguments.
-    else { file = shellPath; afterStart = ['claude', ...claudeArgs].map(shellQuote).join(' '); }
+    else { file = shellPath; afterStart = ['claude', ...claudeArgs, ...extraArgs].map(shellQuote).join(' '); }
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {

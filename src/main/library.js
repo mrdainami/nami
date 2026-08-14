@@ -34,8 +34,38 @@ function listMd(dir) {
   try { return fs.readdirSync(dir).filter((f) => f.endsWith('.md')).map((f) => path.join(dir, f)); }
   catch (_) { return []; }
 }
+// Codex is the one tool whose agents are TOML rather than frontmatter, which is
+// why it needs its own lister and its own two-key reader. Everything downstream
+// — marker rule, slug, one-row-per-agent — is identical.
+function listToml(dir) {
+  try { return fs.readdirSync(dir).filter((f) => f.endsWith('.toml')).map((f) => path.join(dir, f)); }
+  catch (_) { return []; }
+}
+// Only the two keys a row needs. Not a TOML parser: a bare top-level
+// `key = "value"`, which is exactly what agent-master.js writes and what Codex's
+// own docs show. Anything fancier falls back to the filename, same as a
+// markdown agent with no frontmatter.
+//
+// Top-level means top-level. The prompt rides in a `"""…"""` block and a
+// `[table]` can follow it, and a line inside either that happens to read
+// `name = "…"` is not this agent's name — an agent whose instructions discuss
+// frontmatter would otherwise rename itself. So the scan stops at the first of
+// those it meets.
+function readTomlMeta(file) {
+  try {
+    const raw = fs.readFileSync(file, 'utf8').slice(0, 4000);
+    const cut = Math.min(...[raw.indexOf('"""'), raw.indexOf("'''"), raw.search(/^\s*\[/m)].filter((i) => i >= 0), raw.length);
+    const txt = raw.slice(0, cut);
+    const out = {};
+    for (const key of ['name', 'description']) {
+      const m = txt.match(new RegExp('^' + key + '\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"', 'm'));
+      if (m) out[key] = m[1].replace(/\\(["\\])/g, '$1');
+    }
+    return out;
+  } catch (_) { return {}; }
+}
 
-const { isDelivered } = require('./agent-master');
+const { isDelivered, copyTargets } = require('./agent-master');
 function isDeliveredFile(file) {
   try { return isDelivered(fs.readFileSync(file, 'utf8').slice(0, 4000)); } catch (_) { return false; }
 }
@@ -77,15 +107,41 @@ function skillIdentity(entry) {
   return entry.dir;
 }
 
+// A per-tool file sitting exactly where a master's copy would land is that
+// master shadowed on one tool — the same agent, hand-written for one place, and
+// the master's tool list already says so as ◐. Anywhere else it is a genuinely
+// separate agent that happens to share a name, and it keeps its own row.
+//
+// The distinction is not academic: OpenCode reads both `.opencode/agent` and
+// `.opencode/agents`, delivery writes the plural and Nami's own create writes
+// the singular. Matching on the real target path rather than on the slug is
+// what keeps a hand-made `.opencode/agent/foo.md` from vanishing behind an
+// unrelated master called `foo`.
+function markShadows(items, projectPath, homeDir) {
+  const masters = new Set(items.filter((i) => i.type === 'agent' && i.platform === 'project').map((i) => i.slug));
+  if (!masters.size) return;
+  for (const i of items) {
+    if (i.type !== 'agent' || i.platform === 'project' || i.scope !== 'project') continue;
+    if (!masters.has(i.slug)) continue;
+    const t = copyTargets(projectPath, i.slug, homeDir)[i.platform];
+    if (t && t.kind === 'copy' && path.resolve(t.file) === path.resolve(i.filePath)) i.shadows = i.slug;
+  }
+}
+
 function mkItem(type, platform, scope, filePath, readOnly, extra) {
-  const meta = readMeta(filePath);
-  const slug = type === 'skill' ? path.basename(path.dirname(filePath)) : path.basename(filePath, '.md');
+  const toml = filePath.endsWith('.toml');
+  const meta = toml ? readTomlMeta(filePath) : readMeta(filePath);
+  const slug = type === 'skill' ? path.basename(path.dirname(filePath))
+    : path.basename(filePath, toml ? '.toml' : '.md');
   return {
     id: filePath, type, platform, scope, slug,
     name: meta.name || slug,
     description: meta.description || '',
     filePath,
-    meta: { tools: meta.tools || '', model: meta.model || '', mode: meta.mode || '', agent: meta.agent || '' },
+    // `tool` (singular) is the master's own hint about which tool it was written
+    // for; `tools` (plural) is the permission list. Dropping the first here is
+    // what made a master declaring `tool: codex` still launch on Claude.
+    meta: { tools: meta.tools || '', model: meta.model || '', mode: meta.mode || '', tool: meta.tool || '', agent: meta.agent || '' },
     readOnly: !!readOnly,
     ...(extra || {}),
   };
@@ -184,12 +240,20 @@ function scanLibrary({ projectPath, homeDir } = {}) {
     for (const f of listMd(path.join(projectPath, '.opencode/agent'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
     for (const f of listMd(path.join(projectPath, '.opencode/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
     for (const f of listMd(path.join(projectPath, '.gemini/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'gemini', 'project', f));
+    for (const f of listToml(path.join(projectPath, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'project', f));
     for (const f of listMd(path.join(projectPath, '.kimi-code/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'kimi', 'project', f));
     for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
+    markShadows(items, projectPath, home);
   }
-  for (const f of listMd(path.join(home, '.claude/agents'))) items.push(mkItem('agent', 'claude', 'user', f));
+  // Marker-filtered like every other scan. Delivery is project-scoped today, so
+  // nothing here carries a marker yet — but the one scan that trusts whatever it
+  // finds is the one that shows a master twice the day that changes.
+  for (const f of listMd(path.join(home, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'user', f));
   addSkills(home, USER_SKILL_SOURCES, 'user');
   for (const f of listMd(path.join(home, '.config/opencode/agent'))) items.push(mkItem('agent', 'opencode', 'user', f));
+  // Codex keeps personal agents at ~/.codex/agents — TOML, like its project
+  // folder. Scanned so the copy-over drawer can offer them.
+  for (const f of listToml(path.join(home, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'user', f));
   for (const f of listMd(path.join(home, '.config/opencode/command'))) items.push(mkItem('command', 'opencode', 'user', f));
   const plugin = [];
   walkPlugins(path.join(home, '.claude/plugins'), plugin);
@@ -329,7 +393,13 @@ function duplicateItem({ filePath, type, projectPath }) {
       const src = PROJECT_SKILL_SOURCES[0];
       return { ok: true, filePath: path.join(dest, 'SKILL.md'), item: mkSkillItem(src, 'project', { dir: dest, link: '', broken: false }) };
     }
-    const base = path.basename(filePath, '.md');
+    // Markdown only. The extension fix below stops foo.toml.md, but the copy
+    // would still be TOML bytes in a .md file that Claude cannot parse —
+    // duplicating across formats is a conversion, not a copy.
+    if (!filePath.endsWith('.md')) return { ok: false, error: 'Only markdown agents can be copied here — this one is ' + path.extname(filePath) + '.' };
+    // .toml as well as .md now: basename(f, '.md') on foo.toml yields
+    // "foo.toml", and the copy would land as foo.toml.md holding TOML.
+    const base = path.basename(filePath, path.extname(filePath));
     const { dest } = freeDest(base, (s) => path.join(projectPath, '.claude/agents', s + '.md'));
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(filePath, dest);

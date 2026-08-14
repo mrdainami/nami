@@ -6,10 +6,12 @@
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl, docUrl, tailPath } from './file-kinds.mjs';
-import { parseDoc, getField, setField, serializeDoc } from './frontmatter.mjs';
+import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
-import { chipHtml, iconKeyFor, treeIcon, pixIcon } from './icons.mjs';
+import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
+import { resolveTool, originLine, sortKey, canRunOn, isMaster, reachOf } from './agent-reach.mjs';
+import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
@@ -189,6 +191,11 @@ function code2(str) {
   return (String(str || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2) || 'SS').toUpperCase();
 }
 function baseNameOf(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || '(file)'; }
+// The format a file is in, for a tab that should not call TOML "Markdown".
+function formatLabel(p) {
+  const m = baseNameOf(p).match(/\.([A-Za-z0-9]+)$/);
+  return m ? m[1].toUpperCase() : 'Raw';
+}
 function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); }
 function q(sel, root) { return (root || document).querySelector(sel); }
 // A panel's chip: brand glyph when the session maps to a known brand, else its code.
@@ -407,6 +414,17 @@ function showScene(name) {
     S.project = null;
     S.overlay = { type: 'folder-first', run: () => {}, who: 'Claude' };
     return renderOverlay();
+  }
+  // The ⌘K picker, and the same picker with one agent's tool list open.
+  //   --scene=agents  ·  agents:<slug>
+  // Both wait on the detect pass: without it the rows cannot name a tool.
+  if (what === 'agents') {
+    return refreshAgents().then(async () => {
+      await openAgentPicker();
+      if (!step) return;
+      const item = pickerAgents().find((a) => a.slug === step);
+      if (item) await openToolList(item);
+    });
   }
   // agent surfaces need the detect pass to have landed, and the sheet also
   // needs that agent's identity, so both wait rather than shooting "checking…"
@@ -2370,6 +2388,14 @@ async function driveCards(p) {
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
   }
+  // What ⌘K said on the way in — which copy was written, whose file won —
+  // belongs to this launch and is put back after the rebuild above. Once, and
+  // then forgotten: clearing or resuming the conversation starts a different
+  // one, and re-stamping "delivered just now" onto it would be a lie.
+  if (p.launchNotes && p.launchNotes.length) {
+    p.cardEvents = p.cardEvents.concat(p.launchNotes);
+    p.launchNotes = null;
+  }
   p.connecting = true;
   feedCards(p, true);
   if (rec.cardsUi) rec.cardsUi.scrollToEnd(true);
@@ -3003,7 +3029,9 @@ async function openCard(item, opts) {
   const chip = TYPE_CHIP[item.type] || TYPE_CHIP.agent;
   const p = {
     id: uid('p_'), kind: 'card', item, filePath: item.filePath, doc, raw: res.text,
-    mode: doc.hasFrontmatter ? 'form' : 'raw', dirty: false, status: 'live',
+    // The invariant is 'only markdown edits as frontmatter', and it must not
+    // rest on a .toml never happening to start with ---.
+    mode: doc.hasFrontmatter && editsAsFrontmatter(item.filePath) ? 'form' : 'raw', dirty: false, status: 'live',
     chipKind: chip.kind, code: chip.code, title: item.name, cwd: S.project && S.project.path,
   };
   if (doc.malformed) toast('Frontmatter looks malformed. Raw view only.');
@@ -3018,10 +3046,17 @@ function mountCard(p, rec) {
   const ro = p.item.readOnly || p.item.broken;
   const wrap = document.createElement('div'); wrap.className = 'card-ed';
   const fields = FIELD_MAP[p.item.type] || FIELD_MAP[p.item.platform + ':' + p.item.type] || FIELD_MAP['claude:agent'];
+  // The form is a frontmatter editor, and only markdown has frontmatter. Codex
+  // agents are TOML: offered the form, it would find no fence, fall through to
+  // Claude's field list, and the first keystroke would make setField *create*
+  // frontmatter — writing a YAML block onto somebody's hand-written TOML and
+  // leaving a file Codex can no longer parse. No form, and the raw tab is
+  // named for what it actually holds.
+  const asMarkdown = editsAsFrontmatter(p.filePath);
   wrap.innerHTML = `
     <div class="card-tabs">
-      <button class="card-tab" data-m="form">Form</button>
-      <button class="card-tab" data-m="raw">Markdown</button>
+      ${asMarkdown ? '<button class="card-tab" data-m="form">Form</button>' : ''}
+      <button class="card-tab" data-m="raw">${asMarkdown ? 'Markdown' : esc(formatLabel(p.filePath))}</button>
       <span class="card-src">${esc(p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope)}${ro ? ' · read-only' : ''}</span>
     </div>
     <div class="card-form">
@@ -3062,6 +3097,7 @@ function mountCard(p, rec) {
       const target = b.dataset.m;
       if (target === p.mode) return;
       if (target === 'raw') { p.raw = serializeDoc(p.doc); p.mode = 'raw'; applyMode(); return; }
+      if (!asMarkdown) return;   // there is no form for a file with no frontmatter to edit
       const doc = parseDoc(rawTa.value);
       if (doc.malformed) { toast('Fix the frontmatter fences (---) first — staying in raw view.'); return; }
       p.raw = rawTa.value; p.doc = doc; p.mode = 'form'; applyMode();
@@ -3091,7 +3127,14 @@ function mountCard(p, rec) {
   if (cardPath) { cardPath.title = 'Reveal in Finder'; cardPath.onclick = () => api.revealFile(p.filePath); }
   const cardFinder = q('.card-finder', wrap);
   if (cardFinder) cardFinder.onclick = () => api.revealFile(p.filePath);
-  const useBtn = q('.card-use', wrap); if (useBtn) useBtn.onclick = () => useAgent(p.item);
+  const useBtn = q('.card-use', wrap);
+  // Same resolution the picker uses, so Use and ⌘K never disagree about
+  // which tool an agent runs on.
+  if (useBtn) useBtn.onclick = () => {
+    const tool = rowTool(p.item);
+    if (!tool) { toast('Nothing installed can run ' + p.item.slug + '.'); return; }
+    launchAgent(p.item, tool);
+  };
   const adoptBtn = q('.card-adopt', wrap);
   if (adoptBtn) adoptBtn.onclick = async () => {
     if (p.dirty) { toast('Save the card first — the master is lifted from the file.'); return; }
@@ -3869,35 +3912,377 @@ async function finishAgentInstall(p, code) {
 }
 
 // ---- agent picker (⌘K) — fed by the library scan ---------------------------
+// ⌘N answers which tool runs. This answers what it runs as — every agent on the
+// shelf, whatever tool it speaks, with two ways out of every row: into the
+// session you are looking at, or into a fresh one.
 function pickerAgents() {
-  return S.library.items.filter((i) => i.type === 'agent' && i.platform === 'claude' && (i.scope === 'project' || i.scope === 'user'));
+  // One agent, one row — the rule the drawer has followed since it landed. A
+  // file sitting where a master's copy would land is that master shadowed on
+  // one tool, not a second agent, and the master's tool list says so as ◐.
+  // The scan decides that by target path, not by name, so a same-named agent in
+  // a folder the master never writes to keeps its own row.
+  return (S.library.items || [])
+    .filter((i) => i.type === 'agent' && !i.shadows)
+    .sort((a, b) => sortKey(a) - sortKey(b) || String(a.slug).localeCompare(String(b.slug)));
 }
-function useAgent(a) {
+function toolNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
+function toolById(id) { return (S.agents || []).find((x) => x.id === id) || null; }
+
+// Which tool a live tile is running, as a detected agent id. cardAgentFor names
+// the adapter — 'agy' for Antigravity — so the registry does the last hop
+// rather than a second hard-coded table.
+function panelTool(p) {
+  const key = cardAgentFor(p);
+  if (!key || String(key).startsWith('unknown:')) return null;
+  if (key === 'claude') return 'claude';
+  const a = (S.agents || []).find((x) => x.bin === key);
+  return a ? a.id : null;
+}
+function focusedPanel() { return S.panels.find((x) => x.id === S.activeId) || null; }
+
+// One string per agent, so a habit is remembered per agent rather than globally
+// — the same shape as the launcher's Cards/Terminal memory.
+const TOOL_KEY = (item) => 'nami.agenttool.' + item.id;
+function rememberedTool(item) { try { return localStorage.getItem(TOOL_KEY(item)) || ''; } catch (_) { return ''; } }
+function rememberTool(item, toolId) { try { localStorage.setItem(TOOL_KEY(item), toolId); } catch (_) {} }
+
+function rowTool(item) {
+  const p = focusedPanel();
+  return resolveTool({
+    item,
+    remembered: rememberedTool(item),
+    focusedTool: p ? panelTool(p) : null,
+    installed: installedAgentIds(),
+  });
+}
+
+// Any agent that is not a master is one copy away from being one. A markdown
+// file the project owns is lifted — the original becomes a marked copy that
+// regenerates from the new master. Everything else — plugins, user-scope
+// files, Codex TOML — is imported, and the source is read, never written.
+async function copyToMaster(item) {
+  if (!S.project) { toast('Open a folder first — the master lands in it.'); return; }
+  const args = { projectPath: S.project.path, agentIds: installedAgentIds() };
+  const lift = item.scope === 'project' && !item.readOnly && /\.(md|markdown)$/i.test(item.filePath || '');
+  const res = lift
+    ? await api.adoptAgent({ ...args, filePath: item.filePath, platform: item.platform })
+    : await api.importAgent({ ...args, filePath: item.filePath });
+  if (!res || !res.ok) { toast((res && res.error) || 'Could not copy it.'); return; }
+  await loadLibrary(true); // force — the scan must see the new master
+  toast(`${item.slug} runs anywhere now — it lives in agents/${item.slug}.md.`);
+  if (S.overlay && S.overlay.type === 'agents') {
+    // Reopen as the master it just became, so the delivery dots light up in
+    // place — openToolList toggles, so the slot must be cleared first.
+    S.overlay.open = null; S.overlay.delivery = null;
+    const master = pickerAgents().find((a) => a.slug === item.slug && isMaster(a));
+    if (master) await openToolList(master); else renderOverlay();
+  }
+}
+
+// Make sure this agent has a copy on the tool about to run it. Delivery is
+// tool-scoped, not agent-scoped — one pass regenerates every master for that
+// one tool — which is what keeps ⌘K from quietly rewriting five other folders.
+async function ensureDelivered(item, toolId) {
+  if (!isMaster(item) || !S.project) return null;
+  const before = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
+  const was = (before && before[0]) || null;
+  // `here` is not a skip: the copy regenerates so a dialect fix (opencode's
+  // mode, say) reaches copies delivered before it. Marked files are Nami's to
+  // rewrite; `theirs` and `none` stay untouched as ever.
+  if (!was || was.state === 'theirs' || was.state === 'none' || was.state === 'via') return was;
+  // Report what delivery actually did, not what it was asked to do. Saying
+  // "delivered just now" about a write that failed is the same false claim this
+  // whole surface exists to avoid — and deliverAgents already answers per pair.
+  //
+  // It answers per pair for a refusal; a read-only folder is not a refusal but a
+  // throw, straight out of writeFileSync and through the ipc call. Uncaught, it
+  // would abort the launch after the overlay had closed: no session, no tile, no
+  // word. The session is worth having even when the copy could not be written.
+  //
+  // And a throw is not evidence about *this* agent: delivery runs every master
+  // against the tool in one pass, so an unrelated master's unwritable file
+  // rejects the whole call while ours may well have landed. Ask the disk again
+  // rather than deny a copy that is sitting there.
+  let done = null;
+  try { done = await api.deliverAgents({ projectPath: S.project.path, agentIds: [toolId] }); }
+  catch (_) {
+    try {
+      const after = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
+      const now = (after && after[0]) || null;
+      if (now && now.state === 'here') return was;   // ours landed; the throw was somebody else's
+      // A file appeared at the target that is not ours — a hand-edit between
+      // the two reads, or a partial write. Whatever it is, the tool will read
+      // it, so this is the `theirs` note and not the failure one.
+      if (now && now.state === 'theirs') return { ...was, state: 'theirs', file: now.file };
+      return { ...was, state: 'failed', file: (now && now.file) || was.file };
+    } catch (_) { return { ...was, state: 'failed' }; }
+  }
+  const mine = (done || []).find((r) => r.slug === item.slug && r.agent === toolId);
+  if (mine && mine.ok === false) return { ...was, state: mine.theirs ? 'theirs' : 'failed', file: mine.file || was.file };
+  if (!mine) return { ...was, state: 'failed' };
+  return was;
+}
+
+// What the session says about how it got here. Never silent about a file having
+// been written, never claiming one that was not. Card notes are plain text —
+// cards-dom sets textContent, deliberately.
+function deliveryNote(item, toolId, was) {
+  const tool = toolNameOf(toolId);
+  if (!isMaster(item)) return `${item.slug} — ${tool}'s own agent, from ${shortHome(item.filePath)}.`;
+  if (!was) return `${item.slug} on ${tool}.`;
+  if (was.state === 'theirs') {
+    return `${item.slug} on ${tool} — your own ${baseNameOf(was.file)} is there and Nami left it alone, `
+      + `so this runs your file, not agents/${item.slug}.md.`;
+  }
+  if (was.state === 'failed') {
+    return `${item.slug} could not be delivered to ${tool}${was.file ? ' at ' + shortHome(was.file) : ''} — `
+      + `it will run without the agent file unless you put one there yourself.`;
+  }
+  if (was.state === 'soon') return `Delivered ${item.slug} to ${was.file ? shortHome(was.file) : tool} just now.`;
+  return `${item.slug} on ${tool} — the copy was already there.`;
+}
+
+// A line the session keeps. On a card tile it joins the conversation, which is
+// where the mockup put it and where it survives scrolling; a terminal tile has
+// no conversation, so it gets the tile note instead.
+function announce(p, text) {
+  if (!(canShowCards(p) && cardView(p) === 'cards')) {
+    setTileNote(p, `<span class="tn-tx">${esc(text)}</span>`, 'ok');
+    return;
+  }
+  const row = { kind: 'note', id: 'agent:' + (p.noteSeq = (p.noteSeq || 0) + 1), text };
+  // driveCards rebuilds cardEvents from the intro (plus Claude's backlog) the
+  // moment the channel comes up, so a note pushed before that would be thrown
+  // away — which is exactly when the launch notes are written. Anything said
+  // before the boot rides in launchNotes and is placed by driveCards itself.
+  if (!p.agentInit) p.launchNotes = (p.launchNotes || []).concat(row);
+  p.cardEvents = (p.cardEvents || []).concat(row);
+  scheduleFeed(p);
+}
+
+// New session. Seed, surface and title are master's `useAgent` exactly, widened
+// to any installed tool: the seed rides the pty seeder, the panel is a terminal,
+// and the title is the weak generic one that the first prompt later replaces.
+// What is new around them is delivery and the note that reports it.
+//
+// An earlier draft of this launched into Cards so the master's model and mode
+// could be applied at birth, which meant the seed had to move to the send queue
+// and the title had to stop being generic. All three were decisions this change
+// had no business making, and all three were reverted. If the recipe ever seems
+// to justify picking a surface here again: it does not. driveCards applies it
+// when the user chooses Cards.
+function launchAgent(item, toolId) {
   closeOverlay();
-  startPanel({ kind: 'claude', title: a.name + ' session', code: code2(a.name), seed: `Use the ${a.slug} agent.` });
+  withFolder(() => reallyLaunchAgent(item, toolId), item.slug);
 }
+async function reallyLaunchAgent(item, toolId) {
+  const worker = toolById(toolId);
+  if (!worker || !worker.found) { toast(`${toolNameOf(toolId)} is not on this Mac.`); return; }
+  rememberTool(item, toolId);
+  const was = await ensureDelivered(item, toolId);
+  // How the session becomes the agent comes from the launch table, which knows
+  // two mechanics and never blurs them: flag tools (claude, opencode,
+  // antigravity) launch with --agent and the session opens already being the
+  // agent; seed tools (codex, kimi) get one summoning sentence typed in their
+  // own idiom. Both are probe-backed — see agent-launch.mjs.
+  const launch = agentLaunch(toolId, item.slug);
+  // No `view`, so cardView() reads 'term' — the surface master always gave.
+  // `"<Name> session"` rather than the slug, because isGenericTitle keys on
+  // that word: a name Nami merely assembled has to stay weak enough for the
+  // first prompt, and then Claude's own transcript name, to replace it. Calling
+  // the tile `ui-polisher` froze every ⌘K session under a name nothing could
+  // improve. Not agentSession(): that stamps titleSource 'flow', the rung that
+  // does the freezing.
+  const p = startPanel({
+    kind: worker.kind === 'claude' ? 'claude' : 'run',
+    command: worker.kind === 'claude' ? undefined
+      : launch.kind === 'flag' ? worker.bin + ' ' + launch.argv.join(' ') : worker.bin,
+    args: worker.kind === 'claude' && launch.kind === 'flag' ? [...launch.argv] : undefined,
+    title: item.name + ' session', code: code2(item.name),
+    seed: launch.kind === 'seed' ? launch.seed : undefined,
+  });
+  if (!p) return;
+  // Calvin's call: a launch that went right explains nothing — the session
+  // speaking as the agent is its own receipt. The note survives only where
+  // silence would lie: the copy could not be written, or a hand-made file won
+  // and the session is running that file, not the master.
+  if (was && (was.state === 'theirs' || was.state === 'failed')) {
+    announce(p, deliveryNote(item, toolId, was));
+  }
+}
+
+
+
 async function openAgentPicker() {
   await loadLibrary();
-  S.overlay = { type: 'agents', query: '', hi: 0 }; renderOverlay();
+  S.overlay = { type: 'agents', query: '', hi: 0, open: null, delivery: null };
+  renderOverlay();
+  if (!S.agents) refreshAgents().then(() => { if (S.overlay && S.overlay.type === 'agents') renderOverlay(); });
 }
+
+// The ›: where this agent's copies stand across every installed tool. Read-only
+// — asking never writes.
+async function openToolList(item) {
+  const o = S.overlay;
+  if (o.open === item.slug) { o.open = null; o.delivery = null; renderOverlay(); return; }
+  o.open = item.slug; o.delivery = null; renderOverlay();
+  // A non-master's list is local arithmetic — where the file sits is the whole
+  // answer — so there is nothing to ask the disk.
+  if (!isMaster(item) || !S.project) return;
+  const rows = await api.agentDelivery({
+    projectPath: S.project.path, slug: item.slug, agentIds: installedAgentIds(),
+  });
+  if (S.overlay && S.overlay.type === 'agents' && S.overlay.open === item.slug) {
+    S.overlay.delivery = rows; renderOverlay();
+  }
+}
+
+const DELIVERY_DOT = { here: '●', soon: '○', theirs: '◐', via: '●', none: '—' };
+const DELIVERY_CLASS = { here: 'on', soon: 'soon', theirs: 'theirs', via: 'on', none: '' };
+function deliveryLine(row) {
+  if (row.state === 'here') return 'delivered · ' + shortHome(row.file);
+  if (row.state === 'soon') return 'delivered as ' + baseNameOf(row.file) + ' when it launches';
+  if (row.state === 'theirs') return 'your own ' + baseNameOf(row.file) + ' is here — it wins, the master stays out';
+  if (row.state === 'via') return 'reads ' + toolNameOf(row.via) + "'s copy";
+  return row.reason || 'runs no custom agents';
+}
+
+function toolListHtml(item) {
+  const o = S.overlay;
+  // Not a master: the file sits in one tool's folder and that tool is the whole
+  // answer. The other rows say what would change it — a copy into agents/ —
+  // which is the drawer's Copy action, not a delivery that will never happen.
+  if (!isMaster(item)) {
+    const reach = reachOf(item);
+    const act = `<div class="tool-row co-act" data-copy role="button" tabindex="0"
+        title="Copy into agents/ — becomes a master that runs on every tool">
+      <span class="tl-mark">＋</span>
+      <span class="tl-name">Copy to this folder</span>
+      <span class="tl-note">becomes agents/${esc(item.slug)}.md and runs on every tool below</span>
+      <span class="tl-dot on">›</span></div>`;
+    const rows = installedAgentIds().map((id) => {
+      const runs = reach.includes(id);
+      return `<div class="tool-row${runs ? ' picked' : ' dead'}">
+        <span class="tl-mark">${iconSvg(iconKeyFor(id) || '') || esc(code2(toolNameOf(id)))}</span>
+        <span class="tl-name">${esc(toolNameOf(id))}</span>
+        <span class="tl-note">${runs ? 'runs here — its own folder' : 'after the copy, runs here too'}</span>
+        <span class="tl-dot ${runs ? 'on' : ''}">${runs ? '●' : '—'}</span></div>`;
+    }).join('');
+    return `<div class="tool-list">${act}${rows}
+      <div class="tool-foot">${item.scope === 'plugin'
+    ? 'The plugin\'s own file is read, never written.'
+    : 'The original file is never touched.'}</div></div>`;
+  }
+  if (!o.delivery) return '<div class="tool-list"><div class="tool-foot">looking…</div></div>';
+  const rows = o.delivery.map((r) => {
+    const dead = r.state === 'none';
+    return `<div class="tool-row${dead ? ' dead' : ''}${rowTool(item) === r.agent ? ' picked' : ''}"
+        ${dead ? '' : `data-tool="${esc(r.agent)}" role="button" tabindex="0"`}>
+      <span class="tl-mark">${iconSvg(iconKeyFor(r.agent) || '') || esc(code2(toolNameOf(r.agent)))}</span>
+      <span class="tl-name">${esc(toolNameOf(r.agent))}</span>
+      <span class="tl-note">${esc(deliveryLine(r))}</span>
+      <span class="tl-dot ${DELIVERY_CLASS[r.state] || ''}">${DELIVERY_DOT[r.state] || '—'}</span></div>`;
+  }).join('');
+  return `<div class="tool-list">${rows}
+    <div class="tool-foot">Copies are regenerated from <b>agents/${esc(item.slug)}.md</b>.
+      Files without Nami's marker are somebody's hand work and are never touched.</div></div>`;
+}
+
+// Calvin's four sections, in ownership order — the closer to you, the higher:
+// masters this folder shares, this folder's per-CLI files, the agents that
+// follow you between folders, and the read-only ones that came with packs.
+// Plugins is the one section that is third-party AND numerous, so it alone
+// collapses; a live search opens it, because a hidden match reads as a bug.
+const PICKER_SECTIONS = ['IN THIS FOLDER', 'PER MODEL', 'FROM YOUR CLIS', 'PLUGINS'];
+
 function renderAgentPickerSheet() {
   const o = S.overlay; const agents = pickerAgents();
-  const filtered = agents.filter((a) => (a.name + ' ' + (a.description || '')).toLowerCase().includes(o.query.toLowerCase()));
-  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span><input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div><div class="picker-list" id="ap-list"></div>`, { top: true });
+  const query = o.query.toLowerCase();
+  const filtered = agents.filter((a) => (a.slug + ' ' + a.name + ' ' + (a.description || '')).toLowerCase().includes(query));
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span>
+      <input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div>
+    <div class="picker-list" id="ap-list"></div>
+    <div class="picker-foot"><span>click a row → a session as that agent</span>
+      <span><b>›</b> → run it on another tool</span></div>`, { top: true });
+  // Sections first, so the keyboard and the clicks walk the same visible list:
+  // a collapsed Plugins section keeps its rows out of arrow-reach too.
+  const plugOpen = !!o.plugOpen || !!query;
+  const groups = [[], [], [], []];
+  filtered.forEach((a) => groups[sortKey(a)].push(a));
+  const visible = groups[0].concat(groups[1], groups[2], plugOpen ? groups[3] : []);
+  if (o.hi > visible.length - 1) o.hi = Math.max(0, visible.length - 1);
   const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
-  input.oninput = () => { o.query = input.value; o.hi = 0; renderOverlay(); };
+  input.oninput = () => { o.query = input.value; o.hi = 0; o.open = null; renderOverlay(); };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { const a = filtered[o.hi]; if (a) { closeOverlay(); useAgent(a); } }
-    if (e.key === 'ArrowDown') { o.hi = Math.min(filtered.length - 1, o.hi + 1); renderOverlay(); }
+    if (e.key === 'Enter') {
+      const a = visible[o.hi]; const t = a && rowTool(a);
+      if (a && t) launchAgent(a, t);
+      // A key that does nothing reads as a broken key. The click path already
+      // says why on a dead row; this says the same thing out loud.
+      else if (a) toast(`Nothing installed can run ${a.slug}.`);
+    }
+    if (e.key === 'ArrowDown') { o.hi = Math.min(visible.length - 1, o.hi + 1); renderOverlay(); }
     if (e.key === 'ArrowUp') { o.hi = Math.max(0, o.hi - 1); renderOverlay(); }
   });
   const list = q('#ap-list', modal);
-  if (!filtered.length) { list.innerHTML = `<div class="rail-empty" style="padding:14px">${agents.length ? 'No match.' : 'No Claude agents found — create one in the Library tab.'}</div>`; return; }
-  filtered.forEach((a, i) => {
-    const row = document.createElement('div'); row.className = 'picker-row' + (i === o.hi ? ' hilite' : '');
-    row.innerHTML = `<span class="code" data-kind="agent">${esc(code2(a.name))}</span><span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.description || a.meta.tools || '')}</span></span>`;
-    row.onclick = () => { closeOverlay(); useAgent(a); };
-    list.appendChild(row);
+  if (!filtered.length) {
+    list.innerHTML = agents.length
+      ? '<div class="rail-empty" style="padding:14px">No match.</div>'
+      : `<div class="rail-empty" style="padding:16px 14px"><b>No agents in this folder yet.</b><br>
+        A master lives in <b>agents/&lt;name&gt;.md</b> and runs on any tool Nami can see. Make one with
+        ＋ in the Library tab, or drop a file in that folder yourself.<br><br>
+        Agents you keep in <b>~/.claude/agents</b> would show up here too, in every folder.</div>`;
+    return;
+  }
+  let vi = 0;
+  groups.forEach((g, gi) => {
+    if (!g.length) return;
+    const head = document.createElement('div');
+    head.className = 'picker-sec';
+    if (gi === 3) {
+      head.classList.add('picker-sec--toggle');
+      head.setAttribute('role', 'button'); head.tabIndex = 0;
+      head.innerHTML = `<span class="sec-arr">${plugOpen ? '▾' : '▸'}</span>${PICKER_SECTIONS[3]} · ${g.length}`;
+      head.onclick = () => { o.plugOpen = !o.plugOpen; renderOverlay(); };
+      head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); head.click(); } };
+    } else head.textContent = PICKER_SECTIONS[gi];
+    list.appendChild(head);
+    if (gi === 3 && !plugOpen) return;
+    g.forEach((a) => {
+      const i = vi++;
+      const tool = rowTool(a);
+      const row = document.createElement('div');
+      row.className = 'picker-row picker-row--go' + (i === o.hi ? ' hilite' : '') + (tool ? '' : ' dead');
+      row.title = tool ? `Start a session as ${a.slug} on ${toolNameOf(tool)}` : 'Nothing installed can run this agent';
+      row.innerHTML = `${chipHtml({ key: null, code: code2(a.slug), kind: 'agent' })}
+        <span class="col"><span class="name">${esc(a.slug)}</span>
+        <span class="desc">${esc(a.description || originLine(a, toolNameOf))}</span></span>
+        <span class="row-tool">${tool
+    ? (iconSvg(iconKeyFor(tool) || '') || '') + '<span>' + esc(toolNameOf(tool)) + '</span>'
+    : '<span>no tool for it</span>'}</span>
+        <span class="chev" role="button" tabindex="0" title="${isMaster(a) ? 'Run it on another tool' : 'Where this agent can run'}">›</span>`;
+      row.onclick = (e) => {
+        if (e.target.closest('.chev')) { openToolList(a); return; }
+        if (tool) launchAgent(a, tool);
+        else toast(`Nothing installed can run ${a.slug}.`);
+      };
+      list.appendChild(row);
+      if (o.open === a.slug) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = toolListHtml(a);
+        const block = wrap.firstElementChild;
+        block.querySelectorAll('.tool-row[data-tool]').forEach((tr) => {
+          tr.onclick = () => { rememberTool(a, tr.dataset.tool); o.open = null; o.delivery = null; renderOverlay(); };
+          tr.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tr.click(); } };
+        });
+        const cp = block.querySelector('[data-copy]');
+        if (cp) {
+          cp.onclick = () => copyToMaster(a);
+          cp.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); cp.click(); } };
+        }
+        list.appendChild(block);
+      }
+    });
   });
 }
 
