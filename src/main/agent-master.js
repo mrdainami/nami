@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const fsIo = {
   read: (f) => fs.readFileSync(f, 'utf8'),
@@ -101,13 +102,15 @@ function readAgentMasters({ projectPath, io = fsIo }) {
 
 // ---- where each tool's copy lands ------------------------------------------
 
-function copyTargets(projectPath, slug) {
+function copyTargets(projectPath, slug, homeDir) {
   const p = (rel) => path.join(projectPath, rel);
+  const home = homeDir || os.homedir();
   return {
     claude: { kind: 'copy', file: p(`.claude/agents/${slug}.md`) },
     opencode: { kind: 'copy', file: p(`.opencode/agents/${slug}.md`) },
     gemini: { kind: 'copy', file: p(`.gemini/agents/${slug}.md`) },
-    antigravity: { kind: 'copy', file: p(`.gemini/agents/${slug}.md`) }, // ex-Gemini CLI, same folders
+    // agy discovers user scope only; a project copy is a copy it never reads
+    antigravity: { kind: 'copy', file: path.join(home, `.gemini/agents/${slug}.md`) },
     kimi: { kind: 'copy', file: p(`.kimi-code/agents/${slug}.md`) },
     codex: { kind: 'copy', file: p(`.codex/agents/${slug}.toml`) },
     cursor: { kind: 'via', via: 'claude' }, // reads .claude/agents natively
@@ -115,8 +118,8 @@ function copyTargets(projectPath, slug) {
   };
 }
 
-function agentDeliveryPlan({ slug, agentIds, projectPath }) {
-  const targets = copyTargets(projectPath, slug);
+function agentDeliveryPlan({ slug, agentIds, projectPath, homeDir }) {
+  const targets = copyTargets(projectPath, slug, homeDir);
   return agentIds.map((agent) => ({ agent, slug, ...targets[agent] })).filter((s) => s.kind);
 }
 
@@ -132,8 +135,8 @@ function agentDeliveryPlan({ slug, agentIds, projectPath }) {
 //   none   — this tool has no custom agents at all (Hermes)
 //
 // Read-only by construction: it never calls io.write.
-function deliveryState({ projectPath, slug, agentIds, io = fsIo }) {
-  const targets = copyTargets(projectPath, slug);
+function deliveryState({ projectPath, slug, agentIds, io = fsIo, homeDir }) {
+  const targets = copyTargets(projectPath, slug, homeDir);
   return (agentIds || []).map((agent) => {
     const t = targets[agent];
     if (!t) return { agent, slug, state: 'none', reason: `Nami has no agent format for ${agent}` };
@@ -148,10 +151,10 @@ function deliveryState({ projectPath, slug, agentIds, io = fsIo }) {
 
 // One pass for every master × every installed tool. A hand-made file with the
 // same name is reported as theirs and left alone.
-function deliverAgents({ projectPath, agentIds, io = fsIo }) {
+function deliverAgents({ projectPath, agentIds, io = fsIo, homeDir }) {
   const results = [];
   for (const { slug, agent } of readAgentMasters({ projectPath, io })) {
-    for (const step of agentDeliveryPlan({ slug, agentIds, projectPath })) {
+    for (const step of agentDeliveryPlan({ slug, agentIds, projectPath, homeDir })) {
       if (step.kind === 'via') { results.push({ agent: step.agent, slug, ok: true, via: step.via }); continue; }
       if (step.kind === 'none') { results.push({ agent: step.agent, slug, ok: false, none: true, reason: step.reason }); continue; }
       if (io.exists(step.file) && !isDelivered(io.read(step.file))) {
@@ -195,9 +198,9 @@ function liftToMaster({ filePath, platform, projectPath, io = fsIo }) {
 }
 
 // ---- sweep: a deleted master takes its copies with it -----------------------
-function sweepCopies({ projectPath, slug, io = fsIo }) {
+function sweepCopies({ projectPath, slug, io = fsIo, homeDir }) {
   const removed = [], left = [];
-  for (const t of Object.values(copyTargets(projectPath, slug))) {
+  for (const t of Object.values(copyTargets(projectPath, slug, homeDir))) {
     if (t.kind !== 'copy' || !io.exists(t.file)) continue;
     if (isDelivered(io.read(t.file))) { io.remove(t.file); removed.push(t.file); }
     else left.push(t.file);

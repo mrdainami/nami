@@ -170,9 +170,9 @@ test('sweepCopies removes marked copies only, and reports what it left', () => {
   assert.deepEqual(res.left, ['/proj/.opencode/agents/release-scribe.md']);
 });
 
-test('antigravity gets the gemini-folder copy', () => {
-  const plan = agentDeliveryPlan({ slug: 'x', agentIds: ['antigravity'], projectPath: PROJ });
-  assert.equal(plan[0].file, '/proj/.gemini/agents/x.md');
+test('antigravity delivers to the user-scope gemini folder, the only one agy reads', () => {
+  const plan = agentDeliveryPlan({ slug: 'x', agentIds: ['antigravity'], projectPath: PROJ, homeDir: '/home/cal' });
+  assert.equal(plan[0].file, '/home/cal/.gemini/agents/x.md');
 });
 
 // ---- the tool: hint ---------------------------------------------------------
@@ -202,10 +202,10 @@ test('tool: never reaches any dialect copy', () => {
 test('deliveryState reports here / soon / theirs / none / via', () => {
   const io = memIo({ '/proj/agents/release-scribe.md': MASTER_MD });
   deliverAgents({ projectPath: PROJ, agentIds: ['claude'], io });
-  io.files['/proj/.gemini/agents/release-scribe.md'] = 'hand-made, same name\n';
+  io.files['/home/cal/.gemini/agents/release-scribe.md'] = 'hand-made, same name\n';
   const rows = deliveryState({
     projectPath: PROJ, slug: 'release-scribe',
-    agentIds: ['claude', 'codex', 'antigravity', 'hermes', 'cursor'], io,
+    agentIds: ['claude', 'codex', 'antigravity', 'hermes', 'cursor'], io, homeDir: '/home/cal',
   });
   const by = Object.fromEntries(rows.map((r) => [r.agent, r]));
   assert.equal(by.claude.state, 'here');
