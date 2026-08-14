@@ -4079,7 +4079,13 @@ async function reallyLaunchAgent(item, toolId) {
     seed: launch.kind === 'seed' ? launch.seed : undefined,
   });
   if (!p) return;
-  announce(p, deliveryNote(item, toolId, was));
+  // Calvin's call: a launch that went right explains nothing — the session
+  // speaking as the agent is its own receipt. The note survives only where
+  // silence would lie: the copy could not be written, or a hand-made file won
+  // and the session is running that file, not the master.
+  if (was && (was.state === 'theirs' || was.state === 'failed')) {
+    announce(p, deliveryNote(item, toolId, was));
+  }
 }
 
 
