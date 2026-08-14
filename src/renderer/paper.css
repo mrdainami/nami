@@ -1175,6 +1175,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .picker-row--go:hover .row-tool { color: var(--ink); }
 .picker-row--go.dead .row-tool { color: var(--muted-3); }
 
+/* The copy action atop a non-master's tool list — the one row that acts. */
+.tool-row.co-act { cursor: pointer; }
+.tool-row.co-act .tl-mark { color: var(--green-dark); font-weight: 700; }
+.tool-row.co-act .tl-name { color: var(--green-dark); font-weight: 700; }
+.tool-row.co-act:hover .tl-name { text-decoration: underline; }
+
 /* ---- the agent picker's tool list ---------------------------------------- */
 /* Where one agent's copies stand, opened by the row's ›. Built from the
    picker's own vocabulary — dotted rules, 11.5px, a dot per state — so it reads
