@@ -21,7 +21,7 @@ import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
-import { deskColumns, clampSpan, clampRows, MIN_COLS } from './desk-grid.mjs';
+import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 
 const api = window.dainami;
 
@@ -1907,6 +1907,100 @@ function applySpan(p, t) {
   t.root.style.gridRow = 'span ' + clampRows(p.spanY);
 }
 
+// ---- the grip ---------------------------------------------------------------
+// One model for the whole gesture: free-form while you hold it, aligned when you
+// let go. A dashed ghost follows the cursor to the pixel so the drag reads as
+// continuous, and a solid outline shows the slot it will land in so the result
+// is never a surprise. The card itself does not resize under your hand — that
+// would mean reflowing the desk, and the terminal inside it, on every frame.
+//
+// Nothing is said to the agent until the drop. Suppressing clock A for this one
+// tile (see fitCanvas) is what keeps a 40-frame drag from being 40 repaints of a
+// terminal whose final size nobody knows yet.
+function wireGrip(p, rec, grip) {
+  const commit = (x, y) => {
+    const changed = p.spanX !== x || p.spanY !== y;
+    p.spanX = x; p.spanY = y;
+    renderGrid();
+    if (changed) savePanels();
+  };
+
+  grip.addEventListener('dblclick', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    commit(MIN_COLS, MIN_COLS);
+    toast('Card size · reset');
+  });
+
+  // Sizing without a mouse. The grip keeps focus across the re-render, or the
+  // second press would go to the document and scroll the desk instead.
+  grip.addEventListener('keydown', (e) => {
+    const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    const dy = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (!dx && !dy) return;
+    e.preventDefault(); e.stopPropagation();
+    const cols = syncDeskColumns.last || MIN_COLS;
+    commit(clampSpan(clampSpan(p.spanX, cols) + dx, cols), clampRows(clampRows(p.spanY) + dy));
+    const again = tileEls.get(p.id);
+    if (again) { const g = q('.tile-grip', again.root); if (g) g.focus(); }
+  });
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();   // the header owns dragging the card; the corner owns sizing it
+    const grid = els.grid;
+    const cs = getComputedStyle(grid);
+    const inner = grid.clientWidth
+      - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    const cols = syncDeskColumns.last || MIN_COLS;
+    const pitchX = (inner + GAP) / cols;     // one column plus the gap after it
+    const pitchY = ROW + GAP;
+    const box = rec.root.getBoundingClientRect();
+    const left = rec.root.offsetLeft, top = rec.root.offsetTop;
+
+    const ghost = document.createElement('div');
+    ghost.className = 'desk-ghost';
+    const snap = document.createElement('div');
+    snap.className = 'desk-snap';
+    const tag = document.createElement('span');
+    tag.className = 'ds-size';
+    snap.appendChild(tag);
+    for (const n of [snap, ghost]) { n.style.left = left + 'px'; n.style.top = top + 'px'; grid.appendChild(n); }
+    rec.root.classList.add('is-resizing');
+
+    let sx = clampSpan(p.spanX, cols), sy = clampRows(p.spanY);
+    const place = (w, h) => {
+      ghost.style.width = w + 'px'; ghost.style.height = h + 'px';
+      sx = clampSpan(Math.round((w + GAP) / pitchX), cols);
+      sy = clampRows(Math.round((h + GAP) / pitchY));
+      snap.style.width = (sx * pitchX - GAP) + 'px';
+      snap.style.height = (sy * pitchY - GAP) + 'px';
+      tag.textContent = sx + ' × ' + sy;
+    };
+    place(box.width, box.height);
+
+    const move = (ev) => place(
+      Math.max(80, box.width + (ev.clientX - e.clientX)),
+      Math.max(60, box.height + (ev.clientY - e.clientY)),
+    );
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+      ghost.remove(); snap.remove();
+      rec.root.classList.remove('is-resizing');
+      commit(sx, sy);
+      // One repaint, and clock B's single message to the agent, now that the
+      // size is finally known.
+      markFit(rec);
+    };
+    try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  });
+}
+
 const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
 // terminal text size: one shared preference, defaulting smaller in the glass
 // themes because SF Mono renders larger than Courier Prime at equal px
@@ -1972,6 +2066,17 @@ function mountTile(p) {
   const head = q('.tile-head', root), body = q('.tile-body', root);
   const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null, ptyTimer: null };
   tileEls.set(p.id, rec);
+  // The grip lives on the card, not in its header — the corner is the thing
+  // itself rather than a button that opens a way to do the thing, and the header
+  // is already at the width where it starts dropping controls.
+  const grip = document.createElement('div');
+  grip.className = 'tile-grip';
+  grip.tabIndex = 0;
+  grip.setAttribute('role', 'slider');
+  grip.setAttribute('aria-label', 'Resize ' + p.title);
+  grip.title = 'Drag to resize · double-click to reset · arrow keys';
+  root.appendChild(grip);
+  wireGrip(p, rec, grip);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
   if (zi) zi.onclick = (e) => { e.stopPropagation(); bumpTermFont(+1); };
