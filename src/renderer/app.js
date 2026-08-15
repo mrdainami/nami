@@ -5,7 +5,7 @@
 
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
-import { fileKind, shellQuote, fileUrl, docUrl, tailPath } from './file-kinds.mjs';
+import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file-kinds.mjs';
 import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
@@ -206,7 +206,23 @@ function panelChip(p) {
 }
 
 // ---- OS file drops ---------------------------------------------------------
-function isFileDrag(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files'); }
+function isFileDrag(e) { return dragTypes(e).includes('Files'); }
+// A row dragged out of the Workspace tree. It carries its path in a private type
+// as well as in text/plain, because text/plain already means "panel id" to the
+// tile reorder — one channel, two meanings, and the tile could only guess. The
+// payload itself is unreadable until the drop fires (browsers hide getData
+// during dragover), so in flight this is all there is to go on, exactly as with
+// isFileDrag above.
+//
+// Whether the row is a folder rides as a second *type* rather than as data, for
+// exactly that reason: the canvas has to refuse a folder while you are still
+// holding it, and a hidden payload cannot answer that.
+const PATH_TYPE = 'application/x-nami-path';
+const DIR_TYPE = 'application/x-nami-dir';
+function dragTypes(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []); }
+function isPathDrag(e) { return dragTypes(e).includes(PATH_TYPE); }
+function isDirDrag(e) { return dragTypes(e).includes(DIR_TYPE); }
+function draggedPath(e) { try { return e.dataTransfer.getData(PATH_TYPE) || ''; } catch (_) { return ''; } }
 function droppedPaths(e) {
   return Array.from((e.dataTransfer && e.dataTransfer.files) || [])
     .map((f) => api.droppedFilePath(f)).filter(Boolean);
@@ -215,6 +231,22 @@ function dropFilesOnPanel(p, paths) {
   if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach((f) => openFile(f, { pin: true })); return; }
   injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
   toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
+}
+// A workspace path dropped on a session. The file does not move and nothing is
+// copied — the session is handed a reference to where it already lives.
+//
+// S.treeDrag is cleared here rather than left to the row's own dragend, because
+// both of the paths below rebuild the rail synchronously — injectToSession
+// focuses the panel, which calls renderRail, which empties the container the
+// dragged row lives in. The row is gone before dragend would reach it. Every
+// tree drop on master ended in wireDrop.ondrop, which nulls this itself; these
+// two are the first that do not, and a stale S.treeDrag is not inert — the next
+// no-files drag onto a tree row would move a file you are not holding.
+function dropPathOnPanel(p, path, isDir) {
+  S.treeDrag = null;
+  if (p.kind === 'editor' || p.kind === 'viewer') { if (!isDir) openFile(path, { pin: true }); return; }
+  injectToSession(p, pathRef(path, S.project && S.project.path, isDir));
+  toast('Added ' + baseNameOf(path) + ' to ' + shorten(p.title, 24));
 }
 
 // ===========================================================================
@@ -789,8 +821,30 @@ function buildShell() {
   window.addEventListener('drop', (e) => e.preventDefault());
   // Dropping on empty canvas opens the file as a viewer/editor tile
   // (tile drops stopPropagation, so this only fires outside tiles).
-  els.grid.addEventListener('dragover', (e) => { if (isFileDrag(e)) e.preventDefault(); });
+  // A folder is refused here rather than accepted and ignored: there is no
+  // folder viewer tile, so the cursor should never promise one.
+  //
+  // The refusal has to be said out loud — `dropEffect = 'none'` — and cannot be
+  // left to withholding preventDefault. The window listener directly above sits
+  // further up the same bubble path and prevents the default on every dragover
+  // in the document, so by the time the event is done the drop is allowed no
+  // matter what this handler declines to do. Staying silent would leave the
+  // browser showing the copy it infers from effectAllowed, over a drop that
+  // then does nothing — the exact thing this whole change exists to delete.
+  els.grid.addEventListener('dragover', (e) => {
+    if (isPathDrag(e)) {
+      if (isDirDrag(e)) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; return;
+    }
+    if (isFileDrag(e)) e.preventDefault();
+  });
   els.grid.addEventListener('drop', (e) => {
+    if (isPathDrag(e)) {
+      if (isDirDrag(e)) return;
+      const path = draggedPath(e); if (!path) return;
+      S.treeDrag = null; // openFile renders the rail out from under the row — see dropPathOnPanel
+      e.preventDefault(); openFile(path, { pin: true }); return;
+    }
     const paths = droppedPaths(e); if (!paths.length) return;
     e.preventDefault(); paths.forEach((f) => openFile(f, { pin: true }));
   });
@@ -1107,8 +1161,18 @@ function renderTreeLevel(container, dir, depth) {
     row.ondragstart = (e) => {
       S.treeDrag = n.path;
       row.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('text/plain', n.path); } catch (_) {}
+      // copyMove, not move. This is not about the cursor picture: a dropEffect
+      // outside effectAllowed is not merely ignored, it cancels the drop
+      // outright (Blink drag_controller: operation becomes kNone). With 'move'
+      // alone, the tile asking for 'copy' below would have killed its own drop.
+      // Folder targets are unaffected — wireDrop names dropEffect = 'move'
+      // itself, which is still a member.
+      e.dataTransfer.effectAllowed = 'copyMove';
+      try {
+        e.dataTransfer.setData('text/plain', n.path);
+        e.dataTransfer.setData(PATH_TYPE, n.path);
+        if (n.kind === 'dir') e.dataTransfer.setData(DIR_TYPE, n.path);
+      } catch (_) {}
     };
     row.ondragend = () => { S.treeDrag = null; row.classList.remove('dragging'); clearDropMarks(); };
     // A file row stands for the folder that holds it — the same near-miss
@@ -1845,13 +1909,35 @@ function mountTile(p) {
   // drag reorder
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
-  root.addEventListener('dragover', (e) => { e.preventDefault(); root.classList.add(isFileDrag(e) ? 'file-hint' : 'drop-hint'); });
+  root.addEventListener('dragover', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    // Stopped for the same reason the drop below is: every tile is a direct
+    // child of els.grid, whose own dragover refuses a folder. Without this the
+    // tile names its effect and the grid immediately overwrites it — a folder
+    // dropped on a session would light up copy, turn no-drop, and never arrive.
+    //
+    // A workspace path reads as a file arriving, not as a tile being reordered,
+    // and it says copy: the row you are holding stays exactly where it lives.
+    // Except on an editor or a viewer, which take a file to open and have
+    // nothing to do with a folder — refused in the cursor, not silently on drop.
+    if (isPathDrag(e)) {
+      if (isDirDrag(e) && (p.kind === 'editor' || p.kind === 'viewer')) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.dataTransfer.dropEffect = 'copy'; root.classList.add('file-hint'); return;
+    }
+    root.classList.add(isFileDrag(e) ? 'file-hint' : 'drop-hint');
+  });
   root.addEventListener('dragleave', () => root.classList.remove('drop-hint', 'file-hint'));
   root.addEventListener('drop', (e) => {
     e.preventDefault(); e.stopPropagation();
     root.classList.remove('drop-hint', 'file-hint');
     const paths = droppedPaths(e);
     if (paths.length) return dropFilesOnPanel(p, paths);
+    // Before the reorder fallback: text/plain holds a path here, not a panel id,
+    // and reorderPanels would look for a panel called /Users/... and find none.
+    if (isPathDrag(e)) {
+      const path = draggedPath(e);
+      if (path) return dropPathOnPanel(p, path, isDirDrag(e));
+    }
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
