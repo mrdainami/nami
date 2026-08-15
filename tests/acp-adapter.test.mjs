@@ -153,6 +153,95 @@ test('settlePending closes every dangling call — hermes never completes its to
   for (const id of calls) assert.ok(settledAfter.has(id), 'every call must settle at end of turn');
 });
 
+// ---- modes: the agent's own list rides through to the card -----------------
+// Two real shapes exist (probed 2026-08-16): opencode reports modes as a
+// configOption {id:'mode'}, exactly like models; the ACP spec's own shape is
+// result.modes {currentModeId, availableModes}. Both must land on init.
+test('opencode-shaped modes (configOptions id=mode) reach init as mode + modes', () => {
+  const { a, events } = makeAdapter();
+  a.readModes({
+    sessionId: 's1',
+    configOptions: [{
+      id: 'mode', name: 'Session Mode', category: 'mode', type: 'select', currentValue: 'build',
+      options: [
+        { value: 'build', name: 'build', description: 'The default agent. Executes tools based on configured permissions.' },
+        { value: 'plan', name: 'plan', description: 'Plan mode. Disallows all edit tools.' },
+      ],
+    }],
+  });
+  a.emitInit();
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.equal(init.mode, 'build');
+  assert.deepEqual(init.modes.map((m) => m.id), ['build', 'plan']);
+  assert.ok(init.modes.every((m) => m.available === true));
+  assert.match(init.modes[1].desc, /Disallows all edit tools/);
+});
+
+test('spec-shaped modes (modes.availableModes) reach init the same way', () => {
+  const { a, events } = makeAdapter('hermes');
+  a.readModes({
+    sessionId: 's1',
+    modes: {
+      currentModeId: 'normal',
+      availableModes: [
+        { id: 'normal', name: 'Normal', description: 'asks before acting' },
+        { id: 'yolo', name: 'Yolo', description: 'no confirmations' },
+      ],
+    },
+  });
+  a.emitInit();
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.equal(init.mode, 'normal');
+  assert.deepEqual(init.modes.map((m) => m.id), ['normal', 'yolo']);
+});
+
+test('current_mode_update re-emits init with the new current mode, never a row', () => {
+  const { a, events } = makeAdapter();
+  a.readModes({ configOptions: [{ id: 'mode', type: 'select', currentValue: 'build', options: [{ value: 'build', name: 'build' }, { value: 'plan', name: 'plan' }] }] });
+  a.emitInit();
+  a.handleFrame({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's', update: { sessionUpdate: 'current_mode_update', currentModeId: 'plan' } } });
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.equal(init.mode, 'plan');
+  assert.ok(!events.some((e) => e.kind === 'assistant' || e.kind === 'note'), 'a mode flip is not a row');
+});
+
+test('picking a mode routes through session/set_mode and re-inits on success', async () => {
+  const { a, events, writes } = makeAdapter();
+  a.sessionId = 'ses_1';
+  a.readModes({ configOptions: [{ id: 'mode', type: 'select', currentValue: 'build', options: [{ value: 'build', name: 'build' }, { value: 'plan', name: 'plan' }] }] });
+  a.setConfigOption('mode', 'plan');
+  const call = writes.find((w) => w.method === 'session/set_mode');
+  assert.ok(call, 'must speak session/set_mode, not set_config_option');
+  assert.deepEqual(call.params, { sessionId: 'ses_1', modeId: 'plan' });
+  a.handleFrame({ jsonrpc: '2.0', id: call.id, result: {} });
+  await new Promise((r) => setImmediate(r));
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.equal(init.mode, 'plan');
+});
+
+test('a refused set_mode keeps the old mode and says so in a note', async () => {
+  const { a, events, writes } = makeAdapter();
+  a.sessionId = 'ses_1';
+  a.readModes({ configOptions: [{ id: 'mode', type: 'select', currentValue: 'build', options: [{ value: 'build', name: 'build' }, { value: 'plan', name: 'plan' }] }] });
+  a.emitInit();
+  a.setConfigOption('mode', 'plan');
+  const call = writes.find((w) => w.method === 'session/set_mode');
+  a.handleFrame({ jsonrpc: '2.0', id: call.id, error: { code: -32000, message: 'not now' } });
+  await new Promise((r) => setImmediate(r));
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.equal(init.mode, 'build', 'the chip must never show a mode the agent refused');
+  assert.ok(events.some((e) => e.kind === 'note' && /mode/i.test(e.text)));
+});
+
+test('an agent reporting no modes emits init without mode fields — no invented chip', () => {
+  const { a, events } = makeAdapter();
+  a.readModes({ sessionId: 's1', configOptions: [] });
+  a.emitInit();
+  const init = events.findLast((e) => e.kind === 'init');
+  assert.ok(init.mode == null);
+  assert.ok(init.modes == null);
+});
+
 // The connect deadline: an ACP rpc only fails when the process exits, so an
 // agent that stays alive but never answers hung the card on "Connecting…"
 // forever (hermes, real screenshot). withDeadline turns silence into an error
