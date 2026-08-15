@@ -19,28 +19,6 @@ const esc = (s) => String(s == null ? '' : s)
 // it stops before the punctuation that ends a sentence around a link.
 const INLINE = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
-// Emphasis recurses into its own content — `**[title](url)**` is a bold LINK,
-// not bold text that happens to contain brackets. A one-pass tokeniser gave
-// the whole span to the strong rule and the link inside rendered literal
-// (unclickable, found in a real Notion reply). Each level takes a fresh
-// regex: recursing through the same global RegExp object would clobber the
-// outer replace's lastIndex.
-function inlineEsc(s) {
-  return s.replace(new RegExp(INLINE.source, 'g'), (m, code, link, strong, del, em, bare) => {
-    if (code) return `<code>${code.slice(1, -1)}</code>`;
-    if (link) {
-      const cut = link.lastIndexOf('](');
-      return `<a href="${link.slice(cut + 2, -1)}">${inlineEsc(link.slice(1, cut))}</a>`;
-    }
-    if (strong) return `<strong>${inlineEsc(strong.slice(2, -2))}</strong>`;
-    if (del) return `<del>${inlineEsc(del.slice(2, -2))}</del>`;
-    if (em) return `<em>${inlineEsc(em.slice(1, -1))}</em>`;
-    return `<a href="${bare}">${bare}</a>`;
-  });
-}
-
-function inline(raw) { return inlineEsc(esc(raw)); }
-
 // ---- where a link in the Read view points -----------------------------------
 // Pure: hand it an href and the path of the doc it came from, get back what the
 // click should do. The app never navigates on an href it did not classify, so
@@ -80,54 +58,177 @@ export function docHrefTarget(href, docPath) {
 }
 
 // ---- block -----------------------------------------------------------------
-export function renderMarkdown(text) {
-  const lines = String(text == null ? '' : text).split('\n');
+// The renderer's own inline pass adds one branch over the highlighter's:
+// images. It cannot share INLINE — the underlay's group order is part of its
+// contract — so the image-aware alternation lives here. An image only becomes
+// an <img> when the caller's resolveImage approves the src (the Read tab maps
+// doc-relative paths through nami-doc://); with no resolver only data: URIs
+// render, everything else stays a link — a card never fetches on its own.
+// Emphasis recurses into its own content — `**[title](url)**` is a bold LINK
+// (found literal in a real Notion reply) — through a fresh regex each level:
+// recursing through one global RegExp would clobber the outer lastIndex.
+const INLINE_R = /(`[^`\n]+`)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+
+function inlineEscR(s, resolve) {
+  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, img, link, strong, del, em, bare) => {
+    let cut;
+    if (code) return `<code>${code.slice(1, -1)}</code>`;
+    if (img) {
+      cut = img.lastIndexOf('](');
+      const src = img.slice(cut + 2, -1);
+      const alt = img.slice(2, cut);
+      const url = resolve ? resolve(src) : (/^data:/i.test(src) ? src : null);
+      return url ? `<img src="${url}" alt="${alt}">` : `<a href="${src}">${alt}</a>`;
+    }
+    if (link) {
+      cut = link.lastIndexOf('](');
+      return `<a href="${link.slice(cut + 2, -1)}">${inlineEscR(link.slice(1, cut), resolve)}</a>`;
+    }
+    if (strong) return `<strong>${inlineEscR(strong.slice(2, -2), resolve)}</strong>`;
+    if (del) return `<del>${inlineEscR(del.slice(2, -2), resolve)}</del>`;
+    if (em) return `<em>${inlineEscR(em.slice(1, -1), resolve)}</em>`;
+    return `<a href="${bare}">${bare}</a>`;
+  });
+}
+
+const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+// Consume one whole list region: items at any indent, indented continuation
+// lines joining their item, blank lines allowed while the region continues.
+function listBlock(lines, start) {
+  const items = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j < lines.length && (LIST_RE.test(lines[j]) || /^\s{2,}\S/.test(lines[j]))) { i = j; continue; }
+      break;
+    }
+    const m = line.match(LIST_RE);
+    if (m) { items.push({ ind: m[1].length, ord: /\d/.test(m[2][0]), num: parseInt(m[2], 10) || 1, text: m[3] }); i++; continue; }
+    if (/^\s{2,}\S/.test(line) && items.length) { items[items.length - 1].text += ' ' + line.trim(); i++; continue; }
+    break;
+  }
+  return { items, next: i };
+}
+
+// Indent drives nesting; a type change at one indent closes and reopens; an
+// ordered list keeps its first number. Task markers become real checkboxes,
+// disabled — the Read tab shows state, it doesn't edit it.
+function renderList(items, inl) {
   const out = [];
-  let list = null;      // 'ul' | 'ol' | null
+  const stack = []; // { ind, tag }
+  const closeOne = () => { const l = stack.pop(); out.push(`</li></${l.tag}>`); };
+  for (const it of items) {
+    const tag = it.ord ? 'ol' : 'ul';
+    while (stack.length && it.ind < stack[stack.length - 1].ind) closeOne();
+    if (stack.length && it.ind === stack[stack.length - 1].ind && stack[stack.length - 1].tag !== tag) closeOne();
+    if (!stack.length || it.ind > stack[stack.length - 1].ind) {
+      out.push(`<${tag}${it.ord && it.num !== 1 ? ` start="${it.num}"` : ''}>`);
+      stack.push({ ind: it.ind, tag });
+    } else out.push('</li>');
+    const task = it.text.match(/^\[( |x|X)\]\s+(.*)$/);
+    if (task) out.push(`<li class="md-task"><input type="checkbox" disabled${task[1] !== ' ' ? ' checked' : ''}>${inl(task[2])}`);
+    else out.push(`<li>${inl(it.text)}`);
+  }
+  while (stack.length) closeOne();
+  return out.join('');
+}
+
+// A table is a |-row over a separator of pipes, dashes and colons; the colons
+// carry the alignment. Rows render until the first non-| line.
+function tableAt(lines, i, inl) {
+  if (!/\|/.test(lines[i] || '')) return null;
+  const sep = lines[i + 1];
+  if (!sep || !/^[\s|:-]+$/.test(sep) || !sep.includes('-') || !sep.includes('|')) return null;
+  const cells = (row) => row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+  const aligns = cells(sep).map((c) => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : ''));
+  const tr = (row, tag) => '<tr>' + cells(row).map((c, k) =>
+    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${inl(c)}</${tag}>`).join('') + '</tr>';
+  let html = `<table><thead>${tr(lines[i], 'th')}</thead><tbody>`;
+  let j = i + 2;
+  while (j < lines.length && /\|/.test(lines[j]) && lines[j].trim()) { html += tr(lines[j], 'td'); j++; }
+  return { html: `<div class="md-tablewrap">${html}</tbody></table></div>`, next: j };
+}
+
+export function renderMarkdown(text, opts = {}) {
+  const lines = String(text == null ? '' : text).split('\n');
+  const inl = (raw) => inlineEscR(esc(raw), opts.resolveImage);
+  const out = [];
   let fence = null;     // open fence marker, or null
+  let fenceLang = '';
   let fenceBuf = [];
   let para = [];
+  const closePara = () => { if (para.length) { out.push(`<p>${inl(para.join(' '))}</p>`); para = []; } };
 
-  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  const closePara = () => { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } };
-  const closeAll = () => { closePara(); closeList(); };
+  let i = 0;
+  // Frontmatter — only at the very top of a whole document, rendered as one
+  // quiet meta block instead of the rules-and-junk the old renderer made.
+  if (!opts.sub && lines[0] === '---') {
+    let e = 1;
+    while (e < lines.length && lines[e].trim() !== '---') e++;
+    if (e < lines.length) {
+      const fm = lines.slice(1, e).map((l) => {
+        const m = l.match(/^([\w][\w-]*):\s*(.*)$/);
+        return m ? `<b>${esc(m[1])}</b>: ${esc(m[2])}` : esc(l);
+      }).join('<br>');
+      out.push(`<div class="md-fm">${fm}</div>`);
+      i = e + 1;
+    }
+  }
 
-  for (const line of lines) {
-    const fenceHit = line.match(/^\s*(```|~~~)/);
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+
     if (fence) {
-      if (fenceHit && fenceHit[1] === fence) {
-        out.push(`<pre class="md-pre"><code>${esc(fenceBuf.join('\n'))}</code></pre>`);
-        fence = null; fenceBuf = [];
+      const closeHit = line.match(/^\s*(```|~~~)\s*$/);
+      if (closeHit && closeHit[1] === fence) {
+        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${esc(fenceBuf.join('\n'))}</code></pre>`);
+        fence = null; fenceBuf = []; fenceLang = '';
       } else fenceBuf.push(line);
       continue;
     }
-    if (fenceHit) { closeAll(); fence = fenceHit[1]; fenceBuf = []; continue; }
+    const fh = line.match(/^\s*(```|~~~)\s*(\S+)?\s*$/);
+    if (fh) { closePara(); fence = fh[1]; fenceLang = fh[2] || ''; fenceBuf = []; continue; }
 
-    if (!line.trim()) { closeAll(); continue; }
+    if (!line.trim()) { closePara(); continue; }
 
     const h = line.match(/^(#{1,6})\s+(.*)$/);
-    if (h) { closeAll(); const n = h[1].length; out.push(`<h${n}>${inline(h[2])}</h${n}>`); continue; }
+    if (h) { closePara(); const n = h[1].length; out.push(`<h${n}>${inl(h[2])}</h${n}>`); continue; }
 
-    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { closeAll(); out.push('<hr />'); continue; }
+    // Setext: an underline promotes the pending paragraph. A bare --- with
+    // nothing pending is still a rule, checked next.
+    if (para.length && /^\s*=+\s*$/.test(line)) { out.push(`<h1>${inl(para.join(' '))}</h1>`); para = []; continue; }
+    if (para.length && /^\s*-+\s*$/.test(line)) { out.push(`<h2>${inl(para.join(' '))}</h2>`); para = []; continue; }
 
-    const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) { closeAll(); out.push(`<blockquote>${inline(quote[1])}</blockquote>`); continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { closePara(); out.push('<hr />'); continue; }
 
-    const ul = line.match(/^\s*[-*+]\s+(.*)$/);
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    if (ul || ol) {
+    if (/^\s*>/.test(line)) {
       closePara();
-      const want = ul ? 'ul' : 'ol';
-      if (list !== want) { closeList(); out.push(`<${want}>`); list = want; }
-      out.push(`<li>${inline((ul || ol)[1])}</li>`);
+      const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+      i--;
+      out.push(`<blockquote>${renderMarkdown(q.join('\n'), { ...opts, sub: true })}</blockquote>`);
       continue;
     }
 
-    closeList();
+    const tb = tableAt(lines, i, inl);
+    if (tb) { closePara(); out.push(tb.html); i = tb.next - 1; continue; }
+
+    if (LIST_RE.test(line)) {
+      closePara();
+      const lb = listBlock(lines, i);
+      out.push(renderList(lb.items, inl));
+      i = lb.next - 1;
+      continue;
+    }
+
     para.push(line.trim());
   }
   if (fence) out.push(`<pre class="md-pre"><code>${esc(fenceBuf.join('\n'))}</code></pre>`);
-  closeAll();
+  closePara();
   return out.join('\n');
 }
 

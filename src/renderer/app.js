@@ -561,7 +561,8 @@ function showScene(name) {
       name: 'Claude Code', model: 'claude-opus-5', mode: 'default', ctxPct: 62,
       modes: [
         { id: 'default', available: true }, { id: 'acceptEdits', available: true },
-        { id: 'plan', available: true },
+        { id: 'plan', available: true }, { id: 'auto', available: true },
+        { id: 'dontAsk', available: true },
         { id: 'bypassPermissions', available: false, reason: 'disabled in ~/.claude/settings.json' },
       ],
       models: {
@@ -2235,13 +2236,6 @@ function cardAgentFor(p) {
 }
 function canShowCards(p) { return !!cardAgentFor(p); }
 
-// Which channels can switch mode live, and through what values.
-// Everything the channel really supports — bypass and skip included, warned.
-const MODE_CYCLES = {
-  claude: ['default', 'acceptEdits', 'plan', 'bypassPermissions'],
-  agy: ['accept-edits', 'plan', 'skip-permissions'],
-};
-
 const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
 
 // The welcome a card can synthesize before (or without) a channel: the
@@ -2465,7 +2459,9 @@ async function driveCards(p) {
   // knows who this is and where. init replaces this card with the enriched
   // one (version, model, mode) the moment it arrives — and it rides ahead of
   // whatever backlog the conversation already holds.
-  const intro = cardIntro(p, agent, { mode: (MODE_CYCLES[agent] || [])[0] || '' });
+  // No mode on the welcome: the chip appears when the channel says what it
+  // has — a guessed mode was the drift this sweep removed.
+  const intro = cardIntro(p, agent, {});
   p.agentStatus = Object.assign(p.agentStatus || {}, { name: intro.name, mode: intro.mode || undefined });
   if (rec.cardsUi) rec.cardsUi.setStatus({ ...p.agentStatus, canSwitchMode: availableModes(p).some((m) => m.available) });
   p.cardEvents = [intro];
@@ -2619,13 +2615,11 @@ function handleSlashCommand(p, text) {
   return false; // 'send': the channel executes it as text
 }
 
-// The mode options are whatever the agent reported it can actually enter
-// (init.modes, availability included) — the hardcoded cycle is only the
-// fallback for a channel that hasn't said yet.
+// The mode options are exactly what the agent reported it can enter
+// (init.modes, availability included). No fallback table: before the channel
+// speaks there is no chip, and a channel that reports nothing has none.
 function availableModes(p) {
-  const listed = p.agentStatus && Array.isArray(p.agentStatus.modes) && p.agentStatus.modes.length
-    ? p.agentStatus.modes : null;
-  return listed || (MODE_CYCLES[cardAgentFor(p)] || []).map((id) => ({ id, available: true }));
+  return (p.agentStatus && Array.isArray(p.agentStatus.modes) && p.agentStatus.modes) || [];
 }
 
 // shift⇥: the blind cycle, kept — but only through modes that exist here.
@@ -2750,7 +2744,9 @@ function openModeMenu(p) {
     items: modes.map((m) => ({
       label: modeLabel(m.id), cls: modeClass(m.id),
       current: m.id === cur, disabled: !m.available,
-      desc: m.available ? '' : (m.reason || 'not available here'),
+      // an available mode may carry the agent's own description (ACP does);
+      // an unavailable one always explains itself
+      desc: m.available ? (m.desc || '') : (m.reason || 'not available here'),
       value: m.id,
     })),
     onPick: (it) => api.agentConfig({ id: p.id, configId: 'mode', value: it.value }),
@@ -3007,7 +3003,20 @@ function mountEditor(p, rec) {
           f.src = docUrl(p.filePath);
         }
         read.appendChild(f);
-      } else read.innerHTML = renderMarkdown(p.text || '');
+      } else {
+        // Images in a doc resolve like the HTML Read tab's do: doc-relative
+        // paths through nami-doc:// (its containment gate refuses .. escapes),
+        // remote and data URLs as themselves. Absolute paths stay links — a
+        // document does not get to display arbitrary files from the disk.
+        read.innerHTML = renderMarkdown(p.text || '', {
+          resolveImage: (src) => {
+            if (/^(https?:|data:)/i.test(src)) return src;
+            if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return null;
+            const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
+            return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
+          },
+        });
+      }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
     if (p.edMode === 'edit') sync();
