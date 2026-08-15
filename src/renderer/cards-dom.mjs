@@ -16,21 +16,24 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': 
 export function modeLabel(mode) {
   return {
     default: 'ask first', acceptEdits: 'accept edits', 'accept-edits': 'accept edits',
-    plan: 'plan', bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
+    plan: 'plan', auto: 'auto', dontAsk: "don't ask",
+    bypassPermissions: 'bypass ⚠', 'skip-permissions': 'skip ⚠',
     build: 'build', 'full access': 'full access',
-    // codex's sandbox story, told as modes
-    'read-only': 'read-only', 'workspace-write': 'workspace write', bypass: 'bypass ⚠',
+    // codex's own presets (auto shares claude's entry)
+    'read-only': 'read-only', 'workspace-write': 'workspace write',
+    'full-access': 'full access ⚠', bypass: 'bypass ⚠',
   }[mode] || mode;
 }
 // One stable colour per mode, worn everywhere the mode appears — the chip,
 // the welcome pick, the mode menu — so shift⇥ state reads by hue before the
-// word: neutral asks, blue for the careful modes (plan, read-only), green
-// for pre-approved work (accept edits, workspace write), amber bypasses.
+// word: neutral asks, blue for the careful modes (plan, read-only, don't
+// ask), green for pre-approved work (accept edits, auto, workspace write),
+// amber for anything that drops the guardrails (bypass, skip, full access).
 export function modeClass(mode) {
   const m = String(mode || '');
-  if (/bypass|skip/i.test(m)) return 'm-bypass';
-  if (/plan|read-only/i.test(m)) return 'm-plan';
-  if (/accept|workspace/i.test(m)) return 'm-accept';
+  if (/bypass|skip|full-access/i.test(m)) return 'm-bypass';
+  if (/plan|read-only|dontAsk/i.test(m)) return 'm-plan';
+  if (/accept|workspace|^auto$/i.test(m)) return 'm-accept';
   return 'm-default';
 }
 function shortModel(m) {
