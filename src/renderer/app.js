@@ -2045,6 +2045,54 @@ function bumpTermFont(dir) {
   });
   toast('Text size · ' + next + 'px'); // one dial for both surfaces — cards scale with it too
 }
+// ---- document text size ------------------------------------------------------
+// Its own dial, separate from the terminal's. 12px monospace and a page of prose
+// are different jobs and one number cannot serve both: turning the terminal up to
+// read what an agent is doing would otherwise turn your notes into billboards.
+//
+// Same rule as the terminal's, though — scale now, and if there is a pty behind
+// it, tell it once you stop.
+const isDocTile = (p) => ['card', 'viewer', 'editor'].includes(p.kind);
+const DOC_SCALE_KEY = 'dainami-doc-scale';
+const DOC_STEPS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
+function docScale() {
+  const v = Number(localStorage.getItem(DOC_SCALE_KEY));
+  return DOC_STEPS.includes(v) ? v : 1;
+}
+// Both layers of an editor scroll together, so anchoring the textarea is enough —
+// assigning its scrollTop fires the scroll handler that drags the underlay and
+// the line numbers along with it.
+function docScrollers(rec) {
+  return [...rec.root.querySelectorAll('.md-read, .ed-area')];
+}
+function bumpDocFont(dir) {
+  const i = DOC_STEPS.indexOf(docScale());
+  const next = DOC_STEPS[Math.min(DOC_STEPS.length - 1, Math.max(0, i + dir))];
+  try { localStorage.setItem(DOC_SCALE_KEY, String(next)); } catch (_) {}
+  // Where you were reading, as a fraction of the document — the pixel offset is
+  // meaningless once every line is a different height.
+  const marks = [];
+  tileEls.forEach((r) => {
+    for (const el of docScrollers(r)) {
+      const room = el.scrollHeight - el.clientHeight;
+      marks.push({ el, frac: room > 0 ? el.scrollTop / room : 0 });
+    }
+  });
+  document.documentElement.style.setProperty('--doc-scale', String(next));
+  requestAnimationFrame(() => {
+    for (const m of marks) {
+      const room = m.el.scrollHeight - m.el.clientHeight;
+      m.el.scrollTop = room > 0 ? Math.round(m.frac * room) : 0;
+    }
+  });
+  toast('Document text · ' + Math.round(next * 100) + '%');
+}
+// Before first paint, so a restored desk does not flash at 100% and resettle.
+try {
+  const saved = Number(localStorage.getItem(DOC_SCALE_KEY));
+  if (DOC_STEPS.includes(saved)) document.documentElement.style.setProperty('--doc-scale', String(saved));
+} catch (_) {}
+
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
   root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
@@ -2057,9 +2105,8 @@ function mountTile(p) {
       <span class="t-surface" aria-label="Surface"></span>
       <button class="t-btn t-bridge" title="Open in the other surface / settings"><span class="uni-i">⌄</span><span class="pix-i">${pixIcon('chevron')}</span></button>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
-      ${['card', 'viewer', 'editor'].includes(p.kind) ? '' : `
-      <button class="t-btn t-zoom-out" title="Smaller terminal text"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
-      <button class="t-btn t-zoom-in" title="Bigger terminal text"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>`}
+      <button class="t-btn t-zoom-out" title="${isDocTile(p) ? 'Smaller text' : 'Smaller terminal text'}"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
+      <button class="t-btn t-zoom-in" title="${isDocTile(p) ? 'Bigger text' : 'Bigger terminal text'}"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>
       <button class="t-btn t-expand" title="Expand"><span class="uni-i">⤢</span><span class="pix-i">${pixIcon('expand')}</span></button>
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
@@ -2079,8 +2126,9 @@ function mountTile(p) {
   wireGrip(p, rec, grip);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
-  if (zi) zi.onclick = (e) => { e.stopPropagation(); bumpTermFont(+1); };
-  if (zo) zo.onclick = (e) => { e.stopPropagation(); bumpTermFont(-1); };
+  const bump = isDocTile(p) ? bumpDocFont : bumpTermFont;
+  if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1); };
+  if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1); };
   q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
   q('.t-expand', head).onclick = (e) => { e.stopPropagation(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
   q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };

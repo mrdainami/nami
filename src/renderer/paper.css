@@ -1700,11 +1700,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .editor[data-mode="edit"] .ed-read { display: none; }
 .ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
 .ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: #b3a894;
-  border-right: 1px dashed var(--dash); background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+  font-family: 'Courier Prime', monospace;
+  /* the third layer: line numbers have to grow with the lines they number, or
+     line 40 stops sitting beside line 40 */
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: #b3a894;
+  border-right: 1px dashed var(--dash); background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); }
 /* the underlay and the textarea are the same box, stacked; the textarea's own
    glyphs stay visible and the layer behind only supplies colour and weight */
-.ed-stack { position: relative; min-width: 0; background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+/* the ruled lines are the line height — scaled with it, or the text drifts off
+   the rules it is supposed to sit on */
+.ed-stack { position: relative; min-width: 0; background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); }
 /* Every metric both layers depend on is stated here, together, including the
    ones that would otherwise be inherited. A <pre> inherits tracking from body;
    a <textarea> does not, because the UA stylesheet resets it on form controls —
@@ -1714,7 +1719,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    termLetterSpacing() in app.js, zero in every theme for the same reason. */
 .ed-hl, .ed-area {
   position: absolute; inset: 0; margin: 0; padding: 10px 12px; border: none; outline: none;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px;
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1));
   letter-spacing: 0; word-spacing: 0;
   white-space: pre; overflow: auto; tab-size: 2;
 }
@@ -1739,9 +1745,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* ---- rendered markdown (editor Read tab) ---- */
 /* prose gets a reading measure — a full-width tile would otherwise run past
    100 characters a line, which is the thing that made these files tiring */
+/* One size on the container, everything inside it in em. Fixed px headings
+   would sit still while the body grew and the page would come apart. */
 .md-read {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  padding: 16px 22px 24px; font-size: 13px; line-height: 1.72; color: var(--ink); user-select: text;
+  padding: 16px 22px 24px; font-size: calc(13px * var(--doc-scale, 1));
+  line-height: 1.72; color: var(--ink); user-select: text;
 }
 .md-read > * { max-width: 76ch; }
 /* An html file's Read tab is the page itself: no prose padding or measure, the
@@ -1756,21 +1765,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read h1, .md-read h2, .md-read h3, .md-read h4, .md-read h5, .md-read h6 {
   font-family: 'Caveat', cursive; font-weight: 700; line-height: 1.15; margin: 22px 0 6px;
 }
-.md-read h1 { font-size: 30px; }
-.md-read h2 { font-size: 25px; }
-.md-read h3 { font-size: 21px; }
-.md-read h4, .md-read h5, .md-read h6 { font-size: 18px; color: var(--muted); }
+.md-read h1 { font-size: 2.308em; }   /* 30/13 */
+.md-read h2 { font-size: 1.923em; }   /* 25/13 */
+.md-read h3 { font-size: 1.615em; }   /* 21/13 */
+.md-read h4, .md-read h5, .md-read h6 { font-size: 1.385em; color: var(--muted); }  /* 18/13 */
 .md-read p { margin: 0 0 11px; overflow-wrap: break-word; }
 .md-read ul, .md-read ol { margin: 0 0 11px; padding-left: 22px; }
 .md-read li { margin-bottom: 3px; }
 .md-read code {
-  font-family: 'Courier Prime', monospace; font-size: 12px;
+  font-family: 'Courier Prime', monospace; font-size: 0.923em;   /* 12/13 */
   background: var(--paper-2); border: 1px dashed var(--dash); padding: 1px 5px; border-radius: 2px;
 }
 .md-read .md-pre {
   margin: 0 0 12px; padding: 10px 12px; overflow-x: auto;
   background: #f6efdd; border: 1px dashed var(--dash);
-  font-family: 'Courier Prime', monospace; font-size: 12px; line-height: 20px;
+  font-family: 'Courier Prime', monospace; font-size: 0.923em; line-height: 1.667;   /* 12/13, 20/12 */
 }
 .md-read .md-pre code { background: none; border: none; padding: 0; font-size: inherit; }
 /* ---- the blocks real markdown has (Read tab and cards share them) ----------
@@ -1962,12 +1971,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .card-in:focus { border-style: solid; }
 .card-in:disabled { opacity: 0.7; }
 .card-body { flex: 1; min-height: 120px; resize: none; margin-top: 2px; padding: 8px 10px; border: 1px dashed var(--dash-dark); outline: none;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); white-space: pre-wrap; }
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: var(--ink);
+  background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); white-space: pre-wrap; }
 .card-raw { flex: 1; min-height: 0; display: flex; }
 .card-raw .raw-area { flex: 1; resize: none; border: none; outline: none; padding: 10px 12px;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); white-space: pre; overflow: auto; }
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: var(--ink);
+  background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); white-space: pre; overflow: auto; }
 .card-ed .ed-bar .btn { font-size: 11px; padding: 6px 12px; }
 .ni-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
 .ni-row:last-child { padding-bottom: 14px; }
