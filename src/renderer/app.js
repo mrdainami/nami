@@ -21,6 +21,7 @@ import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
+import { deskColumns, clampSpan, MIN_COLS } from './desk-grid.mjs';
 
 const api = window.dainami;
 
@@ -807,6 +808,11 @@ function buildShell() {
   document.addEventListener('keydown', onGlobalKey);
   initGlassTilt();
 
+  // The desk relays its own tracks. Cheap — it only re-renders when the count
+  // actually changes, which is a handful of times across a whole window drag.
+  syncDeskColumns();
+  window.addEventListener('resize', syncDeskColumns);
+
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
   // Whatever folder boot restored is watched from here, whichever rail tab the
@@ -895,7 +901,29 @@ function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
   // tiles need a re-fit when the grid width changes
-  setTimeout(() => tileEls.forEach((t) => markFit(t)), 60);
+  setTimeout(() => { syncDeskColumns(); tileEls.forEach((t) => markFit(t)); }, 60);
+}
+
+// How many tracks the desk lays. Twice what auto-fill used to choose, so a
+// default card spans two of them and measures exactly what it always did — the
+// arithmetic and its proof are in desk-grid.mjs. Anything that changes the width
+// available to the grid has to call this: the window, the rail, a zoom.
+// The memo hangs off the function rather than a module-level `let`, because
+// buildShell() calls this while the module body is still evaluating — a `let`
+// declared below is in its temporal dead zone there, and reading it threw before
+// the desk had drawn anything at all.
+function syncDeskColumns() {
+  if (!els.grid) return;
+  const cs = getComputedStyle(els.grid);
+  const inner = els.grid.clientWidth
+    - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+  const cols = deskColumns(inner);
+  if (syncDeskColumns.last === cols) return;
+  syncDeskColumns.last = cols;
+  els.grid.style.setProperty('--cols', String(cols));
+  // Spans are stored unclamped, so a narrower desk re-renders them smaller and a
+  // wider one gives them back. Only on a change, never on every resize event.
+  if (els.grid.childElementCount) renderGrid();
 }
 
 function onGlobalKey(e) {
@@ -1804,6 +1832,10 @@ function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
     els.grid.classList.remove('has-focus');
+    // The empty lane is not a card and must not be laid out on the card grid —
+    // it is one block that wants the whole canvas, and a 210px row track would
+    // cut it off. Its own box, not a track.
+    els.grid.classList.add('is-empty');
     // Two empty desks, one shape: a heading, a line of why, and the button that
     // does the thing. The folder-open one used to be the exception — it told you
     // to press a key and offered nothing to click, which is the one state in the
@@ -1821,6 +1853,7 @@ function renderGrid() {
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
   }
+  els.grid.classList.remove('is-empty');
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
   for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
