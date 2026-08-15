@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tailPath, fileKind, shellQuote, fileUrl } from '../src/renderer/file-kinds.mjs';
+import { tailPath, fileKind, shellQuote, fileUrl, pathRef } from '../src/renderer/file-kinds.mjs';
 
 test('fileKind: images', () => {
   for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.svg', 'g.bmp', 'h.ico', 'i.avif'])
@@ -59,4 +59,62 @@ test('tailPath takes the segment count it is given', () => {
 
 test('tailPath ignores a trailing slash instead of returning an empty tail', () => {
   assert.equal(tailPath('/Users/cal/work/atlas/src/'), '…/atlas/src');
+});
+
+// ---- pathRef: what a dragged path types into a session ---------------------
+const ROOT = '/Users/cal/nami';
+
+test('pathRef: inside the open folder becomes an @ mention', () => {
+  assert.equal(pathRef(ROOT + '/src/main/main.js', ROOT), '@src/main/main.js ');
+  assert.equal(pathRef(ROOT + '/README.md', ROOT), '@README.md ');
+});
+
+test('pathRef: a directory keeps its trailing slash', () => {
+  assert.equal(pathRef(ROOT + '/src/renderer', ROOT, true), '@src/renderer/ ');
+});
+
+test('pathRef: outside the open folder falls back to a quoted absolute path', () => {
+  assert.equal(pathRef('/Users/cal/Desktop/shot.png', ROOT), "'/Users/cal/Desktop/shot.png' ");
+});
+
+test('pathRef: a sibling folder with the same prefix is NOT inside', () => {
+  // '/Users/cal/nami-other' starts with '/Users/cal/nami' as a string but is a
+  // different folder — the boundary has to be the separator, not the prefix.
+  assert.equal(pathRef('/Users/cal/nami-other/x.js', ROOT), "'/Users/cal/nami-other/x.js' ");
+});
+
+test('pathRef: whitespace in the relative path falls back to quoting', () => {
+  // '@my notes.md' breaks at the space in a shell and in every mention parser;
+  // the quoted absolute already works in all six launches.
+  assert.equal(pathRef(ROOT + '/my notes.md', ROOT), "'/Users/cal/nami/my notes.md' ");
+  assert.equal(pathRef(ROOT + '/src/My Docs/a.md', ROOT), "'/Users/cal/nami/src/My Docs/a.md' ");
+});
+
+test('pathRef: spaces in the ROOT do not spoil the mention', () => {
+  // the mention is relative, so only the part below the root has to be clean —
+  // this is the case a quoted absolute path handles worse, not better
+  assert.equal(pathRef('/Users/cal/My Project/src/a.js', '/Users/cal/My Project'), '@src/a.js ');
+});
+
+test('pathRef: a root given with a trailing slash still matches', () => {
+  assert.equal(pathRef(ROOT + '/src/a.js', ROOT + '/'), '@src/a.js ');
+});
+
+test('pathRef: the root itself has no relative form, so it quotes', () => {
+  assert.equal(pathRef(ROOT, ROOT), "'/Users/cal/nami' ");
+});
+
+test('pathRef: no open folder means every path quotes', () => {
+  assert.equal(pathRef('/Users/cal/nami/src/a.js', ''), "'/Users/cal/nami/src/a.js' ");
+  assert.equal(pathRef('/Users/cal/nami/src/a.js', null), "'/Users/cal/nami/src/a.js' ");
+});
+
+test('pathRef: backslash paths are not POSIX, so they quote rather than guess', () => {
+  // fileUrl and docUrl are POSIX-only for the same reason; a Windows path has no
+  // relative form this function is willing to invent.
+  assert.equal(pathRef('C:\\Users\\cal\\x.js', 'C:\\Users\\cal'), "'C:\\Users\\cal\\x.js' ");
+});
+
+test('pathRef: an embedded quote survives the fallback', () => {
+  assert.equal(pathRef("/Users/cal/it's.txt", ROOT), "'/Users/cal/it'\\''s.txt' ");
 });
