@@ -1023,7 +1023,13 @@ ipcMain.handle('dir:list', (_e, arg) => {
       let size = ''; try { size = fmtSize(fs.statSync(full).size); } catch (_) {}
       return { name: e.name, path: full, kind: 'file', meta: size };
     });
-  } catch (_) { return []; }
+    // null, not []: "this folder is gone" and "this folder is empty" are
+    // different answers, and the tree acts on the difference — a deleted folder's
+    // row is removed, an empty one is kept. Returning [] for both made
+    // onDirChanged's removal branch unreachable. Every other caller tolerates a
+    // null: one guards with `|| []`, the rest assign into S.tree, whose readers
+    // all begin `if (!children) return`.
+  } catch (_) { return null; }
 });
 ipcMain.handle('file:raw', (_e, file) => {
   try {
