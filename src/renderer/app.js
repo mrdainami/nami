@@ -21,7 +21,7 @@ import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
-import { deskColumns, clampSpan, MIN_COLS } from './desk-grid.mjs';
+import { deskColumns, clampSpan, clampRows, MIN_COLS } from './desk-grid.mjs';
 
 const api = window.dainami;
 
@@ -1876,6 +1876,7 @@ function renderGrid() {
     if (t.root === cursor) cursor = cursor.nextElementSibling;
     else els.grid.insertBefore(t.root, cursor);
     refreshTileHead(p);
+    applySpan(p, t);
     if (t.fit) markFit(t);
   }
   // Only if the move actually cost us the keyboard — never steal it from a
@@ -1885,6 +1886,25 @@ function renderGrid() {
     const t = tileEls.get(refocusId);
     if (t) { if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
   }
+}
+
+// A card's size is two numbers it keeps: how many columns and how many rows it
+// asked for. What it gets is whatever fits the desk it is on right now.
+//
+// Stored unclamped, on purpose. Clamping on the way in would mean narrowing the
+// window permanently destroyed a 4-wide card — it would come back as 2 and stay
+// there. Clamping on the way out means the desk gives it back the moment there
+// is room again.
+//
+// Focus is not a size. While a tile is focused the stylesheet owns its
+// placement, so the inline properties come off and go back on afterwards —
+// which is why ⤢ twice returns a 3×2 card to 3×2 and not to the default.
+function applySpan(p, t) {
+  if (!t || !t.root) return;
+  if (p.id === S.expandedId) { t.root.style.gridColumn = ''; t.root.style.gridRow = ''; return; }
+  const cols = syncDeskColumns.last || MIN_COLS;
+  t.root.style.gridColumn = 'span ' + clampSpan(p.spanX, cols);
+  t.root.style.gridRow = 'span ' + clampRows(p.spanY);
 }
 
 const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
@@ -3573,18 +3593,22 @@ function feedSessionName(p, data) {
 // ---- persistence: the layout survives restarts -----------------------------
 let saveTimer = null;
 function panelSnapshot() {
+  // The size a card was dragged to belongs to every kind of tile, so it is
+  // added here rather than inside each branch — five branches that each had to
+  // remember is five places to forget.
+  const size = (p) => ({ spanX: p.spanX, spanY: p.spanY });
   return S.panels.map((p) => {
-    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
-    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
-    if (p.kind === 'card') return { kind: 'card', item: p.item };
+    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...size(p) };
+    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...size(p) };
+    if (p.kind === 'card') return { kind: 'card', item: p.item, ...size(p) };
     // A one-shot that has run comes back as a plain terminal, not as its
     // command. Restoring the command re-ran it: leave an install tile on the
     // desk, quit, and Nami piped curl into bash again on the next launch, and
     // the one after that. A session is worth restoring; an errand is not.
     if (p.oneShot && (p.commandDone || p.exited)) {
-      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd };
+      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
     }
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
   });
 }
 function savePanels() {
@@ -3610,11 +3634,20 @@ async function restorePanels(snaps) {
   // open* unshift; walk the list backwards so the restored order matches
   for (const s of [...snaps].reverse()) {
     try {
+      // Every open* unshifts, so a tile that actually arrived is S.panels[0].
+      // Reading the size back off that is exact whatever the kind, and does not
+      // depend on five different functions agreeing to return their panel.
+      const before = S.panels.length;
       if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
       else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      // A snapshot from before spans existed carries none, and a panel with no
+      // span renders at the default. That is the whole of the migration.
+      if (S.panels.length > before && (s.spanX || s.spanY)) {
+        S.panels[0].spanX = s.spanX; S.panels[0].spanY = s.spanY;
+      }
     } catch (_) {}
   }
   S.activeId = S.panels[0] ? S.panels[0].id : null;

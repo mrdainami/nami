@@ -55,3 +55,13 @@ export function clampSpan(span, cols) {
   if (!Number.isFinite(n) || n < 1) return Math.min(cols, MIN_COLS);
   return Math.min(cols, n);
 }
+
+// Rows are not bounded by the window the way columns are — the desk scrolls —
+// so the only limit is one that keeps a card from swallowing the whole view by
+// accident. Six rows is three cards tall.
+export const MAX_ROWS = 6;
+export function clampRows(span) {
+  const n = Math.round(Number(span));
+  if (!Number.isFinite(n) || n < 1) return MIN_COLS;
+  return Math.min(MAX_ROWS, n);
+}
