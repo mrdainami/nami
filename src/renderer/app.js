@@ -3003,7 +3003,20 @@ function mountEditor(p, rec) {
           f.src = docUrl(p.filePath);
         }
         read.appendChild(f);
-      } else read.innerHTML = renderMarkdown(p.text || '');
+      } else {
+        // Images in a doc resolve like the HTML Read tab's do: doc-relative
+        // paths through nami-doc:// (its containment gate refuses .. escapes),
+        // remote and data URLs as themselves. Absolute paths stay links — a
+        // document does not get to display arbitrary files from the disk.
+        read.innerHTML = renderMarkdown(p.text || '', {
+          resolveImage: (src) => {
+            if (/^(https?:|data:)/i.test(src)) return src;
+            if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return null;
+            const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
+            return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
+          },
+        });
+      }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
     if (p.edMode === 'edit') sync();
