@@ -234,7 +234,16 @@ function dropFilesOnPanel(p, paths) {
 }
 // A workspace path dropped on a session. The file does not move and nothing is
 // copied — the session is handed a reference to where it already lives.
+//
+// S.treeDrag is cleared here rather than left to the row's own dragend, because
+// both of the paths below rebuild the rail synchronously — injectToSession
+// focuses the panel, which calls renderRail, which empties the container the
+// dragged row lives in. The row is gone before dragend would reach it. Every
+// tree drop on master ended in wireDrop.ondrop, which nulls this itself; these
+// two are the first that do not, and a stale S.treeDrag is not inert — the next
+// no-files drag onto a tree row would move a file you are not holding.
 function dropPathOnPanel(p, path, isDir) {
+  S.treeDrag = null;
   if (p.kind === 'editor' || p.kind === 'viewer') { if (!isDir) openFile(path, { pin: true }); return; }
   injectToSession(p, pathRef(path, S.project && S.project.path, isDir));
   toast('Added ' + baseNameOf(path) + ' to ' + shorten(p.title, 24));
@@ -833,6 +842,7 @@ function buildShell() {
     if (isPathDrag(e)) {
       if (isDirDrag(e)) return;
       const path = draggedPath(e); if (!path) return;
+      S.treeDrag = null; // openFile renders the rail out from under the row — see dropPathOnPanel
       e.preventDefault(); openFile(path, { pin: true }); return;
     }
     const paths = droppedPaths(e); if (!paths.length) return;
