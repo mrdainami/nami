@@ -82,27 +82,54 @@ const CAPABILITY = { drive: true, interrupt: true, ask: true, commands: true, ch
 // user or project) can disable bypass outright; offering it anyway meant the
 // switch silently failed. Reads are best-effort: an unreadable file changes
 // nothing.
-const MODE_IDS = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
-function permissionModes({ cwd, home = os.homedir(), readFile } = {}) {
+// This list tracks the bundled SDK's PermissionMode type — update it in the
+// same commit that bumps @anthropic-ai/claude-agent-sdk (there is no runtime
+// discovery call to ask instead).
+const MODE_IDS = ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'];
+
+// The same settings files the terminal reads, walked once, best-effort: an
+// unreadable or malformed file changes nothing.
+function settingsWalk({ cwd, home = os.homedir(), readFile } = {}) {
   const read = readFile || ((p) => { try { return fs.readFileSync(p, 'utf8'); } catch (_) { return null; } });
+  // prec: the CLI's own precedence — managed > project local > project > user.
   const files = [
-    ['/Library/Application Support/ClaudeCode/managed-settings.json', 'disabled by managed settings'],
-    [home + '/.claude/settings.json', 'disabled in ~/.claude/settings.json'],
-    cwd ? [cwd + '/.claude/settings.json', 'disabled in project settings'] : null,
-    cwd ? [cwd + '/.claude/settings.local.json', 'disabled in project settings'] : null,
+    ['/Library/Application Support/ClaudeCode/managed-settings.json', 'disabled by managed settings', 3],
+    [home + '/.claude/settings.json', 'disabled in ~/.claude/settings.json', 0],
+    cwd ? [cwd + '/.claude/settings.json', 'disabled in project settings', 1] : null,
+    cwd ? [cwd + '/.claude/settings.local.json', 'disabled in project settings', 2] : null,
   ].filter(Boolean);
-  let bypassReason = '';
-  for (const [file, why] of files) {
+  const out = [];
+  for (const [file, why, prec] of files) {
     const raw = read(file);
     if (!raw) continue;
-    let s = null;
-    try { s = JSON.parse(raw); } catch (_) { continue; }
+    try { out.push({ file, why, prec, s: JSON.parse(raw) }); } catch (_) {}
+  }
+  return out;
+}
+
+function permissionModes(opts = {}) {
+  let bypassReason = '';
+  for (const { why, s } of settingsWalk(opts)) {
     const v = s && (s.disableBypassPermissionsMode || (s.permissions && s.permissions.disableBypassPermissionsMode));
     if (v === 'disable') bypassReason = why;
   }
   return MODE_IDS.map((id) => (id === 'bypassPermissions' && bypassReason
     ? { id, available: false, reason: bypassReason }
     : { id, available: true }));
+}
+
+// Where the session starts: permissions.defaultMode, the same knob the
+// terminal's shift⇥ begins on. Precedence mirrors the CLI — managed beats
+// project-local beats project beats user — and an id the SDK doesn't know
+// never seeds a session.
+function defaultPermissionMode(opts = {}) {
+  let best = null;
+  for (const { prec, s } of settingsWalk(opts)) {
+    const v = s && s.permissions && s.permissions.defaultMode;
+    if (!MODE_IDS.includes(v)) continue;
+    if (!best || prec > best.prec) best = { prec, v };
+  }
+  return best ? best.v : 'default';
 }
 
 class ClaudeSdkAdapter {
@@ -151,6 +178,7 @@ class ClaudeSdkAdapter {
 
     const options = sdkOptions({
       cwd: this.cwd, model: this.model, env: this.env, exe, sid, hasTranscript,
+      mode: defaultPermissionMode({ cwd: this.cwd }),
       canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
     });
 
@@ -505,10 +533,14 @@ function short(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.s
 // orphan: the same conversation id (resume with a transcript, pinned
 // without one), the same env (login PATH, stripInheritedClaude, stored
 // keys — the caller passes sessionEnv's output), the user's own binary.
-function sdkOptions({ cwd, model, env, exe, sid, hasTranscript, canUseTool }) {
+function sdkOptions({ cwd, model, env, exe, sid, hasTranscript, canUseTool, mode }) {
   const options = {
     cwd,
-    permissionMode: 'default',
+    permissionMode: mode || 'default',
+    // Without this flag the SDK refuses setPermissionMode('bypassPermissions')
+    // — the picker offered bypass and the switch errored. It does not bypass
+    // anything by itself; the session still starts in `mode`.
+    allowDangerouslySkipPermissions: true,
     includePartialMessages: false,
     settingSources: ['project', 'user'],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
@@ -522,4 +554,4 @@ function sdkOptions({ cwd, model, env, exe, sid, hasTranscript, canUseTool }) {
   return options;
 }
 
-module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable, sdkOptions, permissionModes };
+module.exports = { ClaudeSdkAdapter, resolveClaudeExecutable, sdkOptions, permissionModes, defaultPermissionMode };
