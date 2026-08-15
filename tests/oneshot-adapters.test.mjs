@@ -224,31 +224,31 @@ test('kimi keeps a chosen model; -m sits before -p so it is never swallowed', ()
   assert.equal(init.model, 'kimi-k2.6-turbo');
 });
 
-// codex's approval story, expressed as next-turn flags: default passes
-// nothing (its own config decides), the sandbox pair maps to --sandbox,
-// bypass is the dangerously- flag.
-test('codex modes ride the next turn: sandbox flags, bypass, default-nothing', () => {
+// codex's approval story wears the CLI's own preset names (probed on 0.147.0:
+// Auto / Read Only / Full Access), expressed as next-turn flags: auto passes
+// nothing (the CLI's default), read-only maps to --sandbox, full access is the
+// dangerously- flag.
+test('codex modes ride the next turn: auto-nothing, read-only sandbox, full-access bypass', () => {
   const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: () => {} });
-  assert.ok(!a.turnArgs('hi').join(' ').includes('--sandbox'));
+  assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously/));
   a.setConfigOption('mode', 'read-only');
   assert.deepEqual(a.turnArgs('hi'), ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', 'hi']);
-  a.setConfigOption('mode', 'workspace-write');
-  assert.ok(a.turnArgs('hi').includes('workspace-write'));
-  a.setConfigOption('mode', 'bypass');
+  a.setConfigOption('mode', 'full-access');
   assert.ok(a.turnArgs('hi').includes('--dangerously-bypass-approvals-and-sandbox'));
-  a.setConfigOption('mode', 'default');
+  a.setConfigOption('mode', 'auto');
   assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously/));
   a.setConfigOption('mode', 'nonsense'); // unknown value falls back, never a bad flag
   assert.ok(!a.turnArgs('hi').join(' ').match(/sandbox|dangerously|nonsense/));
 });
 
-test('codex announces its modes on init, all available', () => {
+test('codex announces the CLI presets on init, all available', () => {
   const events = [];
   const a = new CodexAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
   a.emitInit();
   const init = events.find((e) => e.kind === 'init');
-  assert.deepEqual(init.modes.map((m) => m.id), ['default', 'read-only', 'workspace-write', 'bypass']);
-  assert.equal(init.mode, 'default');
+  assert.deepEqual(init.modes.map((m) => m.id), ['auto', 'read-only', 'full-access']);
+  assert.equal(init.mode, 'auto');
+  assert.ok(init.modes.every((m) => m.available));
 });
 
 // The picker's options are honest per channel: kimi reads the user's own

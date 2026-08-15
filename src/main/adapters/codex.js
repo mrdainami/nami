@@ -15,11 +15,12 @@ const CAPABILITY = {
   note: 'headless: approvals run by its own config',
 };
 
-// The approval story codex exec can express as flags, in cycle order.
-// 'default' passes nothing — codex's own config decides; the sandbox pair
-// maps to --sandbox values; bypass is its dangerously- flag, warned amber
-// in the card like every other bypass.
-const CODEX_MODES = ['default', 'read-only', 'workspace-write', 'bypass'];
+// The CLI's own preset vocabulary (TUI /approvals, probed on 0.147.0), in
+// cycle order, expressed as next-turn flags: 'auto' passes nothing — it is
+// codex's default; 'read-only' maps to --sandbox read-only; 'full-access'
+// is its dangerously- flag, warned amber in the card like every bypass.
+// Pinned to the installed CLI — re-probe when bumping codex.
+const CODEX_MODES = ['auto', 'read-only', 'full-access'];
 
 // The models codex's own /model picker offers (v0.5x) — exec has no way to
 // enumerate them, so the list is curated from the TUI's picker and the
@@ -75,7 +76,7 @@ class CodexAdapter {
     this.child = null;
     this.threadId = null;
     this.model = null; // rides the next turn's flags — the channel is one-shot
-    this.mode = 'default'; // ditto: sandbox/approval flags on the next spawn
+    this.mode = 'auto'; // ditto: sandbox/approval flags on the next spawn
     this.turnStarted = 0;
   }
 
@@ -93,7 +94,7 @@ class CodexAdapter {
       commands: [],
       model: current,
       models: { current, options: modelOptions(current) },
-      mode: this.mode || 'default',
+      mode: this.mode || 'auto',
       // every mode is a spawn flag on this channel, so all are available
       modes: CODEX_MODES.map((id) => ({ id, available: true })),
     });
@@ -107,7 +108,7 @@ class CodexAdapter {
       this.model = String(value || '') || null;
       if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
     } else if (configId === 'mode') {
-      this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'default';
+      this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'auto';
     } else return;
     this.emitInit();
   }
@@ -118,8 +119,8 @@ class CodexAdapter {
       ? ['exec', 'resume', this.threadId, '--json', '--skip-git-repo-check']
       : ['exec', '--json', '--skip-git-repo-check'];
     if (this.model) args.push('--model', this.model);
-    if (this.mode === 'bypass') args.push('--dangerously-bypass-approvals-and-sandbox');
-    else if (this.mode && this.mode !== 'default') args.push('--sandbox', this.mode);
+    if (this.mode === 'full-access') args.push('--dangerously-bypass-approvals-and-sandbox');
+    else if (this.mode === 'read-only') args.push('--sandbox', 'read-only');
     args.push(text);
     return args;
   }
