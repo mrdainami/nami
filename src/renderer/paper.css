@@ -969,11 +969,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* ===== terminal-first grid + tiles ===================================== */
 .main { display: flex; flex-direction: column; }
+/* Explicit tracks, not auto-fill: a card can claim more than one of them, and
+   auto-fill cannot be spanned into predictably. --cols is set from JS to twice
+   what auto-fill would have chosen, which makes a default span-2 card exactly
+   the width it has always been — see src/renderer/desk-grid.mjs for the
+   arithmetic and tests/desk-grid.test.mjs for the proof at every pixel. */
 .grid {
+  --cols: 2;
   flex: 1; min-height: 0; display: grid; gap: 20px; padding: 22px 26px 24px;
-  /* min() so a zoomed-in (narrow) lane shrinks the track instead of pushing
-     the tile past the sheet edge, where overflow-x would clip it */
-  grid-template-columns: repeat(auto-fill, minmax(min(470px, 100%), 1fr));
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  grid-auto-rows: 210px;   /* 210·2 + 20 gap = the 440px a tile used to be */
   align-content: start; overflow-y: auto; overflow-x: hidden;
   background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,145,180,0.12) 27px 28px);
 }
@@ -981,17 +986,26 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    min-height resolves to auto against auto-sized grid rows and collapses). */
 .grid.has-focus { grid-template-columns: 1fr; grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
 .grid.has-focus .tile:not(.focused) { display: none; }
+/* An empty desk is one block, not a card: taken off the track grid entirely so
+   the 210px row cannot crop it. */
+.grid.is-empty { display: block; }
 .grid > .lane-empty { grid-column: 1 / -1; min-height: 62vh; }
 
+/* The height comes from the row track now, not from the tile: two 210px rows and
+   the gap between them. A card given more rows is simply taller. */
 .tile {
-  display: flex; flex-direction: column; min-width: 0; height: 440px;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  grid-column: span 2; grid-row: span 2;
   background: repeating-linear-gradient(0deg, rgba(120,95,60,0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
   position: relative;
 }
 /* entrance only — .enter is dropped after the animation so reorders don't replay it */
 .tile.enter { animation: rise 0.25s ease both; }
-.tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; }
+/* Focus is a property of the desk, not of the card: it takes the whole canvas
+   for as long as it lasts and the card's own span is untouched underneath, so
+   pressing ⤢ twice returns a 3×2 card to 3×2 rather than to the default. */
+.tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; grid-row: auto; }
 .tile.active { box-shadow: 5px 6px 0 var(--shadow-mid), 0 0 0 1.5px #b8c9ad; }
 .tile.attention { border-color: var(--amber-line); box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); animation: breathe 1.8s ease-in-out infinite; }
 .tile.exited { opacity: 0.82; }
