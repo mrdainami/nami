@@ -36,6 +36,16 @@ export function modeClass(mode) {
   if (/accept|workspace|^auto$/i.test(m)) return 'm-accept';
   return 'm-default';
 }
+// The composer's Enter decision, pure for the tests: a choice on screen owns
+// Enter first (picker, then menu); after that plain ⏎ sends and a modified ⏎
+// (⌥ or ⇧) breaks the line. Every other key is someone else's.
+export function composerKeyAction(e, ui = {}) {
+  if (e.key !== 'Enter') return null;
+  if (ui.pickerOpen) return 'picker';
+  if (ui.menuOpen) return 'menu';
+  return (e.altKey || e.shiftKey) ? 'newline' : 'send';
+}
+
 function shortModel(m) {
   const s = String(m || '').split('/').pop();
   return s.length > 24 ? s.slice(0, 23) + '…' : s;
@@ -427,7 +437,7 @@ export function buildCards(ctx) {
     <div class="cd-picker" hidden></div>
     <div class="cd-ask">
       <span class="m">❯</span>
-      <input class="cd-input" type="text" placeholder="Reply to this session…" title="Enter sends · Esc interrupts · shift⇥ cycles mode · ⌘↑/⌘↓ walk your turns" />
+      <textarea class="cd-input" rows="1" placeholder="Reply to this session…" title="⏎ sends · ⌥⏎ new line · Esc interrupts · shift⇥ cycles mode · ⌘↑/⌘↓ walk your turns"></textarea>
       <button class="cd-mic-btn" title="Dictate into this session"><span class="uni-i">${MIC_SVG}</span><span class="pix-i">${pixIcon('mic')}</span></button>
       <button class="cd-send-btn" title="Send" disabled><span class="uni-i">${SEND_SVG}</span><span class="pix-i">${pixIcon('send')}</span></button>
     </div>
@@ -464,8 +474,14 @@ export function buildCards(ctx) {
     }
   });
 
-  // Filled means armed; empty means outline and muted.
-  const arm = () => { sendBtn.disabled = !input.value.trim(); };
+  // Filled means armed; empty means outline and muted. The textarea grows
+  // with its draft — one line at rest, capped near six, scrolling past that —
+  // so arm() (called at every value change) also re-measures.
+  const grow = () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+  };
+  const arm = () => { sendBtn.disabled = !input.value.trim(); grow(); };
   const submit = () => {
     const text = input.value.trim();
     if (!text) return;
@@ -635,8 +651,16 @@ export function buildCards(ctx) {
     // An open approval card takes ↑↓/⏎ when the input is empty — arrow to an
     // option first, so a stray Enter can never approve anything by itself.
     if (!input.value && permNav(e)) { e.preventDefault(); e.stopPropagation(); return; }
-    if (e.key === 'Enter') { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { ctx.onInterrupt(); e.preventDefault(); }
+    const act = composerKeyAction(e, {});
+    if (act === 'send') { e.preventDefault(); submit(); }
+    else if (act === 'newline') {
+      // inserted by hand, not left to the browser: ⌥⏎ is not a native
+      // newline in a textarea, and ⇧⏎'s default would skip grow()
+      e.preventDefault();
+      const at = input.selectionStart ?? input.value.length;
+      input.setRangeText('\n', at, input.selectionEnd ?? at, 'end');
+      arm();
+    } else if (e.key === 'Escape') { ctx.onInterrupt(); e.preventDefault(); }
     e.stopPropagation();
   });
 
