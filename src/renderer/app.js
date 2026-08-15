@@ -263,6 +263,11 @@ function dropPathOnPanel(p, path, isDir) {
   // and a build that somehow reports no version simply shows nothing.
   if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
   S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  // Here, not in buildShell: buildShell runs before this await resolves, so the
+  // project was still null there and the window watched nothing at all until you
+  // opened a different folder. Whatever boot restored is watched from now,
+  // whichever rail tab the window happens to open on.
+  watchProject();
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
@@ -815,9 +820,6 @@ function buildShell() {
 
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
-  // Whatever folder boot restored is watched from here, whichever rail tab the
-  // window happens to open on.
-  watchProject();
   // Safety net for what the watchers cannot catch: network volumes, FSEvents
   // gaps. Costs one pass at the exact moment you have come back to look at it.
   window.addEventListener('focus', () => {
