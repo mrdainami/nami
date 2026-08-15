@@ -809,9 +809,11 @@ function buildShell() {
 
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
-  // Safety net for what the watchers cannot catch: network volumes, anything
-  // past the 64-watcher cap, FSEvents gaps. Costs one pass at the exact moment
-  // you have come back to look at it.
+  // Whatever folder boot restored is watched from here, whichever rail tab the
+  // window happens to open on.
+  watchProject();
+  // Safety net for what the watchers cannot catch: network volumes, FSEvents
+  // gaps. Costs one pass at the exact moment you have come back to look at it.
   window.addEventListener('focus', () => {
     if (!S.project || S.treeEdit) return;
     for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir);
@@ -1128,7 +1130,6 @@ function refreshWorkspaceRail(c) {
   if (!S.tree[p.path]) api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
   renderTreeLevel(wrap, p.path, 0);
   c.appendChild(wrap);
-  syncDirWatch();
 }
 
 // Where the ＋ creates: the folder you have selected, the folder of the file you
@@ -1339,38 +1340,52 @@ function hideMenu() {
   window.removeEventListener('contextmenu', hideMenu);
 }
 async function refreshTreeDir(dir) {
-  S.tree[dir] = await api.listDir(dir, S.treeAll);
+  await relistDir(dir);
   if (S.railTab === 'workspace') refreshRail();
 }
 
 // ---- keeping the tree honest ------------------------------------------------
-// The renderer declares the whole visible set — root plus every expanded folder
-// — and main diffs it. Full set, not deltas: see src/main/dir-watch.js.
-function syncDirWatch() {
+// What is watched is a property of the *project*, not of what happens to be
+// drawn. It used to be called from the bottom of renderWorkspaceTree, which
+// meant a window booted on the Sessions tab watched nothing at all until you
+// clicked Workspace — and then only the folders that were open. One recursive
+// watcher on the root covers all of it; see src/main/dir-watch.js.
+function watchProject() {
   if (!api.dirWatch) return;
-  const p = S.project;
-  if (!p) { api.dirWatch([]); return; }
-  const paths = [p.path, ...[...S.expanded].filter((d) => S.tree[d])];
-  api.dirWatch(paths).catch(() => {});
+  api.dirWatch(S.project ? S.project.path : null).catch(() => {});
 }
 
-// One directory changed on disk. Re-list just that one; if it has gone, forget
-// it and re-list its parent instead.
+// Something changed inside `dir`. Two rows can be wrong because of it, and the
+// second is the one that used to be missed:
+//
+//   · dir's own listing, if dir is open
+//   · dir's row in its PARENT's listing, which is where its "N items" is
+//     computed — so a file appearing inside a collapsed ui/ is corrected by
+//     re-listing the folder that holds ui/, never ui/ itself
+//
+// Anything deeper than that changes no number anybody can see, and returns
+// without a readdir.
 async function onDirChanged(dir) {
-  if (!S.project) return;
-  if (!(dir in S.tree)) return;          // not visible — nothing to correct
+  if (!S.project || !dir) return;
   if (S.treeEdit && dirName(S.treeEdit.path) === dir) return;  // mid-rename; the commit re-lists
+  const parent = dir === S.project.path ? null : dirName(dir);
+  let touched = false;
+  if (dir in S.tree) touched = await relistDir(dir) || touched;
+  if (parent && parent in S.tree) touched = await relistDir(parent) || touched;
+  if (touched && S.railTab === 'workspace') refreshRail();
+}
+
+// Re-read one open folder. A null means it has gone — "empty" and "deleted" are
+// different answers and dir:list now distinguishes them, which is what lets the
+// row disappear instead of emptying out.
+async function relistDir(dir) {
   const before = new Set((S.tree[dir] || []).map((n) => n.path));
   const rows = await api.listDir(dir, S.treeAll);
-  if (rows == null) {
-    delete S.tree[dir]; S.expanded.delete(dir);
-    if (dir !== S.project.path) await refreshTreeDir(dirName(dir));
-    return;
-  }
+  if (rows == null) { delete S.tree[dir]; S.expanded.delete(dir); return true; }
   S.tree[dir] = rows;
   const fresh = rows.map((n) => n.path).filter((p) => !before.has(p));
   if (fresh.length) markFresh(fresh);
-  if (S.railTab === 'workspace') refreshRail();
+  return true;
 }
 function treeMenu(n, parentDir) {
   const root = S.project.path;
@@ -5537,6 +5552,7 @@ function applyProject(info) {
   S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
   // load root level fresh for the explorer
   api.listDir(info.path, S.treeAll).then((rows) => { S.tree[info.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
+  watchProject();
   refreshServices();
   renderAll();
 }
