@@ -135,7 +135,7 @@ function setTheme(name, persistIt = true) {
     t.term.options.fontFamily = termFontFamily();
     t.term.options.fontSize = termFontSize();
     t.term.options.letterSpacing = termLetterSpacing();
-    safeFit(t);
+    markFit(t);
   });
   if (els.grid) renderAll();
 }
@@ -895,7 +895,7 @@ function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
   // tiles need a re-fit when the grid width changes
-  setTimeout(() => tileEls.forEach((t) => safeFit(t)), 60);
+  setTimeout(() => tileEls.forEach((t) => markFit(t)), 60);
 }
 
 function onGlobalKey(e) {
@@ -1843,7 +1843,7 @@ function renderGrid() {
     if (t.root === cursor) cursor = cursor.nextElementSibling;
     else els.grid.insertBefore(t.root, cursor);
     refreshTileHead(p);
-    if (t.fit) requestAnimationFrame(() => safeFit(t));
+    if (t.fit) markFit(t);
   }
   // Only if the move actually cost us the keyboard — never steal it from a
   // rename box, the rail, or an overlay that opened during the render.
@@ -1884,11 +1884,16 @@ function termLetterSpacing() { return 0; }
 // often was the column count being wrong, which resized the terminal ten times
 // in the first tenth of a second. That is fixed now (see .term-body in
 // paper.css). The vendored addon stays in ./vendor for that attempt.
+// One tap used to tell every open agent to repaint, immediately — four taps
+// across three sessions was twelve messages and three redrawn screens. The size
+// still applies to every tile at once (it is one shared preference), but the
+// canvas redraw and the agent's notification are now on separate clocks, so a
+// run of taps settles into one message per session.
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
   tileEls.forEach((r) => {
-    if (r.term) { r.term.options.fontSize = next; safeFit(r); }
+    if (r.term) { r.term.options.fontSize = next; markFit(r); }
     if (r.cardsUi) r.cardsUi.setFontSize(next); // cards read at the same size the terminal does
   });
   toast('Text size · ' + next + 'px'); // one dial for both surfaces — cards scale with it too
@@ -1912,7 +1917,7 @@ function mountTile(p) {
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
-  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null };
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null, ptyTimer: null };
   tileEls.set(p.id, rec);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
@@ -1988,13 +1993,63 @@ function refreshTileHead(p) {
 
 // ---- terminal tiles --------------------------------------------------------
 
-function safeFit(rec) {
+// ---- the two clocks --------------------------------------------------------
+// Resizing a terminal is two jobs, and they were welded together: term.onResize
+// called api.termResize directly, so there was no way to redraw the canvas
+// without also telling the agent. Recomputing the canvas is cheap, local and
+// invisible to anyone else. Telling the pty makes Claude throw its screen away
+// and repaint, slicing whatever was scrolled above it — that is the crop on
+// expand, the mangling on collapse, and every open session being told at once
+// when you tapped ＋.
+//
+// Clock A (markFit → fitCanvas) repaints, once per frame across every tile.
+// Clock B (notifyPty) tells the agent, once, when the gesture stops.
+//
+// Every surface then follows from the rule rather than needing its own handling:
+// expand, collapse, the font buttons and a slow drag on the window edge are all
+// the same two clocks at different speeds.
+const dirtyFits = new Set();
+let fitFrame = null;
+function markFit(rec) {
+  if (!rec || !rec.term || !rec.fit) return;
+  dirtyFits.add(rec);
+  if (fitFrame) return;
+  fitFrame = requestAnimationFrame(() => { fitFrame = null; drainFits(); });
+}
+function drainFits() {
+  const batch = [...dirtyFits];
+  dirtyFits.clear();
+  for (const rec of batch) fitCanvas(rec);
+}
+
+// How long a gesture has to be still before the agent is told. Long enough that
+// a drag across several seconds is one message, short enough that letting go of
+// a card and reading it are the same moment.
+const PTY_SETTLE_MS = 140;
+function notifyPty(p, rec) {
+  clearTimeout(rec.ptyTimer);
+  rec.ptyTimer = setTimeout(() => {
+    rec.ptyTimer = null;
+    if (!rec.term) return;
+    api.termResize({ id: p.id, cols: rec.term.cols, rows: rec.term.rows });
+  }, PTY_SETTLE_MS);
+}
+
+function fitCanvas(rec) {
   if (!rec || !rec.term || !rec.fit) return;
   // A hidden terminal measures zero. addon-fit would round that up to its
   // minimum and resize the pty to a couple of columns — and claude reflows to
   // whatever it is told, so the session would come back from the card view
   // wrapped one word per line.
-  if (!rec.body.clientWidth || !rec.body.clientHeight) return;
+  //
+  // Left marked rather than dropped, so it is redrawn on the frame it becomes
+  // visible. Dropping it is why a tile came back from a collapse at the size it
+  // held before the expand, and stayed there until something else nudged it.
+  // No frame is scheduled here — the ResizeObserver fires the moment the tile
+  // has a size, and that is what drains this.
+  if (!rec.body.clientWidth || !rec.body.clientHeight) { dirtyFits.add(rec); return; }
+  // A card mid-drag is measured on the drop, not on every intermediate size.
+  if (rec.root.classList.contains('is-resizing')) { dirtyFits.add(rec); return; }
   try { rec.fit.fit(); } catch (_) { return; }
   try {
     const body = rec.body, term = rec.term;
@@ -2029,7 +2084,7 @@ function mountTerminal(p, rec) {
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => {
-    safeFit(rec);
+    fitCanvas(rec);
     if (p.sceneStatic) return; // a fixture tile draws, it never runs
     // A tile restored in Cards goes straight to the drive channel — spawning
     // the pty first would put two runtimes on one conversation.
@@ -2037,20 +2092,22 @@ function mountTerminal(p, rec) {
     else startProcess(p, term.cols, term.rows);
   });
   term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });
-  term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
+  // Clock B, and the only place it is wound. This used to call api.termResize
+  // straight through, which is what made the canvas and the agent one job.
+  term.onResize(() => notifyPty(p, rec));
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
-  // Debounced: a resize drag would otherwise fire a pty resize per frame, and
-  // every one of those reflows the scrollback (mid-word wraps, sliced borders).
-  let refitTimer = null;
-  const ro = new ResizeObserver(() => {
-    clearTimeout(refitTimer);
-    refitTimer = setTimeout(() => safeFit(rec), 90);
-  });
+  // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
+  // every frame the tile changes size. The delay that used to live here was
+  // protecting the pty, and the pty has its own settle now — which is also why a
+  // slow window-edge drag no longer looks frozen while you hold it.
+  const ro = new ResizeObserver(() => markFit(rec));
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
-  rec.disposeRo = () => { clearTimeout(refitTimer); ro.disconnect(); hoveredLink.delete(p.id); };
+  rec.disposeRo = () => {
+    clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+  };
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -2387,7 +2444,7 @@ function applyView(p, rec) {
     surf.textContent = on ? 'CARDS' : 'TERM';
   }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
-  else requestAnimationFrame(() => safeFit(rec));
+  else markFit(rec);
   refreshChannelBadge(p, rec);
 }
 
@@ -2553,7 +2610,7 @@ async function exitCards(p) {
   api.cardsWatch({ id: p.id, on: false });
   if (p.cardMode === 'watch' && p.started && !p.exited) {
     p.cardMode = 'off';
-    requestAnimationFrame(() => safeFit(rec));
+    markFit(rec);
     return;
   }
   if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
@@ -2562,7 +2619,7 @@ async function exitCards(p) {
   p.exited = false; p.status = 'live'; p.started = false;
   if (rec.term) {
     try { rec.term.reset(); } catch (_) {}
-    requestAnimationFrame(() => { safeFit(rec); startProcess(p, rec.term.cols, rec.term.rows); });
+    requestAnimationFrame(() => { fitCanvas(rec); startProcess(p, rec.term.cols, rec.term.rows); });
   }
   refreshTileHead(p); refreshRail();
 }
