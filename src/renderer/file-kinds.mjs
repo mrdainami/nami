@@ -54,24 +54,31 @@ export function shellQuote(p) { return "'" + String(p).replace(/'/g, "'\\''") + 
 // still mentions fine; that is the case the absolute form handles worse.
 //
 // Everything else quotes the absolute path, which is what a Finder drop already
-// produces. Two of those fallbacks are deliberate rather than incidental:
+// produces.
 //
-//   whitespace  `@my notes.md` breaks at the space in a shell AND in every
-//               mention parser. The alternative is inventing `@"my notes.md"`,
-//               a convention no agent has agreed to and which would fail
-//               differently in each of the six launches. Quoting already works
-//               in all of them.
-//   backslashes POSIX-only, for the same reason fileUrl and docUrl are. A
-//               Windows path has no relative form this is willing to guess at.
+// MENTION_SAFE is an allowlist, not a denylist, because the two ways of being
+// wrong do not cost the same. Wrongly calling a name unsafe costs a mention:
+// you get the quoted absolute path, which works everywhere and always has.
+// Wrongly calling one safe puts `$(...)`, a backtick or a `;` unquoted at a
+// live shell prompt — injectToSession ends at api.termWrite for a terminal
+// session, which is a pty. dropFilesOnPanel has quoted unconditionally since it
+// was written; the mention branch must not be the hole beside it.
+//
+// Unicode letters and digits are in the set deliberately: a project full of
+// Japanese filenames should still mention, and no shell treats them specially.
+// What is left out is every POSIX metacharacter, quote, bracket, and space —
+// plus `~`, which expands, and `\`, because this is POSIX-only for the same
+// reason fileUrl and docUrl are.
 //
 // The root boundary is the separator, never the prefix: '/Users/cal/nami-other'
 // starts with '/Users/cal/nami' as a string and is a different folder.
+const MENTION_SAFE = /^[\p{L}\p{N}._\-/+@]+$/u;
 export function pathRef(path, root, isDir) {
   const abs = String(path || '');
   const base = String(root || '').replace(/\/+$/, '');
   const inside = base && abs.indexOf(base + '/') === 0;
   const rel = inside ? abs.slice(base.length + 1) : '';
-  if (!rel || /\s/.test(rel) || rel.indexOf('\\') >= 0) return shellQuote(abs) + ' ';
+  if (!rel || !MENTION_SAFE.test(rel)) return shellQuote(abs) + ' ';
   return '@' + rel + (isDir ? '/' : '') + ' ';
 }
 

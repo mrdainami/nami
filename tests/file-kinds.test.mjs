@@ -118,3 +118,46 @@ test('pathRef: backslash paths are not POSIX, so they quote rather than guess', 
 test('pathRef: an embedded quote survives the fallback', () => {
   assert.equal(pathRef("/Users/cal/it's.txt", ROOT), "'/Users/cal/it'\\''s.txt' ");
 });
+
+test('pathRef: a shell metacharacter never rides out unquoted', () => {
+  // The mention goes to a live pty for a terminal session. dropFilesOnPanel has
+  // always quoted for this reason; the mention branch must not be the hole.
+  // A repo you cloned can contain any of these.
+  for (const name of ['$(id).txt', '`id`.md', 'a;whoami.txt', 'a&&b.md', 'a|b.md',
+                      'a>out.md', 'a<in.md', "it's.md", 'a*.md', 'a?.md', 'a!.md',
+                      'a#b.md', '~evil.md', 'a{b}.md', 'a[b].md', 'a"b.md']) {
+    const out = pathRef(ROOT + '/' + name, ROOT);
+    assert.equal(out[0], "'", name + ' must quote, got ' + out);
+    assert.ok(!out.startsWith('@'), name + ' must not become a mention');
+  }
+});
+
+test('pathRef: a newline in a name never rides out unquoted either', () => {
+  // "nothing sends" is the promise; a raw newline at a pty prompt breaks it
+  const out = pathRef(ROOT + '/a\nwhoami', ROOT);
+  assert.ok(!out.startsWith('@'), 'newline must not become a mention');
+});
+
+test('pathRef: ordinary names are still mentions, punctuation and all', () => {
+  // the guard must not be so broad that real filenames stop mentioning
+  for (const name of ['main.js', 'file-kinds.mjs', 'my_file.txt', 'a.b.c.json',
+                      'v1.2+build', 'CHANGELOG', '@scope/pkg.json'])
+    assert.equal(pathRef(ROOT + '/' + name, ROOT), '@' + name + ' ', name);
+});
+
+test('pathRef: non-ASCII names still mention rather than degrading to a path', () => {
+  assert.equal(pathRef(ROOT + '/仕様書.md', ROOT), '@仕様書.md ');
+  assert.equal(pathRef(ROOT + '/café/notes.md', ROOT), '@café/notes.md ');
+});
+
+test('pathRef: a project opened at the volume root quotes everything', () => {
+  // Pathological but pinned, so it is a decision rather than an accident: '/'
+  // normalises to an empty root, and an empty root means no relative form.
+  assert.equal(pathRef('/etc/hosts', '/'), "'/etc/hosts' ");
+});
+
+test('pathRef: an out-of-root folder gets no trailing slash', () => {
+  // it is an absolute path, not a mention — the slash only disambiguates a
+  // mention, and adding one here would just be a path that does not exist
+  assert.equal(pathRef('/tmp/foo', ROOT, true), "'/tmp/foo' ");
+});
