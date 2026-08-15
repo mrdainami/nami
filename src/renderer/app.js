@@ -1151,10 +1151,12 @@ function renderTreeLevel(container, dir, depth) {
     row.ondragstart = (e) => {
       S.treeDrag = n.path;
       row.classList.add('dragging');
-      // copyMove, not move: with 'move' alone the browser refuses to report a
-      // copy no matter what a target asks for, and a session tile has to show
-      // copy — nothing moves when you drop a file on a session. Folder targets
-      // are unaffected because wireDrop names dropEffect = 'move' itself.
+      // copyMove, not move. This is not about the cursor picture: a dropEffect
+      // outside effectAllowed is not merely ignored, it cancels the drop
+      // outright (Blink drag_controller: operation becomes kNone). With 'move'
+      // alone, the tile asking for 'copy' below would have killed its own drop.
+      // Folder targets are unaffected — wireDrop names dropEffect = 'move'
+      // itself, which is still a member.
       e.dataTransfer.effectAllowed = 'copyMove';
       try {
         e.dataTransfer.setData('text/plain', n.path);
@@ -1898,7 +1900,12 @@ function mountTile(p) {
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
   root.addEventListener('dragover', (e) => {
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
+    // Stopped for the same reason the drop below is: every tile is a direct
+    // child of els.grid, whose own dragover refuses a folder. Without this the
+    // tile names its effect and the grid immediately overwrites it — a folder
+    // dropped on a session would light up copy, turn no-drop, and never arrive.
+    //
     // A workspace path reads as a file arriving, not as a tile being reordered,
     // and it says copy: the row you are holding stays exactly where it lives.
     // Except on an editor or a viewer, which take a file to open and have
