@@ -814,8 +814,19 @@ function buildShell() {
   // (tile drops stopPropagation, so this only fires outside tiles).
   // A folder is refused here rather than accepted and ignored: there is no
   // folder viewer tile, so the cursor should never promise one.
+  //
+  // The refusal has to be said out loud — `dropEffect = 'none'` — and cannot be
+  // left to withholding preventDefault. The window listener directly above sits
+  // further up the same bubble path and prevents the default on every dragover
+  // in the document, so by the time the event is done the drop is allowed no
+  // matter what this handler declines to do. Staying silent would leave the
+  // browser showing the copy it infers from effectAllowed, over a drop that
+  // then does nothing — the exact thing this whole change exists to delete.
   els.grid.addEventListener('dragover', (e) => {
-    if (isPathDrag(e)) { if (isDirDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; return; }
+    if (isPathDrag(e)) {
+      if (isDirDrag(e)) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; return;
+    }
     if (isFileDrag(e)) e.preventDefault();
   });
   els.grid.addEventListener('drop', (e) => {
@@ -1890,7 +1901,12 @@ function mountTile(p) {
     e.preventDefault();
     // A workspace path reads as a file arriving, not as a tile being reordered,
     // and it says copy: the row you are holding stays exactly where it lives.
-    if (isPathDrag(e)) { e.dataTransfer.dropEffect = 'copy'; root.classList.add('file-hint'); return; }
+    // Except on an editor or a viewer, which take a file to open and have
+    // nothing to do with a folder — refused in the cursor, not silently on drop.
+    if (isPathDrag(e)) {
+      if (isDirDrag(e) && (p.kind === 'editor' || p.kind === 'viewer')) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.dataTransfer.dropEffect = 'copy'; root.classList.add('file-hint'); return;
+    }
     root.classList.add(isFileDrag(e) ? 'file-hint' : 'drop-hint');
   });
   root.addEventListener('dragleave', () => root.classList.remove('drop-hint', 'file-hint'));
