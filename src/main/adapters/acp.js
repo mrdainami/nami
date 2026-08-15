@@ -55,6 +55,7 @@ class AcpAdapter {
     this.sessionId = null;
     this.commands = [];
     this.models = null;                   // { current, options } from configOptions
+    this.modes = null;                    // { current, options: [{id,name,desc}] } — see readModes
     this.authMethods = [];
     this.lastUsage = null;
     this.turnStarted = 0;
@@ -159,6 +160,7 @@ class AcpAdapter {
         this.sessionId = sess && (sess.sessionId || sess.session_id);
       }
       this.readModels(sess);
+      this.readModes(sess);
       this.emitInit();
     } catch (err) {
       const msg = err && (err.message || err.data || JSON.stringify(err));
@@ -191,6 +193,31 @@ class AcpAdapter {
     }
   }
 
+  // The agent's own mode list, wherever it chose to say it. Two real shapes
+  // (probed 2026-08-16): the ACP spec's result.modes {currentModeId,
+  // availableModes} (hermes-style), and opencode's configOptions entry
+  // {id:'mode', type:'select'} — the same envelope its models arrive in.
+  // No modes said → this.modes stays null and the card grows no chip.
+  readModes(sess) {
+    const spec = sess && sess.modes && Array.isArray(sess.modes.availableModes) && sess.modes.availableModes.length
+      ? sess.modes : null;
+    if (spec) {
+      this.modes = {
+        current: spec.currentModeId || spec.availableModes[0].id,
+        options: spec.availableModes.map((m) => ({ id: String(m.id), name: m.name || String(m.id), desc: String(m.description || '') })),
+      };
+      return;
+    }
+    const opt = sess && Array.isArray(sess.configOptions)
+      && sess.configOptions.find((o) => o && o.id === 'mode' && Array.isArray(o.options) && o.options.length);
+    if (opt) {
+      this.modes = {
+        current: opt.currentValue || opt.options[0].value,
+        options: opt.options.map((o) => ({ id: String(o.value), name: o.name || String(o.value), desc: String(o.description || '') })),
+      };
+    }
+  }
+
   emitInit() {
     this.emit('init', {
       capability: capability({
@@ -202,6 +229,10 @@ class AcpAdapter {
       commands: this.commands,
       models: this.models,
       model: (this.models && this.models.current) || null,
+      mode: (this.modes && this.modes.current) || undefined,
+      modes: this.modes
+        ? this.modes.options.map((m) => ({ id: m.id, available: true, desc: m.desc }))
+        : undefined,
       agentName: (this.agentInfo && this.agentInfo.name) || null,
       version: (this.agentInfo && this.agentInfo.version) || null,
       authMethods: this.authMethods,
@@ -355,7 +386,16 @@ class AcpAdapter {
         if (this.turnStarted) this.emit('status', { state: 'running', tokens: this.lastUsage.used });
         return;
 
-      case 'current_mode_update':
+      case 'current_mode_update': {
+        // The agent changed its own mode (or confirmed ours): the chip follows.
+        const id = update.currentModeId || update.current_mode_id;
+        if (id && this.modes && this.modes.options.some((m) => m.id === id)) {
+          this.modes.current = String(id);
+          this.emitInit();
+        }
+        return; // a state change, never a row
+      }
+
       case 'session_info_update':
         return; // real, just not rows
 
@@ -466,6 +506,19 @@ class AcpAdapter {
 
   setConfigOption(configId, value) {
     if (!this.sessionId) return;
+    // Mode has its own verb in the protocol. The chip only flips on the
+    // agent's yes — opencode answers set_mode with {} and sends no
+    // current_mode_update, so the success path re-inits by itself; an agent
+    // that does notify just re-confirms the same state.
+    if (configId === 'mode') {
+      this._rpc('session/set_mode', { sessionId: this.sessionId, modeId: String(value) })
+        .then(() => {
+          if (this.modes && this.modes.options.some((m) => m.id === String(value))) this.modes.current = String(value);
+          this.emitInit();
+        })
+        .catch((err) => this.emit('note', { text: `Could not switch mode: ${String(err && err.message || err).slice(0, 120)}` }));
+      return;
+    }
     this._rpc('session/set_config_option', { sessionId: this.sessionId, configId, value })
       .then((res) => { this.readModels(res); this.emitInit(); })
       .catch((err) => this.emit('note', { text: `Could not change ${configId}: ${String(err && err.message || err).slice(0, 120)}` }));

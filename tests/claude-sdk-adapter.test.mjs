@@ -284,9 +284,9 @@ function readerOf(files) {
   return (p) => (p in files ? files[p] : null);
 }
 
-test('with no settings anywhere, every mode is available', () => {
+test('with no settings anywhere, every SDK mode is available — all six', () => {
   const modes = permissionModes({ cwd: '/repo', home: '/Users/x', readFile: readerOf({}) });
-  assert.deepEqual(modes.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'bypassPermissions']);
+  assert.deepEqual(modes.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions']);
   assert.ok(modes.every((m) => m.available));
 });
 
@@ -328,7 +328,53 @@ test('the adapter announces its modes on init', () => {
   const a = new ClaudeSdkAdapter({ id: 't1', cwd: '/repo', onEvent: (e) => events.push(e) });
   a.handle({ type: 'system', subtype: 'init', session_id: 's1', model: 'm', permissionMode: 'default', slash_commands: [] });
   const init = events.find((e) => e.kind === 'init');
-  assert.ok(Array.isArray(init.modes) && init.modes.length === 4);
+  assert.ok(Array.isArray(init.modes) && init.modes.length === 6);
+});
+
+// ---- the session starts in the mode the terminal would ----------------------
+// permissions.defaultMode in settings decides where shift⇥ begins; hardcoding
+// 'default' made the card open in a different mode than the terminal.
+const { defaultPermissionMode } = require('../src/main/adapters/claude-sdk.js');
+
+test('defaultPermissionMode reads permissions.defaultMode, falling back to default', () => {
+  assert.equal(defaultPermissionMode({ cwd: '/repo', home: '/Users/x', readFile: readerOf({}) }), 'default');
+  assert.equal(defaultPermissionMode({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({ '/Users/x/.claude/settings.json': JSON.stringify({ permissions: { defaultMode: 'acceptEdits' } }) }),
+  }), 'acceptEdits');
+});
+
+test('defaultPermissionMode precedence: managed beats project beats user; junk is ignored', () => {
+  assert.equal(defaultPermissionMode({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({
+      '/Users/x/.claude/settings.json': JSON.stringify({ permissions: { defaultMode: 'acceptEdits' } }),
+      '/repo/.claude/settings.json': JSON.stringify({ permissions: { defaultMode: 'plan' } }),
+    }),
+  }), 'plan');
+  assert.equal(defaultPermissionMode({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({
+      '/repo/.claude/settings.local.json': JSON.stringify({ permissions: { defaultMode: 'auto' } }),
+      '/Library/Application Support/ClaudeCode/managed-settings.json': JSON.stringify({ permissions: { defaultMode: 'plan' } }),
+    }),
+  }), 'plan');
+  // a mode the SDK doesn't know is not a mode — never seed the session with it
+  assert.equal(defaultPermissionMode({
+    cwd: '/repo', home: '/Users/x',
+    readFile: readerOf({ '/Users/x/.claude/settings.json': JSON.stringify({ permissions: { defaultMode: 'yolo' } }) }),
+  }), 'default');
+});
+
+test('sdkOptions honours bypass at spawn and seeds the settings default mode', () => {
+  const { sdkOptions } = require('../src/main/adapters/claude-sdk.js');
+  const o = sdkOptions({ cwd: '/repo', exe: '/bin/claude', sid: null, hasTranscript: false, canUseTool: () => {}, mode: 'acceptEdits' });
+  // the SDK refuses setPermissionMode('bypassPermissions') without this flag —
+  // the picker offered bypass and the switch errored (the original bug)
+  assert.equal(o.allowDangerouslySkipPermissions, true);
+  assert.equal(o.permissionMode, 'acceptEdits');
+  const bare = sdkOptions({ cwd: '/repo', exe: '/bin/claude', sid: null, hasTranscript: false, canUseTool: () => {} });
+  assert.equal(bare.permissionMode, 'default');
 });
 
 // Silent approvals get named: an execute tool whose result arrives without
