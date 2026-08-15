@@ -45,6 +45,43 @@ export function tailPath(p, keep = 2) {
 // POSIX single-quoting: safe to paste into a shell or a chat message.
 export function shellQuote(p) { return "'" + String(p).replace(/'/g, "'\\''") + "'"; }
 
+// The text a dragged path types into a session, trailing space included so no
+// caller has to remember it.
+//
+// Inside the open folder it is an `@` mention — every launch reads that as "go
+// open this", it costs nothing for a huge file, and it works for a folder. Only
+// the part below the root has to be clean, so a project living in "My Project"
+// still mentions fine; that is the case the absolute form handles worse.
+//
+// Everything else quotes the absolute path, which is what a Finder drop already
+// produces.
+//
+// MENTION_SAFE is an allowlist, not a denylist, because the two ways of being
+// wrong do not cost the same. Wrongly calling a name unsafe costs a mention:
+// you get the quoted absolute path, which works everywhere and always has.
+// Wrongly calling one safe puts `$(...)`, a backtick or a `;` unquoted at a
+// live shell prompt — injectToSession ends at api.termWrite for a terminal
+// session, which is a pty. dropFilesOnPanel has quoted unconditionally since it
+// was written; the mention branch must not be the hole beside it.
+//
+// Unicode letters and digits are in the set deliberately: a project full of
+// Japanese filenames should still mention, and no shell treats them specially.
+// What is left out is every POSIX metacharacter, quote, bracket, and space —
+// plus `~`, which expands, and `\`, because this is POSIX-only for the same
+// reason fileUrl and docUrl are.
+//
+// The root boundary is the separator, never the prefix: '/Users/cal/nami-other'
+// starts with '/Users/cal/nami' as a string and is a different folder.
+const MENTION_SAFE = /^[\p{L}\p{N}._\-/+@]+$/u;
+export function pathRef(path, root, isDir) {
+  const abs = String(path || '');
+  const base = String(root || '').replace(/\/+$/, '');
+  const inside = base && abs.indexOf(base + '/') === 0;
+  const rel = inside ? abs.slice(base.length + 1) : '';
+  if (!rel || !MENTION_SAFE.test(rel)) return shellQuote(abs) + ' ';
+  return '@' + rel + (isDir ? '/' : '') + ' ';
+}
+
 // Absolute POSIX path → file:// URL (renderer has no Node pathToFileURL).
 export function fileUrl(absPath) {
   return 'file://' + String(absPath).split('/').map(encodeURIComponent).join('/');
