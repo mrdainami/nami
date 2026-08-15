@@ -1440,15 +1440,20 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-note-btn:hover { background: var(--green); color: var(--paper); }
 
-/* The composer: prompt, input, mic beside the send arrow. Filled means armed. */
+/* The composer: prompt, textarea, mic beside the send arrow. Filled means
+   armed. The draft grows the strip downward (grow() caps it near six lines,
+   then it scrolls): ❯ holds the first line like the TUI, the buttons ride
+   the last. */
 .cd-ask {
-  flex: none; display: flex; align-items: center; gap: 8px;
+  flex: none; display: flex; align-items: flex-end; gap: 8px;
   padding: 8px 10px; border-top: 1px dashed var(--dash);
 }
-.cd-ask .m { color: var(--green); font-weight: 700; }
+.cd-ask .m { color: var(--green); font-weight: 700; align-self: flex-start; }
 .cd-input {
   flex: 1; min-width: 0; font: inherit; font-size: calc(12.5px * var(--cdz, 1)); color: var(--ink);
   background: transparent; border: 0; outline: none;
+  resize: none; overflow-y: auto; max-height: 132px;
+  line-height: 1.45; padding: 0; display: block;
 }
 .cd-input::placeholder { color: var(--faint); }
 /* display classes must never beat the hidden attribute */
