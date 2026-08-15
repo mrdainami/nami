@@ -1,15 +1,20 @@
-// Keeps the Workspace tree honest: one fs.watch per directory the renderer can
-// actually see, so a file a session just wrote shows up without a click.
+// Keeps the Workspace tree honest: one recursive watcher on the open project, so
+// a file a session just wrote shows up without a click — wherever it landed.
 //
-// The renderer declares the *whole* visible set every time — root plus every
-// expanded folder — and this module diffs it against what is open. Declaring
-// the full set rather than deltas is the point: there is no incremental state
-// on either side, so no sequence of collapses and re-expands can leave the two
-// disagreeing about what is being watched.
+// Recursive, and watching folders you have not opened, because that is the case
+// that was broken. Watching only the root and the expanded folders meant an
+// agent scaffolding into a collapsed ui/ fired nothing at all: the folder had no
+// watcher, and writing inside it does not touch the root, so the root's watcher
+// stayed silent too. The row said "0 items" over four files on disk and no
+// amount of waiting fixed it — only collapsing the folder and opening it again.
 //
-// Non-recursive on purpose. A collapsed dist/ churning through a build is
-// invisible to us, which is the difference between a watcher you keep and one
-// you turn off. fs.watch is injectable so the tests never touch a real disk.
+// The earlier design went non-recursive on volume, arguing that a collapsed
+// dist/ churning through a build was the difference between a watcher you keep
+// and one you turn off. The concern is real; going blind is not the answer.
+// Measured with 200 files landing in node_modules: 205 events, 202 of them
+// dropped by the path test below before any work happened. Filter and coalesce.
+//
+// fs.watch is injectable so the tests never touch a real disk.
 //
 // Note this is the opposite call from watchTitle's poll in main.js, and
 // deliberately so: transcripts are append-storms where a watcher fires
@@ -17,6 +22,7 @@
 // rarely and every change matters.
 
 const fs = require('fs');
+const path = require('path');
 
 // The same names dir:list filters out (see IGNORE in main.js). Filtering here,
 // before the debounce, is not an optimisation — .git's mtime moves on every git
@@ -24,75 +30,102 @@ const fs = require('fs');
 // rebase for no visible reason.
 const IGNORE = new Set(['node_modules', '.git', '.DS_Store', 'dist', 'build', '.next', '.cache']);
 
-const MAX_WATCHERS = 64;
 const DEBOUNCE_MS = 200;
+// The ceiling. A trailing debounce alone starves: an agent writing faster than
+// the window resets the timer on every file, so the flush never arrives and the
+// tree updates only once the agent stops. That is exactly what it looked like
+// from the outside — "it only appears after it finishes".
+const MAX_WAIT_MS = 800;
 
 function createDirWatch({
   watch = fs.watch,
   onChange = () => {},
   ignore = IGNORE,
   debounceMs = DEBOUNCE_MS,
-  max = MAX_WATCHERS,
+  maxWaitMs = MAX_WAIT_MS,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
 } = {}) {
-  const open = new Map();     // dir -> watcher handle
-  const timers = new Map();   // dir -> pending debounce
+  let handle = null;
+  let root = null;
+  const pending = new Map();   // dir -> { trail, ceil }
 
-  function hit(dir, filename) {
+  // Whole segments, not a string prefix: a folder called distribution/ is not
+  // dist/, and node_modules/junk/n7.js is node_modules however deep it sits.
+  function ignored(rel) {
+    for (const seg of String(rel).split(/[\\/]/)) if (seg && ignore.has(seg)) return true;
+    return false;
+  }
+
+  // A recursive event names a path relative to the root. The tree wants the
+  // folder that path lives in — that is the row whose listing changed, and
+  // whose parent's "N items" is now wrong.
+  function dirOf(rel) {
+    if (rel == null) return root;
+    const s = String(rel).replace(/\\/g, '/');
+    const cut = s.lastIndexOf('/');
+    return cut <= 0 ? root : path.join(root, s.slice(0, cut));
+  }
+
+  function flush(dir) {
+    const p = pending.get(dir);
+    if (!p) return;
+    if (p.trail) clearTimeoutFn(p.trail);
+    if (p.ceil) clearTimeoutFn(p.ceil);
+    pending.delete(dir);
+    onChange(dir);
+  }
+
+  function hit(rel) {
     // A null filename means the platform would not say what moved. Emitting is
     // the safe read: a missed change leaves a lying sidebar, an extra re-list
     // costs one readdir.
-    if (filename != null && ignore.has(String(filename))) return;
-    const prev = timers.get(dir);
-    if (prev) clearTimeoutFn(prev);
-    timers.set(dir, setTimeoutFn(() => { timers.delete(dir); onChange(dir); }, debounceMs));
+    if (rel != null && ignored(rel)) return;
+    if (!root) return;
+    const dir = dirOf(rel);
+    let p = pending.get(dir);
+    if (!p) {
+      p = { trail: null, ceil: null };
+      pending.set(dir, p);
+      // Set once on the first event of a burst and never reset — that is what
+      // makes it a ceiling rather than a second debounce.
+      p.ceil = setTimeoutFn(() => flush(dir), maxWaitMs);
+    }
+    if (p.trail) clearTimeoutFn(p.trail);
+    p.trail = setTimeoutFn(() => flush(dir), debounceMs);
   }
 
-  function openOne(dir) {
+  // One project, one watcher. Called when the open folder changes, not while
+  // drawing the tree: what is watched is a property of the project, and tying it
+  // to a render meant booting on the Sessions tab watched nothing at all.
+  function watchRoot(dir) {
+    if (dir && dir === root && handle) return { watching: 1, failed: 0 };
+    close();
+    if (!dir) return { watching: 0, failed: 0 };
     try {
-      open.set(dir, watch(dir, { recursive: false }, (_type, filename) => hit(dir, filename)));
-      return true;
+      root = dir;
+      handle = watch(dir, { recursive: true }, (_type, filename) => hit(filename));
+      return { watching: 1, failed: 0 };
     } catch (_) {
-      // A directory that vanished between listing and watching, or one the OS
-      // will not hand us a descriptor for. Not fatal: the focus re-list still
-      // covers it, and refusing to open the other 63 would be worse.
-      return false;
+      // A folder that vanished, or one the OS will not hand us a descriptor for.
+      // Not fatal: every re-list still works, the tree just stops correcting
+      // itself until the next project switch.
+      handle = null; root = null;
+      return { watching: 0, failed: 1 };
     }
   }
 
-  function closeOne(dir) {
-    const h = open.get(dir);
-    if (h) { try { h.close(); } catch (_) {} }
-    open.delete(dir);
-    const t = timers.get(dir);
-    if (t) { clearTimeoutFn(t); timers.delete(dir); }
-  }
-
-  // The full visible set, in tree order. Past the cap the tail is dropped —
-  // tree order means what you can see wins — and the count is returned rather
-  // than swallowed, because a silently half-watched tree is the bug this whole
-  // module exists to remove.
-  function declare(paths) {
-    const want = [];
-    const seen = new Set();
-    for (const p of paths || []) {
-      if (typeof p !== 'string' || !p || seen.has(p)) continue;
-      seen.add(p); want.push(p);
+  function close() {
+    if (handle) { try { handle.close(); } catch (_) {} }
+    handle = null; root = null;
+    for (const p of pending.values()) {
+      if (p.trail) clearTimeoutFn(p.trail);
+      if (p.ceil) clearTimeoutFn(p.ceil);
     }
-    const kept = want.slice(0, max);
-    const keep = new Set(kept);
-    for (const dir of [...open.keys()]) if (!keep.has(dir)) closeOne(dir);
-    let failed = 0;
-    for (const dir of kept) if (!open.has(dir) && !openOne(dir)) failed += 1;
-    return { watching: open.size, overflow: want.length - kept.length, failed };
+    pending.clear();
   }
 
-  function closeAll() {
-    for (const dir of [...open.keys()]) closeOne(dir);
-  }
-
-  return { declare, closeAll, count: () => open.size };
+  return { watchRoot, close, count: () => (handle ? 1 : 0), root: () => root };
 }
 
-module.exports = { createDirWatch, IGNORE, MAX_WATCHERS, DEBOUNCE_MS };
+module.exports = { createDirWatch, IGNORE, DEBOUNCE_MS, MAX_WAIT_MS };
