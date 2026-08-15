@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  autoFillColumns, deskColumns, spanWidth, clampSpan,
-  COL_MIN, GAP, ROW, MIN_COLS,
+  autoFillColumns, deskColumns, spanWidth, clampSpan, clampRows,
+  COL_MIN, GAP, ROW, MIN_COLS, MAX_ROWS,
 } from '../src/renderer/desk-grid.mjs';
 
 // The inner width of .grid at a few real window sizes: window minus the rail
@@ -96,4 +96,24 @@ test('anything that is not a real span reads as the default card', () => {
 
 test('a span arriving as a string still works — state.json is JSON', () => {
   assert.equal(clampSpan('4', 8), 4);
+});
+
+test('rows are capped so a card cannot swallow the desk by accident', () => {
+  assert.equal(clampRows(1), 1);
+  assert.equal(clampRows(2), 2);
+  assert.equal(clampRows(MAX_ROWS), MAX_ROWS);
+  assert.equal(clampRows(MAX_ROWS + 5), MAX_ROWS);
+});
+
+test('a broken row count reads as the default too', () => {
+  for (const bad of [undefined, null, '', 'x', 0, -2, NaN]) {
+    assert.equal(clampRows(bad), MIN_COLS, `${String(bad)} should read as the default`);
+  }
+});
+
+test('rows do not depend on the window — only columns do', () => {
+  // A narrow window clamps a wide card; it must not also flatten a tall one,
+  // because the desk scrolls vertically and the height still fits.
+  assert.equal(clampSpan(4, 2), 2);
+  assert.equal(clampRows(4), 4);
 });
