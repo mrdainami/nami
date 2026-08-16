@@ -1799,11 +1799,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read .md-fm, .cd-md .md-fm {
   margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--dash);
   background: var(--paper-3); font-family: 'Courier Prime', monospace;
-  font-size: 11px; color: var(--muted); line-height: 1.7;
+  /* em, not px: .md-read's ± dial scales its base and .cd-md already works in
+     em off the cards' own dial — a fixed size here would sit still under both */
+  font-size: 0.846em; color: var(--muted); line-height: 1.7;   /* 11/13 */
 }
 .md-read .md-fm b, .cd-md .md-fm b { color: var(--amber-ink); font-weight: 700; }
 .md-read .md-tablewrap, .cd-md .md-tablewrap { overflow-x: auto; margin: 0 0 12px; max-width: 100%; }
-.md-read table, .cd-md table { border-collapse: collapse; font-size: 12.5px; }
+.md-read table, .cd-md table { border-collapse: collapse; font-size: 0.962em; }   /* 12.5/13 */
 .md-read th, .md-read td, .cd-md th, .cd-md td {
   border: 1px dashed var(--dash); padding: 4px 10px; text-align: left; vertical-align: top;
 }
@@ -1816,7 +1818,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read blockquote > :last-child, .cd-md blockquote > :last-child { margin-bottom: 0; }
 .md-read .md-pre, .cd-md .md-pre { position: relative; }
 .md-read .md-lang, .cd-md .md-lang {
-  position: absolute; top: 4px; right: 8px; font-size: 10px; color: var(--muted);
+  position: absolute; top: 4px; right: 8px; font-size: 0.769em; color: var(--muted);   /* 10/13 */
   text-transform: uppercase; letter-spacing: 0.08em; user-select: none;
 }
 .md-read img, .cd-md img { max-width: 100%; border: 1px solid var(--dash); display: block; margin: 0 0 11px; }
