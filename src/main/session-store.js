@@ -71,38 +71,67 @@ function codexConversations({ cwd, home, now }) {
   const out = [];
   for (const f of files) {
     if (out.length >= MAX) break;
-    let head = '';
+    const first = readFirstLine(f.p);
+    if (!first.line) continue;
     try {
-      const fd = fs.openSync(f.p, 'r');
-      const buf = Buffer.alloc(4096);
-      const n = fs.readSync(fd, buf, 0, 4096, 0);
-      fs.closeSync(fd);
-      head = buf.slice(0, n).toString('utf8').split('\n')[0];
-    } catch (_) { continue; }
-    try {
-      const meta = JSON.parse(head);
+      const meta = JSON.parse(first.line);
       const pay = meta && meta.payload;
       if (!pay || meta.type !== 'session_meta' || !pay.id) continue;
       if (cwd && pay.cwd && pay.cwd !== cwd) continue;
-      out.push({ id: pay.id, title: '', preview: codexPreview(f.p), age: age(f.mtime, now) });
+      out.push({ id: pay.id, title: '', preview: codexPreview(f.p, first.end), age: age(f.mtime, now) });
     } catch (_) {}
   }
   return out;
 }
 
+// codex 0.147 embeds its entire system prompt inside the session_meta line —
+// ~22KB — so "read 4KB, take line one" parsed nothing and every rollout
+// silently vanished from the picker. Read to the first newline, capped far
+// above any real meta line; the cap only guards against a garbage file.
+const LINE1_CAP = 256 * 1024;
+function readFirstLine(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const chunks = [];
+    let pos = 0;
+    while (pos < LINE1_CAP) {
+      const buf = Buffer.alloc(16384);
+      const n = fs.readSync(fd, buf, 0, buf.length, pos);
+      if (!n) break;
+      const nl = buf.indexOf(10);
+      if (nl >= 0 && nl < n) {
+        chunks.push(buf.slice(0, nl));
+        return { line: Buffer.concat(chunks).toString('utf8'), end: pos + nl + 1 };
+      }
+      chunks.push(buf.slice(0, n));
+      pos += n;
+      if (n < buf.length) break;
+    }
+    return { line: '', end: 0 }; // no newline inside the cap: not a rollout
+  } catch (_) {
+    return { line: '', end: 0 };
+  } finally {
+    if (fd != null) { try { fs.closeSync(fd); } catch (_) {} }
+  }
+}
+
 // The first thing the user actually typed, so the picker rows read as
-// conversations instead of id prefixes. Machine-injected blocks (<environment
-// _context>, <user_instructions>) are skipped; best-effort, '' on anything odd.
-function codexPreview(file) {
+// conversations instead of id prefixes. Reads a window starting AFTER the
+// meta line (whose offset the caller already paid for) — a wide one, because
+// codex front-loads skills_instructions and world_state records and the real
+// prompt sits ~75KB in on 0.147. Machine-injected blocks
+// (<environment_context>, <user_instructions>) are skipped; '' on anything odd.
+function codexPreview(file, offset) {
   let chunk = '';
   try {
     const fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(16384);
-    const n = fs.readSync(fd, buf, 0, 16384, 0);
+    const buf = Buffer.alloc(LINE1_CAP);
+    const n = fs.readSync(fd, buf, 0, buf.length, offset || 0);
     fs.closeSync(fd);
     chunk = buf.slice(0, n).toString('utf8');
   } catch (_) { return ''; }
-  for (const line of chunk.split('\n').slice(1)) {
+  for (const line of chunk.split('\n')) {
     let rec = null;
     try { rec = JSON.parse(line); } catch (_) { continue; }
     const pay = rec && rec.payload;
@@ -111,7 +140,10 @@ function codexPreview(file) {
     for (const b of blocks) {
       const text = String((b && (b.text != null ? b.text : b.input_text)) || '').trim();
       if (!text || text.startsWith('<')) continue;
-      return text.length > 64 ? text.slice(0, 63) + '…' : text;
+      // AGENTS.md rides in as a user message with no wrapper at all
+      if (/^# AGENTS\.md instructions\b/.test(text)) continue;
+      const one = text.replace(/\s+/g, ' ');
+      return one.length > 64 ? one.slice(0, 63) + '…' : one;
     }
   }
   return '';

@@ -3074,7 +3074,14 @@ async function openResumePicker(p) {
     desc: [c.age, c.preview].filter(Boolean).join(' · '),
     value: c.id,
   }));
-  if (!items.length && res && res.note) items.push({ label: 'No past conversations found', desc: res.note, disabled: true });
+  // an empty list always says so — a bare "Start fresh" read as broken
+  if (!items.length) {
+    items.push({
+      label: 'No past conversations found',
+      desc: (res && res.note) || 'nothing in this agent\'s store for this folder',
+      disabled: true,
+    });
+  }
   items.push({ label: '＋ Start fresh', desc: 'new conversation, same folder', cls: 'm-accept', value: '' });
   rec.cardsUi.openPicker({
     header: 'Resume — this folder\'s past conversations',

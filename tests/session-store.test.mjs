@@ -122,3 +122,21 @@ test('codex rows carry the first real user message as a preview', () => {
   const { conversations } = listConversations({ agent: 'codex', cwd, home });
   assert.equal(conversations[0].preview, 'fix the flaky auth test');
 });
+
+test('codex 0.147: a ~22KB session_meta line still lists — 4KB head reads missed every rollout', () => {
+  const { home, cwd } = fixtureHome();
+  const xdir = path.join(home, '.codex', 'sessions', '2026', '08', '16');
+  fs.mkdirSync(xdir, { recursive: true });
+  // the real CLI embeds its entire system prompt in base_instructions
+  const meta = JSON.stringify({ type: 'session_meta', payload: {
+    id: 'th_bigmeta', cwd, base_instructions: { text: 'You are Codex. '.repeat(1500) },
+  } });
+  assert.ok(meta.length > 8192, 'fixture must exceed the old 4KB head read');
+  fs.writeFileSync(path.join(xdir, 'rollout-big.jsonl'), meta + '\n' +
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: 'wire up the tracking ping' }] } }) + '\n');
+  const { conversations } = listConversations({ agent: 'codex', cwd, home });
+  const big = conversations.find((c) => c.id === 'th_bigmeta');
+  assert.ok(big, 'the rollout must survive a huge meta line');
+  assert.equal(big.preview, 'wire up the tracking ping', 'preview reads from after the meta line');
+});
