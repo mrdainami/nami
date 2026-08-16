@@ -1574,7 +1574,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 @keyframes cd-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cd-working .cw-sp { animation: none; } }
-.cd-working .cw-esc { margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1)); }
+.cd-working .cw-esc {
+  margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1));
+  /* a button now, not decoration — same quiet face, but it answers a click */
+  background: none; border: 1px solid transparent; border-radius: 2px;
+  font-family: inherit; padding: 1px 5px; cursor: pointer;
+}
+.cd-working .cw-esc:hover { color: var(--red-line, var(--ink)); border-color: var(--dash); }
 
 /* a sub-agent's live lane, indented under its Task row */
 .cd-lane {

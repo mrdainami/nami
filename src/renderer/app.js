@@ -2905,24 +2905,44 @@ async function exitCards(p) {
 // the choice rides the next turn's flags); bare '/model' opens the numbered
 // picker over the options the channel reported; with neither, the toast
 // says how.
+// One-shot channels keep a choice for the next spawn; the live channels
+// (agent sdk, acp) apply it to the running session. The pickers say which —
+// the blurb used to be hardcoded to "next turn" and was wrong exactly where
+// the switch was live.
+function configDeferred(p) {
+  return !!(p.agentCaps && p.agentCaps.channel === 'one-shot');
+}
+function configTimingBlurb(p) {
+  return configDeferred(p) ? 'applies from the next turn' : 'applies to the running session';
+}
+
+// Every config click goes through here so a dead session cannot swallow one
+// silently — before this, no caller read the {ok} and a click into a stopped
+// adapter just did nothing.
+function sendConfig(p, configId, value) {
+  Promise.resolve(api.agentConfig({ id: p.id, configId, value }))
+    .then((r) => { if (!r || !r.ok) toast('This session is no longer live — nothing was changed.'); })
+    .catch(() => toast('This session is no longer live — nothing was changed.'));
+}
+
 function openModelControl(p, value) {
-  if (value) { api.agentConfig({ id: p.id, configId: 'model', value }); return; }
+  if (value) { sendConfig(p, 'model', value); return; }
   const rec = tileEls.get(p.id);
   const models = p.agentStatus && p.agentStatus.models;
   if (rec && rec.cardsUi && models && Array.isArray(models.options) && models.options.length) {
     rec.cardsUi.openPicker({
       header: 'Select model',
-      blurb: 'applies from the next turn',
+      blurb: configTimingBlurb(p),
       footer: 'Press ⏎ to confirm or esc to go back · 1-9 jump',
       items: models.options.map((o) => ({
         label: o.name || o.value, desc: o.desc || '',
         current: o.value === models.current, value: o.value,
       })),
-      onPick: (it) => api.agentConfig({ id: p.id, configId: 'model', value: it.value }),
+      onPick: (it) => sendConfig(p, 'model', it.value),
     });
     return;
   }
-  toast('Type /model <name> — it applies from the next turn on this channel.');
+  toast(`Type /model <name> — it ${configTimingBlurb(p)}.`);
 }
 
 // Every `/` the composer sends gets an answer. Native commands open the
@@ -3071,7 +3091,7 @@ function cycleMode(p) {
   if (!ids.length) return;
   const cur = (p.agentStatus && p.agentStatus.mode) || ids[0];
   const next = ids[(ids.indexOf(cur) + 1) % ids.length];
-  api.agentConfig({ id: p.id, configId: 'mode', value: next });
+  sendConfig(p, 'mode', next);
 }
 
 // The chip's click: every mode listed on the picker surface, each in its own
@@ -3088,7 +3108,7 @@ function openModeMenu(p) {
   const cur = p.agentStatus && p.agentStatus.mode;
   rec.cardsUi.openPicker({
     header: 'Permission mode',
-    blurb: 'reported by the agent — what it cannot enter is greyed with the reason',
+    blurb: `reported by the agent, ${configTimingBlurb(p)} — what it cannot enter is greyed with the reason`,
     items: modes.map((m) => ({
       label: modeLabel(m.id), cls: modeClass(m.id),
       current: m.id === cur, disabled: !m.available,
@@ -3097,7 +3117,7 @@ function openModeMenu(p) {
       desc: m.available ? (m.desc || '') : (m.reason || 'not available here'),
       value: m.id,
     })),
-    onPick: (it) => api.agentConfig({ id: p.id, configId: 'mode', value: it.value }),
+    onPick: (it) => sendConfig(p, 'mode', it.value),
   });
 }
 
@@ -3150,7 +3170,11 @@ function mountCards(p, rec) {
     },
     onPermission: (permissionId, optionId) => {
       clearAttention(p);
-      api.agentPermission({ id: p.id, permissionId, optionId });
+      // a stale approval card must not swallow the click — the row only
+      // resolves when the adapter answers, so a dead session says so
+      Promise.resolve(api.agentPermission({ id: p.id, permissionId, optionId }))
+        .then((r) => { if (!r || !r.ok) toast('This session is no longer live — the approval was not sent.'); })
+        .catch(() => {});
     },
     onInterrupt: () => { if (p.agentLive) api.agentInterrupt({ id: p.id }); },
     onMic: () => toggleMic(p),
@@ -3160,7 +3184,7 @@ function mountCards(p, rec) {
       openTermLink({ kind: 'path', text: token }, st, ev);
     },
     onOpenUrl: (url) => api.openUrl(url),
-    onModel: (value) => api.agentConfig({ id: p.id, configId: 'model', value }),
+    onModel: (value) => sendConfig(p, 'model', value),
     // `@` completion: the folder this session runs in, one level at a time —
     // type a slash to descend. Real directory listings, nothing indexed ahead.
     listFiles: async (query) => {
