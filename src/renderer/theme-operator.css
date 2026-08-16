@@ -8,23 +8,27 @@ body[data-theme="operator"] {
   /* token remap — same names paper.css already consumes.
      "Instrument grey": neutral-warm greys (no blue cast), borders raised so
      panel edges read on their own, coral accent instead of pure crimson. */
-  --desk: #0d0d0d;
-  --sheet-hi: #131313;
-  --sheet-lo: #131313;
-  --paper: #171717;
-  --paper-2: #1c1c1c;
-  --paper-3: #1a1a1a;
-  --ink: #d8d5d0;
-  --muted: #8f8c85;
-  --muted-2: #7c7a74;
-  --muted-3: #706e68;
-  --faint: #4e4c48;
-  --line: #333333;
-  --dash: #282828;
-  --dash-dark: #3d3d3d;
-  --rail: #121212;
-  --hover: #212121;
-  --menu-sheet: #171717; /* opaque paper — menus need no extra fill here */
+  /* The 2026-08-16 lift: the original ladder read as one black mass — panel
+     borders sat ~1.2:1 against the panel and half the chrome was written
+     below 4.5:1. Same ladder, every rung raised; the accent never moved.
+     Approved from art/reference/operator-lift-mockup.html. */
+  --desk: #121212;
+  --sheet-hi: #181818;
+  --sheet-lo: #181818;
+  --paper: #1f1f1f;
+  --paper-2: #262626;
+  --paper-3: #232323;
+  --ink: #eae7e1;
+  --muted: #aaa79f;
+  --muted-2: #98958e;
+  --muted-3: #8a8781;
+  --faint: #6e6c66;
+  --line: #424242;
+  --dash: #3a3a3a;
+  --dash-dark: #4f4f4f;
+  --rail: #161616;
+  --hover: #2c2c2c;
+  --menu-sheet: #1f1f1f; /* opaque paper — menus need no extra fill here */
   --green: #ef6461;          /* primary action → coral in operator */
   --green-dark: #c14f4d;
   --green-ok: #5aa06e;
@@ -58,7 +62,7 @@ body[data-theme="operator"] {
 }
 
 /* ---- ground ------------------------------------------------------------- */
-body[data-theme="operator"] { background: #0d0d0d; }
+body[data-theme="operator"] { background: #121212; }
 body[data-theme="operator"] a { color: #6ea8ff; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border: 3px solid transparent; background-clip: content-box; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); background-clip: content-box; }
@@ -109,10 +113,10 @@ body[data-theme="operator"] .nami-mascot {
 /* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
    lowercase, so operator keeps it centred */
 body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; }
-/* --faint is #4e4c48 here, which is 2.2:1 on operator's near-black sheet — a
-   smudge, not a word. The caption is meant to be quiet, not invisible, so it
-   steps one rung up the same scale (3.6:1). Paper and graphite keep --faint;
-   only this theme's ground is dark enough to need it. */
+/* --faint is 2.9:1 on the sheet even after the lift — a smudge, not a word.
+   The caption is meant to be quiet, not invisible, so it steps one rung up
+   the same scale (4.6:1). Paper and graphite keep --faint; only this theme's
+   ground is dark enough to need it. */
 body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; }
 body[data-theme="operator"] .brand::before {
   content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center;
@@ -123,7 +127,7 @@ body[data-theme="operator"] .rail-head .title { font-size: 13px; letter-spacing:
 body[data-theme="operator"] .lane-empty .big { font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase; }
 body[data-theme="operator"] .lane-empty .polaroid { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; transform: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); border-radius: 6px; }
 body[data-theme="operator"] .card-head .goal { font-size: 14px; letter-spacing: 0.06em; }
-body[data-theme="operator"] .say--user { font-size: 13px; line-height: 1.6; color: #c9c7cf; border-left-color: var(--op-accent); }
+body[data-theme="operator"] .say--user { font-size: 13px; line-height: 1.6; color: #dbd8d2; border-left-color: var(--op-accent); }
 body[data-theme="operator"] .approval .title,
 body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
@@ -205,10 +209,10 @@ body[data-theme="operator"] .key-row .k-act.k-save { color: var(--op-accent-hi);
 
 /* tree icons: same drawings, instrument-grey ink and fills */
 body[data-theme="operator"] {
-  --tree-ink: #8f8c85;
-  --tree-fill: #26262b;
-  --tree-fill-open: #2d2d33;
-  --tree-fill-file: #202024;
+  --tree-ink: #aaa79f;
+  --tree-fill: #2e2e32;
+  --tree-fill-open: #36363b;
+  --tree-fill-file: #28282c;
 }
 
 /* ---- main canvas ---------------------------------------------------------- */
@@ -236,8 +240,8 @@ body[data-theme="operator"] .t-btn { border-radius: 5px; }
 /* the card view, in the ops console: same rows, softened corners like every
    other control here, and the coral accent the theme uses for anything primary */
 body[data-theme="operator"] .t-view { border-radius: 5px; overflow: hidden; }
-/* operator is dark too: --faint (#4e4c48) dies on the #171717 panel, and the
-   turn meter is now the only turn boundary — same lift the glass family got */
+/* operator is dark too: --faint dies on the panel, and the turn meter is now
+   the only turn boundary — same lift the glass family got */
 body[data-theme="operator"] .cd-turn_end { color: var(--muted); }
 body[data-theme="operator"] .cd-menu-i .mi-h { color: var(--muted); }
 body[data-theme="operator"] .cd-line { border-radius: 4px; }
@@ -255,7 +259,7 @@ body[data-theme="operator"] .status-chip { transform: none; border-radius: 4px; 
 
 /* terminals, editors, logs: flat dark insets, no ruled lines */
 body[data-theme="operator"] .term-wrap { background: var(--rail); border-radius: 6px; }
-body[data-theme="operator"] .ed-gutter { color: #55535c; background: none; }
+body[data-theme="operator"] .ed-gutter { color: #6b6a70; background: none; }
 body[data-theme="operator"] .ed-stack { background: none; }
 body[data-theme="operator"] .editor--md .ed-area { caret-color: var(--op-accent); }
 body[data-theme="operator"] .editor--md .ed-area::selection { background: rgba(239, 100, 97, 0.28); }
@@ -326,7 +330,7 @@ body[data-theme="operator"] .ni-where { border-radius: 5px; border-style: solid;
 body[data-theme="operator"] .pick-chip .check { border-color: rgba(74, 158, 99, 0.5); }
 body[data-theme="operator"] .sheet-cmd, body[data-theme="operator"] .scan-box { background: var(--paper-2); color: var(--muted); }
 body[data-theme="operator"] .ql-lines { background: none; }
-body[data-theme="operator"] .ql-row .n { color: #55535c; }
+body[data-theme="operator"] .ql-row .n { color: #6b6a70; }
 
 /* corkboard map */
 body[data-theme="operator"] .board {

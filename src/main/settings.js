@@ -55,7 +55,7 @@ const THEMES = ['paper', 'operator', 'glass', 'graphite'];
 // it: this is consulted only when nothing has been chosen.
 const DEFAULT_THEME = 'glass';
 // First-paint window background per theme (renderer CSS takes over on load).
-const THEME_BG = { paper: '#cfc3ac', operator: '#0d0d0d', glass: '#e8e9ee', graphite: '#26272c' };
+const THEME_BG = { paper: '#cfc3ac', operator: '#121212', glass: '#e8e9ee', graphite: '#26272c' };
 function normalizeTheme(name) { return THEMES.includes(name) ? name : DEFAULT_THEME; }
 function themeBackground(name) { return THEME_BG[normalizeTheme(name)]; }
 
