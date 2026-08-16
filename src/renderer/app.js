@@ -2817,6 +2817,15 @@ async function driveCards(p) {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
+  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy')) {
+    // A one-shot resume: the model remembers, but its history has no card
+    // backfill yet — an empty card here read as "the session is gone" (or
+    // "the card is fake"). Say what is actually true. opencode is absent on
+    // purpose: ACP session/load replays its history as ordinary rows.
+    p.cardEvents.push({
+      kind: 'note', id: 'resume-note:' + p.id,
+      text: `Resumed ${String(p.acpSid).slice(0, 12)} — previous turns stay in ${intro.name}'s own history; this card shows from here. The model still remembers.`,
+    });
   }
   // What ⌘K said on the way in — which copy was written, whose file won —
   // belongs to this launch and is put back after the rebuild above. Once, and
