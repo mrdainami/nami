@@ -2817,10 +2817,12 @@ async function driveCards(p) {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
-  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy')) {
-    // These one-shots resume the model but replay nothing — the history is
+  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy' || agent === 'hermes')) {
+    // These channels resume the model but replay nothing — the history is
     // read back from their own stores (codex's rollout, kimi's wire log,
-    // agy's brain transcript), the way claude's backlog reads ~/.claude.
+    // agy's brain transcript, hermes' state.db), the way claude's backlog
+    // reads ~/.claude. (hermes answers session/load but sends no history
+    // frames — probed live; opencode DOES replay, so it stays out of here.)
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.acpSid, agent });
     if (cardView(p) !== 'cards') return;
     const rows = (back && back.events) || [];
