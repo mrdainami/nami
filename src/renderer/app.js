@@ -605,7 +605,7 @@ function showScene(name) {
         }
         if (step === 'mode') openModeMenu(p);
         if (step === 'model') openModelControl(p);
-        if (step === 'bridge') { const b = q('.t-bridge', rec.head); if (b) openBridgeMenu(p, b); }
+        if (step === 'bridge') { const b = q('.t-surface', rec.head); if (b) openBridgeMenu(p, b); }
         if (step === 'full') { S.expandedId = p.id; renderGrid(); }
       }
     }
@@ -2144,8 +2144,7 @@ function mountTile(p) {
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
       ${canShowCards(p) ? `<span class="t-channel" hidden></span>
-      <span class="t-surface" aria-label="Surface"></span>
-      <button class="t-btn t-bridge" title="Open in the other surface / settings"><span class="uni-i">⌄</span><span class="pix-i">${pixIcon('chevron')}</span></button>` : ''}
+      <button class="t-surface" title="Switch surface / settings" aria-label="Surface menu"><span class="ts-l"></span><svg class="ts-c" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg></button>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
       <button class="t-btn t-zoom-out" title="${isDocTile(p) ? 'Smaller text' : 'Smaller terminal text'}"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
       <button class="t-btn t-zoom-in" title="${isDocTile(p) ? 'Bigger text' : 'Bigger terminal text'}"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>
@@ -2212,8 +2211,10 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  const bridge = q('.t-bridge', head);
-  if (bridge) bridge.onclick = (e) => { e.stopPropagation(); openBridgeMenu(p, bridge); };
+  // The surface label IS the menu now: what you read is what you click. The
+  // separate ⌄ button it replaces was half of the header's crowding problem.
+  const surfBtn = q('.t-surface', head);
+  if (surfBtn) surfBtn.onclick = (e) => { e.stopPropagation(); openBridgeMenu(p, surfBtn); };
 
   if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
   if (canShowCards(p)) { mountCards(p, rec); applyView(p, rec); }
@@ -2612,34 +2613,33 @@ function openBridgeMenu(p, anchor) {
   const items = [];
   if (inCards) {
     items.push({
-      label: 'Open in a new Terminal session',
-      desc: spec.resumes ? 'same conversation — this card view closes' : 'starts its own conversation — this card view closes',
+      label: 'Open in Terminal',
+      desc: spec.resumes ? 'Continue this chat in a terminal. This cards view closes.' : 'Starts its own chat in a terminal. This cards view closes.',
       run: () => moveToSurface(p, 'term'),
     });
   } else {
     if (agent === 'claude') {
       items.push({
-        label: 'Watch as cards here',
-        desc: 'live filter — the terminal keeps running',
+        label: 'Watch as Cards',
+        desc: 'Shows this chat as simple, readable cards. The terminal keeps running behind it.',
         run: () => setView(p, 'cards'),
       });
       items.push({
-        label: 'Move to a Cards session',
-        desc: 'same conversation, driven — this terminal closes',
+        label: 'Move to Cards',
+        desc: 'Continue this chat in the cards view. This terminal closes.',
         run: () => moveToSurface(p, 'cards'),
       });
     } else {
       items.push({
         label: 'Start a Cards session',
-        desc: 'its own conversation — this terminal stays',
+        desc: 'Starts its own cards chat. This terminal stays.',
         run: () => startPanel({ kind: 'run', title: p.title, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, view: 'cards' }),
       });
     }
   }
   if (inCards && agent === 'claude' && p.cardMode === 'watch') {
-    items.push({ label: 'Back to Term', desc: 'the terminal was never touched', run: () => setView(p, 'term') });
+    items.push({ label: 'Back to Terminal', desc: 'The terminal kept running the whole time.', run: () => setView(p, 'term') });
   }
-  items.push({ label: 'Rename this session', desc: '', run: () => { const t = tileEls.get(p.id); if (t) beginRename(p, q('.t-title', t.head)); } });
   const reg = (S.agents || []).find((a) => a.bin === p.command || (agent === 'claude' && a.id === 'claude'));
   if (reg) items.push({ label: 'Agent settings', desc: reg.name, run: () => openAgentSheet(reg) });
   showHeadMenu(anchor, items);
@@ -2698,7 +2698,7 @@ function applyView(p, rec) {
   const surf = q('.t-surface', rec.head);
   if (surf) {
     surf.className = 't-surface' + (on ? ' cards' : ' term');
-    surf.textContent = on ? 'CARDS' : 'TERM';
+    const l = q('.ts-l', surf); if (l) l.textContent = on ? 'CARDS' : 'TERM';
   }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
   else markFit(rec);

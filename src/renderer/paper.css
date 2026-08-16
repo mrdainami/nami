@@ -996,6 +996,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tile {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   grid-column: span 2; grid-row: span 2;
+  container: nami-tile / inline-size;
   background: repeating-linear-gradient(0deg, rgba(120,95,60,0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
   position: relative;
@@ -1072,6 +1073,29 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tile-head {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px;
   border-bottom: 1px dashed var(--dash); cursor: grab; user-select: none;
+  /* the backstop: whatever else goes wrong, controls can never cross the
+     card's edge again — they vanish under it instead of sitting on a
+     neighbour. The tiers below mean this should never actually clip. */
+  overflow: hidden;
+}
+/* The header sheds by the card's own width, most expendable first — never the
+   identity (chip, title), never the exits (⤢, ✕). − ＋ move a shared dial any
+   wider card also moves; the mic is for working in a session, and a one-column
+   card is a glance, not a workstation. Pull the corner and it all returns.
+   Container queries, so the same rule serves the desk, focus, any window. */
+@container nami-tile (max-width: 430px) {
+  .tile-head .t-status .lbl { display: none; }
+}
+@container nami-tile (max-width: 350px) {
+  .tile-head .t-zoom-in, .tile-head .t-zoom-out { display: none; }
+}
+@container nami-tile (max-width: 300px) {
+  .tile-head .t-mic { display: none; }
+}
+@container nami-tile (max-width: 252px) {
+  .tile-head .t-sub { display: none; }
+  .t-surface .ts-l { display: none; }         /* the chevron alone still opens the menu */
+  .t-surface { padding: 4px 7px; }
 }
 .tile-head:active { cursor: grabbing; }
 .tile-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60,45,25,0.3); }
@@ -1161,12 +1185,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    one of the two is ever displayed, and the hidden one is never torn down. */
 /* The surface is a state, not a toggle: one small label, stamped when beta.
    Switching surfaces is an explicit act in the ⌄ menu. */
+/* One control now: the label is the menu. The chevron is a drawn stroke rather
+   than the ⌄ character, which hangs low in every font and looked sunk beside
+   the word — drawn, it centres on the label's own midline. */
 .t-surface {
-  position: relative; flex: none; font-size: 9px; letter-spacing: 0.08em;
-  padding: 4px 9px; font-weight: 700;
+  position: relative; flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 9px; letter-spacing: 0.08em; font-weight: 700;
+  padding: 4px 7px 4px 9px; background: none; border: 1px solid transparent;
+  color: inherit; cursor: pointer;
 }
+.t-surface .ts-c { width: 10px; height: 6px; flex: none; display: block; }
+.t-surface .ts-c path { stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .t-surface.cards { background: var(--green); color: var(--paper); }
 .t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
+.t-surface.term:hover { color: var(--ink); border-color: var(--dash-dark); background: var(--hover); }
+.t-surface.cards:hover { filter: brightness(1.08); }
 /* the channel badge: which structured channel this card speaks, said once in
    the head. Quiet fact; amber only when it explains a limit (watching,
    one-shot, terminal-only). Hidden entirely in Term view.
