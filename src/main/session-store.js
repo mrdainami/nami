@@ -22,6 +22,7 @@ const path = require('path');
 const os = require('os');
 const { projectSlug } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { hermesSessions } = require('./hermes-transcript.js');
 
 const MAX = 9;
 
@@ -262,6 +263,14 @@ function listConversations({ agent, cwd, home = os.homedir(), now } = {}) {
         conversations: opencodeConversations({ cwd, home, now }),
         note: 'opencode replays the picked conversation into the card.',
       };
+    }
+    if (agent === 'hermes') {
+      const rows = hermesSessions({ cwd, home });
+      if (rows) {
+        return {
+          conversations: rows.slice(0, MAX).map((r) => ({ id: r.id, title: r.title, age: age(r.atMs, now) })),
+        };
+      }
     }
     if (agent === 'agy') {
       return {

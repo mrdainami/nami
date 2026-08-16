@@ -14,6 +14,7 @@ const { listConversations } = require('./session-store.js');
 const { codexRollout, codexBacklog } = require('./codex-transcript.js');
 const { kimiWire, kimiBacklog } = require('./kimi-transcript.js');
 const { agyTranscript, agyBacklog } = require('./agy-transcript.js');
+const { hermesBacklog } = require('./hermes-transcript.js');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
@@ -1303,6 +1304,11 @@ ipcMain.handle('cards:backlog', (_e, { cwd, sid, agent }) => {
     const file = agyTranscript(sid);
     if (!file) return { events: [] };
     try { return agyBacklog(file); } catch (_) { return { events: [] }; }
+  }
+  // hermes answers session/load but replays nothing (probed 2026-08-16) —
+  // its history reads from state.db instead.
+  if (agent === 'hermes') {
+    try { return hermesBacklog(sid); } catch (_) { return { events: [] }; }
   }
   const file = claudeTranscript(cwd, sid);
   if (!file) return { events: [] };
