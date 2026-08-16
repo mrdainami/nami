@@ -124,7 +124,7 @@ class KimiAdapter {
       }
       this.emit('turn_end', {
         durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0,
-        costUsd: 0, ok: !code,
+        ok: !code,
       });
       this.finishTurn();
     });

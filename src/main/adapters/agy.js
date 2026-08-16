@@ -141,7 +141,7 @@ class AgyAdapter {
       if (code && code !== 0 && !this.sawResult) {
         const hint = errBuf.trim().split('\n').pop() || '';
         this.emit('error', { message: `Antigravity exited (${code}).${hint ? ' ' + hint.slice(0, 200) : ''}` });
-        this.emit('turn_end', { durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0, costUsd: 0, ok: false });
+        this.emit('turn_end', { durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0, ok: false });
       }
       this.finishTurn();
     });
@@ -177,7 +177,7 @@ class AgyAdapter {
       this.emit('turn_end', {
         durationMs: Math.round((Number(r.duration_seconds) || 0) * 1000),
         tokens: Number(u.total_tokens) || 0,
-        costUsd: 0, ok: r.status === 'SUCCESS',
+        ok: r.status === 'SUCCESS',
       });
       return;
     }
