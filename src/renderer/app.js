@@ -2817,11 +2817,24 @@ async function driveCards(p) {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
-  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy')) {
-    // A one-shot resume: the model remembers, but its history has no card
-    // backfill yet — an empty card here read as "the session is gone" (or
-    // "the card is fake"). Say what is actually true. opencode is absent on
-    // purpose: ACP session/load replays its history as ordinary rows.
+  } else if (agent === 'codex' && p.acpSid) {
+    // codex resumes the model but replays nothing — the history is read back
+    // from its own rollout file, the way claude's backlog reads ~/.claude.
+    const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.acpSid, agent: 'codex' });
+    if (cardView(p) !== 'cards') return;
+    const rows = (back && back.events) || [];
+    if (rows.length) p.cardEvents = [intro, ...rows];
+    else {
+      p.cardEvents.push({
+        kind: 'note', id: 'resume-note:' + p.id,
+        text: `Resumed ${String(p.acpSid).slice(0, 12)} — its rollout wasn't readable, so this card shows from here. The model still remembers.`,
+      });
+    }
+  } else if (p.acpSid && (agent === 'kimi' || agent === 'agy')) {
+    // The remaining one-shots have no card backfill yet — an empty card here
+    // read as "the session is gone" (or "the card is fake"). Say what is
+    // actually true. opencode is absent on purpose: ACP session/load replays
+    // its history as ordinary rows.
     p.cardEvents.push({
       kind: 'note', id: 'resume-note:' + p.id,
       text: `Resumed ${String(p.acpSid).slice(0, 12)} — previous turns stay in ${intro.name}'s own history; this card shows from here. The model still remembers.`,
