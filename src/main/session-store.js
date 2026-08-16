@@ -230,13 +230,23 @@ function kimiConversations({ cwd, home, now }) {
   return out;
 }
 
+// The agy CLI (1.1.13) files conversations under ~/.gemini/antigravity-cli —
+// one SQLite per conversation, the id in the filename. The old
+// ~/.gemini/antigravity/*.pb dir is the Antigravity IDE's store (idle since
+// Feb 2026 here); listing it showed months-old rows while a seconds-old CLI
+// chat sat invisible. CLI store first, IDE store only as a fallback.
 function agyConversations({ home, now }) {
-  const dir = path.join(home, '.gemini', 'antigravity', 'conversations');
+  const cli = agyDbConversations(path.join(home, '.gemini', 'antigravity-cli', 'conversations'), '.db', now);
+  if (cli.length) return cli;
+  return agyDbConversations(path.join(home, '.gemini', 'antigravity', 'conversations'), '.pb', now);
+}
+
+function agyDbConversations(dir, ext, now) {
   const out = [];
   for (const f of listDirSafe(dir)) {
-    if (!f.endsWith('.pb')) continue;
+    if (!f.endsWith(ext)) continue;
     const st = statSafe(path.join(dir, f));
-    if (st) out.push({ id: f.slice(0, -3), mtime: st.mtimeMs });
+    if (st) out.push({ id: f.slice(0, -ext.length), mtime: st.mtimeMs });
   }
   out.sort((a, b) => b.mtime - a.mtime);
   return out.slice(0, MAX).map((c) => ({ id: c.id, title: '', age: age(c.mtime, now) }));
