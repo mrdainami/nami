@@ -202,3 +202,26 @@ test('blank lines are not records', () => {
 test('parsed objects are accepted as readily as strings', () => {
   assert.deepEqual(kinds(parseTranscript([PROMPT, ANSWER])), ['user', 'assistant']);
 });
+
+// ---- compaction: one honest note, never a wall of summary -------------------
+
+test('the compact summary never renders as a user bubble', () => {
+  const events = parseTranscript([
+    J({ type: 'user', uuid: 'cs-1', timestamp: '2026-08-11T21:00:00.000Z', isCompactSummary: true,
+        message: { role: 'user', content: 'This session is being continued from a previous conversation…' } }),
+    J({ type: 'user', uuid: 'cs-2', timestamp: '2026-08-11T21:00:01.000Z', isVisibleInTranscriptOnly: true,
+        message: { role: 'user', content: 'transcript-only bookkeeping' } }),
+  ]);
+  assert.equal(events.length, 0, 'both flags mean: not something the user said');
+});
+
+test('a compact_boundary becomes one quiet note with the token counts', () => {
+  const events = parseTranscript([
+    J({ type: 'system', subtype: 'compact_boundary', uuid: 'cb-1', timestamp: '2026-08-11T21:00:02.000Z',
+        content: 'Conversation compacted', level: 'info',
+        compactMetadata: { trigger: 'manual', preTokens: 426603, postTokens: 15117 } }),
+  ]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'note');
+  assert.match(events[0].text, /Compacted — 427k → 15k tokens \(manual\)/);
+});
