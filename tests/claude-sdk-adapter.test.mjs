@@ -407,3 +407,42 @@ test('a Bash the card was asked about stays silent', () => {
   a.handle({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'ok' }] } });
   assert.equal(events.filter((e) => e.kind === 'note' && /without asking/.test(e.text)).length, 0);
 });
+
+// ---- the quiet stretches get a word: status, compaction ---------------------
+
+test('system/status names the phase so the working line can say it', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 'st1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'status', status: 'compacting' });
+  const st = events.find((e) => e.kind === 'status');
+  assert.ok(st, 'status must be forwarded, not dropped');
+  assert.equal(st.state, 'running');
+  assert.equal(st.phase, 'compacting');
+});
+
+test('system/status with a null status clears the phase but stays running', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 'st2', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'status', status: null });
+  const st = events.find((e) => e.kind === 'status');
+  assert.equal(st.state, 'running');
+  assert.ok(!('phase' in st));
+});
+
+test('a live compact_boundary becomes the same note the transcript path makes', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 'cb1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'compact_boundary',
+    compact_metadata: { trigger: 'auto', pre_tokens: 180000, post_tokens: 12000 } });
+  const note = events.find((e) => e.kind === 'note');
+  assert.match(note.text, /Compacted — 180k → 12k tokens \(auto\)/);
+});
+
+test('session_state_changed rides the status channel', () => {
+  const events = [];
+  const a = new ClaudeSdkAdapter({ id: 'ss1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.handle({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+  a.handle({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+  const sts = events.filter((e) => e.kind === 'status');
+  assert.deepEqual(sts.map((s) => s.state), ['running', 'idle']);
+});
