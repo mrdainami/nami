@@ -229,6 +229,7 @@ body[data-theme="operator"] .tile.attention { border-color: var(--op-accent); an
   50% { box-shadow: 0 0 0 2px rgba(239, 100, 97, 0.85), 0 0 30px rgba(239, 100, 97, 0.35); }
 }
 body[data-theme="operator"] .tile.drop-hint { outline-color: var(--op-accent); }
+body[data-theme="operator"] .desk-slot { border-color: var(--op-accent); }
 body[data-theme="operator"] .tile.file-hint { outline-color: var(--op-accent); box-shadow: 0 0 0 3px rgba(239, 100, 97, 0.25); }
 body[data-theme="operator"] .tile-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 8px 8px 0 0; }
 body[data-theme="operator"] .t-btn { border-radius: 5px; }
