@@ -1022,23 +1022,29 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    Inset from the true corner: on a rounded theme (glass is 22px) right:0/bottom:0
    is empty space outside the curve, and the mark floated off the card. Two
    strokes rather than a filled ◢ — reads on a square card and a round one alike. */
+/* The hit area straddles the true corner — 10px outside the card, 16px inside —
+   so you pull the corner itself, the way a macOS window resizes, instead of
+   aiming at a button parked in the content. Sitting wholly inside was the bug:
+   on an editor tile that exact spot is the Save button, and the two fought.
+   The mark is only a visual; the box is the control. */
 .tile-grip {
-  position: absolute; right: 7px; bottom: 7px; width: 18px; height: 18px; z-index: 6;
-  cursor: nwse-resize; opacity: 0; border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
-  transition: opacity 0.12s ease, background 0.12s ease;
+  position: absolute; right: -10px; bottom: -10px; width: 26px; height: 26px; z-index: 6;
+  cursor: nwse-resize; opacity: 0;
+  transition: opacity 0.12s ease;
   -webkit-user-select: none; user-select: none; touch-action: none;
 }
+/* The strokes hug the corner: 2px in on a square tile. Glass rounds its tiles,
+   so its override below tucks them inside the curve instead. */
 .tile-grip::before {
-  content: ''; width: 11px; height: 11px; color: var(--muted);
+  content: ''; position: absolute; right: 12px; bottom: 12px;
+  width: 11px; height: 11px; color: var(--muted);
   background:
     linear-gradient(135deg, transparent 0 42%, currentColor 42% 58%, transparent 58% 100%) no-repeat 0 0/11px 11px,
     linear-gradient(135deg, transparent 0 68%, currentColor 68% 84%, transparent 84% 100%) no-repeat 0 0/11px 11px;
 }
 .tile:hover .tile-grip { opacity: 1; }
-.tile-grip:hover { background: var(--paper-2); box-shadow: inset 0 0 0 1px var(--dash); }
 .tile-grip:hover::before { color: var(--ink); }
-.tile-grip:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: -2px; opacity: 1; }
+.tile-grip:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: -8px; opacity: 1; }
 .tile-grip:focus-visible::before { color: var(--ink); }
 .tile.focused .tile-grip { display: none; }   /* focus already owns the canvas */
 
