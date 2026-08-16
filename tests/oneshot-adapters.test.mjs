@@ -45,7 +45,7 @@ test('codex: rows are commands with exit codes, prose interleaves, tokens not do
   assert.ok(prose.length >= 3, 'prose interleaves between commands');
   const end = events.find((e) => e.kind === 'turn_end');
   assert.ok(end.tokens > 0, 'tokens ride the meter');
-  assert.equal(end.costUsd, 0, 'codex reports tokens, not dollars');
+  assert.ok(!('costUsd' in end), 'dollars stay off turn_end everywhere');
   assert.equal(a.threadId, 'ses_test', 'the thread id is kept for resume');
 });
 

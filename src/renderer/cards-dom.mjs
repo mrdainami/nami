@@ -297,8 +297,10 @@ function renderRow(ctx, row) {
   if (row.kind === 'turn_end') {
     // The meter alone marks the boundary — the channel badge is session
     // state and lives in the tile head (.t-channel), said once.
+    // No dollars: the channels report running totals and estimates, and a
+    // number that reads like per-turn spend when it is neither confuses more
+    // than it informs. Duration and tokens are true per turn; they stay.
     const meter = [`done in ${row.duration}`];
-    if (row.costUsd) meter.push(`$${row.costUsd.toFixed(2)}`);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
     el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>`;
     return el;

@@ -209,7 +209,7 @@ class CodexAdapter {
         this.emit('turn_end', {
           durationMs: this.turnStarted ? Date.now() - this.turnStarted : 0,
           tokens: (Number(u.input_tokens) || 0) + (Number(u.output_tokens) || 0),
-          costUsd: 0, ok: true,
+          ok: true,
         });
         return;
       }
