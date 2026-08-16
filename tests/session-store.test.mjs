@@ -76,3 +76,89 @@ test('an agent with no readable store returns an empty list and a note, never a 
   const missing = listConversations({ agent: 'claude', cwd: '/x', home: '/nonexistent' });
   assert.deepEqual(missing.conversations, []);
 });
+
+// ---- opencode: the listable id is the whole ballgame ------------------------
+// ACP session/load replays the picked conversation into the card, so this
+// branch is what turns opencode resume from unreachable into real history.
+
+function opencodeFixture(home, cwd) {
+  const dir = path.join(home, '.local', 'share', 'opencode', 'storage', 'session', 'projhash1');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'ses_here.json'), JSON.stringify({
+    id: 'ses_here', directory: cwd, title: 'rename the tracking flag',
+    time: { created: 1, updated: Date.now() - 60e3 },
+  }));
+  fs.writeFileSync(path.join(dir, 'ses_untitled.json'), JSON.stringify({
+    id: 'ses_untitled', directory: cwd, title: 'New session - 2026-08-08T08:43:19.705Z',
+    time: { created: 1, updated: Date.now() - 3600e3 },
+  }));
+  fs.writeFileSync(path.join(dir, 'ses_elsewhere.json'), JSON.stringify({
+    id: 'ses_elsewhere', directory: '/other', title: 'not this folder',
+    time: { created: 1, updated: Date.now() },
+  }));
+  // newest-first comes from file mtimes; writes above land microseconds apart
+  fs.utimesSync(path.join(dir, 'ses_untitled.json'), new Date(Date.now() - 3600e3), new Date(Date.now() - 3600e3));
+}
+
+test('opencode lists this folder\'s sessions, keeps real titles, drops the timestamp ones', () => {
+  const { home, cwd } = fixtureHome();
+  opencodeFixture(home, cwd);
+  const res = listConversations({ agent: 'opencode', cwd, home });
+  assert.deepEqual(res.conversations.map((c) => c.id), ['ses_here', 'ses_untitled']);
+  assert.equal(res.conversations[0].title, 'rename the tracking flag');
+  assert.equal(res.conversations[1].title, '', 'an auto "New session - <date>" is not a title');
+  assert.match(res.note, /replays/);
+});
+
+test('codex rows carry the first real user message as a preview', () => {
+  const { home, cwd } = fixtureHome();
+  const xdir = path.join(home, '.codex', 'sessions', '2026', '08', '13');
+  fs.appendFileSync(path.join(xdir, 'rollout-a.jsonl'), [
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: '<environment_context>machine stuff</environment_context>' }] } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: 'fix the flaky auth test' }] } }),
+  ].join('\n') + '\n');
+  const { conversations } = listConversations({ agent: 'codex', cwd, home });
+  assert.equal(conversations[0].preview, 'fix the flaky auth test');
+});
+
+test('codex 0.147: a ~22KB session_meta line still lists — 4KB head reads missed every rollout', () => {
+  const { home, cwd } = fixtureHome();
+  const xdir = path.join(home, '.codex', 'sessions', '2026', '08', '16');
+  fs.mkdirSync(xdir, { recursive: true });
+  // the real CLI embeds its entire system prompt in base_instructions
+  const meta = JSON.stringify({ type: 'session_meta', payload: {
+    id: 'th_bigmeta', cwd, base_instructions: { text: 'You are Codex. '.repeat(1500) },
+  } });
+  assert.ok(meta.length > 8192, 'fixture must exceed the old 4KB head read');
+  fs.writeFileSync(path.join(xdir, 'rollout-big.jsonl'), meta + '\n' +
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: 'wire up the tracking ping' }] } }) + '\n');
+  const { conversations } = listConversations({ agent: 'codex', cwd, home });
+  const big = conversations.find((c) => c.id === 'th_bigmeta');
+  assert.ok(big, 'the rollout must survive a huge meta line');
+  assert.equal(big.preview, 'wire up the tracking ping', 'preview reads from after the meta line');
+});
+
+test('opencode reads the SQLite store first — the JSON folder went stale 2026-08-08', (t) => {
+  let sqlite = null;
+  try { sqlite = require('node:sqlite'); } catch (_) { t.skip('no node:sqlite in this runner'); return; }
+  const { home, cwd } = fixtureHome();
+  opencodeFixture(home, cwd); // the legacy JSON rows — must lose to the db
+  const dbdir = path.join(home, '.local', 'share', 'opencode');
+  fs.mkdirSync(dbdir, { recursive: true });
+  const db = new sqlite.DatabaseSync(path.join(dbdir, 'opencode.db'));
+  db.exec('create table session (id text primary key, project_id text, parent_id text, directory text, title text, time_updated integer)');
+  const ins = db.prepare('insert into session values (?, ?, ?, ?, ?, ?)');
+  ins.run('ses_db_new', 'p1', null, cwd, 'wire the tracking ping', Date.now() - 30e3);
+  ins.run('ses_db_auto', 'p1', null, cwd, 'New session - 2026-08-16T12:29:24.511Z', Date.now() - 90e3);
+  ins.run('ses_db_child', 'p1', 'ses_db_new', cwd, 'subagent', Date.now());
+  ins.run('ses_db_other', 'p1', null, '/other', 'not here', Date.now());
+  db.close();
+  const res = listConversations({ agent: 'opencode', cwd, home });
+  assert.deepEqual(res.conversations.map((c) => c.id), ['ses_db_new', 'ses_db_auto'],
+    'db rows win, sub-sessions and other folders drop');
+  assert.equal(res.conversations[0].title, 'wire the tracking ping');
+  assert.equal(res.conversations[1].title, '', 'auto titles are not titles');
+});
