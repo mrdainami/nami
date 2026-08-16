@@ -121,7 +121,7 @@ export function sceneEvents() {
       { text: 'Run the tests', status: 'in_progress' },
     ] },
     { kind: 'assistant', id: 's10', text: 'Done — `greet()` now defaults its name to **there**, so the bare call in `cli.js` stops printing `hello undefined`. All 24 tests pass.' },
-    { kind: 'turn_end', id: 's11', durationMs: 12400, costUsd: 0.09, tokens: 18240 },
+    { kind: 'turn_end', id: 's11', durationMs: 12400, tokens: 18240 },
     { kind: 'user', id: 's12', text: 'Now rename it across the repo' },
     { kind: 'tool', id: 's13', toolId: 'x4', name: 'Grep', input: { pattern: 'greet\\(' } },
     { kind: 'tool', id: 's15', toolId: 'task1', name: 'Task', input: { description: 'Sub-agent — audit the pricing copy' } },
@@ -274,7 +274,6 @@ export function buildRows(events) {
         rows.push({
           kind: 'turn_end', id: e.id, at: e.at,
           duration: fmtDuration(e.durationMs),
-          costUsd: Number(e.costUsd) || 0,
           tokens: Number(e.tokens) || 0,
           files: turnFiles,
         });
