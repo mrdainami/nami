@@ -1487,7 +1487,15 @@ function pumpCards(id, w) {
     if (r.lines.length) {
       // Titles come from readTailTitle below — one name, one source.
       const events = parseTranscript(r.lines).filter((e) => e.kind !== 'title');
-      if (events.length) sendWc(w.wc, 'session:events', { id, events });
+      if (events.length) {
+        // Watch mode has no adapter to say 'running' — synthesize it from the
+        // tail: records still streaming means work in flight; a turn_duration
+        // record closes it. Live pump only, never the backlog read, so an old
+        // conversation that died mid-turn cannot pin a spinner forever.
+        const last = events[events.length - 1];
+        events.push({ kind: 'status', state: last.kind === 'turn_end' ? 'idle' : 'running' });
+        sendWc(w.wc, 'session:events', { id, events });
+      }
     }
     if (!r.lines.length && !r.dropped) return;
   }

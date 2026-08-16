@@ -432,7 +432,7 @@ export function buildCards(ctx) {
     <div class="cd-list"></div>
     <div class="cd-working" hidden>
       <span class="cw-sp"></span>
-      <span>Working… <b class="cw-el">0s</b><span class="cw-tk-wrap" hidden> · <span class="cw-tk">0</span> tok</span></span>
+      <span><span class="cw-ph">Working…</span> <b class="cw-el">0s</b><span class="cw-tk-wrap" hidden> · <span class="cw-tk">0</span> tok</span></span>
       <span class="cw-esc">esc to interrupt</span>
     </div>
     <div class="cd-menu" hidden></div>
@@ -781,11 +781,17 @@ export function buildCards(ctx) {
   });
 
   // The working line — the TUI's spinner, kept: elapsed always, live tokens
-  // when the channel pulses them, and the way out named.
+  // when the channel pulses them, and the way out named. `phase` is the
+  // channel naming what running means ('compacting', 'requesting') — a long
+  // silence gets a word instead of a shrug.
   const workEl = q('.cd-working', el);
   let workTimer = null, workStart = 0;
-  function setWorking(on, tokens) {
+  function setWorking(on, tokens, phase) {
     if (on) {
+      const ph = typeof phase === 'string' && phase
+        ? phase.charAt(0).toUpperCase() + phase.slice(1) + '…'
+        : 'Working…';
+      q('.cw-ph', workEl).textContent = ph;
       if (workEl.hidden) {
         workEl.hidden = false;
         workStart = Date.now();

@@ -300,7 +300,16 @@ function dropPathOnPanel(p, path, isDir) {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
     if (p.agentLive) return; // the drive channel owns this tile's events
     if (reset) p.cardEvents = [];
-    if (events && events.length) p.cardEvents = (p.cardEvents || []).concat(events);
+    // status is tile state, not a row — it drives the working line and never
+    // lands in the list (same split the drive channel makes below).
+    const rows = (events || []).filter((e) => e && e.kind !== 'status');
+    const st = (events || []).filter((e) => e && e.kind === 'status').pop();
+    if (rows.length) p.cardEvents = (p.cardEvents || []).concat(rows);
+    if (st) {
+      p.agentBusy = st.state === 'running';
+      const rec = tileEls.get(p.id);
+      if (rec && rec.cardsUi) rec.cardsUi.setWorking(p.agentBusy, st.tokens, st.phase);
+    }
     feedCards(p, !!reset);
   });
 
@@ -359,8 +368,9 @@ function dropPathOnPanel(p, path, isDir) {
     if (ev.kind === 'status') {
       const was = p.agentBusy;
       p.agentBusy = ev.state === 'running';
+      p.agentPhase = p.agentBusy ? ev.phase || null : null;
       const rec = tileEls.get(p.id);
-      if (rec && rec.cardsUi) rec.cardsUi.setWorking(p.agentBusy, ev.tokens);
+      if (rec && rec.cardsUi) rec.cardsUi.setWorking(p.agentBusy, ev.tokens, ev.phase);
       if (rec) refreshCardNote(p, rec);
       // a queued message goes when the channel frees up
       if (was && !p.agentBusy && p.sendQueue && p.sendQueue.length) {
@@ -2700,7 +2710,16 @@ function applyView(p, rec) {
     surf.className = 't-surface' + (on ? ' cards' : ' term');
     const l = q('.ts-l', surf); if (l) l.textContent = on ? 'CARDS' : 'TERM';
   }
-  if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
+  if (on) {
+    feedCards(p, true);
+    if (rec.cardsUi) {
+      rec.cardsUi.scrollToEnd(true);
+      // A view switch mid-turn used to lose the spinner: the status event had
+      // already fired, so nothing would re-show it until the next one.
+      rec.cardsUi.setWorking(!!p.agentBusy, undefined, p.agentPhase || undefined);
+    }
+    refreshCardNote(p, rec);
+  }
   else markFit(rec);
   refreshChannelBadge(p, rec);
 }

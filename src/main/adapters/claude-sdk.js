@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const { claudeCandidates } = require('./../platform.js');
 const { knownBin } = require('./../bin-cache.js');
-const { capability, toolKindFor, clip, safeEvent } = require('./../agent-events.js');
+const { capability, toolKindFor, clip, safeEvent, compactNote } = require('./../agent-events.js');
 
 // The SDK is ESM; main is CJS — load it once via dynamic import.
 let sdkPromise = null;
@@ -246,6 +246,26 @@ class ClaudeSdkAdapter {
         // shows it live, the way the TUI's spinner does.
         if (msg.subtype === 'thinking_tokens' && msg.estimated_tokens) {
           this.emit('status', { state: 'running', tokens: Number(msg.estimated_tokens) || 0 });
+        }
+        // The CLI names its quiet stretches — 'compacting', 'requesting' —
+        // and clears them with status: null. The working line says the word,
+        // so a minutes-long silence is never "running? dead? who knows".
+        if (msg.subtype === 'status') {
+          const phase = typeof msg.status === 'string' && msg.status ? msg.status : undefined;
+          this.emit('status', { state: 'running', ...(phase ? { phase } : {}) });
+          if (msg.compact_result === 'failed') {
+            this.emit('note', { text: 'Compaction failed' + (msg.compact_error ? `: ${String(msg.compact_error).slice(0, 200)}` : '.') });
+          }
+        }
+        // The boundary itself: one quiet row, not a wall of summary. SDK
+        // messages spell it compact_metadata; transcripts on disk say
+        // compactMetadata — read both.
+        if (msg.subtype === 'compact_boundary') {
+          const cm = msg.compact_metadata || msg.compactMetadata || {};
+          this.emit('note', { text: compactNote(cm) });
+        }
+        if (msg.subtype === 'session_state_changed' && msg.state) {
+          this.emit('status', { state: msg.state === 'running' ? 'running' : 'idle' });
         }
         if (msg.subtype === 'init') {
           this.sessionId = msg.session_id || this.sessionId;

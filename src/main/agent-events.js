@@ -17,7 +17,10 @@
 //   { kind: 'note',        id, at, text }          — rate limits, channel facts
 //   { kind: 'error',       id, at, message }       — classified, never prose
 //   { kind: 'init',        id, at, capability, claudeSessionId?, commands?, models? }
-//   { kind: 'status',      id, at, state }         — 'running' | 'idle'
+//   { kind: 'status',      id, at, state, phase?, tokens? }
+//       state 'running' | 'idle'; phase names what running means when the
+//       channel says so ('compacting', 'requesting') — the working line
+//       renders it so a long silence is never unexplained
 //
 // The vocabulary is closed on purpose: safeEvent refuses a kind that is not
 // listed, so a new adapter cannot invent one and quietly hand the renderer
@@ -101,4 +104,16 @@ function classifyFailure(text) {
   return null;
 }
 
-module.exports = { EVENT_KINDS, TOOL_KINDS, toolKindFor, capability, clip, BODY_CAP, safeEvent, classifyFailure };
+// One phrasing for a compaction boundary, wherever it was seen — live SDK
+// messages spell the payload compact_metadata / pre_tokens, transcripts on
+// disk say compactMetadata / preTokens. Both arrive here.
+function compactNote(meta) {
+  const cm = meta || {};
+  const k = (n) => (n >= 10000 ? `${Math.round(n / 1000)}k` : String(n));
+  const pre = Number(cm.pre_tokens != null ? cm.pre_tokens : cm.preTokens) || 0;
+  const post = Number(cm.post_tokens != null ? cm.post_tokens : cm.postTokens) || 0;
+  const trig = cm.trigger === 'auto' || cm.trigger === 'manual' ? ` (${cm.trigger})` : '';
+  return pre && post ? `Compacted — ${k(pre)} → ${k(post)} tokens${trig}` : `Conversation compacted${trig}`;
+}
+
+module.exports = { EVENT_KINDS, TOOL_KINDS, toolKindFor, capability, clip, BODY_CAP, safeEvent, classifyFailure, compactNote };
