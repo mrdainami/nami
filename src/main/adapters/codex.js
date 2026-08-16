@@ -192,6 +192,8 @@ class CodexAdapter {
 
       case 'turn.started':
         this.sawTurnEnd = false;
+        // the one frame that marks turn-start; the working line rides it
+        this.emit('status', { state: 'running' });
         return;
 
       case 'item.started':

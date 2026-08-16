@@ -21,6 +21,8 @@
 // already owns the tile's name through session-title.js, and one name deserves
 // one source.
 
+const { compactNote } = require('./agent-events.js');
+
 // A Read of a large file arrives here whole. The terminal shows one line and
 // hides the rest behind ctrl+o; a card can show all of it, but not at any price
 // — past this the body is cut and the event says so, so the UI can too.
@@ -124,6 +126,10 @@ function recordEvents(rec) {
   if (rec.isSidechain) return [];
   // isMeta marks text the CLI injected on the user's behalf.
   if (rec.isMeta) return [];
+  // The compaction summary is written as a user record — rendering it made a
+  // multi-kilobyte wall of text the user never typed appear as their bubble.
+  // The compact_boundary note below is the honest trace of what happened.
+  if (rec.isCompactSummary || rec.isVisibleInTranscriptOnly) return [];
 
   switch (rec.type) {
     case 'user': return userEvents(rec);
@@ -131,9 +137,13 @@ function recordEvents(rec) {
     case 'ai-title': return rec.aiTitle ? [{ kind: 'title', title: String(rec.aiTitle) }] : [];
     case 'custom-title': return rec.customTitle ? [{ kind: 'title', title: String(rec.customTitle) }] : [];
     case 'system':
-      return rec.subtype === 'turn_duration'
-        ? [{ kind: 'turn_end', at: rec.timestamp, durationMs: Number(rec.durationMs) || 0 }]
-        : [];
+      if (rec.subtype === 'turn_duration') {
+        return [{ kind: 'turn_end', at: rec.timestamp, durationMs: Number(rec.durationMs) || 0 }];
+      }
+      if (rec.subtype === 'compact_boundary') {
+        return [{ kind: 'note', at: rec.timestamp, text: compactNote(rec.compactMetadata || rec.compact_metadata) }];
+      }
+      return [];
     default: return [];
   }
 }
