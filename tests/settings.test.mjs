@@ -101,7 +101,7 @@ test('the default is a theme the app actually ships', () => {
 
 test('themeBackground maps every theme to its first-paint color', () => {
   assert.equal(themeBackground('paper'), '#cfc3ac');
-  assert.equal(themeBackground('operator'), '#0d0d0d');
+  assert.equal(themeBackground('operator'), '#121212');
   assert.equal(themeBackground('glass'), '#e8e9ee');
   assert.equal(themeBackground('graphite'), '#26272c');
   // unknown themes paint the default, matching normalizeTheme
