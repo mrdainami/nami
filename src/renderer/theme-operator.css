@@ -229,6 +229,7 @@ body[data-theme="operator"] .tile.attention { border-color: var(--op-accent); an
   50% { box-shadow: 0 0 0 2px rgba(239, 100, 97, 0.85), 0 0 30px rgba(239, 100, 97, 0.35); }
 }
 body[data-theme="operator"] .tile.drop-hint { outline-color: var(--op-accent); }
+body[data-theme="operator"] .desk-slot { border-color: var(--op-accent); }
 body[data-theme="operator"] .tile.file-hint { outline-color: var(--op-accent); box-shadow: 0 0 0 3px rgba(239, 100, 97, 0.25); }
 body[data-theme="operator"] .tile-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 8px 8px 0 0; }
 body[data-theme="operator"] .t-btn { border-radius: 5px; }
@@ -268,11 +269,13 @@ body[data-theme="operator"] .md-read h5, body[data-theme="operator"] .md-read h6
   font-family: 'Courier Prime', 'Courier New', monospace;
   text-transform: uppercase; letter-spacing: 0.1em;
 }
-body[data-theme="operator"] .md-read h1 { font-size: 16px; }
-body[data-theme="operator"] .md-read h2 { font-size: 14px; }
-body[data-theme="operator"] .md-read h3 { font-size: 12.5px; }
+/* em, not px, for the same reason the base sheet uses it: the ± dial scales
+   .md-read and a fixed heading would sit still while the body grew. */
+body[data-theme="operator"] .md-read h1 { font-size: 1.231em; }   /* 16/13 */
+body[data-theme="operator"] .md-read h2 { font-size: 1.077em; }   /* 14/13 */
+body[data-theme="operator"] .md-read h3 { font-size: 0.962em; }   /* 12.5/13 */
 body[data-theme="operator"] .md-read h4, body[data-theme="operator"] .md-read h5,
-body[data-theme="operator"] .md-read h6 { font-size: 11.5px; }
+body[data-theme="operator"] .md-read h6 { font-size: 0.885em; }   /* 11.5/13 */
 body[data-theme="operator"] .md-read code { background: var(--paper-2); border-color: var(--dash-dark); }
 body[data-theme="operator"] .md-read .md-pre { background: var(--rail); border-color: var(--dash); border-radius: 6px; }
 body[data-theme="operator"] .md-read blockquote { border-left-color: var(--op-accent); }

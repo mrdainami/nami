@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('dainami', {
   fsTrash: (args) => ipcRenderer.invoke('fs:trash', args),
   // The tree declares every folder it can see; main diffs that against the
   // watchers it has open and reports back { watching, overflow, failed }.
-  dirWatch: (paths) => ipcRenderer.invoke('dir:watch', { paths }),
+  dirWatch: (root) => ipcRenderer.invoke('dir:watch', { root }),
   onDirChanged: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('dir:changed', h); return () => ipcRenderer.removeListener('dir:changed', h); },
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 

@@ -1023,7 +1023,13 @@ ipcMain.handle('dir:list', (_e, arg) => {
       let size = ''; try { size = fmtSize(fs.statSync(full).size); } catch (_) {}
       return { name: e.name, path: full, kind: 'file', meta: size };
     });
-  } catch (_) { return []; }
+    // null, not []: "this folder is gone" and "this folder is empty" are
+    // different answers, and the tree acts on the difference — a deleted folder's
+    // row is removed, an empty one is kept. Returning [] for both made
+    // onDirChanged's removal branch unreachable. Every other caller tolerates a
+    // null: one guards with `|| []`, the rest assign into S.tree, whose readers
+    // all begin `if (!children) return`.
+  } catch (_) { return null; }
 });
 ipcMain.handle('file:raw', (_e, file) => {
   try {
@@ -1176,28 +1182,28 @@ ipcMain.handle('fs:import', (_e, a) => fsActions.importPaths(a || {}));
 ipcMain.handle('fs:duplicate', (_e, a) => fsActions.duplicatePath(a || {}));
 ipcMain.handle('fs:trash', (_e, a) => fsActions.trashPath({ ...(a || {}), trashFn: (p) => shell.trashItem(p) }));
 
-// ---- the Workspace tree's watchers -----------------------------------------
-// One dir-watch per window, because each window has its own open folder and its
-// own idea of which folders are expanded. The renderer declares the whole
-// visible set; see src/main/dir-watch.js for why that is the full set and not a
-// delta. Closed on window destruction so a closed window leaves no descriptors.
+// ---- the Workspace tree's watcher ------------------------------------------
+// One dir-watch per window, because each window has its own open folder, and one
+// recursive watcher inside it — see src/main/dir-watch.js for why recursive, and
+// why the ignore list runs before the debounce rather than after. Closed on
+// window destruction so a closed window leaves no descriptors.
 const dirWatchers = new Map();   // webContents.id -> dir-watch
 function dirWatchFor(wc) {
   let w = dirWatchers.get(wc.id);
   if (w) return w;
   w = createDirWatch({ onChange: (dir) => { try { wc.send('dir:changed', { dir }); } catch (_) {} } });
   dirWatchers.set(wc.id, w);
-  wc.once('destroyed', () => { w.closeAll(); dirWatchers.delete(wc.id); });
+  wc.once('destroyed', () => { w.close(); dirWatchers.delete(wc.id); });
   return w;
 }
 ipcMain.handle('dir:watch', (e, a) => {
-  const paths = (a && Array.isArray(a.paths)) ? a.paths : [];
-  if (!paths.length) {
+  const root = a && typeof a.root === 'string' && a.root ? a.root : null;
+  if (!root) {
     const existing = dirWatchers.get(e.sender.id);
-    if (existing) existing.closeAll();
-    return { watching: 0, overflow: 0, failed: 0 };
+    if (existing) existing.close();
+    return { watching: 0, failed: 0 };
   }
-  return dirWatchFor(e.sender).declare(paths);
+  return dirWatchFor(e.sender).watchRoot(root);
 });
 // Plain directory dialog for Move to…: unlike folder:pick it must NOT remember
 // the choice as a recent project.

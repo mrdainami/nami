@@ -21,6 +21,7 @@ import { runBounds, leadingIndent } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
+import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 
 const api = window.dainami;
 
@@ -135,7 +136,7 @@ function setTheme(name, persistIt = true) {
     t.term.options.fontFamily = termFontFamily();
     t.term.options.fontSize = termFontSize();
     t.term.options.letterSpacing = termLetterSpacing();
-    safeFit(t);
+    markFit(t);
   });
   if (els.grid) renderAll();
 }
@@ -262,6 +263,11 @@ function dropPathOnPanel(p, path, isDir) {
   // and a build that somehow reports no version simply shows nothing.
   if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
   S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  // Here, not in buildShell: buildShell runs before this await resolves, so the
+  // project was still null there and the window watched nothing at all until you
+  // opened a different folder. Whatever boot restored is watched from now,
+  // whichever rail tab the window happens to open on.
+  watchProject();
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
@@ -599,7 +605,7 @@ function showScene(name) {
         }
         if (step === 'mode') openModeMenu(p);
         if (step === 'model') openModelControl(p);
-        if (step === 'bridge') { const b = q('.t-bridge', rec.head); if (b) openBridgeMenu(p, b); }
+        if (step === 'bridge') { const b = q('.t-surface', rec.head); if (b) openBridgeMenu(p, b); }
         if (step === 'full') { S.expandedId = p.id; renderGrid(); }
       }
     }
@@ -807,11 +813,15 @@ function buildShell() {
   document.addEventListener('keydown', onGlobalKey);
   initGlassTilt();
 
+  // The desk relays its own tracks. Cheap — it only re-renders when the count
+  // actually changes, which is a handful of times across a whole window drag.
+  syncDeskColumns();
+  window.addEventListener('resize', syncDeskColumns);
+
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
-  // Safety net for what the watchers cannot catch: network volumes, anything
-  // past the 64-watcher cap, FSEvents gaps. Costs one pass at the exact moment
-  // you have come back to look at it.
+  // Safety net for what the watchers cannot catch: network volumes, FSEvents
+  // gaps. Costs one pass at the exact moment you have come back to look at it.
   window.addEventListener('focus', () => {
     if (!S.project || S.treeEdit) return;
     for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir);
@@ -893,7 +903,29 @@ function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
   // tiles need a re-fit when the grid width changes
-  setTimeout(() => tileEls.forEach((t) => safeFit(t)), 60);
+  setTimeout(() => { syncDeskColumns(); tileEls.forEach((t) => markFit(t)); }, 60);
+}
+
+// How many tracks the desk lays. Twice what auto-fill used to choose, so a
+// default card spans two of them and measures exactly what it always did — the
+// arithmetic and its proof are in desk-grid.mjs. Anything that changes the width
+// available to the grid has to call this: the window, the rail, a zoom.
+// The memo hangs off the function rather than a module-level `let`, because
+// buildShell() calls this while the module body is still evaluating — a `let`
+// declared below is in its temporal dead zone there, and reading it threw before
+// the desk had drawn anything at all.
+function syncDeskColumns() {
+  if (!els.grid) return;
+  const cs = getComputedStyle(els.grid);
+  const inner = els.grid.clientWidth
+    - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+  const cols = deskColumns(inner);
+  if (syncDeskColumns.last === cols) return;
+  syncDeskColumns.last = cols;
+  els.grid.style.setProperty('--cols', String(cols));
+  // Spans are stored unclamped, so a narrower desk re-renders them smaller and a
+  // wider one gives them back. Only on a change, never on every resize event.
+  if (els.grid.childElementCount) renderGrid();
 }
 
 function onGlobalKey(e) {
@@ -1128,7 +1160,6 @@ function refreshWorkspaceRail(c) {
   if (!S.tree[p.path]) api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
   renderTreeLevel(wrap, p.path, 0);
   c.appendChild(wrap);
-  syncDirWatch();
 }
 
 // Where the ＋ creates: the folder you have selected, the folder of the file you
@@ -1339,38 +1370,52 @@ function hideMenu() {
   window.removeEventListener('contextmenu', hideMenu);
 }
 async function refreshTreeDir(dir) {
-  S.tree[dir] = await api.listDir(dir, S.treeAll);
+  await relistDir(dir);
   if (S.railTab === 'workspace') refreshRail();
 }
 
 // ---- keeping the tree honest ------------------------------------------------
-// The renderer declares the whole visible set — root plus every expanded folder
-// — and main diffs it. Full set, not deltas: see src/main/dir-watch.js.
-function syncDirWatch() {
+// What is watched is a property of the *project*, not of what happens to be
+// drawn. It used to be called from the bottom of renderWorkspaceTree, which
+// meant a window booted on the Sessions tab watched nothing at all until you
+// clicked Workspace — and then only the folders that were open. One recursive
+// watcher on the root covers all of it; see src/main/dir-watch.js.
+function watchProject() {
   if (!api.dirWatch) return;
-  const p = S.project;
-  if (!p) { api.dirWatch([]); return; }
-  const paths = [p.path, ...[...S.expanded].filter((d) => S.tree[d])];
-  api.dirWatch(paths).catch(() => {});
+  api.dirWatch(S.project ? S.project.path : null).catch(() => {});
 }
 
-// One directory changed on disk. Re-list just that one; if it has gone, forget
-// it and re-list its parent instead.
+// Something changed inside `dir`. Two rows can be wrong because of it, and the
+// second is the one that used to be missed:
+//
+//   · dir's own listing, if dir is open
+//   · dir's row in its PARENT's listing, which is where its "N items" is
+//     computed — so a file appearing inside a collapsed ui/ is corrected by
+//     re-listing the folder that holds ui/, never ui/ itself
+//
+// Anything deeper than that changes no number anybody can see, and returns
+// without a readdir.
 async function onDirChanged(dir) {
-  if (!S.project) return;
-  if (!(dir in S.tree)) return;          // not visible — nothing to correct
+  if (!S.project || !dir) return;
   if (S.treeEdit && dirName(S.treeEdit.path) === dir) return;  // mid-rename; the commit re-lists
+  const parent = dir === S.project.path ? null : dirName(dir);
+  let touched = false;
+  if (dir in S.tree) touched = await relistDir(dir) || touched;
+  if (parent && parent in S.tree) touched = await relistDir(parent) || touched;
+  if (touched && S.railTab === 'workspace') refreshRail();
+}
+
+// Re-read one open folder. A null means it has gone — "empty" and "deleted" are
+// different answers and dir:list now distinguishes them, which is what lets the
+// row disappear instead of emptying out.
+async function relistDir(dir) {
   const before = new Set((S.tree[dir] || []).map((n) => n.path));
   const rows = await api.listDir(dir, S.treeAll);
-  if (rows == null) {
-    delete S.tree[dir]; S.expanded.delete(dir);
-    if (dir !== S.project.path) await refreshTreeDir(dirName(dir));
-    return;
-  }
+  if (rows == null) { delete S.tree[dir]; S.expanded.delete(dir); return true; }
   S.tree[dir] = rows;
   const fresh = rows.map((n) => n.path).filter((p) => !before.has(p));
   if (fresh.length) markFresh(fresh);
-  if (S.railTab === 'workspace') refreshRail();
+  return true;
 }
 function treeMenu(n, parentDir) {
   const root = S.project.path;
@@ -1789,6 +1834,10 @@ function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => t.root.remove()); tileEls.clear();
     els.grid.classList.remove('has-focus');
+    // The empty lane is not a card and must not be laid out on the card grid —
+    // it is one block that wants the whole canvas, and a 210px row track would
+    // cut it off. Its own box, not a track.
+    els.grid.classList.add('is-empty');
     // Two empty desks, one shape: a heading, a line of why, and the button that
     // does the thing. The folder-open one used to be the exception — it told you
     // to press a key and offered nothing to click, which is the one state in the
@@ -1806,6 +1855,7 @@ function renderGrid() {
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
     return;
   }
+  els.grid.classList.remove('is-empty');
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
   for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
@@ -1828,7 +1878,8 @@ function renderGrid() {
     if (t.root === cursor) cursor = cursor.nextElementSibling;
     else els.grid.insertBefore(t.root, cursor);
     refreshTileHead(p);
-    if (t.fit) requestAnimationFrame(() => safeFit(t));
+    applySpan(p, t);
+    if (t.fit) markFit(t);
   }
   // Only if the move actually cost us the keyboard — never steal it from a
   // rename box, the rail, or an overlay that opened during the render.
@@ -1837,6 +1888,159 @@ function renderGrid() {
     const t = tileEls.get(refocusId);
     if (t) { if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
   }
+}
+
+// A card's size is two numbers it keeps: how many columns and how many rows it
+// asked for. What it gets is whatever fits the desk it is on right now.
+//
+// Stored unclamped, on purpose. Clamping on the way in would mean narrowing the
+// window permanently destroyed a 4-wide card — it would come back as 2 and stay
+// there. Clamping on the way out means the desk gives it back the moment there
+// is room again.
+//
+// Focus is not a size. While a tile is focused the stylesheet owns its
+// placement, so the inline properties come off and go back on afterwards —
+// which is why ⤢ twice returns a 3×2 card to 3×2 and not to the default.
+function applySpan(p, t) {
+  if (!t || !t.root) return;
+  if (p.id === S.expandedId) { t.root.style.gridColumn = ''; t.root.style.gridRow = ''; return; }
+  const cols = syncDeskColumns.last || MIN_COLS;
+  t.root.style.gridColumn = 'span ' + clampSpan(p.spanX, cols);
+  t.root.style.gridRow = 'span ' + clampRows(p.spanY);
+}
+
+// ---- the grip ---------------------------------------------------------------
+// The card you are holding is the thing that moves. On grab it lifts out of the
+// grid and follows the hand pixel for pixel — live content, no scrim, no ghost
+// outline. A slot (a real grid item) holds its place, so the moment the drag
+// crosses a column line the slot's span changes and the neighbours reflow
+// around it: you watch the final layout happen while you are still holding.
+// Release settles the card into the slot.
+//
+// The first version froze the card and moved a dashed outline instead, out of
+// fear of refitting a terminal per frame. That fear belonged to the old
+// single-clock world: clock A repaints the canvas cheaply on every frame, and
+// clock B still tells the agent exactly once — rec.holdPty parks it until the
+// drop. What the outline method actually bought was a drag where nothing on
+// screen follows your hand, which reads as the app being stuck.
+function wireGrip(p, rec, grip) {
+  const commit = (x, y) => {
+    const changed = p.spanX !== x || p.spanY !== y;
+    p.spanX = x; p.spanY = y;
+    renderGrid();
+    if (changed) savePanels();
+  };
+
+  grip.addEventListener('dblclick', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    ptyDiscrete();
+    commit(MIN_COLS, MIN_COLS);
+    toast('Card size · reset');
+  });
+
+  // Sizing without a mouse. The grip keeps focus across the re-render, or the
+  // second press would go to the document and scroll the desk instead.
+  grip.addEventListener('keydown', (e) => {
+    const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    const dy = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (!dx && !dy) return;
+    e.preventDefault(); e.stopPropagation();
+    const cols = syncDeskColumns.last || MIN_COLS;
+    ptyDiscrete();
+    commit(clampSpan(clampSpan(p.spanX, cols) + dx, cols), clampRows(clampRows(p.spanY) + dy));
+    const again = tileEls.get(p.id);
+    if (again) { const g = q('.tile-grip', again.root); if (g) g.focus(); }
+  });
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();   // the header owns dragging the card; the corner owns sizing it
+    const grid = els.grid;
+    const cs = getComputedStyle(grid);
+    const inner = grid.clientWidth
+      - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    const cols = syncDeskColumns.last || MIN_COLS;
+    const pitchX = (inner + GAP) / cols;     // one column plus the gap after it
+    const pitchY = ROW + GAP;
+    const startW = rec.root.offsetWidth, startH = rec.root.offsetHeight;
+    const left = rec.root.offsetLeft, top = rec.root.offsetTop;
+    let sx = clampSpan(p.spanX, cols), sy = clampRows(p.spanY);
+    let moved = false;
+
+    // The slot: keeps the card's place in the flow and shows where it lands.
+    // Its corners are read off the tile itself, so every theme's slot matches
+    // every theme's card — glass is 22px, paper is square, and a theme added
+    // later is right without knowing this code exists.
+    const slot = document.createElement('div');
+    slot.className = 'desk-slot';
+    slot.style.gridColumn = 'span ' + sx;
+    slot.style.gridRow = 'span ' + sy;
+    slot.style.borderRadius = getComputedStyle(rec.root).borderRadius;
+    const tag = document.createElement('span');
+    tag.className = 'ds-size';
+    tag.textContent = sx + ' × ' + sy;
+    slot.appendChild(tag);
+    grid.insertBefore(slot, rec.root);
+
+    // Lift: absolute takes the tile out of grid flow (the slot keeps its seat),
+    // and explicit width/height make it follow the hand. Its ResizeObserver
+    // keeps firing, so clock A refits the live terminal on every frame of this.
+    rec.root.classList.add('lifting');
+    rec.root.style.position = 'absolute';
+    rec.root.style.left = left + 'px';
+    rec.root.style.top = top + 'px';
+    rec.root.style.width = startW + 'px';
+    rec.root.style.height = startH + 'px';
+    rec.holdPty = true;                 // clock B waits for the drop
+
+    const place = (w, h) => {
+      rec.root.style.width = w + 'px';
+      rec.root.style.height = h + 'px';
+      const nx = clampSpan(Math.round((w + GAP) / pitchX), cols);
+      const ny = clampRows(Math.round((h + GAP) / pitchY));
+      if (nx !== sx || ny !== sy) {
+        sx = nx; sy = ny;
+        slot.style.gridColumn = 'span ' + sx;
+        slot.style.gridRow = 'span ' + sy;
+        tag.textContent = sx + ' × ' + sy;
+      }
+    };
+
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - e.clientX) > 2 || Math.abs(ev.clientY - e.clientY) > 2) moved = true;
+      place(Math.max(80, startW + (ev.clientX - e.clientX)),
+            Math.max(60, startH + (ev.clientY - e.clientY)));
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+      slot.remove();
+      rec.root.classList.remove('lifting');
+      rec.root.style.position = ''; rec.root.style.left = ''; rec.root.style.top = '';
+      rec.root.style.width = ''; rec.root.style.height = '';
+      rec.holdPty = false;
+      // A press that never moved is not a resize: no commit, no re-render, no
+      // message to the agent — and the stored ask is left alone, which is what
+      // keeps a stray click from overwriting a clamped card's remembered size.
+      if (!moved) { rec.ptyPending = false; markFit(rec); return; }
+      ptyDiscrete();                    // the drop is one committed change
+      commit(sx, sy);
+      markFit(rec);
+      // The one message. Usually the post-drop refit changes cols and raises it
+      // itself (which clears ptyPending). When the final size matches the last
+      // live fit, no resize event fires and nothing would ever tell the agent —
+      // this backstop sends the parked notification, and only then.
+      setTimeout(() => {
+        if (rec.ptyPending) { rec.ptyPending = false; notifyPty(p, rec); }
+      }, 60);
+    };
+    try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  });
 }
 
 const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
@@ -1869,15 +2073,68 @@ function termLetterSpacing() { return 0; }
 // often was the column count being wrong, which resized the terminal ten times
 // in the first tenth of a second. That is fixed now (see .term-body in
 // paper.css). The vendored addon stays in ./vendor for that attempt.
+// One tap used to tell every open agent to repaint, immediately — four taps
+// across three sessions was twelve messages and three redrawn screens. The size
+// still applies to every tile at once (it is one shared preference), but the
+// canvas redraw and the agent's notification are now on separate clocks, so a
+// run of taps settles into one message per session.
 function bumpTermFont(dir) {
   const next = Math.min(18, Math.max(10, termFontSize() + dir));
   try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
   tileEls.forEach((r) => {
-    if (r.term) { r.term.options.fontSize = next; safeFit(r); }
+    if (r.term) { r.term.options.fontSize = next; markFit(r); }
     if (r.cardsUi) r.cardsUi.setFontSize(next); // cards read at the same size the terminal does
   });
   toast('Text size · ' + next + 'px'); // one dial for both surfaces — cards scale with it too
 }
+// ---- document text size ------------------------------------------------------
+// Its own dial, separate from the terminal's. 12px monospace and a page of prose
+// are different jobs and one number cannot serve both: turning the terminal up to
+// read what an agent is doing would otherwise turn your notes into billboards.
+//
+// Same rule as the terminal's, though — scale now, and if there is a pty behind
+// it, tell it once you stop.
+const isDocTile = (p) => ['card', 'viewer', 'editor'].includes(p.kind);
+const DOC_SCALE_KEY = 'dainami-doc-scale';
+const DOC_STEPS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
+function docScale() {
+  const v = Number(localStorage.getItem(DOC_SCALE_KEY));
+  return DOC_STEPS.includes(v) ? v : 1;
+}
+// Both layers of an editor scroll together, so anchoring the textarea is enough —
+// assigning its scrollTop fires the scroll handler that drags the underlay and
+// the line numbers along with it.
+function docScrollers(rec) {
+  return [...rec.root.querySelectorAll('.md-read, .ed-area')];
+}
+function bumpDocFont(dir) {
+  const i = DOC_STEPS.indexOf(docScale());
+  const next = DOC_STEPS[Math.min(DOC_STEPS.length - 1, Math.max(0, i + dir))];
+  try { localStorage.setItem(DOC_SCALE_KEY, String(next)); } catch (_) {}
+  // Where you were reading, as a fraction of the document — the pixel offset is
+  // meaningless once every line is a different height.
+  const marks = [];
+  tileEls.forEach((r) => {
+    for (const el of docScrollers(r)) {
+      const room = el.scrollHeight - el.clientHeight;
+      marks.push({ el, frac: room > 0 ? el.scrollTop / room : 0 });
+    }
+  });
+  document.documentElement.style.setProperty('--doc-scale', String(next));
+  requestAnimationFrame(() => {
+    for (const m of marks) {
+      const room = m.el.scrollHeight - m.el.clientHeight;
+      m.el.scrollTop = room > 0 ? Math.round(m.frac * room) : 0;
+    }
+  });
+  toast('Document text · ' + Math.round(next * 100) + '%');
+}
+// Before first paint, so a restored desk does not flash at 100% and resettle.
+try {
+  const saved = Number(localStorage.getItem(DOC_SCALE_KEY));
+  if (DOC_STEPS.includes(saved)) document.documentElement.style.setProperty('--doc-scale', String(saved));
+} catch (_) {}
+
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
   root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
@@ -1887,24 +2144,36 @@ function mountTile(p) {
       <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
       <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
       ${canShowCards(p) ? `<span class="t-channel" hidden></span>
-      <span class="t-surface" aria-label="Surface"></span>
-      <button class="t-btn t-bridge" title="Open in the other surface / settings"><span class="uni-i">⌄</span><span class="pix-i">${pixIcon('chevron')}</span></button>` : ''}
+      <button class="t-surface" title="Switch surface / settings" aria-label="Surface menu"><span class="ts-l"></span><svg class="ts-c" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg></button>` : ''}
       <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
-      ${['card', 'viewer', 'editor'].includes(p.kind) ? '' : `
-      <button class="t-btn t-zoom-out" title="Smaller terminal text"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
-      <button class="t-btn t-zoom-in" title="Bigger terminal text"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>`}
+      <button class="t-btn t-zoom-out" title="${isDocTile(p) ? 'Smaller text' : 'Smaller terminal text'}"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
+      <button class="t-btn t-zoom-in" title="${isDocTile(p) ? 'Bigger text' : 'Bigger terminal text'}"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>
       <button class="t-btn t-expand" title="Expand"><span class="uni-i">⤢</span><span class="pix-i">${pixIcon('expand')}</span></button>
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
-  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null };
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, cardsUi: null, ptyTimer: null };
   tileEls.set(p.id, rec);
+  // The grip lives on the card, not in its header — the corner is the thing
+  // itself rather than a button that opens a way to do the thing, and the header
+  // is already at the width where it starts dropping controls.
+  const grip = document.createElement('div');
+  grip.className = 'tile-grip';
+  grip.tabIndex = 0;
+  grip.setAttribute('role', 'slider');
+  grip.setAttribute('aria-label', 'Resize ' + p.title);
+  grip.title = 'Drag to resize · double-click to reset · arrow keys';
+  root.appendChild(grip);
+  wireGrip(p, rec, grip);
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
-  if (zi) zi.onclick = (e) => { e.stopPropagation(); bumpTermFont(+1); };
-  if (zo) zo.onclick = (e) => { e.stopPropagation(); bumpTermFont(-1); };
+  const bump = isDocTile(p) ? bumpDocFont : bumpTermFont;
+  if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1); };
+  if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1); };
   q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
-  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
+  // Expand is a committed change, not a gesture — every tile it moves is told
+  // on the next frame, not 140ms later, so one press is one movement.
+  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); ptyDiscrete(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
   q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
   head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
   // drag reorder
@@ -1942,8 +2211,10 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  const bridge = q('.t-bridge', head);
-  if (bridge) bridge.onclick = (e) => { e.stopPropagation(); openBridgeMenu(p, bridge); };
+  // The surface label IS the menu now: what you read is what you click. The
+  // separate ⌄ button it replaces was half of the header's crowding problem.
+  const surfBtn = q('.t-surface', head);
+  if (surfBtn) surfBtn.onclick = (e) => { e.stopPropagation(); openBridgeMenu(p, surfBtn); };
 
   if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
   if (canShowCards(p)) { mountCards(p, rec); applyView(p, rec); }
@@ -1973,13 +2244,70 @@ function refreshTileHead(p) {
 
 // ---- terminal tiles --------------------------------------------------------
 
-function safeFit(rec) {
+// ---- the two clocks --------------------------------------------------------
+// Resizing a terminal is two jobs, and they were welded together: term.onResize
+// called api.termResize directly, so there was no way to redraw the canvas
+// without also telling the agent. Recomputing the canvas is cheap, local and
+// invisible to anyone else. Telling the pty makes Claude throw its screen away
+// and repaint, slicing whatever was scrolled above it — that is the crop on
+// expand, the mangling on collapse, and every open session being told at once
+// when you tapped ＋.
+//
+// Clock A (markFit → fitCanvas) repaints, once per frame across every tile.
+// Clock B (notifyPty) tells the agent, once, when the gesture stops.
+//
+// Every surface then follows from the rule rather than needing its own handling:
+// expand, collapse, the font buttons and a slow drag on the window edge are all
+// the same two clocks at different speeds.
+const dirtyFits = new Set();
+let fitFrame = null;
+function markFit(rec) {
+  if (!rec || !rec.term || !rec.fit) return;
+  dirtyFits.add(rec);
+  if (fitFrame) return;
+  fitFrame = requestAnimationFrame(() => { fitFrame = null; drainFits(); });
+}
+function drainFits() {
+  const batch = [...dirtyFits];
+  dirtyFits.clear();
+  for (const rec of batch) fitCanvas(rec);
+}
+
+// How long a gesture has to be still before the agent is told. The settle is
+// for CONTINUOUS gestures only — a window-edge drag, where the size keeps
+// changing and coalescing is the point. A committed change — expand, collapse,
+// a grip drop — is one movement, and waiting 140ms after it just splits one
+// visible change into two: the tile moves, then the agent repaints later.
+// ptyDiscrete() opens a short window in which notifications skip the settle.
+const PTY_SETTLE_MS = 140;
+let ptyFastUntil = 0;
+function ptyDiscrete() { ptyFastUntil = performance.now() + 300; }
+function notifyPty(p, rec) {
+  // A grip drag is in flight: the canvas refits live under the hand, but the
+  // agent hears nothing until the drop flushes this once.
+  if (rec.holdPty) { rec.ptyPending = true; return; }
+  clearTimeout(rec.ptyTimer);
+  rec.ptyTimer = setTimeout(() => {
+    rec.ptyTimer = null;
+    if (!rec.term) return;
+    rec.ptyPending = false;   // delivered — a drop's backstop flush can stand down
+    api.termResize({ id: p.id, cols: rec.term.cols, rows: rec.term.rows });
+  }, performance.now() < ptyFastUntil ? 0 : PTY_SETTLE_MS);
+}
+
+function fitCanvas(rec) {
   if (!rec || !rec.term || !rec.fit) return;
   // A hidden terminal measures zero. addon-fit would round that up to its
   // minimum and resize the pty to a couple of columns — and claude reflows to
   // whatever it is told, so the session would come back from the card view
   // wrapped one word per line.
-  if (!rec.body.clientWidth || !rec.body.clientHeight) return;
+  //
+  // Left marked rather than dropped, so it is redrawn on the frame it becomes
+  // visible. Dropping it is why a tile came back from a collapse at the size it
+  // held before the expand, and stayed there until something else nudged it.
+  // No frame is scheduled here — the ResizeObserver fires the moment the tile
+  // has a size, and that is what drains this.
+  if (!rec.body.clientWidth || !rec.body.clientHeight) { dirtyFits.add(rec); return; }
   try { rec.fit.fit(); } catch (_) { return; }
   try {
     const body = rec.body, term = rec.term;
@@ -2014,7 +2342,7 @@ function mountTerminal(p, rec) {
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => {
-    safeFit(rec);
+    fitCanvas(rec);
     if (p.sceneStatic) return; // a fixture tile draws, it never runs
     // A tile restored in Cards goes straight to the drive channel — spawning
     // the pty first would put two runtimes on one conversation.
@@ -2022,20 +2350,22 @@ function mountTerminal(p, rec) {
     else startProcess(p, term.cols, term.rows);
   });
   term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });
-  term.onResize(({ cols, rows }) => api.termResize({ id: p.id, cols, rows }));
+  // Clock B, and the only place it is wound. This used to call api.termResize
+  // straight through, which is what made the canvas and the agent one job.
+  term.onResize(() => notifyPty(p, rec));
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
-  // Debounced: a resize drag would otherwise fire a pty resize per frame, and
-  // every one of those reflows the scrollback (mid-word wraps, sliced borders).
-  let refitTimer = null;
-  const ro = new ResizeObserver(() => {
-    clearTimeout(refitTimer);
-    refitTimer = setTimeout(() => safeFit(rec), 90);
-  });
+  // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
+  // every frame the tile changes size. The delay that used to live here was
+  // protecting the pty, and the pty has its own settle now — which is also why a
+  // slow window-edge drag no longer looks frozen while you hold it.
+  const ro = new ResizeObserver(() => markFit(rec));
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
-  rec.disposeRo = () => { clearTimeout(refitTimer); ro.disconnect(); hoveredLink.delete(p.id); };
+  rec.disposeRo = () => {
+    clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+  };
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -2283,34 +2613,33 @@ function openBridgeMenu(p, anchor) {
   const items = [];
   if (inCards) {
     items.push({
-      label: 'Open in a new Terminal session',
-      desc: spec.resumes ? 'same conversation — this card view closes' : 'starts its own conversation — this card view closes',
+      label: 'Open in Terminal',
+      desc: spec.resumes ? 'Continue this chat in a terminal. This cards view closes.' : 'Starts its own chat in a terminal. This cards view closes.',
       run: () => moveToSurface(p, 'term'),
     });
   } else {
     if (agent === 'claude') {
       items.push({
-        label: 'Watch as cards here',
-        desc: 'live filter — the terminal keeps running',
+        label: 'Watch as Cards',
+        desc: 'Shows this chat as simple, readable cards. The terminal keeps running behind it.',
         run: () => setView(p, 'cards'),
       });
       items.push({
-        label: 'Move to a Cards session',
-        desc: 'same conversation, driven — this terminal closes',
+        label: 'Move to Cards',
+        desc: 'Continue this chat in the cards view. This terminal closes.',
         run: () => moveToSurface(p, 'cards'),
       });
     } else {
       items.push({
         label: 'Start a Cards session',
-        desc: 'its own conversation — this terminal stays',
+        desc: 'Starts its own cards chat. This terminal stays.',
         run: () => startPanel({ kind: 'run', title: p.title, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, view: 'cards' }),
       });
     }
   }
   if (inCards && agent === 'claude' && p.cardMode === 'watch') {
-    items.push({ label: 'Back to Term', desc: 'the terminal was never touched', run: () => setView(p, 'term') });
+    items.push({ label: 'Back to Terminal', desc: 'The terminal kept running the whole time.', run: () => setView(p, 'term') });
   }
-  items.push({ label: 'Rename this session', desc: '', run: () => { const t = tileEls.get(p.id); if (t) beginRename(p, q('.t-title', t.head)); } });
   const reg = (S.agents || []).find((a) => a.bin === p.command || (agent === 'claude' && a.id === 'claude'));
   if (reg) items.push({ label: 'Agent settings', desc: reg.name, run: () => openAgentSheet(reg) });
   showHeadMenu(anchor, items);
@@ -2369,10 +2698,10 @@ function applyView(p, rec) {
   const surf = q('.t-surface', rec.head);
   if (surf) {
     surf.className = 't-surface' + (on ? ' cards' : ' term');
-    surf.textContent = on ? 'CARDS' : 'TERM';
+    const l = q('.ts-l', surf); if (l) l.textContent = on ? 'CARDS' : 'TERM';
   }
   if (on) { feedCards(p, true); if (rec.cardsUi) rec.cardsUi.scrollToEnd(true); refreshCardNote(p, rec); }
-  else requestAnimationFrame(() => safeFit(rec));
+  else markFit(rec);
   refreshChannelBadge(p, rec);
 }
 
@@ -2538,7 +2867,7 @@ async function exitCards(p) {
   api.cardsWatch({ id: p.id, on: false });
   if (p.cardMode === 'watch' && p.started && !p.exited) {
     p.cardMode = 'off';
-    requestAnimationFrame(() => safeFit(rec));
+    markFit(rec);
     return;
   }
   if (p.agentLive) { p.agentLive = false; await api.agentStop({ id: p.id }); }
@@ -2547,7 +2876,7 @@ async function exitCards(p) {
   p.exited = false; p.status = 'live'; p.started = false;
   if (rec.term) {
     try { rec.term.reset(); } catch (_) {}
-    requestAnimationFrame(() => { safeFit(rec); startProcess(p, rec.term.cols, rec.term.rows); });
+    requestAnimationFrame(() => { fitCanvas(rec); startProcess(p, rec.term.cols, rec.term.rows); });
   }
   refreshTileHead(p); refreshRail();
 }
@@ -3468,18 +3797,22 @@ function feedSessionName(p, data) {
 // ---- persistence: the layout survives restarts -----------------------------
 let saveTimer = null;
 function panelSnapshot() {
+  // The size a card was dragged to belongs to every kind of tile, so it is
+  // added here rather than inside each branch — five branches that each had to
+  // remember is five places to forget.
+  const size = (p) => ({ spanX: p.spanX, spanY: p.spanY });
   return S.panels.map((p) => {
-    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath };
-    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath };
-    if (p.kind === 'card') return { kind: 'card', item: p.item };
+    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...size(p) };
+    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...size(p) };
+    if (p.kind === 'card') return { kind: 'card', item: p.item, ...size(p) };
     // A one-shot that has run comes back as a plain terminal, not as its
     // command. Restoring the command re-ran it: leave an install tile on the
     // desk, quit, and Nami piped curl into bash again on the next launch, and
     // the one after that. A session is worth restoring; an errand is not.
     if (p.oneShot && (p.commandDone || p.exited)) {
-      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd };
+      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
     }
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
   });
 }
 function savePanels() {
@@ -3505,11 +3838,20 @@ async function restorePanels(snaps) {
   // open* unshift; walk the list backwards so the restored order matches
   for (const s of [...snaps].reverse()) {
     try {
+      // Every open* unshifts, so a tile that actually arrived is S.panels[0].
+      // Reading the size back off that is exact whatever the kind, and does not
+      // depend on five different functions agreeing to return their panel.
+      const before = S.panels.length;
       if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
       else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      // A snapshot from before spans existed carries none, and a panel with no
+      // span renders at the default. That is the whole of the migration.
+      if (S.panels.length > before && (s.spanX || s.spanY)) {
+        S.panels[0].spanX = s.spanX; S.panels[0].spanY = s.spanY;
+      }
     } catch (_) {}
   }
   S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -5537,6 +5879,7 @@ function applyProject(info) {
   S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
   // load root level fresh for the explorer
   api.listDir(info.path, S.treeAll).then((rows) => { S.tree[info.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
+  watchProject();
   refreshServices();
   renderAll();
 }
