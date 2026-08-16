@@ -61,11 +61,11 @@ const THEME_KEY = 'dainami-theme';
 const XTERM_THEME_OPERATOR = {
   // Transparent over the operator panel; minimumContrastRatio re-inks
   // cream-tuned TUI text for the dark ground.
-  background: 'rgba(23,23,23,0)', foreground: '#e2e0dc', cursor: '#ef6461', cursorAccent: '#0d0d0d',
+  background: 'rgba(31,31,31,0)', foreground: '#ecebe7', cursor: '#ef6461', cursorAccent: '#121212',
   selectionBackground: 'rgba(239,100,97,0.28)',
-  black: '#3d3d3d', red: '#ef6461', green: '#5aa06e', yellow: '#d8a03d', blue: '#6ea8ff',
-  magenta: '#c792ea', cyan: '#5ac8c8', white: '#a8a59f',
-  brightBlack: '#7c7a74', brightRed: '#ff8b88', brightGreen: '#66c17e', brightYellow: '#e8b45a',
+  black: '#4f4f4f', red: '#ef6461', green: '#5aa06e', yellow: '#d8a03d', blue: '#6ea8ff',
+  magenta: '#c792ea', cyan: '#5ac8c8', white: '#b8b5ae',
+  brightBlack: '#8f8d86', brightRed: '#ff8b88', brightGreen: '#66c17e', brightYellow: '#e8b45a',
   brightBlue: '#8fbcff', brightMagenta: '#d7a9f0', brightCyan: '#7adcdc', brightWhite: '#f2f0ee',
 };
 // glass (light frost): ANSI deepened so every CLI stays readable on the light well
@@ -88,7 +88,7 @@ const XTERM_THEME_GRAPHITE = {
 };
 const STATUS_COLORS = {
   paper: { ok: '#4a7a4a', warn: '#a8792a', mut: '#8d8065' },
-  operator: { ok: '#5aa06e', warn: '#ef6461', mut: '#7c7a74' },
+  operator: { ok: '#5aa06e', warn: '#ef6461', mut: '#98958e' },
   glass: { ok: '#2e7d4f', warn: '#b07c10', mut: '#8f9094' },
   graphite: { ok: '#63c68a', warn: '#e6c05c', mut: '#9a9ba6' },
 };
