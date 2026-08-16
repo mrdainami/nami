@@ -969,11 +969,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 
 /* ===== terminal-first grid + tiles ===================================== */
 .main { display: flex; flex-direction: column; }
+/* Explicit tracks, not auto-fill: a card can claim more than one of them, and
+   auto-fill cannot be spanned into predictably. --cols is set from JS to twice
+   what auto-fill would have chosen, which makes a default span-2 card exactly
+   the width it has always been — see src/renderer/desk-grid.mjs for the
+   arithmetic and tests/desk-grid.test.mjs for the proof at every pixel. */
 .grid {
+  --cols: 2;
   flex: 1; min-height: 0; display: grid; gap: 20px; padding: 22px 26px 24px;
-  /* min() so a zoomed-in (narrow) lane shrinks the track instead of pushing
-     the tile past the sheet edge, where overflow-x would clip it */
-  grid-template-columns: repeat(auto-fill, minmax(min(470px, 100%), 1fr));
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  grid-auto-rows: 210px;   /* 210·2 + 20 gap = the 440px a tile used to be */
   align-content: start; overflow-y: auto; overflow-x: hidden;
   background: repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,145,180,0.12) 27px 28px);
 }
@@ -981,17 +986,27 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    min-height resolves to auto against auto-sized grid rows and collapses). */
 .grid.has-focus { grid-template-columns: 1fr; grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
 .grid.has-focus .tile:not(.focused) { display: none; }
+/* An empty desk is one block, not a card: taken off the track grid entirely so
+   the 210px row cannot crop it. */
+.grid.is-empty { display: block; }
 .grid > .lane-empty { grid-column: 1 / -1; min-height: 62vh; }
 
+/* The height comes from the row track now, not from the tile: two 210px rows and
+   the gap between them. A card given more rows is simply taller. */
 .tile {
-  display: flex; flex-direction: column; min-width: 0; height: 440px;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  grid-column: span 2; grid-row: span 2;
+  container: nami-tile / inline-size;
   background: repeating-linear-gradient(0deg, rgba(120,95,60,0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
   position: relative;
 }
 /* entrance only — .enter is dropped after the animation so reorders don't replay it */
 .tile.enter { animation: rise 0.25s ease both; }
-.tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; }
+/* Focus is a property of the desk, not of the card: it takes the whole canvas
+   for as long as it lasts and the card's own span is untouched underneath, so
+   pressing ⤢ twice returns a 3×2 card to 3×2 rather than to the default. */
+.tile.focused { height: auto; min-height: 0; grid-column: 1 / -1; grid-row: auto; }
 .tile.active { box-shadow: 5px 6px 0 var(--shadow-mid), 0 0 0 1.5px #b8c9ad; }
 .tile.attention { border-color: var(--amber-line); box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); animation: breathe 1.8s ease-in-out infinite; }
 .tile.exited { opacity: 0.82; }
@@ -1000,9 +1015,87 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tile.file-hint { outline: 2px dashed var(--amber-line, #c9a94e); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(201, 169, 78, 0.25), 5px 6px 0 var(--shadow-mid); }
 @keyframes breathe { 0%,100% { box-shadow: 0 0 0 2px rgba(201,169,78,0.5), 5px 6px 0 rgba(150,120,40,0.22); } 50% { box-shadow: 0 0 0 3px rgba(201,169,78,0.85), 5px 6px 0 rgba(150,120,40,0.3); } }
 
+/* ---- sizing a card ---- */
+/* The corner, not the header. The header row is already five controls wide and
+   goes to ellipsis on a narrow tile; a sixth button there would be the first
+   thing to disappear on exactly the cards most worth resizing. A grip is also
+   the thing itself rather than a control that opens a way to do the thing.
+   Inset from the true corner: on a rounded theme (glass is 22px) right:0/bottom:0
+   is empty space outside the curve, and the mark floated off the card. Two
+   strokes rather than a filled ◢ — reads on a square card and a round one alike. */
+/* The hit area straddles the true corner — 10px outside the card, 16px inside —
+   so you pull the corner itself, the way a macOS window resizes, instead of
+   aiming at a button parked in the content. Sitting wholly inside was the bug:
+   on an editor tile that exact spot is the Save button, and the two fought.
+   The mark is only a visual; the box is the control. */
+.tile-grip {
+  position: absolute; right: -10px; bottom: -10px; width: 26px; height: 26px; z-index: 6;
+  cursor: nwse-resize; opacity: 0;
+  transition: opacity 0.12s ease;
+  -webkit-user-select: none; user-select: none; touch-action: none;
+}
+/* The strokes hug the corner: 2px in on a square tile. Glass rounds its tiles,
+   so its override below tucks them inside the curve instead. */
+.tile-grip::before {
+  content: ''; position: absolute; right: 12px; bottom: 12px;
+  width: 11px; height: 11px; color: var(--muted);
+  background:
+    linear-gradient(135deg, transparent 0 42%, currentColor 42% 58%, transparent 58% 100%) no-repeat 0 0/11px 11px,
+    linear-gradient(135deg, transparent 0 68%, currentColor 68% 84%, transparent 84% 100%) no-repeat 0 0/11px 11px;
+}
+.tile:hover .tile-grip { opacity: 1; }
+.tile-grip:hover::before { color: var(--ink); }
+.tile-grip:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: -8px; opacity: 1; }
+.tile-grip:focus-visible::before { color: var(--ink); }
+.tile.focused .tile-grip { display: none; }   /* focus already owns the canvas */
+
+/* The drag: the card lifts out of the grid and follows the hand — live content,
+   no scrim, its own theme material untouched. The slot is a real grid item
+   holding its place, so the neighbours reflow around it the moment the drag
+   crosses a column line. Release settles the card into the slot. One voice:
+   the thing you are holding is the thing that moves. */
+.grid { position: relative; }
+.tile.lifting { z-index: 40; cursor: nwse-resize; }
+.desk-slot {
+  min-width: 0; min-height: 0; position: relative;
+  border: 2px dashed var(--dash-dark);
+  background: rgba(120,145,180,0.07);
+  /* border-radius set from the tile's own computed corners at drag time, so
+     every theme's slot matches every theme's card — including ones added later */
+}
+.desk-slot .ds-size {
+  position: absolute; right: 9px; bottom: 8px;
+  font-family: 'Courier Prime', monospace; font-size: 11px; letter-spacing: 0.06em;
+  color: var(--ink); background: var(--paper); border: 1px solid var(--dash);
+  border-radius: 6px; padding: 1px 7px; white-space: nowrap;
+}
+
 .tile-head {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px;
   border-bottom: 1px dashed var(--dash); cursor: grab; user-select: none;
+  /* the backstop: whatever else goes wrong, controls can never cross the
+     card's edge again — they vanish under it instead of sitting on a
+     neighbour. The tiers below mean this should never actually clip. */
+  overflow: hidden;
+}
+/* The header sheds by the card's own width, most expendable first — never the
+   identity (chip, title), never the exits (⤢, ✕). − ＋ move a shared dial any
+   wider card also moves; the mic is for working in a session, and a one-column
+   card is a glance, not a workstation. Pull the corner and it all returns.
+   Container queries, so the same rule serves the desk, focus, any window. */
+@container nami-tile (max-width: 430px) {
+  .tile-head .t-status .lbl { display: none; }
+}
+@container nami-tile (max-width: 350px) {
+  .tile-head .t-zoom-in, .tile-head .t-zoom-out { display: none; }
+}
+@container nami-tile (max-width: 300px) {
+  .tile-head .t-mic { display: none; }
+}
+@container nami-tile (max-width: 252px) {
+  .tile-head .t-sub { display: none; }
+  .t-surface .ts-l { display: none; }         /* the chevron alone still opens the menu */
+  .t-surface { padding: 4px 7px; }
 }
 .tile-head:active { cursor: grabbing; }
 .tile-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60,45,25,0.3); }
@@ -1092,12 +1185,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    one of the two is ever displayed, and the hidden one is never torn down. */
 /* The surface is a state, not a toggle: one small label, stamped when beta.
    Switching surfaces is an explicit act in the ⌄ menu. */
+/* One control now: the label is the menu. The chevron is a drawn stroke rather
+   than the ⌄ character, which hangs low in every font and looked sunk beside
+   the word — drawn, it centres on the label's own midline. */
 .t-surface {
-  position: relative; flex: none; font-size: 9px; letter-spacing: 0.08em;
-  padding: 4px 9px; font-weight: 700;
+  position: relative; flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 9px; letter-spacing: 0.08em; font-weight: 700;
+  padding: 4px 7px 4px 9px; background: none; border: 1px solid transparent;
+  color: inherit; cursor: pointer;
 }
+.t-surface .ts-c { width: 10px; height: 6px; flex: none; display: block; }
+.t-surface .ts-c path { stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .t-surface.cards { background: var(--green); color: var(--paper); }
 .t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
+.t-surface.term:hover { color: var(--ink); border-color: var(--dash-dark); background: var(--hover); }
+.t-surface.cards:hover { filter: brightness(1.08); }
 /* the channel badge: which structured channel this card speaks, said once in
    the head. Quiet fact; amber only when it explains a limit (watching,
    one-shot, terminal-only). Hidden entirely in Term view.
@@ -1641,11 +1743,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .editor[data-mode="edit"] .ed-read { display: none; }
 .ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
 .ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: #b3a894;
-  border-right: 1px dashed var(--dash); background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+  font-family: 'Courier Prime', monospace;
+  /* the third layer: line numbers have to grow with the lines they number, or
+     line 40 stops sitting beside line 40 */
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: #b3a894;
+  border-right: 1px dashed var(--dash); background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); }
 /* the underlay and the textarea are the same box, stacked; the textarea's own
    glyphs stay visible and the layer behind only supplies colour and weight */
-.ed-stack { position: relative; min-width: 0; background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); }
+/* the ruled lines are the line height — scaled with it, or the text drifts off
+   the rules it is supposed to sit on */
+.ed-stack { position: relative; min-width: 0; background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); }
 /* Every metric both layers depend on is stated here, together, including the
    ones that would otherwise be inherited. A <pre> inherits tracking from body;
    a <textarea> does not, because the UA stylesheet resets it on form controls —
@@ -1655,7 +1762,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
    termLetterSpacing() in app.js, zero in every theme for the same reason. */
 .ed-hl, .ed-area {
   position: absolute; inset: 0; margin: 0; padding: 10px 12px; border: none; outline: none;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px;
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1));
   letter-spacing: 0; word-spacing: 0;
   white-space: pre; overflow: auto; tab-size: 2;
 }
@@ -1680,9 +1788,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* ---- rendered markdown (editor Read tab) ---- */
 /* prose gets a reading measure — a full-width tile would otherwise run past
    100 characters a line, which is the thing that made these files tiring */
+/* One size on the container, everything inside it in em. Fixed px headings
+   would sit still while the body grew and the page would come apart. */
 .md-read {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  padding: 16px 22px 24px; font-size: 13px; line-height: 1.72; color: var(--ink); user-select: text;
+  padding: 16px 22px 24px; font-size: calc(13px * var(--doc-scale, 1));
+  line-height: 1.72; color: var(--ink); user-select: text;
 }
 .md-read > * { max-width: 76ch; }
 /* An html file's Read tab is the page itself: no prose padding or measure, the
@@ -1697,21 +1808,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read h1, .md-read h2, .md-read h3, .md-read h4, .md-read h5, .md-read h6 {
   font-family: 'Caveat', cursive; font-weight: 700; line-height: 1.15; margin: 22px 0 6px;
 }
-.md-read h1 { font-size: 30px; }
-.md-read h2 { font-size: 25px; }
-.md-read h3 { font-size: 21px; }
-.md-read h4, .md-read h5, .md-read h6 { font-size: 18px; color: var(--muted); }
+.md-read h1 { font-size: 2.308em; }   /* 30/13 */
+.md-read h2 { font-size: 1.923em; }   /* 25/13 */
+.md-read h3 { font-size: 1.615em; }   /* 21/13 */
+.md-read h4, .md-read h5, .md-read h6 { font-size: 1.385em; color: var(--muted); }  /* 18/13 */
 .md-read p { margin: 0 0 11px; overflow-wrap: break-word; }
 .md-read ul, .md-read ol { margin: 0 0 11px; padding-left: 22px; }
 .md-read li { margin-bottom: 3px; }
 .md-read code {
-  font-family: 'Courier Prime', monospace; font-size: 12px;
+  font-family: 'Courier Prime', monospace; font-size: 0.923em;   /* 12/13 */
   background: var(--paper-2); border: 1px dashed var(--dash); padding: 1px 5px; border-radius: 2px;
 }
 .md-read .md-pre {
   margin: 0 0 12px; padding: 10px 12px; overflow-x: auto;
   background: #f6efdd; border: 1px dashed var(--dash);
-  font-family: 'Courier Prime', monospace; font-size: 12px; line-height: 20px;
+  font-family: 'Courier Prime', monospace; font-size: 0.923em; line-height: 1.667;   /* 12/13, 20/12 */
 }
 .md-read .md-pre code { background: none; border: none; padding: 0; font-size: inherit; }
 /* ---- the blocks real markdown has (Read tab and cards share them) ----------
@@ -1721,11 +1832,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read .md-fm, .cd-md .md-fm {
   margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--dash);
   background: var(--paper-3); font-family: 'Courier Prime', monospace;
-  font-size: 11px; color: var(--muted); line-height: 1.7;
+  /* em, not px: .md-read's ± dial scales its base and .cd-md already works in
+     em off the cards' own dial — a fixed size here would sit still under both */
+  font-size: 0.846em; color: var(--muted); line-height: 1.7;   /* 11/13 */
 }
 .md-read .md-fm b, .cd-md .md-fm b { color: var(--amber-ink); font-weight: 700; }
 .md-read .md-tablewrap, .cd-md .md-tablewrap { overflow-x: auto; margin: 0 0 12px; max-width: 100%; }
-.md-read table, .cd-md table { border-collapse: collapse; font-size: 12.5px; }
+.md-read table, .cd-md table { border-collapse: collapse; font-size: 0.962em; }   /* 12.5/13 */
 .md-read th, .md-read td, .cd-md th, .cd-md td {
   border: 1px dashed var(--dash); padding: 4px 10px; text-align: left; vertical-align: top;
 }
@@ -1738,7 +1851,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read blockquote > :last-child, .cd-md blockquote > :last-child { margin-bottom: 0; }
 .md-read .md-pre, .cd-md .md-pre { position: relative; }
 .md-read .md-lang, .cd-md .md-lang {
-  position: absolute; top: 4px; right: 8px; font-size: 10px; color: var(--muted);
+  position: absolute; top: 4px; right: 8px; font-size: 0.769em; color: var(--muted);   /* 10/13 */
   text-transform: uppercase; letter-spacing: 0.08em; user-select: none;
 }
 .md-read img, .cd-md img { max-width: 100%; border: 1px solid var(--dash); display: block; margin: 0 0 11px; }
@@ -1903,12 +2016,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .card-in:focus { border-style: solid; }
 .card-in:disabled { opacity: 0.7; }
 .card-body { flex: 1; min-height: 120px; resize: none; margin-top: 2px; padding: 8px 10px; border: 1px dashed var(--dash-dark); outline: none;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); white-space: pre-wrap; }
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: var(--ink);
+  background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); white-space: pre-wrap; }
 .card-raw { flex: 1; min-height: 0; display: flex; }
 .card-raw .raw-area { flex: 1; resize: none; border: none; outline: none; padding: 10px 12px;
-  font-family: 'Courier Prime', monospace; font-size: 12.5px; line-height: 22px; color: var(--ink);
-  background: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120,145,180,0.10) 21px 22px); white-space: pre; overflow: auto; }
+  font-family: 'Courier Prime', monospace;
+  font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1)); color: var(--ink);
+  background: repeating-linear-gradient(0deg, transparent 0 calc(21px * var(--doc-scale, 1)), rgba(120,145,180,0.10) calc(21px * var(--doc-scale, 1)) calc(22px * var(--doc-scale, 1))); white-space: pre; overflow: auto; }
 .card-ed .ed-bar .btn { font-size: 11px; padding: 6px 12px; }
 .ni-row { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
 .ni-row:last-child { padding-bottom: 14px; }

@@ -270,6 +270,12 @@ body[data-glass] .tile.attention { border-color: var(--gl-accent); animation: gl
 body[data-glass] .nav-card.active { border-color: rgba(255, 170, 165, 0.85); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.5), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
 body[data-glass] .nav-card.attn { border-color: var(--amber-line); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(238, 190, 80, 0.6); }
 body[data-glass] .tile.drop-hint, body[data-glass] .tile.file-hint { outline-color: var(--gl-accent); }
+/* glass rounds its tiles 22px, so the corner mark tucks inside the curve — the
+   hit area is unchanged, still straddling the true corner */
+body[data-glass] .tile-grip::before { right: 17px; bottom: 17px; }
+/* the resize slot speaks the same accent as every other drop target on glass */
+body[data-glass] .desk-slot { border-color: var(--gl-accent); background: rgba(239, 100, 97, 0.06); }
+body[data-glass] .desk-slot .ds-size { background: var(--gl-pane); border-color: var(--gl-rim); border-radius: 7px; }
 body[data-glass] .tile.file-hint { box-shadow: var(--gl-slab), 0 0 0 3px rgba(239, 100, 97, 0.25); }
 @media (prefers-reduced-motion: reduce) {
   body[data-glass] .tile, body[data-glass] .nav-card { transition: none; transform: none !important; }
@@ -530,9 +536,11 @@ body[data-glass] .md-read h1, body[data-glass] .md-read h2, body[data-glass] .md
 body[data-glass] .md-read h4, body[data-glass] .md-read h5, body[data-glass] .md-read h6 {
   font-family: var(--gl-sans); letter-spacing: -0.015em; text-transform: none;
 }
-body[data-glass] .md-read h1 { font-size: 17px; font-weight: 700; }
-body[data-glass] .md-read h2 { font-size: 15px; font-weight: 700; }
-body[data-glass] .md-read h3 { font-size: 13.5px; font-weight: 600; }
+/* em, not px: the ± dial scales .md-read, and a fixed heading would sit still
+   while the body around it grew. Same reason as the base sheet. */
+body[data-glass] .md-read h1 { font-size: 1.308em; font-weight: 700; }   /* 17/13 */
+body[data-glass] .md-read h2 { font-size: 1.154em; font-weight: 700; }   /* 15/13 */
+body[data-glass] .md-read h3 { font-size: 1.038em; font-weight: 600; }   /* 13.5/13 */
 body[data-glass] .md-read code { background: var(--gl-pane); border-color: var(--gl-rim-dim); border-radius: 6px; font-family: var(--gl-mono); }
 body[data-glass] .md-read .md-pre { background: var(--gl-well); border-color: var(--gl-well-line); border-radius: 12px; }
 body[data-glass] .md-read blockquote { border-left-color: var(--gl-accent); }
