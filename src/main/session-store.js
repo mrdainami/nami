@@ -2,12 +2,17 @@
 // card control instead of a terminal errand. Each reader was written against
 // the real store on disk, not the docs:
 //
-//   claude  ~/.claude/projects/<slug>/<sid>.jsonl        (title in the tail)
-//   codex   ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl (line 1: session_meta
-//           with payload.id and payload.cwd)
-//   kimi    ~/.kimi-code/session_index.jsonl             ({sessionId, workDir})
-//   agy     ~/.gemini/antigravity/conversations/<id>.pb  (protobuf — ids and
-//           mtimes only; agy has no per-folder story, and the note says so)
+//   claude    ~/.claude/projects/<slug>/<sid>.jsonl        (title in the tail)
+//   codex     ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl (line 1: session_meta
+//             with payload.id and payload.cwd; first user text = the preview)
+//   kimi      ~/.kimi-code/session_index.jsonl             ({sessionId, workDir})
+//   agy       ~/.gemini/antigravity/conversations/<id>.pb  (protobuf — ids and
+//             mtimes only; agy has no per-folder story, and the note says so)
+//   opencode  ~/.local/share/opencode/storage/session/<projectID>/<ses_*>.json
+//             ({id, directory, title, time.updated} — one file per session).
+//             This one matters twice over: ACP session/load replays the whole
+//             conversation into the card, so a listable id here is the only
+//             thing between opencode and real history.
 //
 // Everything is best-effort: an unreadable store returns an empty list and a
 // note, never a throw — the picker says "nothing found", the tile lives on.
@@ -79,8 +84,63 @@ function codexConversations({ cwd, home, now }) {
       const pay = meta && meta.payload;
       if (!pay || meta.type !== 'session_meta' || !pay.id) continue;
       if (cwd && pay.cwd && pay.cwd !== cwd) continue;
-      out.push({ id: pay.id, title: '', age: age(f.mtime, now) });
+      out.push({ id: pay.id, title: '', preview: codexPreview(f.p), age: age(f.mtime, now) });
     } catch (_) {}
+  }
+  return out;
+}
+
+// The first thing the user actually typed, so the picker rows read as
+// conversations instead of id prefixes. Machine-injected blocks (<environment
+// _context>, <user_instructions>) are skipped; best-effort, '' on anything odd.
+function codexPreview(file) {
+  let chunk = '';
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(16384);
+    const n = fs.readSync(fd, buf, 0, 16384, 0);
+    fs.closeSync(fd);
+    chunk = buf.slice(0, n).toString('utf8');
+  } catch (_) { return ''; }
+  for (const line of chunk.split('\n').slice(1)) {
+    let rec = null;
+    try { rec = JSON.parse(line); } catch (_) { continue; }
+    const pay = rec && rec.payload;
+    if (!pay || pay.type !== 'message' || pay.role !== 'user') continue;
+    const blocks = Array.isArray(pay.content) ? pay.content : [];
+    for (const b of blocks) {
+      const text = String((b && (b.text != null ? b.text : b.input_text)) || '').trim();
+      if (!text || text.startsWith('<')) continue;
+      return text.length > 64 ? text.slice(0, 63) + '…' : text;
+    }
+  }
+  return '';
+}
+
+function opencodeConversations({ cwd, home, now }) {
+  const root = path.join(home, '.local', 'share', 'opencode', 'storage', 'session');
+  const files = [];
+  for (const proj of listDirSafe(root)) {
+    const dir = path.join(root, proj);
+    for (const f of listDirSafe(dir)) {
+      if (!f.endsWith('.json')) continue;
+      const p = path.join(dir, f);
+      const st = statSafe(p);
+      if (st) files.push({ p, mtime: st.mtimeMs });
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  const out = [];
+  for (const f of files) {
+    if (out.length >= MAX) break;
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(f.p, 'utf8')); } catch (_) { continue; }
+    if (!rec || !rec.id) continue;
+    if (cwd && rec.directory && rec.directory !== cwd) continue;
+    // opencode titles its untouched sessions "New session - <ISO date>";
+    // that is a timestamp wearing a title's clothes, not a name
+    const title = /^New session - /.test(String(rec.title || '')) ? '' : String(rec.title || '');
+    out.push({ id: rec.id, title, age: age((rec.time && rec.time.updated) || f.mtime, now) });
   }
   return out;
 }
@@ -120,6 +180,12 @@ function listConversations({ agent, cwd, home = os.homedir(), now } = {}) {
     if (agent === 'claude') return { conversations: claudeConversations({ cwd, home, now }) };
     if (agent === 'codex') return { conversations: codexConversations({ cwd, home, now }) };
     if (agent === 'kimi') return { conversations: kimiConversations({ cwd, home, now }) };
+    if (agent === 'opencode') {
+      return {
+        conversations: opencodeConversations({ cwd, home, now }),
+        note: 'opencode replays the picked conversation into the card.',
+      };
+    }
     if (agent === 'agy') {
       return {
         conversations: agyConversations({ home, now }),

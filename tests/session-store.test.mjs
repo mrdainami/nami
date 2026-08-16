@@ -76,3 +76,49 @@ test('an agent with no readable store returns an empty list and a note, never a 
   const missing = listConversations({ agent: 'claude', cwd: '/x', home: '/nonexistent' });
   assert.deepEqual(missing.conversations, []);
 });
+
+// ---- opencode: the listable id is the whole ballgame ------------------------
+// ACP session/load replays the picked conversation into the card, so this
+// branch is what turns opencode resume from unreachable into real history.
+
+function opencodeFixture(home, cwd) {
+  const dir = path.join(home, '.local', 'share', 'opencode', 'storage', 'session', 'projhash1');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'ses_here.json'), JSON.stringify({
+    id: 'ses_here', directory: cwd, title: 'rename the tracking flag',
+    time: { created: 1, updated: Date.now() - 60e3 },
+  }));
+  fs.writeFileSync(path.join(dir, 'ses_untitled.json'), JSON.stringify({
+    id: 'ses_untitled', directory: cwd, title: 'New session - 2026-08-08T08:43:19.705Z',
+    time: { created: 1, updated: Date.now() - 3600e3 },
+  }));
+  fs.writeFileSync(path.join(dir, 'ses_elsewhere.json'), JSON.stringify({
+    id: 'ses_elsewhere', directory: '/other', title: 'not this folder',
+    time: { created: 1, updated: Date.now() },
+  }));
+  // newest-first comes from file mtimes; writes above land microseconds apart
+  fs.utimesSync(path.join(dir, 'ses_untitled.json'), new Date(Date.now() - 3600e3), new Date(Date.now() - 3600e3));
+}
+
+test('opencode lists this folder\'s sessions, keeps real titles, drops the timestamp ones', () => {
+  const { home, cwd } = fixtureHome();
+  opencodeFixture(home, cwd);
+  const res = listConversations({ agent: 'opencode', cwd, home });
+  assert.deepEqual(res.conversations.map((c) => c.id), ['ses_here', 'ses_untitled']);
+  assert.equal(res.conversations[0].title, 'rename the tracking flag');
+  assert.equal(res.conversations[1].title, '', 'an auto "New session - <date>" is not a title');
+  assert.match(res.note, /replays/);
+});
+
+test('codex rows carry the first real user message as a preview', () => {
+  const { home, cwd } = fixtureHome();
+  const xdir = path.join(home, '.codex', 'sessions', '2026', '08', '13');
+  fs.appendFileSync(path.join(xdir, 'rollout-a.jsonl'), [
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: '<environment_context>machine stuff</environment_context>' }] } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text: 'fix the flaky auth test' }] } }),
+  ].join('\n') + '\n');
+  const { conversations } = listConversations({ agent: 'codex', cwd, home });
+  assert.equal(conversations[0].preview, 'fix the flaky auth test');
+});
