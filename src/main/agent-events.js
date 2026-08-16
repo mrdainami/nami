@@ -12,7 +12,8 @@
 //   { kind: 'permission',  id, at, permissionId, toolName, title, description,
 //                          input, options: [{ id, label }], diff? }
 //   { kind: 'permission_resolved', id, at, permissionId, optionId }
-//   { kind: 'turn_end',    id, at, durationMs, costUsd?, tokens? }
+//   { kind: 'turn_end',    id, at, durationMs, tokens? }   (no cost: channels
+//     report running totals/estimates, not per-turn spend — see cards-cost)
 //   { kind: 'note',        id, at, text }          — rate limits, channel facts
 //   { kind: 'error',       id, at, message }       — classified, never prose
 //   { kind: 'init',        id, at, capability, claudeSessionId?, commands?, models? }

@@ -318,9 +318,12 @@ class ClaudeSdkAdapter {
         // went in this turn against the 200k window.
         const u = msg.usage || {};
         const used = (Number(u.input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0);
+        // No costUsd: total_cost_usd is the session's RUNNING total ("read
+        // the latest result rather than summing"), and reprinting it per turn
+        // read as several dollars spent. If cost ever returns it is one
+        // session figure from the latest result, labelled an estimate.
         this.emit('turn_end', {
           durationMs: Number(msg.duration_ms || msg.duration_api_ms) || 0,
-          costUsd: Number(msg.total_cost_usd) || 0,
           numTurns: Number(msg.num_turns) || 0,
           ctxPct: used > 0 ? Math.max(1, Math.min(99, 100 - Math.round(used / 2000))) : undefined,
           ok: !msg.is_error && msg.subtype !== 'error_during_execution',

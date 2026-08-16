@@ -230,10 +230,11 @@ test('plans, notes and errors are rows of their own kind', () => {
   assert.equal(rows[2].text, 'HTTP 404');
 });
 
-test('a turn_end carries its cost when the channel reported one', () => {
-  const rows = buildRows([{ kind: 'turn_end', id: 'a', durationMs: 5000, costUsd: 0.13 }]);
+test('a turn_end never carries dollars — channels report running totals, not per-turn spend', () => {
+  const rows = buildRows([{ kind: 'turn_end', id: 'a', durationMs: 5000, costUsd: 0.13, tokens: 900 }]);
   assert.equal(rows[0].duration, '5.0s');
-  assert.equal(rows[0].costUsd, 0.13);
+  assert.equal(rows[0].tokens, 900);
+  assert.ok(!('costUsd' in rows[0]), 'cost must not survive into the row');
 });
 
 test('init and status shape the tile, not the list', () => {
