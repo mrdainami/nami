@@ -276,3 +276,23 @@ test('codex options always contain the configured current model', () => {
   assert.equal(custom[0].value, 'my-own-alias');
   assert.match(custom[0].desc, /config/);
 });
+
+// ---- deferred mode switches say so — the chip alone was a lie ---------------
+
+test('a codex mode switch announces it applies from the next turn', () => {
+  const events = [];
+  const a = new CodexAdapter({ id: 'mn1', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.setConfigOption('mode', 'read-only');
+  const note = events.find((e) => e.kind === 'note');
+  assert.ok(note, 'the running turn keeps its sandbox — the user must hear that');
+  assert.match(note.text, /read-only — applies from the next turn/);
+});
+
+test('an agy mode switch announces the same, and refuses garbage', () => {
+  const events = [];
+  const a = new AgyAdapter({ id: 'mn2', cwd: '/repo', onEvent: (e) => events.push(e) });
+  a.setConfigOption('mode', 'plan');
+  assert.ok(events.find((e) => e.kind === 'note' && /plan — applies from the next turn/.test(e.text)));
+  a.setConfigOption('mode', 'not-a-mode');
+  assert.equal(a.mode, 'plan', 'an unknown mode must not ride the next spawn');
+});
