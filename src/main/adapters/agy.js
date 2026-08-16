@@ -72,8 +72,10 @@ class AgyAdapter {
     if (configId === 'model') {
       this.model = String(value || '') || null;
       if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
-    } else if (configId === 'mode') this.mode = String(value || '') || null;
-    else return;
+    } else if (configId === 'mode') {
+      this.mode = AGY_MODES.includes(String(value)) ? String(value) : this.mode;
+      if (this.mode) this.emit('note', { text: `${this.mode} — applies from the next turn` });
+    } else return;
     this.emitInit();
   }
 

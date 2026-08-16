@@ -433,7 +433,7 @@ export function buildCards(ctx) {
     <div class="cd-working" hidden>
       <span class="cw-sp"></span>
       <span><span class="cw-ph">Working…</span> <b class="cw-el">0s</b><span class="cw-tk-wrap" hidden> · <span class="cw-tk">0</span> tok</span></span>
-      <span class="cw-esc">esc to interrupt</span>
+      <button class="cw-esc" type="button" title="Interrupt the agent">esc · stop ■</button>
     </div>
     <div class="cd-menu" hidden></div>
     <div class="cd-picker" hidden></div>
@@ -785,6 +785,10 @@ export function buildCards(ctx) {
   // channel naming what running means ('compacting', 'requesting') — a long
   // silence gets a word instead of a shrug.
   const workEl = q('.cd-working', el);
+  // "esc to interrupt" used to be decoration — a span with no handler, and
+  // the only real path was the Escape key with focus in the composer. The
+  // way out is now clickable too.
+  q('.cw-esc', workEl).onclick = () => { if (ctx.onInterrupt) ctx.onInterrupt(); };
   let workTimer = null, workStart = 0;
   function setWorking(on, tokens, phase) {
     if (on) {

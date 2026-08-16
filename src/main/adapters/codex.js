@@ -109,6 +109,9 @@ class CodexAdapter {
       if (this.model) this.emit('note', { text: `model ${this.model} — applies from the next turn` });
     } else if (configId === 'mode') {
       this.mode = CODEX_MODES.includes(String(value)) ? String(value) : 'auto';
+      // the chip flips now; the sandbox does not — a running exec keeps the
+      // flags it spawned with, so say so (model already did)
+      this.emit('note', { text: `${this.mode} — applies from the next turn` });
     } else return;
     this.emitInit();
   }
