@@ -140,3 +140,25 @@ test('codex 0.147: a ~22KB session_meta line still lists — 4KB head reads miss
   assert.ok(big, 'the rollout must survive a huge meta line');
   assert.equal(big.preview, 'wire up the tracking ping', 'preview reads from after the meta line');
 });
+
+test('opencode reads the SQLite store first — the JSON folder went stale 2026-08-08', (t) => {
+  let sqlite = null;
+  try { sqlite = require('node:sqlite'); } catch (_) { t.skip('no node:sqlite in this runner'); return; }
+  const { home, cwd } = fixtureHome();
+  opencodeFixture(home, cwd); // the legacy JSON rows — must lose to the db
+  const dbdir = path.join(home, '.local', 'share', 'opencode');
+  fs.mkdirSync(dbdir, { recursive: true });
+  const db = new sqlite.DatabaseSync(path.join(dbdir, 'opencode.db'));
+  db.exec('create table session (id text primary key, project_id text, parent_id text, directory text, title text, time_updated integer)');
+  const ins = db.prepare('insert into session values (?, ?, ?, ?, ?, ?)');
+  ins.run('ses_db_new', 'p1', null, cwd, 'wire the tracking ping', Date.now() - 30e3);
+  ins.run('ses_db_auto', 'p1', null, cwd, 'New session - 2026-08-16T12:29:24.511Z', Date.now() - 90e3);
+  ins.run('ses_db_child', 'p1', 'ses_db_new', cwd, 'subagent', Date.now());
+  ins.run('ses_db_other', 'p1', null, '/other', 'not here', Date.now());
+  db.close();
+  const res = listConversations({ agent: 'opencode', cwd, home });
+  assert.deepEqual(res.conversations.map((c) => c.id), ['ses_db_new', 'ses_db_auto'],
+    'db rows win, sub-sessions and other folders drop');
+  assert.equal(res.conversations[0].title, 'wire the tracking ping');
+  assert.equal(res.conversations[1].title, '', 'auto titles are not titles');
+});

@@ -149,7 +149,42 @@ function codexPreview(file, offset) {
   return '';
 }
 
-function opencodeConversations({ cwd, home, now }) {
+// opencode 1.1.42+ keeps sessions in SQLite (opencode.db, `session` table) —
+// the JSON folder below stopped being written 2026-08-08 and only holds the
+// old ones. Electron's Node ships node:sqlite, so the db is read directly,
+// read-only, no native deps; any failure falls back to the legacy folder.
+// parent_id filters out sub-sessions (a Task-spawned child is not a
+// conversation the user resumes).
+function opencodeConversations(args) {
+  const fromDb = opencodeDbConversations(args);
+  if (fromDb && fromDb.length) return fromDb;
+  return opencodeJsonConversations(args);
+}
+
+function opencodeDbConversations({ cwd, home, now }) {
+  let sqlite = null;
+  try { sqlite = require('node:sqlite'); } catch (_) { return null; }
+  const file = path.join(home, '.local', 'share', 'opencode', 'opencode.db');
+  if (!statSafe(file)) return null;
+  let db = null;
+  try {
+    db = new sqlite.DatabaseSync(file, { readOnly: true });
+    const rows = cwd
+      ? db.prepare('select id, title, time_updated from session where parent_id is null and directory = ? order by time_updated desc limit ?').all(cwd, MAX)
+      : db.prepare('select id, title, time_updated from session where parent_id is null order by time_updated desc limit ?').all(MAX);
+    return rows.map((r) => ({
+      id: String(r.id),
+      title: /^New session - /.test(String(r.title || '')) ? '' : String(r.title || ''),
+      age: age(Number(r.time_updated) || 0, now),
+    }));
+  } catch (_) {
+    return null;
+  } finally {
+    if (db) { try { db.close(); } catch (_) {} }
+  }
+}
+
+function opencodeJsonConversations({ cwd, home, now }) {
   const root = path.join(home, '.local', 'share', 'opencode', 'storage', 'session');
   const files = [];
   for (const proj of listDirSafe(root)) {
