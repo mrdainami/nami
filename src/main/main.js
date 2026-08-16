@@ -13,6 +13,7 @@ const { readTailTitle } = require('./session-title');
 const { listConversations } = require('./session-store.js');
 const { codexRollout, codexBacklog } = require('./codex-transcript.js');
 const { kimiWire, kimiBacklog } = require('./kimi-transcript.js');
+const { agyTranscript, agyBacklog } = require('./agy-transcript.js');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
@@ -1297,6 +1298,11 @@ ipcMain.handle('cards:backlog', (_e, { cwd, sid, agent }) => {
     const file = kimiWire(sid);
     if (!file) return { events: [] };
     try { return kimiBacklog(file); } catch (_) { return { events: [] }; }
+  }
+  if (agent === 'agy') {
+    const file = agyTranscript(sid);
+    if (!file) return { events: [] };
+    try { return agyBacklog(file); } catch (_) { return { events: [] }; }
   }
   const file = claudeTranscript(cwd, sid);
   if (!file) return { events: [] };

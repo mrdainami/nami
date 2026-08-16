@@ -2817,10 +2817,10 @@ async function driveCards(p) {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
-  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi')) {
+  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy')) {
     // These one-shots resume the model but replay nothing — the history is
-    // read back from their own stores (codex's rollout, kimi's wire log),
-    // the way claude's backlog reads ~/.claude.
+    // read back from their own stores (codex's rollout, kimi's wire log,
+    // agy's brain transcript), the way claude's backlog reads ~/.claude.
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.acpSid, agent });
     if (cardView(p) !== 'cards') return;
     const rows = (back && back.events) || [];
@@ -2831,16 +2831,9 @@ async function driveCards(p) {
         text: `Resumed ${String(p.acpSid).slice(0, 12)} — its history wasn't readable, so this card shows from here. The model still remembers.`,
       });
     }
-  } else if (p.acpSid && agent === 'agy') {
-    // agy's store is protobuf — no card backfill yet; an empty card here
-    // read as "the session is gone". Say what is actually true. opencode is
-    // absent on purpose: ACP session/load replays its history as ordinary
-    // rows (proven live, _local/acp-load-probe.mjs).
-    p.cardEvents.push({
-      kind: 'note', id: 'resume-note:' + p.id,
-      text: `Resumed ${String(p.acpSid).slice(0, 12)} — previous turns stay in ${intro.name}'s own history; this card shows from here. The model still remembers.`,
-    });
   }
+  // opencode is absent on purpose: ACP session/load replays its history as
+  // ordinary rows (proven live, _local/acp-load-probe.mjs).
   // What ⌘K said on the way in — which copy was written, whose file won —
   // belongs to this launch and is put back after the rebuild above. Once, and
   // then forgotten: clearing or resuming the conversation starts a different
