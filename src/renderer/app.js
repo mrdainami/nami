@@ -2817,7 +2817,25 @@ async function driveCards(p) {
     const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.sid });
     if (cardView(p) !== 'cards') return;
     p.cardEvents = [intro, ...((back && back.events) || [])];
+  } else if (p.acpSid && (agent === 'codex' || agent === 'kimi' || agent === 'agy' || agent === 'hermes')) {
+    // These channels resume the model but replay nothing — the history is
+    // read back from their own stores (codex's rollout, kimi's wire log,
+    // agy's brain transcript, hermes' state.db), the way claude's backlog
+    // reads ~/.claude. (hermes answers session/load but sends no history
+    // frames — probed live; opencode DOES replay, so it stays out of here.)
+    const back = await api.cardsBacklog({ cwd: p.cwd, sid: p.acpSid, agent });
+    if (cardView(p) !== 'cards') return;
+    const rows = (back && back.events) || [];
+    if (rows.length) p.cardEvents = [intro, ...rows];
+    else {
+      p.cardEvents.push({
+        kind: 'note', id: 'resume-note:' + p.id,
+        text: `Resumed ${String(p.acpSid).slice(0, 12)} — its history wasn't readable, so this card shows from here. The model still remembers.`,
+      });
+    }
   }
+  // opencode is absent on purpose: ACP session/load replays its history as
+  // ordinary rows (proven live, _local/acp-load-probe.mjs).
   // What ⌘K said on the way in — which copy was written, whose file won —
   // belongs to this launch and is put back after the rebuild above. Once, and
   // then forgotten: clearing or resuming the conversation starts a different
@@ -3065,7 +3083,14 @@ async function openResumePicker(p) {
     desc: [c.age, c.preview].filter(Boolean).join(' · '),
     value: c.id,
   }));
-  if (!items.length && res && res.note) items.push({ label: 'No past conversations found', desc: res.note, disabled: true });
+  // an empty list always says so — a bare "Start fresh" read as broken
+  if (!items.length) {
+    items.push({
+      label: 'No past conversations found',
+      desc: (res && res.note) || 'nothing in this agent\'s store for this folder',
+      disabled: true,
+    });
+  }
   items.push({ label: '＋ Start fresh', desc: 'new conversation, same folder', cls: 'm-accept', value: '' });
   rec.cardsUi.openPicker({
     header: 'Resume — this folder\'s past conversations',

@@ -11,6 +11,10 @@ const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { listConversations } = require('./session-store.js');
+const { codexRollout, codexBacklog } = require('./codex-transcript.js');
+const { kimiWire, kimiBacklog } = require('./kimi-transcript.js');
+const { agyTranscript, agyBacklog } = require('./agy-transcript.js');
+const { hermesBacklog } = require('./hermes-transcript.js');
 const { readFrom, tailStart } = require('./transcript-tail.js');
 const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
@@ -1282,7 +1286,30 @@ ipcMain.handle('agent:conversations', (_e, { agent, cwd }) => listConversations(
 // Everything the conversation already holds, read once on a switch to Cards —
 // the backlog a live adapter cannot replay. Bounded exactly like the tail: a
 // large transcript opens on its last screenful, never whole.
-ipcMain.handle('cards:backlog', (_e, { cwd, sid }) => {
+ipcMain.handle('cards:backlog', (_e, { cwd, sid, agent }) => {
+  // codex resumes the model but replays nothing over exec; its history is
+  // read back from the rollout the thread id names. The claude path below
+  // is untouched — agent is absent on every claude call.
+  if (agent === 'codex') {
+    const file = codexRollout(sid);
+    if (!file) return { events: [] };
+    try { return codexBacklog(file); } catch (_) { return { events: [] }; }
+  }
+  if (agent === 'kimi') {
+    const file = kimiWire(sid);
+    if (!file) return { events: [] };
+    try { return kimiBacklog(file); } catch (_) { return { events: [] }; }
+  }
+  if (agent === 'agy') {
+    const file = agyTranscript(sid);
+    if (!file) return { events: [] };
+    try { return agyBacklog(file); } catch (_) { return { events: [] }; }
+  }
+  // hermes answers session/load but replays nothing (probed 2026-08-16) —
+  // its history reads from state.db instead.
+  if (agent === 'hermes') {
+    try { return hermesBacklog(sid); } catch (_) { return { events: [] }; }
+  }
   const file = claudeTranscript(cwd, sid);
   if (!file) return { events: [] };
   try {

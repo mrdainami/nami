@@ -110,3 +110,9 @@ body[data-theme="graphite"] .qs-box {
   backdrop-filter: blur(16px) saturate(1.5);
   border: 1px solid var(--gl-rim);
 }
+
+/* markdown editor: paper's .hl-link literal (#2f5c8a) is a light-desk blue —
+   ~2.4:1 on the smoke well, links highlighted into invisibility. Graphite's
+   own blue, the same slot its terminal uses. The amber code/fence highlight
+   survives the dark well and stays. */
+body[data-theme="graphite"] .ed-hl .hl-link { color: #6f9dff; }
