@@ -481,7 +481,13 @@ export function buildCards(ctx) {
   // so arm() (called at every value change) also re-measures.
   const grow = () => {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+    const h = Math.min(input.scrollHeight, 132);
+    input.style.height = h + 'px';
+    // .multi flips the composer from centred (one line) to the TUI layout
+    // (❯ on the first line, buttons on the last); 1.6 lines is the threshold
+    // in the input's own line-height so card zoom cannot skew it
+    const lh = parseFloat(getComputedStyle(input).lineHeight) || 18;
+    input.closest('.cd-ask').classList.toggle('multi', h > lh * 1.6);
   };
   const arm = () => { sendBtn.disabled = !input.value.trim(); grow(); };
   const submit = () => {
