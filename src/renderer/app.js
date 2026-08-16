@@ -1910,15 +1910,19 @@ function applySpan(p, t) {
 }
 
 // ---- the grip ---------------------------------------------------------------
-// One model for the whole gesture: free-form while you hold it, aligned when you
-// let go. A dashed ghost follows the cursor to the pixel so the drag reads as
-// continuous, and a solid outline shows the slot it will land in so the result
-// is never a surprise. The card itself does not resize under your hand — that
-// would mean reflowing the desk, and the terminal inside it, on every frame.
+// The card you are holding is the thing that moves. On grab it lifts out of the
+// grid and follows the hand pixel for pixel — live content, no scrim, no ghost
+// outline. A slot (a real grid item) holds its place, so the moment the drag
+// crosses a column line the slot's span changes and the neighbours reflow
+// around it: you watch the final layout happen while you are still holding.
+// Release settles the card into the slot.
 //
-// Nothing is said to the agent until the drop. Suppressing clock A for this one
-// tile (see fitCanvas) is what keeps a 40-frame drag from being 40 repaints of a
-// terminal whose final size nobody knows yet.
+// The first version froze the card and moved a dashed outline instead, out of
+// fear of refitting a terminal per frame. That fear belonged to the old
+// single-clock world: clock A repaints the canvas cheaply on every frame, and
+// clock B still tells the agent exactly once — rec.holdPty parks it until the
+// drop. What the outline method actually bought was a drag where nothing on
+// screen follows your hand, which reads as the app being stuck.
 function wireGrip(p, rec, grip) {
   const commit = (x, y) => {
     const changed = p.spanX !== x || p.spanY !== y;
@@ -1929,6 +1933,7 @@ function wireGrip(p, rec, grip) {
 
   grip.addEventListener('dblclick', (e) => {
     e.preventDefault(); e.stopPropagation();
+    ptyDiscrete();
     commit(MIN_COLS, MIN_COLS);
     toast('Card size · reset');
   });
@@ -1941,6 +1946,7 @@ function wireGrip(p, rec, grip) {
     if (!dx && !dy) return;
     e.preventDefault(); e.stopPropagation();
     const cols = syncDeskColumns.last || MIN_COLS;
+    ptyDiscrete();
     commit(clampSpan(clampSpan(p.spanX, cols) + dx, cols), clampRows(clampRows(p.spanY) + dy));
     const again = tileEls.get(p.id);
     if (again) { const g = q('.tile-grip', again.root); if (g) g.focus(); }
@@ -1957,44 +1963,78 @@ function wireGrip(p, rec, grip) {
     const cols = syncDeskColumns.last || MIN_COLS;
     const pitchX = (inner + GAP) / cols;     // one column plus the gap after it
     const pitchY = ROW + GAP;
-    const box = rec.root.getBoundingClientRect();
+    const startW = rec.root.offsetWidth, startH = rec.root.offsetHeight;
     const left = rec.root.offsetLeft, top = rec.root.offsetTop;
+    let sx = clampSpan(p.spanX, cols), sy = clampRows(p.spanY);
+    let moved = false;
 
-    const ghost = document.createElement('div');
-    ghost.className = 'desk-ghost';
-    const snap = document.createElement('div');
-    snap.className = 'desk-snap';
+    // The slot: keeps the card's place in the flow and shows where it lands.
+    // Its corners are read off the tile itself, so every theme's slot matches
+    // every theme's card — glass is 22px, paper is square, and a theme added
+    // later is right without knowing this code exists.
+    const slot = document.createElement('div');
+    slot.className = 'desk-slot';
+    slot.style.gridColumn = 'span ' + sx;
+    slot.style.gridRow = 'span ' + sy;
+    slot.style.borderRadius = getComputedStyle(rec.root).borderRadius;
     const tag = document.createElement('span');
     tag.className = 'ds-size';
-    snap.appendChild(tag);
-    for (const n of [snap, ghost]) { n.style.left = left + 'px'; n.style.top = top + 'px'; grid.appendChild(n); }
-    rec.root.classList.add('is-resizing');
+    tag.textContent = sx + ' × ' + sy;
+    slot.appendChild(tag);
+    grid.insertBefore(slot, rec.root);
 
-    let sx = clampSpan(p.spanX, cols), sy = clampRows(p.spanY);
+    // Lift: absolute takes the tile out of grid flow (the slot keeps its seat),
+    // and explicit width/height make it follow the hand. Its ResizeObserver
+    // keeps firing, so clock A refits the live terminal on every frame of this.
+    rec.root.classList.add('lifting');
+    rec.root.style.position = 'absolute';
+    rec.root.style.left = left + 'px';
+    rec.root.style.top = top + 'px';
+    rec.root.style.width = startW + 'px';
+    rec.root.style.height = startH + 'px';
+    rec.holdPty = true;                 // clock B waits for the drop
+
     const place = (w, h) => {
-      ghost.style.width = w + 'px'; ghost.style.height = h + 'px';
-      sx = clampSpan(Math.round((w + GAP) / pitchX), cols);
-      sy = clampRows(Math.round((h + GAP) / pitchY));
-      snap.style.width = (sx * pitchX - GAP) + 'px';
-      snap.style.height = (sy * pitchY - GAP) + 'px';
-      tag.textContent = sx + ' × ' + sy;
+      rec.root.style.width = w + 'px';
+      rec.root.style.height = h + 'px';
+      const nx = clampSpan(Math.round((w + GAP) / pitchX), cols);
+      const ny = clampRows(Math.round((h + GAP) / pitchY));
+      if (nx !== sx || ny !== sy) {
+        sx = nx; sy = ny;
+        slot.style.gridColumn = 'span ' + sx;
+        slot.style.gridRow = 'span ' + sy;
+        tag.textContent = sx + ' × ' + sy;
+      }
     };
-    place(box.width, box.height);
 
-    const move = (ev) => place(
-      Math.max(80, box.width + (ev.clientX - e.clientX)),
-      Math.max(60, box.height + (ev.clientY - e.clientY)),
-    );
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - e.clientX) > 2 || Math.abs(ev.clientY - e.clientY) > 2) moved = true;
+      place(Math.max(80, startW + (ev.clientX - e.clientX)),
+            Math.max(60, startH + (ev.clientY - e.clientY)));
+    };
     const up = () => {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
       grip.removeEventListener('pointercancel', up);
-      ghost.remove(); snap.remove();
-      rec.root.classList.remove('is-resizing');
+      slot.remove();
+      rec.root.classList.remove('lifting');
+      rec.root.style.position = ''; rec.root.style.left = ''; rec.root.style.top = '';
+      rec.root.style.width = ''; rec.root.style.height = '';
+      rec.holdPty = false;
+      // A press that never moved is not a resize: no commit, no re-render, no
+      // message to the agent — and the stored ask is left alone, which is what
+      // keeps a stray click from overwriting a clamped card's remembered size.
+      if (!moved) { rec.ptyPending = false; markFit(rec); return; }
+      ptyDiscrete();                    // the drop is one committed change
       commit(sx, sy);
-      // One repaint, and clock B's single message to the agent, now that the
-      // size is finally known.
       markFit(rec);
+      // The one message. Usually the post-drop refit changes cols and raises it
+      // itself (which clears ptyPending). When the final size matches the last
+      // live fit, no resize event fires and nothing would ever tell the agent —
+      // this backstop sends the parked notification, and only then.
+      setTimeout(() => {
+        if (rec.ptyPending) { rec.ptyPending = false; notifyPty(p, rec); }
+      }, 60);
     };
     try { grip.setPointerCapture(e.pointerId); } catch (_) {}
     grip.addEventListener('pointermove', move);
@@ -2132,7 +2172,9 @@ function mountTile(p) {
   if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1); };
   if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1); };
   q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
-  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
+  // Expand is a committed change, not a gesture — every tile it moves is told
+  // on the next frame, not 140ms later, so one press is one movement.
+  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); ptyDiscrete(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
   q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
   head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
   // drag reorder
@@ -2230,17 +2272,26 @@ function drainFits() {
   for (const rec of batch) fitCanvas(rec);
 }
 
-// How long a gesture has to be still before the agent is told. Long enough that
-// a drag across several seconds is one message, short enough that letting go of
-// a card and reading it are the same moment.
+// How long a gesture has to be still before the agent is told. The settle is
+// for CONTINUOUS gestures only — a window-edge drag, where the size keeps
+// changing and coalescing is the point. A committed change — expand, collapse,
+// a grip drop — is one movement, and waiting 140ms after it just splits one
+// visible change into two: the tile moves, then the agent repaints later.
+// ptyDiscrete() opens a short window in which notifications skip the settle.
 const PTY_SETTLE_MS = 140;
+let ptyFastUntil = 0;
+function ptyDiscrete() { ptyFastUntil = performance.now() + 300; }
 function notifyPty(p, rec) {
+  // A grip drag is in flight: the canvas refits live under the hand, but the
+  // agent hears nothing until the drop flushes this once.
+  if (rec.holdPty) { rec.ptyPending = true; return; }
   clearTimeout(rec.ptyTimer);
   rec.ptyTimer = setTimeout(() => {
     rec.ptyTimer = null;
     if (!rec.term) return;
+    rec.ptyPending = false;   // delivered — a drop's backstop flush can stand down
     api.termResize({ id: p.id, cols: rec.term.cols, rows: rec.term.rows });
-  }, PTY_SETTLE_MS);
+  }, performance.now() < ptyFastUntil ? 0 : PTY_SETTLE_MS);
 }
 
 function fitCanvas(rec) {
@@ -2256,8 +2307,6 @@ function fitCanvas(rec) {
   // No frame is scheduled here — the ResizeObserver fires the moment the tile
   // has a size, and that is what drains this.
   if (!rec.body.clientWidth || !rec.body.clientHeight) { dirtyFits.add(rec); return; }
-  // A card mid-drag is measured on the drop, not on every intermediate size.
-  if (rec.root.classList.contains('is-resizing')) { dirtyFits.add(rec); return; }
   try { rec.fit.fit(); } catch (_) { return; }
   try {
     const body = rec.body, term = rec.term;

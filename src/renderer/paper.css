@@ -1018,45 +1018,49 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 /* The corner, not the header. The header row is already five controls wide and
    goes to ellipsis on a narrow tile; a sixth button there would be the first
    thing to disappear on exactly the cards most worth resizing. A grip is also
-   the thing itself rather than a control that opens a way to do the thing. */
+   the thing itself rather than a control that opens a way to do the thing.
+   Inset from the true corner: on a rounded theme (glass is 22px) right:0/bottom:0
+   is empty space outside the curve, and the mark floated off the card. Two
+   strokes rather than a filled ◢ — reads on a square card and a round one alike. */
 .tile-grip {
-  position: absolute; right: 0; bottom: 0; width: 20px; height: 20px;
-  cursor: nwse-resize; color: var(--muted); opacity: 0.5;
-  display: flex; align-items: flex-end; justify-content: flex-end;
-  padding: 2px 3px; font-size: 11px; line-height: 1;
-  transition: opacity 0.12s ease, color 0.12s ease;
+  position: absolute; right: 7px; bottom: 7px; width: 18px; height: 18px; z-index: 6;
+  cursor: nwse-resize; opacity: 0; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.12s ease, background 0.12s ease;
   -webkit-user-select: none; user-select: none; touch-action: none;
 }
-.tile-grip::before { content: '◢'; }
-.tile:hover .tile-grip { opacity: 0.9; color: var(--ink); }
-.tile-grip:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: -2px; opacity: 1; color: var(--ink); }
+.tile-grip::before {
+  content: ''; width: 11px; height: 11px; color: var(--muted);
+  background:
+    linear-gradient(135deg, transparent 0 42%, currentColor 42% 58%, transparent 58% 100%) no-repeat 0 0/11px 11px,
+    linear-gradient(135deg, transparent 0 68%, currentColor 68% 84%, transparent 84% 100%) no-repeat 0 0/11px 11px;
+}
+.tile:hover .tile-grip { opacity: 1; }
+.tile-grip:hover { background: var(--paper-2); box-shadow: inset 0 0 0 1px var(--dash); }
+.tile-grip:hover::before { color: var(--ink); }
+.tile-grip:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: -2px; opacity: 1; }
+.tile-grip:focus-visible::before { color: var(--ink); }
 .tile.focused .tile-grip { display: none; }   /* focus already owns the canvas */
 
-/* While the grip is held the card itself does not move — the outlines do. The
-   scrim covers the body only: the header keeps its title and status so you can
-   still tell which card you are sizing. */
-.tile.is-resizing .tile-body::after {
-  content: ''; position: absolute; inset: 0; z-index: 5; pointer-events: none;
-  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(120,145,180,0.10) 6px 7px), var(--paper);
-  opacity: 0.94;
-}
-.tile.is-resizing { box-shadow: 5px 6px 0 var(--shadow-mid); }
-
-/* The ghost tracks the cursor to the pixel; the snap outline shows the slot it
-   will land in. Free to move, aligned at rest — so the drag feels continuous and
-   the desk is never left ragged. */
+/* The drag: the card lifts out of the grid and follows the hand — live content,
+   no scrim, its own theme material untouched. The slot is a real grid item
+   holding its place, so the neighbours reflow around it the moment the drag
+   crosses a column line. Release settles the card into the slot. One voice:
+   the thing you are holding is the thing that moves. */
 .grid { position: relative; }
-.desk-ghost, .desk-snap { position: absolute; z-index: 40; pointer-events: none; }
-.desk-ghost { border: 1.5px dashed var(--dash-dark); opacity: 0.55; }
-.desk-snap { border: 2px solid var(--dash-dark); background: rgba(120,145,180,0.08); }
-/* Top-left, not bottom-right: the snap box can run past the desk's right edge
-   when you grow a card that is already in the last column, and the desk clips
-   its own overflow — which took the size reading with it. */
-.desk-snap .ds-size {
-  position: absolute; left: 6px; top: 5px;
+.tile.lifting { z-index: 40; cursor: nwse-resize; }
+.desk-slot {
+  min-width: 0; min-height: 0; position: relative;
+  border: 2px dashed var(--dash-dark);
+  background: rgba(120,145,180,0.07);
+  /* border-radius set from the tile's own computed corners at drag time, so
+     every theme's slot matches every theme's card — including ones added later */
+}
+.desk-slot .ds-size {
+  position: absolute; right: 9px; bottom: 8px;
   font-family: 'Courier Prime', monospace; font-size: 11px; letter-spacing: 0.06em;
   color: var(--ink); background: var(--paper); border: 1px solid var(--dash);
-  padding: 1px 6px; white-space: nowrap;
+  border-radius: 6px; padding: 1px 7px; white-space: nowrap;
 }
 
 .tile-head {

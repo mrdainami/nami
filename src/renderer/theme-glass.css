@@ -270,6 +270,9 @@ body[data-glass] .tile.attention { border-color: var(--gl-accent); animation: gl
 body[data-glass] .nav-card.active { border-color: rgba(255, 170, 165, 0.85); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(239, 100, 97, 0.5), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
 body[data-glass] .nav-card.attn { border-color: var(--amber-line); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(238, 190, 80, 0.6); }
 body[data-glass] .tile.drop-hint, body[data-glass] .tile.file-hint { outline-color: var(--gl-accent); }
+/* the resize slot speaks the same accent as every other drop target on glass */
+body[data-glass] .desk-slot { border-color: var(--gl-accent); background: rgba(239, 100, 97, 0.06); }
+body[data-glass] .desk-slot .ds-size { background: var(--gl-pane); border-color: var(--gl-rim); border-radius: 7px; }
 body[data-glass] .tile.file-hint { box-shadow: var(--gl-slab), 0 0 0 3px rgba(239, 100, 97, 0.25); }
 @media (prefers-reduced-motion: reduce) {
   body[data-glass] .tile, body[data-glass] .nav-card { transition: none; transform: none !important; }
