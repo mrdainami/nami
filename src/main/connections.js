@@ -23,6 +23,14 @@ const fsIo = {
   exists: (f) => fs.existsSync(f),
 };
 
+// A connected service id is a bare identifier by contract (a JSON key in an MCP
+// config, or a name the user typed). Anything else is refused, never quoted:
+// these ids reach the `claude` CLI as argv, and a leading '-' or a shell
+// metacharacter must never be able to change what runs.
+function validServiceId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id);
+}
+
 function readJson(file, io) {
   if (!io.exists(file)) return null;
   try { return JSON.parse(io.read(file)); } catch (_) { return null; }
@@ -176,7 +184,10 @@ function notebookTargets({ scope, projectPath, homeDir }) {
     };
   }
   return {
-    claude: { kind: 'cli', cmdFor: (id, entry) => `claude mcp add-json --scope user ${id} ${JSON.stringify(JSON.stringify(entry))}` },
+    // argv, never a shell string: the id and the JSON entry are discrete argv
+    // elements, so nothing in them can be parsed as a command. The program name
+    // is supplied by the executor (which resolves the real claude binary).
+    claude: { kind: 'cli', argvFor: (id, entry) => ['mcp', 'add-json', '--scope', 'user', id, JSON.stringify(entry)] },
     cursor: { kind: 'json', file: h('.cursor/mcp.json'), section: 'mcpServers' },
     gemini: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
     antigravity: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
@@ -196,7 +207,10 @@ function deliveryPlan({ masters, scope, agentIds, projectPath, homeDir }) {
     const t = targets[agent];
     if (!t) continue;
     if (t.kind === 'cli') {
-      for (const id of Object.keys(masters)) plan.push({ agent, kind: 'cli', id, cmd: t.cmdFor(id, masters[id]) });
+      for (const id of Object.keys(masters)) {
+        if (!validServiceId(id)) continue; // refuse ids that could smuggle a flag/command
+        plan.push({ agent, kind: 'cli', id, argv: t.argvFor(id, masters[id]) });
+      }
     } else if (t.kind === 'json') {
       if (!t.file) continue;
       const entries = {};
@@ -268,6 +282,7 @@ function coverage({ masters, notebooks }) {
 
 module.exports = {
   fsIo, masterPath, readMaster, upsertMaster, removeMaster,
+  validServiceId,
   toOpencode, codexBlock, writeCodexBlock, presentInToml, presentInYaml,
   deliveryPlan, notebookTargets, readNotebooks, coverage,
   CODEX_START, CODEX_END,

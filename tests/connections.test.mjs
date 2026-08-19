@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   masterPath, readMaster, upsertMaster, removeMaster,
   toOpencode, codexBlock, writeCodexBlock, presentInToml, presentInYaml,
-  deliveryPlan, readNotebooks, coverage,
+  deliveryPlan, readNotebooks, coverage, validServiceId,
 } = require('../src/main/connections.js');
 
 function memIo(seed = {}) {
@@ -22,6 +22,18 @@ const HOME = '/home/u';
 const PROJ = '/proj';
 const NOTION = { command: 'npx', args: ['-y', '@notionhq/notion-mcp-server'], env: { NOTION_TOKEN: 'ntn_x' } };
 const LINEAR = { url: 'https://mcp.linear.app/mcp' };
+
+test('validServiceId accepts normal ids, rejects shell metacharacters', () => {
+  for (const ok of ['notion', 'linear', 'kie.ai', 'my_server', 'a-b.c_1', '1password', '21st-dev']) {
+    assert.equal(validServiceId(ok), true, ok);
+  }
+  for (const bad of [
+    '', ' ', 'x; rm -rf ~', 'a b', '$(whoami)', '`id`', 'a|b', 'a&b',
+    'a>b', 'a\nb', "a'b", 'a"b', '--scope', '-x', 'a/b', 'a\\b', '.hidden',
+  ]) {
+    assert.equal(validServiceId(bad), false, JSON.stringify(bad));
+  }
+});
 
 // ---- masters ----------------------------------------------------------------
 
@@ -177,11 +189,27 @@ test('deliveryPlan user scope: claude goes via its own CLI, codex block lands in
   });
   const cli = plan.filter((s) => s.agent === 'claude' && s.kind === 'cli');
   assert.equal(cli.length, 2, 'one CLI add per entry');
-  assert.match(cli[0].cmd, /^claude mcp add-json --scope user /);
+  assert.ok(Array.isArray(cli[0].argv), 'cli step carries an argv array, not a shell string');
+  assert.equal(cli[0].cmd, undefined, 'no shell string is built');
+  assert.deepEqual(cli[0].argv.slice(0, 4), ['mcp', 'add-json', '--scope', 'user']);
+  assert.equal(cli[0].argv[4], Object.keys({ notion: NOTION, linear: LINEAR })[0]); // the id, discrete
+  assert.equal(JSON.parse(cli[0].argv[5]).command !== undefined || typeof cli[0].argv[5] === 'string', true);
   const codex = plan.find((s) => s.agent === 'codex');
   assert.equal(codex.file, '/home/u/.codex/config.toml');
   const cursor = plan.find((s) => s.agent === 'cursor');
   assert.equal(cursor.file, '/home/u/.cursor/mcp.json');
+});
+
+test('deliveryPlan refuses a service id with shell metacharacters (no cli step built)', () => {
+  const EVIL = { command: 'npx', args: ['x'] };
+  const plan = deliveryPlan({
+    masters: { 'x; touch /tmp/pwned #': EVIL, notion: NOTION }, scope: 'user',
+    agentIds: ['claude'], projectPath: null, homeDir: HOME,
+  });
+  const cli = plan.filter((s) => s.agent === 'claude' && s.kind === 'cli');
+  assert.equal(cli.length, 1, 'only the valid id yields a step');
+  assert.equal(cli[0].id, 'notion');
+  assert.ok(cli.every((s) => Array.isArray(s.argv)));
 });
 
 test('deliveryPlan only plans for installed agents', () => {
@@ -234,6 +262,15 @@ test('runPlan: a failing cli step is recorded, not thrown', async () => {
   const results = await runPlan({ plan, io: memIo(), execCmd: async () => ({ ok: false, error: 'claude not found' }) });
   assert.equal(results[0].ok, false);
   assert.match(results[0].error, /not found/);
+});
+
+test('runPlan: cli step passes an argv array to the executor', async () => {
+  const { runPlan } = require('../src/main/connections-deliver.js');
+  const seen = [];
+  const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'user', agentIds: ['claude'], projectPath: null, homeDir: HOME });
+  await runPlan({ plan, io: memIo(), execCmd: async (argv) => { seen.push(argv); return { ok: true }; } });
+  assert.ok(Array.isArray(seen[0]), 'executor is handed an argv array');
+  assert.deepEqual(seen[0].slice(0, 2), ['mcp', 'add-json']);
 });
 
 test('antigravity aliases the gemini notebook, and unknown tools never read as missing', () => {
