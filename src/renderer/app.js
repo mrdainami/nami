@@ -18,6 +18,7 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent, lastCol } from './term-wrap.mjs';
+import { basesFromText, joinBase } from './path-bases.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
@@ -2446,6 +2447,33 @@ function openTermLink(link, st, ev) {
 // it, free to disagree with the one drawing the underline.
 const hoveredLink = new Map();   // panel id -> { link, st }
 
+// The absolute folders recently visible in a card, most recent first — the
+// haystack a missed relative path is retried against (path-bases.mjs has the
+// why). Walked as loose-glued runs so a base that wrapped across rows is
+// seen whole. Cached briefly per panel: the scan is pure string work but a
+// hover storm should not repeat it.
+const panelBases = new Map();   // panel id -> { at, bases }
+const BASES_TTL = 5000;
+const BASES_ROWS = 300;
+function collectBases(term, p) {
+  const hit = panelBases.get(p.id);
+  if (hit && Date.now() - hit.at < BASES_TTL) return hit.bases;
+  const buf = term.buffer.active;
+  const bases = []; const seen = new Set();
+  let y = buf.length, walked = 0;
+  while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
+    const { text } = wrappedRow(term, y, true);
+    for (const b of basesFromText(text, 6)) {
+      if (!seen.has(b)) { seen.add(b); bases.push(b); if (bases.length >= 6) break; }
+    }
+    const { top } = runBounds(buf, y, term.cols, true);
+    walked += y - top;   // y is 1-based, top 0-based: exactly the run's rows
+    y = top;             // the row just above the run
+  }
+  panelBases.set(p.id, { at: Date.now(), bases });
+  return bases;
+}
+
 // Two cells in reading order, ranges inclusive on both ends the way xterm
 // hands them out.
 function cellBefore(a, b) { return a.y < b.y || (a.y === b.y && a.x < b.x); }
@@ -2500,6 +2528,23 @@ function registerTerminalLinks(term, p) {
       // in the one case it exists for.
       return { link, st: st && st.exists ? st : null };
     }));
+
+    // A relative path that missed the card's folder gets a second chance
+    // against the folders on screen — cwd first (it already ran, above),
+    // scavenged bases after, first hit wins, disk arbitrates. A miss on
+    // every base leaves the row exactly as it was.
+    const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st && r.link.text[0] !== '/' && r.link.text[0] !== '~');
+    if (relMisses.length) {
+      const bases = collectBases(term, p);
+      for (const r of relMisses.slice(0, 12)) {
+        for (const b of bases) {
+          const joined = joinBase(b, r.link.text);
+          if (!joined) break;   // a shape joinBase refuses is refused for every base
+          const st = await statLink(joined, p.cwd, p.id);
+          if (st && st.exists) { r.st = st; break; }
+        }
+      }
+    }
     let links = build(rows, strict.at);
 
     // A path that failed its stat may be a fragment of one the emitter broke
