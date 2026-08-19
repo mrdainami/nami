@@ -30,6 +30,15 @@ const LINKISH = /[\w.~:/?#@!$&'*+,;=%-]/;
 // indent is two; anything past a small tab is a new block, not a tail.
 const MAX_INDENT = 8;
 
+// The loose mode drops the filled-to-the-edge guard and admits deeper hangs —
+// Claude Code's tool-result lines break early to keep room for a right-aligned
+// size, and indent past 8. What it returns are CANDIDATES, not links: without
+// the edge guard this shape also matches ordinary prose, so the caller must
+// confirm the glued path exists on disk before believing the join. The cap
+// still exists because a paragraph is indented too, and unbounded joins would
+// glue one on every hover just to stat it.
+export const MAX_INDENT_LOOSE = 16;
+
 // The final occupied column, blanks at the tail ignored. Returns a count, not
 // an index: cols means "filled to the edge".
 export function lastCol(line, cols) {
@@ -63,16 +72,20 @@ function charAt(line, x) {
   return ch || '';
 }
 
-// Is `next` the rest of a token that ran off the end of `line`?
-export function continuesLink(line, next, cols) {
+// Is `next` the rest of a token that ran off the end of `line`? Loose keeps
+// every guard about the characters and drops only the geometry — see
+// MAX_INDENT_LOOSE for why its answer is a candidate, not a verdict.
+export function continuesLink(line, next, cols, loose = false) {
   if (!line || !next) return false;
   const end = lastCol(line, cols);
-  if (end < cols) return false;                        // room left: the break was chosen
+  if (!loose && end < cols) return false;              // room left: the break was chosen
+  if (end < 1) return false;
   // The character the row ends on has to be one a token could be cut through.
   // A row ending in a closing bracket or a quote finished its thought.
   if (!LINKISH.test(charAt(line, end - 1))) return false;
   const indent = leadingIndent(next, cols);
-  if (indent < 1 || indent > MAX_INDENT) return false; // col 0 is a soft wrap; deep is a new block
+  const cap = loose ? MAX_INDENT_LOOSE : MAX_INDENT;
+  if (indent < 1 || indent > cap) return false;        // col 0 is a soft wrap; deep is a new block
   return LINKISH.test(charAt(next, indent));
 }
 
@@ -84,7 +97,7 @@ export function continuesLink(line, next, cols) {
 // Split out of wrappedRow so the walk itself is testable against a plain
 // object rather than a live terminal — the walk is where an off-by-one costs
 // you the first character of every link.
-export function runBounds(buf, y, cols) {
+export function runBounds(buf, y, cols, loose = false) {
   const hard = new Set();
   let top = y - 1;
   while (top > 0) {
@@ -92,7 +105,7 @@ export function runBounds(buf, y, cols) {
     if (l && l.isWrapped) { top--; continue; }
     if (hard.size >= MAX_JOINS) break;
     const prev = buf.getLine(top - 1);
-    if (l && prev && continuesLink(prev, l, cols)) { hard.add(top); top--; continue; }
+    if (l && prev && continuesLink(prev, l, cols, loose)) { hard.add(top); top--; continue; }
     break;
   }
   let bottom = top;
@@ -100,7 +113,7 @@ export function runBounds(buf, y, cols) {
     const l = buf.getLine(bottom + 1);
     if (l && l.isWrapped) { bottom++; continue; }
     if (hard.size >= MAX_JOINS) break;
-    if (l && continuesLink(buf.getLine(bottom), l, cols)) { bottom++; hard.add(bottom); continue; }
+    if (l && continuesLink(buf.getLine(bottom), l, cols, loose)) { bottom++; hard.add(bottom); continue; }
     break;
   }
   return { top, bottom, hard };
