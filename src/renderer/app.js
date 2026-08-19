@@ -2375,7 +2375,8 @@ function mountTerminal(p, rec) {
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
   rec.disposeRo = () => {
-    clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id); panelBases.delete(p.id);
+    clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+    for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
 }
 
@@ -2464,31 +2465,50 @@ const hoveredLink = new Map();   // panel id -> { link, st }
 // why). Walked as loose-glued runs so a base that wrapped across rows is
 // seen whole. Cached briefly per panel: the scan is pure string work but a
 // hover storm should not repeat it.
-const panelBases = new Map();   // panel id -> { at, mark, bases }
-const BASES_TTL = 15000;
+const panelBases = new Map();   // panel id + region bucket -> { at, mark, bases }
+const BASES_TTL = 5000;
 const BASES_ROWS = 150;
-function collectBases(term, p) {
+async function collectBases(term, p, anchorTop) {
   const buf = term.buffer.active;
-  // The buffer's own shape is the freshness signal, not just the clock: a
-  // base printed two seconds after a scan must not hide behind a 15s TTL.
-  // Length plus cursor row changes on any line of output.
+  // Keyed by WHERE the hover is, not just which panel: a scrolled-up hover
+  // must not borrow folders from a later era of the session, and the walk
+  // below anchors at the hovered run for the same reason.
+  const key = p.id + ':' + Math.floor(anchorTop / 50);
+  // Buffer shape as a freshness hint on top of a short TTL. Honest limits:
+  // once the scrollback ring is full, length pins at the cap and the mark
+  // stops moving — the TTL is short precisely because the mark cannot be
+  // trusted to signal in that state.
   const mark = buf.length + ':' + buf.cursorY;
-  const hit = panelBases.get(p.id);
+  const hit = panelBases.get(key);
   if (hit && hit.mark === mark && Date.now() - hit.at < BASES_TTL) return hit.bases;
   const bases = []; const seen = new Set();
-  let y = buf.length, walked = 0;
+  // Walk UP from the hovered run: the folder a short path is relative to is
+  // named above it — the user's prompt, the sweep header — not at the
+  // bottom of the scrollback.
+  let y = Math.min(anchorTop + 1, buf.length), walked = 0;
   while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
     const run = wrappedRow(term, y, true);
     // No slash, no folder — skip the scan without paying for it.
     if (run.text.indexOf('/') !== -1) {
       for (const b of basesFromText(run.text, 6)) {
-        if (!seen.has(b)) { seen.add(b); bases.push(b); if (bases.length >= 6) break; }
+        if (seen.has(b)) continue;
+        seen.add(b);
+        // The glue that produced this text was loose and unverified, so the
+        // disk vets every base: prose fused onto a path ("…/shotsand") is
+        // no folder, and garbage must not burn slots in the pool.
+        const st = await statLink(b, p.cwd, p.id);
+        if (st && st.exists && !st.isFile) bases.push(b);
+        if (bases.length >= 6) break;
       }
     }
     walked += y - run.top;   // y is 1-based, top 0-based: exactly the run's rows
     y = run.top;             // the row just above the run
   }
-  panelBases.set(p.id, { at: Date.now(), mark, bases });
+  if (panelBases.size > 400) {
+    let drop = 100;
+    for (const k of panelBases.keys()) { panelBases.delete(k); if (--drop <= 0) break; }
+  }
+  panelBases.set(key, { at: Date.now(), mark, bases });
   return bases;
 }
 
@@ -2565,7 +2585,7 @@ function registerTerminalLinks(term, p) {
     const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
       && r.link.text[0] !== '/' && r.link.text[0] !== '~');
     if (relMisses.length) {
-      const bases = collectBases(term, p);
+      const bases = await collectBases(term, p, strict.top);
       await Promise.all(relMisses.slice(0, 12).map(async (r) => {
         for (const b of bases) {
           const joined = joinBase(b, r.link.text);
@@ -2612,7 +2632,12 @@ function registerTerminalLinks(term, p) {
     const buf0 = term.buffer.active;
     const cut = (row) => {
       const l = buf0.getLine(row);
-      return !!l && lastCol(l, term.cols) >= Math.floor((term.cols * 2) / 3);
+      // Two thirds of the CURRENT width, capped at 60: hard-wrapped rows
+      // keep their printed width when a tile is widened (xterm reflows only
+      // soft wraps), and an emitter wrapping an inner column narrower than
+      // the tile is still a real cut. 60 columns of unbroken path-like text
+      // ending mid-token is evidence enough at any tile size.
+      return !!l && lastCol(l, term.cols) >= Math.min(Math.floor((term.cols * 2) / 3), 60);
     };
     const fragMisses = rows.filter((r) => {
       if (r.link.kind !== 'path' || r.st) return false;
