@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lastCol, continuesLink, leadingIndent, runBounds, MAX_JOINS } from '../src/renderer/term-wrap.mjs';
+import { lastCol, continuesLink, leadingIndent, runBounds, MAX_JOINS, MAX_INDENT_LOOSE } from '../src/renderer/term-wrap.mjs';
 
 // The smallest thing that behaves like an xterm buffer line: getCell(x) with
 // getChars(), and a width that pads with blanks the way a real row does. Pure
@@ -137,6 +137,77 @@ test('soft and hard in one run', () => {
   const { top, bottom, hard } = runBounds(mixed, 1, COLS);
   assert.deepEqual([top, bottom], [0, 2]);
   assert.deepEqual([...hard], [2]);
+});
+
+// ---- the loose mode ---------------------------------------------------------
+// Claude Code's tool-result lines break early (room kept for a right-aligned
+// size) and hang deeper than 8. The strict guards rightly refuse that shape;
+// the loose mode admits it as a CANDIDATE only — the caller must confirm the
+// glued path exists on disk before believing it.
+
+// The reported shape, scaled to the 40-column harness: a result line that
+// broke ~6 short of the edge, continuing under a 10-column hanging indent.
+const HEAD = '› [image]/private/tmp/claude-501/f5';   // 34 cols of 40
+const TAIL = '          2b59/shot.png       (2MB)';   // indent 10
+
+test('loose: a row that broke early still joins when the tail is link-shaped', () => {
+  const a = line(HEAD, COLS), b = line(TAIL, COLS);
+  assert.equal(continuesLink(a, b, COLS), false, 'strict must keep refusing this');
+  assert.equal(continuesLink(a, b, COLS, true), true);
+});
+
+test('loose: the indent cap is higher but still a cap', () => {
+  const a = line(HEAD, COLS);
+  assert.equal(continuesLink(a, line(' '.repeat(MAX_INDENT_LOOSE) + 'x.png', COLS), COLS, true), true);
+  assert.equal(continuesLink(a, line(' '.repeat(MAX_INDENT_LOOSE + 1) + 'x.png', COLS), COLS, true), false);
+});
+
+test('loose: a tail that opens like prose still does not join', () => {
+  const a = line(HEAD, COLS);
+  assert.equal(continuesLink(a, line('  "quoted" and then some prose', COLS), COLS, true), false);
+  assert.equal(continuesLink(a, line('', COLS), COLS, true), false);
+});
+
+test('loose: a head ending on closing punctuation still does not join', () => {
+  const a = line('the scanner is pure string work (see it)', COLS);
+  assert.equal(continuesLink(a, line('  term-links.mjs', COLS), COLS, true), false);
+});
+
+test('loose: a continuation at column 0 is still a soft wrap, not ours', () => {
+  const a = line(HEAD, COLS);
+  assert.equal(continuesLink(a, line('2b59/shot.png', COLS), COLS, true), false);
+});
+
+test('loose runBounds finds the run the strict walk refuses', () => {
+  const rows = buffer([
+    ['a line of prose before it', false],
+    [HEAD, false],
+    [TAIL, false],
+    ['a line of prose after it', false],
+  ]);
+  const strict = runBounds(rows, 2, COLS);
+  assert.deepEqual([strict.top, strict.bottom], [1, 1], 'strict must not widen');
+  const loose = runBounds(rows, 2, COLS, true);
+  assert.deepEqual([loose.top, loose.bottom], [1, 2]);
+  assert.deepEqual([...loose.hard], [2]);
+});
+
+test('loose runBounds reaches back up from the tail too', () => {
+  const rows = buffer([
+    [HEAD, false],
+    [TAIL, false],
+  ]);
+  const { top, bottom, hard } = runBounds(rows, 2, COLS, true);
+  assert.deepEqual([top, bottom], [0, 1]);
+  assert.deepEqual([...hard], [1]);
+});
+
+test('loose: the join cap still holds', () => {
+  const rows = [];
+  for (let i = 0; i < 12; i++) rows.push([(i ? '  ' : '') + 'src/renderer/very-long', false]);
+  const { top, bottom, hard } = runBounds(buffer(rows), 1, COLS, true);
+  assert.ok(hard.size <= MAX_JOINS, 'joined ' + hard.size + ' rows, cap is ' + MAX_JOINS);
+  assert.ok(bottom - top <= MAX_JOINS);
 });
 
 test('the chain is capped — a justified block cannot swallow itself', () => {
