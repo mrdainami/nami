@@ -20,6 +20,7 @@ const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
+const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
@@ -1426,8 +1427,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const osc = { last: null };
   const done = { buf: '' };
   let reported = false;
+  let seedGate = null;
   p.onData((data) => {
     sendWc(wc, 'term:data', { id, data });
+    if (seedGate) seedGate.onData(data);
     // A one-shot command announcing its own exit code. Same channel as the
     // title below, opposite direction: the shell talking to Nami.
     if (watchDone && !reported) {
@@ -1446,6 +1449,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (t) sendWc(wc, 'session:title', { id, title: t });
   });
   p.onExit(({ exitCode, signal }) => {
+    if (seedGate) { seedGate.stop(); seedGate = null; }
     termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
     // The note is built here rather than in the renderer because only main knows
     // whether this teardown was Nami's own doing.
@@ -1460,10 +1464,16 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 
   // Seed a first message into an interactive session once it's ready
   // (claude spawns fast; run-kind agent TUIs draw slower, give them longer).
+  // The gate types and then presses Enter only after the app echoes the text
+  // back — a startup dialog (Kimi's trust screen, an update prompt) swallows
+  // typing silently, and the old blind '\r' was answering those dialogs with
+  // whatever they had preselected. See seed-gate.js.
   if (seed && (kind === 'claude' || kind === 'run')) {
     const delay = kind === 'claude' ? (claudeExe ? 1600 : 2200) : 2500;
-    setTimeout(() => { try { p.write(seed); } catch (_) {} }, delay);
-    setTimeout(() => { try { p.write('\r'); } catch (_) {} }, delay + 350);
+    seedGate = startSeedGate({
+      write: (s) => { try { p.write(s); } catch (_) {} },
+      seed, firstDelay: delay,
+    });
   }
   return { ok: true };
 });
