@@ -264,6 +264,15 @@ test('runPlan: a failing cli step is recorded, not thrown', async () => {
   assert.match(results[0].error, /not found/);
 });
 
+test('runPlan: cli step passes an argv array to the executor', async () => {
+  const { runPlan } = require('../src/main/connections-deliver.js');
+  const seen = [];
+  const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'user', agentIds: ['claude'], projectPath: null, homeDir: HOME });
+  await runPlan({ plan, io: memIo(), execCmd: async (argv) => { seen.push(argv); return { ok: true }; } });
+  assert.ok(Array.isArray(seen[0]), 'executor is handed an argv array');
+  assert.deepEqual(seen[0].slice(0, 2), ['mcp', 'add-json']);
+});
+
 test('antigravity aliases the gemini notebook, and unknown tools never read as missing', () => {
   const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'project', agentIds: ['antigravity'], projectPath: PROJ, homeDir: HOME });
   assert.equal(plan[0].file, '/proj/.gemini/settings.json');
