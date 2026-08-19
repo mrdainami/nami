@@ -184,7 +184,10 @@ function notebookTargets({ scope, projectPath, homeDir }) {
     };
   }
   return {
-    claude: { kind: 'cli', cmdFor: (id, entry) => `claude mcp add-json --scope user ${id} ${JSON.stringify(JSON.stringify(entry))}` },
+    // argv, never a shell string: the id and the JSON entry are discrete argv
+    // elements, so nothing in them can be parsed as a command. The program name
+    // is supplied by the executor (which resolves the real claude binary).
+    claude: { kind: 'cli', argvFor: (id, entry) => ['mcp', 'add-json', '--scope', 'user', id, JSON.stringify(entry)] },
     cursor: { kind: 'json', file: h('.cursor/mcp.json'), section: 'mcpServers' },
     gemini: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
     antigravity: { kind: 'json', file: h('.gemini/settings.json'), section: 'mcpServers' },
@@ -204,7 +207,10 @@ function deliveryPlan({ masters, scope, agentIds, projectPath, homeDir }) {
     const t = targets[agent];
     if (!t) continue;
     if (t.kind === 'cli') {
-      for (const id of Object.keys(masters)) plan.push({ agent, kind: 'cli', id, cmd: t.cmdFor(id, masters[id]) });
+      for (const id of Object.keys(masters)) {
+        if (!validServiceId(id)) continue; // refuse ids that could smuggle a flag/command
+        plan.push({ agent, kind: 'cli', id, argv: t.argvFor(id, masters[id]) });
+      }
     } else if (t.kind === 'json') {
       if (!t.file) continue;
       const entries = {};
