@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   masterPath, readMaster, upsertMaster, removeMaster,
   toOpencode, codexBlock, writeCodexBlock, presentInToml, presentInYaml,
-  deliveryPlan, readNotebooks, coverage,
+  deliveryPlan, readNotebooks, coverage, validServiceId,
 } = require('../src/main/connections.js');
 
 function memIo(seed = {}) {
@@ -22,6 +22,18 @@ const HOME = '/home/u';
 const PROJ = '/proj';
 const NOTION = { command: 'npx', args: ['-y', '@notionhq/notion-mcp-server'], env: { NOTION_TOKEN: 'ntn_x' } };
 const LINEAR = { url: 'https://mcp.linear.app/mcp' };
+
+test('validServiceId accepts normal ids, rejects shell metacharacters', () => {
+  for (const ok of ['notion', 'linear', 'kie.ai', 'my_server', 'a-b.c_1', '1password', '21st-dev']) {
+    assert.equal(validServiceId(ok), true, ok);
+  }
+  for (const bad of [
+    '', ' ', 'x; rm -rf ~', 'a b', '$(whoami)', '`id`', 'a|b', 'a&b',
+    'a>b', 'a\nb', "a'b", 'a"b', '--scope', '-x', 'a/b', 'a\\b', '.hidden',
+  ]) {
+    assert.equal(validServiceId(bad), false, JSON.stringify(bad));
+  }
+});
 
 // ---- masters ----------------------------------------------------------------
 

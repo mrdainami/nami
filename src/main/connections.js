@@ -23,6 +23,14 @@ const fsIo = {
   exists: (f) => fs.existsSync(f),
 };
 
+// A connected service id is a bare identifier by contract (a JSON key in an MCP
+// config, or a name the user typed). Anything else is refused, never quoted:
+// these ids reach the `claude` CLI as argv, and a leading '-' or a shell
+// metacharacter must never be able to change what runs.
+function validServiceId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id);
+}
+
 function readJson(file, io) {
   if (!io.exists(file)) return null;
   try { return JSON.parse(io.read(file)); } catch (_) { return null; }
@@ -268,6 +276,7 @@ function coverage({ masters, notebooks }) {
 
 module.exports = {
   fsIo, masterPath, readMaster, upsertMaster, removeMaster,
+  validServiceId,
   toOpencode, codexBlock, writeCodexBlock, presentInToml, presentInYaml,
   deliveryPlan, notebookTargets, readNotebooks, coverage,
   CODEX_START, CODEX_END,
