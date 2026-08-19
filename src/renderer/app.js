@@ -17,7 +17,7 @@ import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './ses
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
-import { runBounds, leadingIndent, lastCol } from './term-wrap.mjs';
+import { runBounds, leadingIndent, lastCol, rowPiece } from './term-wrap.mjs';
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
@@ -2396,7 +2396,12 @@ async function statLink(token, cwd, id) {
   const hit = linkStats.get(key);
   if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
   const st = await api.statPath({ token, cwd, id });
-  if (linkStats.size > 400) linkStats.clear();
+  // Evict oldest-first rather than wiping: a clear() under pressure meant a
+  // busy screen re-statted everything it had just learned, over and over.
+  if (linkStats.size > 800) {
+    let drop = 200;
+    for (const k of linkStats.keys()) { linkStats.delete(k); if (--drop <= 0) break; }
+  }
   linkStats.set(key, { at: Date.now(), st });
   return st;
 }
@@ -2410,10 +2415,10 @@ async function statLink(token, cwd, id) {
 // them, and scanLinks matches the head of a severed URL as a whole one. The
 // walk goes both ways so hovering either fragment finds the other; see
 // term-wrap.mjs for why the guards are as narrow as they are.
-function wrappedRow(term, y, loose = false) {
+function wrappedRow(term, y, mode = false) {
   const buf = term.buffer.active;
   const cols = term.cols;
-  const { top, bottom, hard } = runBounds(buf, y, cols, loose);
+  const { top, bottom, hard } = runBounds(buf, y, cols, mode);
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
@@ -2432,7 +2437,10 @@ function wrappedRow(term, y, loose = false) {
       text += ch;
     }
   }
-  return { text, at };
+  // top is handed back for callers that walk the buffer run by run
+  // (collectBases): one call answers both "what does this run say" and
+  // "where does the next one start", instead of a second bounds walk.
+  return { text, at, top, bottom };
 }
 
 function openTermLink(link, st, ev) {
@@ -2453,8 +2461,8 @@ const hoveredLink = new Map();   // panel id -> { link, st }
 // seen whole. Cached briefly per panel: the scan is pure string work but a
 // hover storm should not repeat it.
 const panelBases = new Map();   // panel id -> { at, bases }
-const BASES_TTL = 5000;
-const BASES_ROWS = 300;
+const BASES_TTL = 15000;
+const BASES_ROWS = 150;
 function collectBases(term, p) {
   const hit = panelBases.get(p.id);
   if (hit && Date.now() - hit.at < BASES_TTL) return hit.bases;
@@ -2462,13 +2470,15 @@ function collectBases(term, p) {
   const bases = []; const seen = new Set();
   let y = buf.length, walked = 0;
   while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
-    const { text } = wrappedRow(term, y, true);
-    for (const b of basesFromText(text, 6)) {
-      if (!seen.has(b)) { seen.add(b); bases.push(b); if (bases.length >= 6) break; }
+    const run = wrappedRow(term, y, true);
+    // No slash, no folder — skip the scan without paying for it.
+    if (run.text.indexOf('/') !== -1) {
+      for (const b of basesFromText(run.text, 6)) {
+        if (!seen.has(b)) { seen.add(b); bases.push(b); if (bases.length >= 6) break; }
+      }
     }
-    const { top } = runBounds(buf, y, term.cols, true);
-    walked += y - top;   // y is 1-based, top 0-based: exactly the run's rows
-    y = top;             // the row just above the run
+    walked += y - run.top;   // y is 1-based, top 0-based: exactly the run's rows
+    y = run.top;             // the row just above the run
   }
   panelBases.set(p.id, { at: Date.now(), bases });
   return bases;
@@ -2529,42 +2539,101 @@ function registerTerminalLinks(term, p) {
       return { link, st: st && st.exists ? st : null };
     }));
 
+    // A token touching either end of the run is probably a FRAGMENT of a
+    // path the emitter severed — the reglue below owns those. Only a token
+    // sitting whole inside the line is a genuine short path worth retrying
+    // against scavenged bases.
+    const touchesEdge = (l) => !strict.text.slice(l.end).trim() || !strict.text.slice(0, l.start).trim();
+
     // A relative path that missed the card's folder gets a second chance
     // against the folders on screen — cwd first (it already ran, above),
     // scavenged bases after, first hit wins, disk arbitrates. A miss on
-    // every base leaves the row exactly as it was.
-    const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st && r.link.text[0] !== '/' && r.link.text[0] !== '~');
+    // every base leaves the row exactly as it was. Misses run concurrently;
+    // within one miss the bases stay ordered, most recent folder first.
+    const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
+      && r.link.text[0] !== '/' && r.link.text[0] !== '~' && !touchesEdge(r.link));
     if (relMisses.length) {
       const bases = collectBases(term, p);
-      for (const r of relMisses.slice(0, 12)) {
+      await Promise.all(relMisses.slice(0, 12).map(async (r) => {
         for (const b of bases) {
           const joined = joinBase(b, r.link.text);
-          if (!joined) break;   // a shape joinBase refuses is refused for every base
+          if (!joined) return;   // a shape joinBase refuses is refused for every base
           const st = await statLink(joined, p.cwd, p.id);
-          if (st && st.exists) { r.st = st; break; }
+          if (st && st.exists) { r.st = st; return; }
         }
-      }
+      }));
     }
     let links = build(rows, strict.at);
 
-    // A path that failed its stat may be a fragment of one the emitter broke
-    // in a shape the strict guards refuse (see MAX_INDENT_LOOSE). Reglue
-    // loosely and let the disk arbitrate: a candidate becomes a link only if
-    // the glued path exists. Everything the disk rejects leaves the strict
-    // result exactly as it was.
-    const severed = rows.some((r) => r && r.link.kind === 'path' && !r.st) || !found.length;
-    if (severed) {
-      const loose = wrappedRow(term, y, true);
-      if (loose.text !== strict.text) {
-        const candidates = scanLinks(loose.text).filter((l) => l.kind === 'path');
-        const confirmed = (await Promise.all(candidates.map(async (link) => {
-          const st = await statLink(link.text, p.cwd, p.id);
-          return st && st.exists ? { link, st } : null;
-        }))).filter(Boolean);
-        if (confirmed.length) {
-          const wide = build(confirmed, loose.at);
-          links = wide.concat(links.filter((l) => !wide.some((w) => rangesTouch(w.range, l.range))));
+    // A still-missing token that touches the run's edge is probably a
+    // fragment of a path the emitter severed in a shape the join guards
+    // refuse — Claude's early break under a deep hanging indent, or the
+    // column-0 wrap of codex, antigravity and opencode. Column 0 must not
+    // JOIN as a mode (adjacent paths in a list would merge into one dead
+    // token), so the extension anchors on the failing token itself: grow it
+    // a row at a time in the direction it touches — down past the run's
+    // bottom, up past its top, both for a fragment that owns its whole row —
+    // and believe the shortest grown path the disk confirms. Every reject
+    // leaves the strict result exactly as it was.
+    const fragMisses = rows.filter((r) => r.link.kind === 'path' && !r.st && touchesEdge(r.link)).slice(0, 4);
+    if (fragMisses.length) {
+      const buf = term.buffer.active;
+      // A fragment for growing downward is a row's leading unbroken run; one
+      // for growing upward is its trailing run. `whole` says the run WAS the
+      // whole row — a row that also carried an annotation ends the path, so
+      // growth stops after taking its piece.
+      const downFrag = (row) => {
+        const piece = rowPiece(buf.getLine(row), term.cols); if (!piece) return null;
+        const cut = piece.text.search(/\s/);
+        const text = cut === -1 ? piece.text : piece.text.slice(0, cut);
+        if (!text) return null;
+        return { text, endCell: { x: piece.at[text.length - 1] + 1, y: row + 1 }, whole: cut === -1 };
+      };
+      const upFrag = (row) => {
+        const piece = rowPiece(buf.getLine(row), term.cols); if (!piece) return null;
+        const m = piece.text.match(/\S+$/); if (!m) return null;
+        const off = piece.text.length - m[0].length;
+        return { text: m[0], startCell: { x: piece.at[off] + 1, y: row + 1 }, whole: off === 0 };
+      };
+      const extras = [];
+      for (const r of fragMisses) {
+        const endAnchored = !strict.text.slice(r.link.end).trim();
+        const startAnchored = !strict.text.slice(0, r.link.start).trim();
+        const downs = []; const ups = [];
+        if (endAnchored) {
+          let acc = '';
+          for (let k = 1; k <= 3; k++) {
+            const f = downFrag(strict.bottom + k); if (!f) break;
+            acc += f.text; downs.push({ text: acc, endCell: f.endCell, rows: k });
+            if (!f.whole) break;
+          }
         }
+        if (startAnchored) {
+          let acc = '';
+          for (let k = 1; k <= 3; k++) {
+            const f = upFrag(strict.top - k); if (!f) break;
+            acc = f.text + acc; ups.push({ text: acc, startCell: f.startCell, rows: k });
+            if (!f.whole) break;
+          }
+        }
+        const tokenStart = strict.at[r.link.start], tokenEnd = strict.at[r.link.end - 1];
+        const cands = [];
+        for (const d of downs) cands.push({ text: r.link.text + d.text, start: tokenStart, end: d.endCell, rows: d.rows });
+        for (const u of ups) cands.push({ text: u.text + r.link.text, start: u.startCell, end: tokenEnd, rows: u.rows });
+        for (const u of ups) for (const d of downs) {
+          if (u.rows + d.rows > 3) continue;
+          cands.push({ text: u.text + r.link.text + d.text, start: u.startCell, end: d.endCell, rows: u.rows + d.rows });
+        }
+        cands.sort((a, b) => a.rows - b.rows);
+        const stats = await Promise.all(cands.map((c) => statLink(c.text, p.cwd, p.id)));
+        const i = stats.findIndex((st) => st && st.exists);
+        if (i === -1) continue;
+        const at = new Array(cands[i].text.length);
+        at[0] = cands[i].start; at[cands[i].text.length - 1] = cands[i].end;
+        extras.push(...build([{ link: { kind: 'path', text: cands[i].text, start: 0, end: cands[i].text.length }, st: stats[i] }], at));
+      }
+      if (extras.length) {
+        links = extras.concat(links.filter((l) => !extras.some((w) => rangesTouch(w.range, l.range))));
       }
     }
     return links;

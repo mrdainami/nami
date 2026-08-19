@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lastCol, continuesLink, leadingIndent, runBounds, MAX_JOINS, MAX_INDENT_LOOSE } from '../src/renderer/term-wrap.mjs';
+import { lastCol, continuesLink, leadingIndent, runBounds, rowPiece, MAX_JOINS, MAX_INDENT_LOOSE } from '../src/renderer/term-wrap.mjs';
 
 // The smallest thing that behaves like an xterm buffer line: getCell(x) with
 // getChars(), and a width that pads with blanks the way a real row does. Pure
@@ -208,6 +208,37 @@ test('loose: the join cap still holds', () => {
   const { top, bottom, hard } = runBounds(buffer(rows), 1, COLS, true);
   assert.ok(hard.size <= MAX_JOINS, 'joined ' + hard.size + ' rows, cap is ' + MAX_JOINS);
   assert.ok(bottom - top <= MAX_JOINS);
+});
+
+// ---- row pieces -------------------------------------------------------------
+// Codex, antigravity and opencode wrap at their own inner width — early
+// break, flush-left continuation. Column 0 must never JOIN (adjacent paths
+// would merge into one dead token), so the caller extends a failing token
+// row by row instead; rowPiece is the fragment it extends with.
+
+test('rowPiece: a flush-left continuation row, text and cell columns', () => {
+  const p = rowPiece(line('Dainami-OS/f52496cb/shot.png', COLS), COLS);
+  assert.equal(p.text, 'Dainami-OS/f52496cb/shot.png');
+  assert.equal(p.at[0], 0, 'first char sits in column 0');
+  assert.equal(p.at.length, p.text.length);
+});
+
+test('rowPiece: an indented fragment keeps its real columns', () => {
+  const p = rowPiece(line('  er/scene.png', COLS), COLS);
+  assert.equal(p.text, 'er/scene.png');
+  assert.equal(p.at[0], 2);
+});
+
+test('rowPiece: trailing annotation stays in the text, blanks beyond it do not', () => {
+  const p = rowPiece(line('er/scene.png   (2MB)   ', COLS), COLS);
+  assert.equal(p.text, 'er/scene.png   (2MB)');
+});
+
+test('rowPiece: rows that cannot be fragments answer null', () => {
+  assert.equal(rowPiece(line('', COLS), COLS), null, 'blank');
+  assert.equal(rowPiece(line(' '.repeat(MAX_INDENT_LOOSE + 1) + 'x.png', COLS), COLS), null, 'too deep');
+  assert.equal(rowPiece(line('"quoted prose', COLS), COLS), null, 'opens like prose');
+  assert.equal(rowPiece(null, COLS), null);
 });
 
 test('the chain is capped — a justified block cannot swallow itself', () => {
