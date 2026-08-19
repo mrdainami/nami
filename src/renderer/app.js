@@ -17,7 +17,8 @@ import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './ses
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
-import { runBounds, leadingIndent, lastCol } from './term-wrap.mjs';
+import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
+import { basesFromText, joinBase } from './path-bases.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
@@ -2375,6 +2376,7 @@ function mountTerminal(p, rec) {
   // a closed tile must not leave the link it was hovering behind in the map
   rec.disposeRo = () => {
     clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+    for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
 }
 
@@ -2395,7 +2397,16 @@ async function statLink(token, cwd, id) {
   const hit = linkStats.get(key);
   if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
   const st = await api.statPath({ token, cwd, id });
-  if (linkStats.size > 400) linkStats.clear();
+  // Evict oldest-first rather than wiping: a clear() under pressure meant a
+  // busy screen re-statted everything it had just learned, over and over.
+  // The delete before set matters: Map.set on an existing key keeps its old
+  // position, so without it a hot key refreshed for the tenth time would
+  // still sit at the front of insertion order — first in line to be evicted.
+  if (linkStats.size > 800) {
+    let drop = 200;
+    for (const k of linkStats.keys()) { linkStats.delete(k); if (--drop <= 0) break; }
+  }
+  linkStats.delete(key);
   linkStats.set(key, { at: Date.now(), st });
   return st;
 }
@@ -2409,10 +2420,10 @@ async function statLink(token, cwd, id) {
 // them, and scanLinks matches the head of a severed URL as a whole one. The
 // walk goes both ways so hovering either fragment finds the other; see
 // term-wrap.mjs for why the guards are as narrow as they are.
-function wrappedRow(term, y, loose = false) {
+function wrappedRow(term, y, mode = false) {
   const buf = term.buffer.active;
   const cols = term.cols;
-  const { top, bottom, hard } = runBounds(buf, y, cols, loose);
+  const { top, bottom, hard } = runBounds(buf, y, cols, mode);
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
@@ -2431,7 +2442,10 @@ function wrappedRow(term, y, loose = false) {
       text += ch;
     }
   }
-  return { text, at };
+  // top is handed back for callers that walk the buffer run by run
+  // (collectBases): one call answers both "what does this run say" and
+  // "where does the next one start", instead of a second bounds walk.
+  return { text, at, top, bottom };
 }
 
 function openTermLink(link, st, ev) {
@@ -2445,6 +2459,58 @@ function openTermLink(link, st, ev) {
 // recomputing a cell from mouse coordinates would be a second implementation of
 // it, free to disagree with the one drawing the underline.
 const hoveredLink = new Map();   // panel id -> { link, st }
+
+// The absolute folders recently visible in a card, most recent first — the
+// haystack a missed relative path is retried against (path-bases.mjs has the
+// why). Walked as loose-glued runs so a base that wrapped across rows is
+// seen whole. Cached briefly per panel: the scan is pure string work but a
+// hover storm should not repeat it.
+const panelBases = new Map();   // panel id + region bucket -> { at, mark, bases }
+const BASES_TTL = 5000;
+const BASES_ROWS = 150;
+async function collectBases(term, p, anchorTop) {
+  const buf = term.buffer.active;
+  // Keyed by WHERE the hover is, not just which panel: a scrolled-up hover
+  // must not borrow folders from a later era of the session, and the walk
+  // below anchors at the hovered run for the same reason.
+  const key = p.id + ':' + Math.floor(anchorTop / 50);
+  // Buffer shape as a freshness hint on top of a short TTL. Honest limits:
+  // once the scrollback ring is full, length pins at the cap and the mark
+  // stops moving — the TTL is short precisely because the mark cannot be
+  // trusted to signal in that state.
+  const mark = buf.length + ':' + buf.cursorY;
+  const hit = panelBases.get(key);
+  if (hit && hit.mark === mark && Date.now() - hit.at < BASES_TTL) return hit.bases;
+  const bases = []; const seen = new Set();
+  // Walk UP from the hovered run: the folder a short path is relative to is
+  // named above it — the user's prompt, the sweep header — not at the
+  // bottom of the scrollback.
+  let y = Math.min(anchorTop + 1, buf.length), walked = 0;
+  while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
+    const run = wrappedRow(term, y, true);
+    // No slash, no folder — skip the scan without paying for it.
+    if (run.text.indexOf('/') !== -1) {
+      for (const b of basesFromText(run.text, 6)) {
+        if (seen.has(b)) continue;
+        seen.add(b);
+        // The glue that produced this text was loose and unverified, so the
+        // disk vets every base: prose fused onto a path ("…/shotsand") is
+        // no folder, and garbage must not burn slots in the pool.
+        const st = await statLink(b, p.cwd, p.id);
+        if (st && st.exists && !st.isFile) bases.push(b);
+        if (bases.length >= 6) break;
+      }
+    }
+    walked += y - run.top;   // y is 1-based, top 0-based: exactly the run's rows
+    y = run.top;             // the row just above the run
+  }
+  if (panelBases.size > 400) {
+    let drop = 100;
+    for (const k of panelBases.keys()) { panelBases.delete(k); if (--drop <= 0) break; }
+  }
+  panelBases.set(key, { at: Date.now(), mark, bases });
+  return bases;
+}
 
 // Two cells in reading order, ranges inclusive on both ends the way xterm
 // hands them out.
@@ -2500,15 +2566,45 @@ function registerTerminalLinks(term, p) {
       // in the one case it exists for.
       return { link, st: st && st.exists ? st : null };
     }));
+
+    // Where a token sits in its run: against the leading blank edge, the
+    // trailing one, both, or neither. Computed once per token — the base
+    // retry and the growth pass below both read it.
+    const edgesOf = (l) => ({
+      start: !strict.text.slice(0, l.start).trim(),
+      end: !strict.text.slice(l.end).trim(),
+    });
+
+    // A relative path that missed the card's folder gets a second chance
+    // against the folders on screen — cwd first (it already ran, above),
+    // scavenged bases after, first hit wins, disk arbitrates. Every relative
+    // miss qualifies: a CLI listing files "one per line" puts each path
+    // alone on its row, which is the shape this exists for. A miss on every
+    // base leaves the row exactly as it was. Misses run concurrently;
+    // within one miss the bases stay ordered, most recent folder first.
+    const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
+      && r.link.text[0] !== '/' && r.link.text[0] !== '~');
+    if (relMisses.length) {
+      const bases = await collectBases(term, p, strict.top);
+      await Promise.all(relMisses.slice(0, 12).map(async (r) => {
+        for (const b of bases) {
+          const joined = joinBase(b, r.link.text);
+          if (!joined) return;   // a shape joinBase refuses is refused for every base
+          const st = await statLink(joined, p.cwd, p.id);
+          if (st && st.exists) { r.st = st; return; }
+        }
+      }));
+    }
     let links = build(rows, strict.at);
 
-    // A path that failed its stat may be a fragment of one the emitter broke
-    // in a shape the strict guards refuse (see MAX_INDENT_LOOSE). Reglue
-    // loosely and let the disk arbitrate: a candidate becomes a link only if
-    // the glued path exists. Everything the disk rejects leaves the strict
-    // result exactly as it was.
-    const severed = rows.some((r) => r && r.link.kind === 'path' && !r.st) || !found.length;
-    if (severed) {
+    // The loose reglue: a path severed by an early break under a hanging
+    // indent (Claude's tool results). Runs when a path is still missing OR
+    // the strict scan found nothing at all — the hovered row may be a bare
+    // continuation fragment ("er/scene.png", or even just "me") that scans
+    // as nothing, and the glued run is where the whole path appears. A
+    // candidate becomes a link only if it exists on disk.
+    let looseLinks = [];
+    if (rows.some((r) => r.link.kind === 'path' && !r.st) || !found.length) {
       const loose = wrappedRow(term, y, true);
       if (loose.text !== strict.text) {
         const candidates = scanLinks(loose.text).filter((l) => l.kind === 'path');
@@ -2517,9 +2613,105 @@ function registerTerminalLinks(term, p) {
           return st && st.exists ? { link, st } : null;
         }))).filter(Boolean);
         if (confirmed.length) {
-          const wide = build(confirmed, loose.at);
-          links = wide.concat(links.filter((l) => !wide.some((w) => rangesTouch(w.range, l.range))));
+          looseLinks = build(confirmed, loose.at);
+          links = looseLinks.concat(links.filter((l) => !looseLinks.some((w) => rangesTouch(w.range, l.range))));
         }
+      }
+    }
+
+    // The anchored growth: a still-missing token touching the run's edge may
+    // be a fragment of a column-0 wrap — codex, antigravity and opencode
+    // break at their own inner width and continue flush left. Column 0 must
+    // not JOIN as a mode (adjacent paths in a list would merge into one dead
+    // token), so the extension anchors on the failing token: grow it a row
+    // at a time in the direction it touches, and believe the shortest grown
+    // path the disk confirms. One geometric guard survives from the join
+    // modes: a row only counts as CUT if it is filled past two thirds of the
+    // width — "mv src/app" alone on a wide row was a chosen break, and
+    // growing it would let a lucky disk hit mint a link out of prose.
+    const buf0 = term.buffer.active;
+    const cut = (row) => {
+      const l = buf0.getLine(row);
+      // Two thirds of the CURRENT width, capped at 60: hard-wrapped rows
+      // keep their printed width when a tile is widened (xterm reflows only
+      // soft wraps), and an emitter wrapping an inner column narrower than
+      // the tile is still a real cut. 60 columns of unbroken path-like text
+      // ending mid-token is evidence enough at any tile size.
+      return !!l && lastCol(l, term.cols) >= Math.min(Math.floor((term.cols * 2) / 3), 60);
+    };
+    const fragMisses = rows.filter((r) => {
+      if (r.link.kind !== 'path' || r.st) return false;
+      const e = edgesOf(r.link);
+      return e.start || e.end;
+    }).slice(0, 4);
+    if (fragMisses.length) {
+      // A fragment for growing downward is a row's leading unbroken run; one
+      // for growing upward is its trailing run. `whole` says the run WAS the
+      // whole row — a row that also carried an annotation ends the path, so
+      // growth stops after taking its piece.
+      const downFrag = (row) => {
+        const piece = rowPiece(buf0.getLine(row), term.cols); if (!piece) return null;
+        const cutAt = piece.text.search(/\s/);
+        const text = cutAt === -1 ? piece.text : piece.text.slice(0, cutAt);
+        if (!text) return null;
+        return { text, endCell: { x: piece.at[text.length - 1] + 1, y: row + 1 }, whole: cutAt === -1 };
+      };
+      const upFrag = (row) => {
+        const piece = rowPiece(buf0.getLine(row), term.cols); if (!piece) return null;
+        const m = piece.text.match(/\S+$/); if (!m) return null;
+        const off = piece.text.length - m[0].length;
+        return { text: m[0], startCell: { x: piece.at[off] + 1, y: row + 1 }, whole: off === 0 };
+      };
+      const extras = [];
+      for (const r of fragMisses) {
+        const tokenStart = strict.at[r.link.start], tokenEnd = strict.at[r.link.end - 1];
+        if (!tokenStart || !tokenEnd) continue;
+        // Already healed by the loose reglue: nothing left to grow.
+        if (looseLinks.some((w) => rangesTouch(w.range, { start: tokenStart, end: tokenEnd }))) continue;
+        const e = edgesOf(r.link);
+        const downs = []; const ups = [];
+        if (e.end && cut(strict.bottom)) {
+          let acc = '';
+          for (let k = 1; k <= MAX_JOINS; k++) {
+            const f = downFrag(strict.bottom + k); if (!f) break;
+            acc += f.text; downs.push({ text: acc, endCell: f.endCell, rows: k });
+            // The path continues past this row only if the row held nothing
+            // else AND was itself cut at the width.
+            if (!f.whole || !cut(strict.bottom + k)) break;
+          }
+        }
+        if (e.start) {
+          let acc = '';
+          for (let k = 1; k <= MAX_JOINS; k++) {
+            // The row being consumed continues INTO the line below it, so it
+            // must itself be cut — a short row above ended its own thought.
+            if (!cut(strict.top - k)) break;
+            const f = upFrag(strict.top - k); if (!f) break;
+            acc = f.text + acc; ups.push({ text: acc, startCell: f.startCell, rows: k });
+            if (!f.whole) break;
+          }
+        }
+        const cands = [];
+        for (const d of downs) cands.push({ text: r.link.text + d.text, start: tokenStart, end: d.endCell, rows: d.rows });
+        for (const u of ups) cands.push({ text: u.text + r.link.text, start: u.startCell, end: tokenEnd, rows: u.rows });
+        for (const u of ups) for (const d of downs) {
+          if (u.rows + d.rows > MAX_JOINS) continue;
+          cands.push({ text: u.text + r.link.text + d.text, start: u.startCell, end: d.endCell, rows: u.rows + d.rows });
+        }
+        cands.sort((a, b) => a.rows - b.rows);
+        // Shortest first, stop at the first hit — the sort exists so the
+        // common one-row severance costs one stat, not a volley.
+        for (const c of cands) {
+          const st = await statLink(c.text, p.cwd, p.id);
+          if (!(st && st.exists)) continue;
+          const at = new Array(c.text.length);
+          at[0] = c.start; at[c.text.length - 1] = c.end;
+          extras.push(...build([{ link: { kind: 'path', text: c.text, start: 0, end: c.text.length }, st }], at));
+          break;
+        }
+      }
+      if (extras.length) {
+        links = extras.concat(links.filter((l) => !extras.some((w) => rangesTouch(w.range, l.range))));
       }
     }
     return links;
