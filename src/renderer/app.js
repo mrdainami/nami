@@ -17,7 +17,7 @@ import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './ses
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
-import { runBounds, leadingIndent } from './term-wrap.mjs';
+import { runBounds, leadingIndent, lastCol } from './term-wrap.mjs';
 import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
@@ -2409,17 +2409,21 @@ async function statLink(token, cwd, id) {
 // them, and scanLinks matches the head of a severed URL as a whole one. The
 // walk goes both ways so hovering either fragment finds the other; see
 // term-wrap.mjs for why the guards are as narrow as they are.
-function wrappedRow(term, y) {
+function wrappedRow(term, y, loose = false) {
   const buf = term.buffer.active;
   const cols = term.cols;
-  const { top, bottom, hard } = runBounds(buf, y, cols);
+  const { top, bottom, hard } = runBounds(buf, y, cols, loose);
   let text = ''; const at = [];
   for (let row = top; row <= bottom; row++) {
     const line = buf.getLine(row); if (!line) continue;
     // A joined row's hanging indent is not part of the token, and emitting it
     // would put a space in the middle of the URL the scanner is about to read.
     const from = hard.has(row) ? leadingIndent(line, cols) : 0;
-    for (let x = from; x < term.cols; x++) {
+    // Same seam, other side: a loose head broke short of the edge, and its
+    // blank tail would be emitted as spaces between the two halves. A strict
+    // head is full, so trimming it is a no-op.
+    const to = hard.has(row + 1) ? lastCol(line, cols) : term.cols;
+    for (let x = from; x < to; x++) {
       const cell = line.getCell(x);
       if (!cell || cell.getWidth() === 0) continue;
       const ch = cell.getChars() || ' ';
@@ -2442,52 +2446,90 @@ function openTermLink(link, st, ev) {
 // it, free to disagree with the one drawing the underline.
 const hoveredLink = new Map();   // panel id -> { link, st }
 
+// Two cells in reading order, ranges inclusive on both ends the way xterm
+// hands them out.
+function cellBefore(a, b) { return a.y < b.y || (a.y === b.y && a.x < b.x); }
+function rangesTouch(a, b) {
+  return !(cellBefore(a.end, b.start) || cellBefore(b.end, a.start));
+}
+
 function registerTerminalLinks(term, p) {
   if (!term.registerLinkProvider) return;
+
+  const build = (rows, at) => {
+    const links = [];
+    for (const row of rows) {
+      if (!row) continue;
+      const start = at[row.link.start], end = at[row.link.end - 1];
+      if (!start || !end) continue;
+      const live = row.link.kind === 'url' || !!row.st;
+      links.push({
+        text: row.link.text,
+        range: { start, end },
+        // Without this xterm decorates nothing: a path that opens on
+        // ⌘-click looked exactly like a path that does not, and the only
+        // way to find out was to try. Now the cursor and the underline say
+        // so before you commit to the click. Dead paths stay bare — the
+        // underline has to keep meaning "this opens".
+        decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
+        activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
+        hover: () => hoveredLink.set(p.id, { link: row.link, st: row.st, live }),
+        // Only clear if this link is still the one recorded. Moving from
+        // one link straight onto the next fires the new hover before the
+        // old leave, and an unconditional delete would throw away the link
+        // the pointer is actually on.
+        leave: () => {
+          const cur = hoveredLink.get(p.id);
+          if (cur && cur.link === row.link) hoveredLink.delete(p.id);
+        },
+      });
+    }
+    return links;
+  };
+
+  const resolveLinks = async (y) => {
+    const strict = wrappedRow(term, y);
+    const found = strict.text ? scanLinks(strict.text) : [];
+    const rows = await Promise.all(found.map(async (link) => {
+      if (link.kind === 'url') return { link, st: null };
+      const st = await statLink(link.text, p.cwd, p.id);
+      // A missed stat is handed over rather than dropped. Undecorated and
+      // inert, it looks and behaves exactly as it does now — but xterm knows
+      // it is there, which is what gives it a right-click. Copying does not
+      // need the file to exist, and gating the menu on the stat would hide it
+      // in the one case it exists for.
+      return { link, st: st && st.exists ? st : null };
+    }));
+    let links = build(rows, strict.at);
+
+    // A path that failed its stat may be a fragment of one the emitter broke
+    // in a shape the strict guards refuse (see MAX_INDENT_LOOSE). Reglue
+    // loosely and let the disk arbitrate: a candidate becomes a link only if
+    // the glued path exists. Everything the disk rejects leaves the strict
+    // result exactly as it was.
+    const severed = rows.some((r) => r && r.link.kind === 'path' && !r.st) || !found.length;
+    if (severed) {
+      const loose = wrappedRow(term, y, true);
+      if (loose.text !== strict.text) {
+        const candidates = scanLinks(loose.text).filter((l) => l.kind === 'path');
+        const confirmed = (await Promise.all(candidates.map(async (link) => {
+          const st = await statLink(link.text, p.cwd, p.id);
+          return st && st.exists ? { link, st } : null;
+        }))).filter(Boolean);
+        if (confirmed.length) {
+          const wide = build(confirmed, loose.at);
+          links = wide.concat(links.filter((l) => !wide.some((w) => rangesTouch(w.range, l.range))));
+        }
+      }
+    }
+    return links;
+  };
+
   term.registerLinkProvider({
     provideLinks(y, callback) {
-      const { text, at } = wrappedRow(term, y);
-      const found = text ? scanLinks(text) : [];
-      if (!found.length) { callback(undefined); return; }
-      Promise.all(found.map(async (link) => {
-        if (link.kind === 'url') return { link, st: null };
-        const st = await statLink(link.text, p.cwd, p.id);
-        // A missed stat is handed over rather than dropped. Undecorated and
-        // inert, it looks and behaves exactly as it does now — but xterm knows
-        // it is there, which is what gives it a right-click. Copying does not
-        // need the file to exist, and gating the menu on the stat would hide it
-        // in the one case it exists for.
-        return { link, st: st && st.exists ? st : null };
-      })).then((rows) => {
-        const links = [];
-        for (const row of rows) {
-          if (!row) continue;
-          const start = at[row.link.start], end = at[row.link.end - 1];
-          if (!start || !end) continue;
-          const live = row.link.kind === 'url' || !!row.st;
-          links.push({
-            text: row.link.text,
-            range: { start, end },
-            // Without this xterm decorates nothing: a path that opens on
-            // ⌘-click looked exactly like a path that does not, and the only
-            // way to find out was to try. Now the cursor and the underline say
-            // so before you commit to the click. Dead paths stay bare — the
-            // underline has to keep meaning "this opens".
-            decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
-            activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
-            hover: () => hoveredLink.set(p.id, { link: row.link, st: row.st, live }),
-            // Only clear if this link is still the one recorded. Moving from
-            // one link straight onto the next fires the new hover before the
-            // old leave, and an unconditional delete would throw away the link
-            // the pointer is actually on.
-            leave: () => {
-              const cur = hoveredLink.get(p.id);
-              if (cur && cur.link === row.link) hoveredLink.delete(p.id);
-            },
-          });
-        }
-        callback(links.length ? links : undefined);
-      }).catch(() => callback(undefined));
+      resolveLinks(y)
+        .then((links) => callback(links.length ? links : undefined))
+        .catch(() => callback(undefined));
     },
   });
 }
