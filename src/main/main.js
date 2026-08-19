@@ -28,7 +28,7 @@ const { rememberBins, knownBin, resolveRunCommand } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
-const { readMaster, upsertMaster, removeMaster, deliveryPlan, notebookTargets, readNotebooks, coverage, writeCodexBlock } = require('./connections');
+const { readMaster, upsertMaster, removeMaster, deliveryPlan, notebookTargets, readNotebooks, coverage, writeCodexBlock, validServiceId } = require('./connections');
 const { runPlan } = require('./connections-deliver');
 const { checkServer } = require('./mcp-check');
 const { execFile } = require('child_process');
@@ -40,7 +40,7 @@ const { createDirWatch } = require('./dir-watch');
 const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
-const { loginShell, windowChrome } = require('./platform');
+const { windowChrome } = require('./platform');
 const { seedStartHere } = require('./start-here');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
@@ -725,12 +725,13 @@ ipcMain.handle('agents:remove', (_e, { id, binPath } = {}) =>
 function catalogForRenderer() {
   return KNOWN_SERVICES.map((s) => ({ id: s.id, name: s.name, desc: s.desc, code: s.code, kind: s.kind, keys: s.keys, keyHelpUrl: s.keyHelpUrl, docs: s.docs, guide: s.guide }));
 }
-// CLI steps in a delivery plan (user-scope Claude, later others) run through
-// the user's login shell — that config belongs to the tool, never hand-edited.
-function shellExec(cmd) {
+// CLI delivery steps run the resolved `claude` binary directly with an argv
+// array — no login shell, so nothing in an id or entry can be parsed as a
+// command. Falls back to the bare name when the bin scan has not run.
+function claudeExec(argv) {
   return new Promise((resolve) => {
-    const sh = loginShell();
-    execFile(sh.file, sh.args(cmd), { timeout: 20000 }, (err) => {
+    const bin = knownBin('claude') || 'claude';
+    execFile(bin, argv, { timeout: 20000 }, (err) => {
       resolve(err ? { ok: false, error: err.message.split('\n')[0] } : { ok: true });
     });
   });
@@ -742,7 +743,7 @@ async function deliverConnections({ scope, projectPath, agentIds }) {
   const masters = readMaster({ scope, projectPath, homeDir: os.homedir() });
   if (!Object.keys(masters).length) return [];
   const plan = deliveryPlan({ masters, scope, agentIds: agentIds || [], projectPath, homeDir: os.homedir() });
-  return runPlan({ plan, execCmd: shellExec });
+  return runPlan({ plan, execCmd: claudeExec });
 }
 // What a delivery looked like, in the words the connect-done sheet shows.
 function shortHome(p) { return String(p || '').replace(os.homedir(), '~'); }
@@ -871,10 +872,10 @@ ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
       if (res.ok) changed.push(t.file);
     }
   }
-  const viaCli = await new Promise((resolve) => {
-    const sh = loginShell();
-    execFile(sh.file, sh.args(`claude mcp remove --scope user ${id}`), { timeout: 20000 }, (err) => resolve(!err));
-  });
+  const viaCli = validServiceId(id) ? await new Promise((resolve) => {
+    const bin = knownBin('claude') || 'claude';
+    execFile(bin, ['mcp', 'remove', '--scope', 'user', id], { timeout: 20000 }, (err) => resolve(!err));
+  }) : false;
   if (viaCli) changed.push('claude user settings');
   return { changed };
 });

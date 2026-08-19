@@ -23,6 +23,7 @@ import { buildRows, sceneEvents } from './session-cards.mjs';
 import { buildCards, modeLabel, modeClass } from './cards-dom.mjs';
 import { commandsFor, routeCommand } from './agent-commands.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
+import { isOutsideProject } from './path-guard.mjs';
 
 const api = window.dainami;
 
@@ -2450,7 +2451,7 @@ function wrappedRow(term, y, mode = false) {
 
 function openTermLink(link, st, ev) {
   if (link.kind === 'url') { api.openUrl(urlTarget(link.text)); return; }
-  if (st && st.isFile && !(ev && ev.altKey)) openFile(st.abs);
+  if (st && st.isFile && !(ev && ev.altKey)) { if (confirmOutsideOpen(st.abs)) openFile(st.abs); }
   else if (st) api.revealFile(st.abs);
 }
 
@@ -3553,7 +3554,8 @@ async function openDocLink(href, p, read) {
   if (t.kind !== 'path') return;
   const st = await api.statPath({ token: t.target, cwd: p.cwd, id: p.id });
   if (!st.exists) { toast('Not found: ' + shortHome(t.target)); return; }
-  if (st.isFile) openFile(st.abs); else api.revealFile(st.abs);
+  if (st.isFile) { if (confirmOutsideOpen(st.abs)) openFile(st.abs); }
+  else api.revealFile(st.abs);
 }
 
 // ---- editor tiles ----------------------------------------------------------
@@ -4209,6 +4211,14 @@ async function buildFilePanel(filePath) {
   const res = await api.rawFile(filePath);
   if (!res.ok) return viewerPanel(filePath, 'other', res.error || 'Could not open');
   return { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
+}
+// A path that came from rendered content (a markdown link, a token printed in
+// the terminal) can point anywhere on disk. Opening one inside the project is
+// normal; opening one outside it asks first, so a benign-looking link can't
+// silently surface an SSH key or credentials file into a tile.
+function confirmOutsideOpen(abs) {
+  if (!isOutsideProject(S.project && S.project.path, abs)) return true;
+  return confirm('This file is outside your project:\n\n' + shortHome(abs) + '\n\nOpen it anyway?');
 }
 // Looking at a file floats it above the desk; only pinning (or an explicit
 // drop onto the desk, or restore-on-boot) makes it a tile.

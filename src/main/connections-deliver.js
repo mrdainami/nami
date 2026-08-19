@@ -7,7 +7,7 @@
 const { upsertMcpJson, upsertOpencode } = require('./mcp-config');
 const { writeCodexBlock, fsIo } = require('./connections');
 
-// execCmd(cmd) -> Promise<{ok, error?}> — injected so tests never spawn.
+// execCmd(argv) -> Promise<{ok, error?}> — injected so tests never spawn.
 async function runPlan({ plan, io = fsIo, execCmd }) {
   const results = [];
   for (const step of plan) {
@@ -22,7 +22,7 @@ async function runPlan({ plan, io = fsIo, execCmd }) {
         const res = writeCodexBlock({ file: step.file, masters: step.masters, io });
         results.push({ agent: step.agent, ok: res.ok, wrote: res.ok ? step.file : undefined, error: res.error, skipped: res.skipped });
       } else if (step.kind === 'cli') {
-        const res = await execCmd(step.cmd);
+        const res = await execCmd(step.argv);
         results.push({ agent: step.agent, ok: res.ok, via: 'cli', id: step.id, error: res.error });
       } else {
         results.push({ agent: step.agent, ok: false, manual: true, reason: step.reason });
