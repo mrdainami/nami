@@ -75,18 +75,49 @@ function charAt(line, x) {
 // Is `next` the rest of a token that ran off the end of `line`? Loose keeps
 // every guard about the characters and drops only the geometry — see
 // MAX_INDENT_LOOSE for why its answer is a candidate, not a verdict.
-export function continuesLink(line, next, cols, loose = false) {
+//
+// Neither mode joins a continuation at column 0. Codex, antigravity and
+// opencode wrap that way — early break, flush-left continuation — but at
+// column 0 those runs sit directly against their neighbours, and a mode that
+// glued them would merge two adjacent paths into one dead token. That shape
+// is handled by the caller instead: anchor on the failing token and extend
+// it row by row with rowPiece, disk-checking each step.
+export function continuesLink(line, next, cols, mode = false) {
   if (!line || !next) return false;
   const end = lastCol(line, cols);
-  if (!loose && end < cols) return false;              // room left: the break was chosen
+  if (!mode && end < cols) return false;               // room left: the break was chosen
   if (end < 1) return false;
   // The character the row ends on has to be one a token could be cut through.
   // A row ending in a closing bracket or a quote finished its thought.
   if (!LINKISH.test(charAt(line, end - 1))) return false;
   const indent = leadingIndent(next, cols);
-  const cap = loose ? MAX_INDENT_LOOSE : MAX_INDENT;
+  const cap = mode ? MAX_INDENT_LOOSE : MAX_INDENT;
   if (indent < 1 || indent > cap) return false;        // col 0 is a soft wrap; deep is a new block
   return LINKISH.test(charAt(next, indent));
+}
+
+// One row as a candidate fragment of a severed token: its text from first
+// occupied cell to last, plus where those cells sit, so a link assembled
+// from fragments can still underline the real screen positions. Null when
+// the row could not be a fragment — blank, indented past the loose cap, or
+// opening with a character no path contains.
+export function rowPiece(line, cols) {
+  if (!line) return null;
+  const from = leadingIndent(line, cols);
+  if (from >= cols || from > MAX_INDENT_LOOSE) return null;
+  if (!LINKISH.test(charAt(line, from))) return null;
+  const to = lastCol(line, cols);
+  if (to <= from) return null;
+  let text = ''; const at = [];
+  for (let x = from; x < to; x++) {
+    const cell = line.getCell(x);
+    if (!cell) continue;
+    if (cell.getWidth && cell.getWidth() === 0) continue;   // second cell of a wide glyph
+    const ch = cell.getChars() || ' ';
+    for (let i = 0; i < ch.length; i++) at.push(x);
+    text += ch;
+  }
+  return { text, at, from, to };
 }
 
 // The whole run one hovered row belongs to: soft wraps by xterm's own flag,
@@ -97,7 +128,7 @@ export function continuesLink(line, next, cols, loose = false) {
 // Split out of wrappedRow so the walk itself is testable against a plain
 // object rather than a live terminal — the walk is where an off-by-one costs
 // you the first character of every link.
-export function runBounds(buf, y, cols, loose = false) {
+export function runBounds(buf, y, cols, mode = false) {
   const hard = new Set();
   let top = y - 1;
   while (top > 0) {
@@ -105,7 +136,7 @@ export function runBounds(buf, y, cols, loose = false) {
     if (l && l.isWrapped) { top--; continue; }
     if (hard.size >= MAX_JOINS) break;
     const prev = buf.getLine(top - 1);
-    if (l && prev && continuesLink(prev, l, cols, loose)) { hard.add(top); top--; continue; }
+    if (l && prev && continuesLink(prev, l, cols, mode)) { hard.add(top); top--; continue; }
     break;
   }
   let bottom = top;
@@ -113,7 +144,7 @@ export function runBounds(buf, y, cols, loose = false) {
     const l = buf.getLine(bottom + 1);
     if (l && l.isWrapped) { bottom++; continue; }
     if (hard.size >= MAX_JOINS) break;
-    if (l && continuesLink(buf.getLine(bottom), l, cols, loose)) { bottom++; hard.add(bottom); continue; }
+    if (l && continuesLink(buf.getLine(bottom), l, cols, mode)) { bottom++; hard.add(bottom); continue; }
     break;
   }
   return { top, bottom, hard };
