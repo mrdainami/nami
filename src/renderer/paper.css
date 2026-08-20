@@ -1390,8 +1390,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-md blockquote > :last-child { margin-bottom: 0; }
 /* The desk is drag-surface (user-select: none on body), but a card's
-   conversation is reading material — text must highlight and copy. */
-.cd-body { user-select: text; }
+   conversation is reading material — text must highlight and copy.
+   .cd-list is the conversation; .cd-body is a tool-result snippet. */
+.cd-list, .cd-body { user-select: text; }
 .cd-md ul, .cd-md ol { padding-left: 1.4em; }
 .cd-md code {
   background: var(--paper-3); border: 1px solid var(--dash);
