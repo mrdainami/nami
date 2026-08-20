@@ -142,3 +142,14 @@ test('a --- under a paragraph is a setext h2, but alone it is still a rule', () 
   assert.match(renderMarkdown('Title\n---'), /<h2>Title<\/h2>/);
   assert.match(renderMarkdown('para\n\n---\n\nafter'), /<hr \/>/);
 });
+
+test('triple-star bold-italic nests, stars never leak', () => {
+  const html = renderMarkdown('a ***both*** b');
+  assert.match(html, /<strong><em>both<\/em><\/strong>/);
+  assert.ok(!/\*/.test(html), 'no literal stars in output');
+});
+
+test('triple-star inside a code span stays literal', () => {
+  const html = renderMarkdown('`***x***`');
+  assert.match(html, /<code>\*\*\*x\*\*\*<\/code>/);
+});
