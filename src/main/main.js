@@ -1029,6 +1029,7 @@ ipcMain.handle('file:choose', async (e, kind) => {
   });
   return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
 });
+ipcMain.handle('file:importMarkdownAsset', (_e, args) => fsActions.importMarkdownAsset(args || {}));
 // Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
 // `relative` is reported because it is the only case a second base could
 // change: an absolute path that is missing is missing everywhere.

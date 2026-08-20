@@ -1822,6 +1822,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   position: absolute; top: calc(100% + 6px); left: 10px; z-index: 30; width: min(390px, calc(100% - 20px));
   padding: 10px; border: 1px solid var(--line); background: var(--menu-sheet);
   box-shadow: 3px 4px 0 var(--shadow-mid); color: var(--ink);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
 }
 .ed-asset-pop[hidden] { display: none; }
 .ed-asset-pop.drag { outline: 2px dashed var(--green); outline-offset: -5px; }
@@ -1837,6 +1838,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   display: block; width: 100%; margin-top: 4px; padding: 7px 8px;
   border: 1px dashed var(--dash-dark); background: var(--paper); color: var(--ink);
 }
+.ed-asset-note { display: block; margin-top: 5px; color: var(--faint); line-height: 1.35; }
 .ed-asset-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
 .ed-asset-actions span { flex: 1; color: var(--faint); }
 .ed-asset-actions .btn { padding: 5px 9px; font-size: 10.5px; }

@@ -70,6 +70,21 @@ export function relativeMarkdownPath(documentPath, targetPath) {
   return relative.startsWith('..') ? relative : './' + relative;
 }
 
+function encodePathPart(part) {
+  // Markdown commonly stores spaces as %20. Decode once before encoding so a
+  // correct path does not become %2520 when it is turned into a protocol URL.
+  try { return encodeURIComponent(decodeURIComponent(part)); }
+  catch (_) { return encodeURIComponent(part); }
+}
+
+export function markdownImageUrl(documentPath, source) {
+  const src = String(source || '');
+  if (/^(https?:|data:|blob:)/i.test(src)) return src;
+  if (!documentPath || src.startsWith('/') || src.startsWith('~')) return null;
+  const dir = String(documentPath).split('/').slice(0, -1).join('/') || '/';
+  return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodePathPart).join('/');
+}
+
 export function markdownAssetKind(value) {
   const path = String(value || '');
   if (IMAGE_EXT.test(path)) return 'image';

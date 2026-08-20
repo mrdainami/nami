@@ -15,7 +15,7 @@ import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
-import { mountMarkdownEditor, richMarkdownPath, relativeMarkdownPath, markdownAssetKind } from './markdown-rich.mjs';
+import { mountMarkdownEditor, richMarkdownPath, relativeMarkdownPath, markdownAssetKind, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
@@ -3637,6 +3637,7 @@ function mountEditor(p, rec) {
       <div class="ed-asset-pop" hidden>
         <div class="ed-asset-types" role="group" aria-label="Attachment type"><button class="on" data-kind="image">Image</button><button data-kind="video">Video</button><button data-kind="link">File / link</button></div>
         <label>Paste a URL or path<input class="ed-asset-input" placeholder="https://… or ./project/path" spellcheck="false"></label>
+        <small class="ed-asset-note">Local files are copied into ./assets so this note stays portable.</small>
         <div class="ed-asset-actions"><span>or drop a file here</span><button class="btn ed-asset-browse" type="button">Browse…</button><button class="btn btn--go ed-asset-insert" type="button">Insert</button></div>
       </div></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
@@ -3661,12 +3662,20 @@ function mountEditor(p, rec) {
     if (p.dirty) return;
     p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
   };
-  const resolveImage = (src) => {
-    if (/^(https?:|data:|blob:)/i.test(src)) return src;
-    if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return src;
-    const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
-    return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
+  const prepareMarkdownAsset = async (source) => {
+    const raw = String(source || '').trim();
+    // Network/data links stay untouched. Local files go through main so a
+    // picked Desktop image cannot turn into a blocked ../../../ path.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#')) return raw;
+    const result = await api.importMarkdownAsset({ documentPath: p.filePath, sourcePath: raw });
+    if (!result || !result.ok) {
+      toast((result && result.error) || 'Could not add that file.');
+      return null;
+    }
+    if (result.copied) toast('Copied ' + baseName(result.path) + ' into this note’s assets.');
+    return relativeMarkdownPath(p.filePath, result.path);
   };
+  const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
   const ensureRichEditor = async () => {
     if (!rich || disposed) return null;
     if (richEditor) {
@@ -3679,7 +3688,10 @@ function mountEditor(p, rec) {
       resolveImage,
       onImageFile: async (file) => {
         const filePath = api.droppedFilePath(file);
-        return filePath ? relativeMarkdownPath(p.filePath, filePath) : URL.createObjectURL(file);
+        if (!filePath) return URL.createObjectURL(file);
+        const target = await prepareMarkdownAsset(filePath);
+        if (!target) throw new Error('Could not add that image.');
+        return target;
       },
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
@@ -3763,12 +3775,7 @@ function mountEditor(p, rec) {
         // remote and data URLs as themselves. Absolute paths stay links — a
         // document does not get to display arbitrary files from the disk.
         read.innerHTML = renderMarkdown(p.text || '', {
-          resolveImage: (src) => {
-            if (/^(https?:|data:)/i.test(src)) return src;
-            if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return null;
-            const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
-            return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
-          },
+          resolveImage: (src) => markdownImageUrl(p.filePath, src),
         });
       }
     }
@@ -3809,7 +3816,8 @@ function mountEditor(p, rec) {
     const insertAsset = async () => {
       const raw = input.value.trim();
       if (!raw) { input.focus(); return; }
-      const target = relativeMarkdownPath(p.filePath, raw);
+      const target = await prepareMarkdownAsset(raw);
+      if (!target) { input.focus(); return; }
       const encodedLabel = target.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'Open file';
       let label = encodedLabel; try { label = decodeURIComponent(encodedLabel); } catch (_) {}
       const detected = markdownAssetKind(target);
@@ -3830,7 +3838,7 @@ function mountEditor(p, rec) {
     q('.ed-asset-browse', pop).onclick = async () => {
       const picked = await api.chooseFile(assetKind === 'link' ? 'file' : assetKind);
       if (!picked) return;
-      input.value = relativeMarkdownPath(p.filePath, picked); input.focus();
+      input.value = picked; input.focus();
     };
     q('.ed-asset-insert', pop).onclick = insertAsset;
     input.addEventListener('keydown', (event) => {
@@ -3844,7 +3852,7 @@ function mountEditor(p, rec) {
       const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
       const dropped = file && api.droppedFilePath(file);
       if (!dropped) return;
-      input.value = relativeMarkdownPath(p.filePath, dropped);
+      input.value = dropped;
       const detected = markdownAssetKind(dropped);
       setAssetKind(detected === 'image' ? 'image' : detected === 'video' ? 'video' : 'link');
     });
