@@ -605,6 +605,22 @@ function showScene(name) {
     if (step === 'welcome') {
       p.cardEvents = [{ kind: 'intro', id: 'w0', name: 'Claude Code', version: '3.1.8', model: 'claude-opus-5', mode: 'default', cwd: '~/work/atlas' }];
     }
+    // cards:mdfile:<abs path> — render that markdown file as one assistant
+    // reply, tile focused. A generic screenshot hatch like open:<path>; the
+    // sample content itself lives outside the repo.
+    if (step && step.startsWith('mdfile:')) {
+      api.readFile(step.slice('mdfile:'.length)).then((doc) => {
+        const text = (doc && Array.isArray(doc.rows)) ? doc.rows.map((r) => r.t).join('\n') : '';
+        p.cardEvents = [
+          { kind: 'intro', id: 'm0', name: 'Claude Code', version: '3.1.8', model: 'claude-opus-5', mode: 'default', cwd: '~/work/atlas' },
+          { kind: 'user', id: 'm1', text: 'Show me the markdown gauntlet' },
+          { kind: 'assistant', id: 'm2', text },
+          { kind: 'turn_end', id: 'm3', durationMs: 900, tokens: 640 },
+        ];
+        if (tileEls.get(p.id)) feedCards(p, true);
+        S.expandedId = p.id; renderGrid();
+      });
+    }
     const rec = tileEls.get(p.id);
     if (rec) {
       applyView(p, rec);
