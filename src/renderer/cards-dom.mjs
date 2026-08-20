@@ -774,6 +774,16 @@ export function buildCards(ctx) {
         if (k === 'user' || k === 'turn_end') break; // the tail belongs to an older turn
       }
     }
+    // remember when the running turn's prompt landed — the working clock
+    // anchors to it, so a reopened card shows true elapsed
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i] && rows[i].kind === 'user') {
+        const v = rows[i].at;
+        const ms = typeof v === 'number' ? v : Date.parse(v);
+        lastTurnStartAt = Number.isFinite(ms) && ms > 0 ? ms : null;
+        break;
+      }
+    }
     const live = new Set(rows.map((r) => r.id));
     for (const [id, rowEl] of rowEls) {
       if (!live.has(id)) { rowEl.remove(); rowEls.delete(id); frameQueue.delete(id); }
@@ -859,7 +869,7 @@ export function buildCards(ctx) {
   // the only real path was the Escape key with focus in the composer. The
   // way out is now clickable too.
   q('.cw-esc', workEl).onclick = () => { if (ctx.onInterrupt) ctx.onInterrupt(); };
-  let workTimer = null, workStart = 0, workingOn = false;
+  let workTimer = null, workStart = 0, workingOn = false, lastTurnStartAt = null;
   // when the turn ends, streamed rows settle: one full re-render with colours
   function settleStreams() {
     for (const [, rowEl] of rowEls) {
@@ -877,12 +887,19 @@ export function buildCards(ctx) {
       q('.cw-ph', workEl).textContent = ph;
       if (workEl.hidden) {
         workEl.hidden = false;
-        workStart = Date.now();
-        q('.cw-el', workEl).textContent = '0s';
+        // anchor to the turn's own timestamp when the channel gave one —
+        // a reopened card then shows real elapsed, not time-since-render
+        workStart = (lastTurnStartAt && lastTurnStartAt <= Date.now()) ? lastTurnStartAt : Date.now();
         q('.cw-tk-wrap', workEl).hidden = true;
-        workTimer = setInterval(() => {
-          q('.cw-el', workEl).textContent = Math.round((Date.now() - workStart) / 1000) + 's';
-        }, 500);
+        const elB = q('.cw-el', workEl);
+        // short turns stay a calm label; the clock earns its place at 15s
+        const tickClock = () => {
+          const ms = Date.now() - workStart;
+          elB.hidden = ms < 15000;
+          if (!elB.hidden) elB.textContent = Math.round(ms / 1000) + 's';
+        };
+        tickClock();
+        workTimer = setInterval(tickClock, 500);
       }
       if (typeof tokens === 'number' && tokens > 0) {
         q('.cw-tk-wrap', workEl).hidden = false;

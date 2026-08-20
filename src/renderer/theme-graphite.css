@@ -48,6 +48,8 @@ body[data-theme="graphite"] {
   --tok-key: #d7bde8;
   --tok-add-ink: #a3cf9b;  --tok-add-bg: rgba(163, 207, 155, 0.12);
   --tok-del-ink: #ff9d9a;  --tok-del-bg: rgba(255, 157, 154, 0.12);
+  --sweep: rgba(255, 255, 255, 0.05);
+  --shimmer-hi: #ececf1;
   --red-body: #e88f8c;
   --red-btn: #ef6461;
   --red-btn-line: #ff8b88;
