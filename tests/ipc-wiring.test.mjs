@@ -29,3 +29,10 @@ test('the local browser-file action is paired across preload and main', () => {
   assert.match(preloadSrc, /openFileInBrowser:\s*\(file\)\s*=>\s*ipcRenderer\.invoke\('file:openBrowser', file\)/);
   assert.match(mainSrc, /ipcMain\.handle\('file:openBrowser'/);
 });
+
+test('markdown asset pickers are paired across preload and main', () => {
+  assert.match(preloadSrc, /chooseFile:\s*\(kind\)\s*=>\s*ipcRenderer\.invoke\('file:choose', kind\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('file:choose'/);
+  assert.match(preloadSrc, /chooseFolder:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('folder:choose'\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('folder:choose'/);
+});
