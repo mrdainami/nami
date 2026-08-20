@@ -158,6 +158,10 @@ function toolRow(e) {
 }
 
 export function buildRows(events) {
+  // A row is keyed by its event's id. History readers may omit ids — an
+  // id-less event must still be its own row, never a collision on
+  // undefined (that folded a whole resumed conversation into one box).
+  events = (events || []).map((e, i) => (e && e.id == null ? { ...e, id: 'bk:' + i } : e));
   const rows = [];
   const byTool = new Map();  // toolId -> the row waiting for its result
   const byPerm = new Map();  // permissionId -> the approval row
