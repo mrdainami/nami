@@ -224,7 +224,9 @@ export function renderMarkdown(text, opts = {}) {
 
     if (!line.trim()) { closePara(); continue; }
 
-    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    // CommonMark allows up to 3 leading spaces — wrapped TUI transcripts
+    // (codex stores a 2-space hanging indent) depend on it.
+    const h = line.match(/^ {0,3}(#{1,6})\s+(.*)$/);
     if (h) { closePara(); const n = h[1].length; out.push(`<h${n}>${inl(h[2])}</h${n}>`); continue; }
 
     // Setext: an underline promotes the pending paragraph. A bare --- with
@@ -295,8 +297,8 @@ export function highlightMarkdown(text) {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return `<span class="hl-fence">${esc(line)}</span>`; }
     if (fence) return `<span class="hl-code">${esc(line)}</span>`;
 
-    const h = line.match(/^(#{1,6})(\s+)(.*)$/);
-    if (h) return `<span class="hl-h hl-h${h[1].length}"><span class="hl-mark">${h[1]}${h[2]}</span>${hlInline(h[3])}</span>`;
+    const h = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+    if (h) return `<span class="hl-h hl-h${h[2].length}"><span class="hl-mark">${h[1]}${h[2]}${h[3]}</span>${hlInline(h[4])}</span>`;
     if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) return `<span class="hl-mark">${esc(line)}</span>`;
 
     const quote = line.match(/^(\s*>\s?)(.*)$/);
