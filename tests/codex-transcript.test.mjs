@@ -72,3 +72,11 @@ test('the TUI hanging indent dedents; genuine indentation survives', () => {
   const [ev2] = parseCodexRollout([code]).events;
   assert.match(ev2.text, /\n  b\(\);\n/);
 });
+
+test('structured tool output flattens to text, never [object Object]', () => {
+  const rec = (output) => JSON.stringify({ type: 'response_item', timestamp: 'T', payload: { type: 'function_call_output', call_id: 'c1', output } });
+  const one = (output) => parseCodexRollout([rec(output)]).events[0];
+  assert.equal(one([{ type: 'output_text', text: 'hello' }, { type: 'output_text', text: 'world' }]).body, 'hello\nworld');
+  assert.equal(one({ output: 'plain wrapped' }).body, 'plain wrapped');
+  assert.ok(!/object Object/.test(one([{ a: 1 }, { b: 2 }]).body));
+});

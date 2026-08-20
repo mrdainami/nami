@@ -46,6 +46,23 @@ function codexRollout(threadId, home) {
   return null;
 }
 
+// Tool output in newer rollouts can be structured — MCP-style content part
+// arrays, {text}/{output}/{content} wrappers. Flatten to readable text;
+// String() on an array printed "[object Object]" into the card.
+function outText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) return v.map(outText).filter(Boolean).join('\n');
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (typeof v.output === 'string') return v.output;
+    if (typeof v.content === 'string') return v.content;
+    if (Array.isArray(v.content)) return outText(v.content);
+    try { return JSON.stringify(v, null, 1); } catch (_) { return ''; }
+  }
+  return String(v);
+}
+
 function isInjectedUserText(text) {
   return text.startsWith('<') || /^# AGENTS\.md instructions\b/.test(text);
 }
@@ -140,7 +157,7 @@ function parseCodexRollout(lines) {
       }
       case 'function_call_output':
       case 'custom_tool_call_output': {
-        const { body, truncated } = clip(String(p.output || ''));
+        const { body, truncated } = clip(outText(p.output));
         out.push({
           kind: 'tool_result', at, toolId: p.call_id || null,
           isError: /Process exited with code [1-9]/.test(body),
