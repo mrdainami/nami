@@ -61,3 +61,14 @@ test('codexRollout finds the file its thread id names', () => {
   assert.equal(back.events.length, 8);
   assert.equal(back.partial, false);
 });
+
+test('the TUI hanging indent dedents; genuine indentation survives', () => {
+  const wrapped = JSON.stringify({ type: 'response_item', timestamp: 'T', payload: { type: 'message', role: 'assistant', content: [{ output_text: '# Big title\n  ## Section\n  ### Sub\n\n  | a | b |\n  |---|---|' }] } });
+  const [ev] = parseCodexRollout([wrapped]).events;
+  assert.equal(ev.text, '# Big title\n## Section\n### Sub\n\n| a | b |\n|---|---|');
+
+  // a message whose continuation lines are NOT uniformly indented keeps its shape
+  const code = JSON.stringify({ type: 'response_item', timestamp: 'T', payload: { type: 'message', role: 'assistant', content: [{ output_text: 'look:\n```js\nif (a) {\n  b();\n}\n```' }] } });
+  const [ev2] = parseCodexRollout([code]).events;
+  assert.match(ev2.text, /\n  b\(\);\n/);
+});
