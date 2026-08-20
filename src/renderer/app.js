@@ -457,6 +457,9 @@ function showScene(name) {
   // open:<abs path> — pin any file as a tile, which is how a new viewer kind
   // gets screenshotted without a folder open and a tree to click through.
   if (what === 'open' && step) return openFile(step, { pin: true });
+  // peek:<abs path> — the floating file sheet, used for controls that live in
+  // the peek head rather than on a pinned tile.
+  if (what === 'peek' && step) return openFile(step);
   // The folder-first card asks where a session should run when no folder is
   // open. :empty shoots the first-run face (no recents on file).
   if (what === 'folder-first') {
