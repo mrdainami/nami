@@ -1371,7 +1371,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .cd-md > *:first-child { margin-top: 0; }
 .cd-md > *:last-child { margin-bottom: 0; }
 .cd-md p, .cd-md ul, .cd-md ol { margin: 0 0 0.55em; }
-.cd-md h1, .cd-md h2, .cd-md h3, .cd-md h4 { margin: 0.6em 0 0.35em; font-size: 1.05em; }
+.cd-md h1, .cd-md h2, .cd-md h3, .cd-md h4, .cd-md h5, .cd-md h6 { margin: 0.7em 0 0.35em; font-weight: 700; }
+.cd-md h1 { font-size: 1.55em; border-bottom: 1px dashed var(--dash); padding-bottom: 0.15em; }
+.cd-md h2 { font-size: 1.35em; }
+.cd-md h3 { font-size: 1.18em; }
+.cd-md h4, .cd-md h5, .cd-md h6 { font-size: 1.05em; }
+.cd-md blockquote {
+  margin: 0 0 0.55em; padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--dash-dark); color: var(--muted);
+}
+.cd-md blockquote > :last-child { margin-bottom: 0; }
 .cd-md ul, .cd-md ol { padding-left: 1.4em; }
 .cd-md code {
   background: var(--paper-3); border: 1px solid var(--dash);
