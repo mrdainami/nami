@@ -284,3 +284,32 @@ test('events without ids never collide — each still gets its own row', () => {
   assert.equal(new Set(ids).size, 3, 'ids must be unique');
   assert.ok(ids.every((id) => id != null), 'no undefined ids');
 });
+
+test('turn footer math comes only from what the events carry', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', at: 1000, text: 'go' },
+    { kind: 'assistant', id: 'a1', at: 1800, text: 'ok' },
+    { kind: 'turn_end', id: 'e9', at: 9000, durationMs: 8000, tokens: 1200 },
+  ]);
+  const end = rows.find((r) => r.kind === 'turn_end');
+  assert.equal(end.tokPerSec, 150, '1200 tok over 8s');
+  assert.equal(end.ttftMs, 800, 'first reply at minus user at');
+
+  const bare = buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'assistant', id: 'a1', text: 'ok' },
+    { kind: 'turn_end', id: 'e9', durationMs: 0, tokens: 0 },
+  ]).find((r) => r.kind === 'turn_end');
+  assert.equal(bare.tokPerSec, undefined, 'no invented stats');
+  assert.equal(bare.ttftMs, undefined);
+});
+
+test('turn footer timestamps accept ISO strings', () => {
+  const end = buildRows([
+    { kind: 'user', id: 'u1', at: '2026-08-20T10:00:00.000Z', text: 'go' },
+    { kind: 'thinking', id: 't1', at: '2026-08-20T10:00:01.500Z', text: 'hm' },
+    { kind: 'turn_end', id: 'e9', durationMs: 4000, tokens: 100 },
+  ]).find((r) => r.kind === 'turn_end');
+  assert.equal(end.ttftMs, 1500);
+  assert.equal(end.tokPerSec, 25);
+});

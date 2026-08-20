@@ -330,6 +330,8 @@ function renderRow(ctx, row) {
     // than it informs. Duration and tokens are true per turn; they stay.
     const meter = [`done in ${row.duration}`];
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
+    if (row.tokPerSec) meter.push(`${row.tokPerSec} tok/s`);
+    if (row.ttftMs != null) meter.push(`first token ${(row.ttftMs / 1000).toFixed(1)}s`);
     el.innerHTML = `<span class="cd-meter">${esc(meter.join(' · '))}</span>`;
     return el;
   }

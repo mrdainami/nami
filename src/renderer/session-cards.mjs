@@ -35,6 +35,7 @@ function short(s, n) {
   return text.length > n ? text.slice(0, n - 1) + '…' : text;
 }
 function baseName(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || ''; }
+function atMs(v) { if (typeof v === 'number' && v > 0) return v; const n = Date.parse(v); return Number.isFinite(n) ? n : null; }
 function lineCount(s) { return String(s == null ? '' : s) ? String(s).split('\n').length : 0; }
 function nLines(n) { return `${n} line${n === 1 ? '' : 's'}`; }
 
@@ -166,6 +167,8 @@ export function buildRows(events) {
   const byTool = new Map();  // toolId -> the row waiting for its result
   const byPerm = new Map();  // permissionId -> the approval row
   let turnFiles = [];        // files edited since the last meter, for its chips
+  let turnUserAt = null;     // when the turn's prompt landed
+  let turnFirstReplyAt = null; // first assistant/thinking after it
 
   // A sub-agent's turns belong under the Task row that spawned it, folded —
   // the card shows one line, expandable, not the sub-agent's whole life
@@ -183,10 +186,12 @@ export function buildRows(events) {
     switch (e.kind) {
       case 'user':
         rows.push({ kind: 'user', id: e.id, at: e.at, text: e.text, command: !!e.command });
+        turnUserAt = atMs(e.at); turnFirstReplyAt = null;
         break;
 
       case 'assistant':
       case 'thinking':
+        if (turnFirstReplyAt == null) turnFirstReplyAt = atMs(e.at);
         push(e, { kind: e.kind, id: e.id, at: e.at, text: e.text });
         break;
 
@@ -274,15 +279,28 @@ export function buildRows(events) {
         rows.push({ kind: 'error', id: e.id, at: e.at, text: e.message });
         break;
 
-      case 'turn_end':
-        rows.push({
+      case 'turn_end': {
+        const tokens = Number(e.tokens) || 0;
+        const dur = Number(e.durationMs) || 0;
+        const row = {
           kind: 'turn_end', id: e.id, at: e.at,
           duration: fmtDuration(e.durationMs),
-          tokens: Number(e.tokens) || 0,
+          tokens,
           files: turnFiles,
-        });
+        };
+        // stats only from what the events actually carry — never invented
+        if (tokens > 0 && dur > 0) {
+          const tps = tokens / (dur / 1000);
+          row.tokPerSec = tps >= 10 ? Math.round(tps) : Math.round(tps * 10) / 10;
+        }
+        if (turnUserAt != null && turnFirstReplyAt != null && turnFirstReplyAt >= turnUserAt) {
+          row.ttftMs = turnFirstReplyAt - turnUserAt;
+        }
+        rows.push(row);
         turnFiles = [];
+        turnUserAt = null; turnFirstReplyAt = null;
         break;
+      }
 
       // init and status shape the tile (badge, composer, commands), not the
       // list — app.js reads them before the rows are built.
