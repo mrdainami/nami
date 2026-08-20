@@ -50,6 +50,19 @@ function isInjectedUserText(text) {
   return text.startsWith('<') || /^# AGENTS\.md instructions\b/.test(text);
 }
 
+// The TUI stores wrapped messages with a 2-space hanging indent on every
+// continuation line. When the indent is uniform across all of them it is
+// display wrapping, not content — strip it. Anything non-uniform (real code
+// indentation, nested lists) is left exactly as stored.
+function dedentHangingWrap(text) {
+  const lines = String(text).split('\n');
+  if (lines.length < 2) return text;
+  const rest = lines.slice(1).filter((l) => l.trim());
+  if (!rest.length || /^\s/.test(lines[0])) return text;
+  if (!rest.every((l) => l.startsWith('  ') && !l.startsWith('   '))) return text;
+  return [lines[0], ...lines.slice(1).map((l) => (l.trim() ? l.slice(2) : l))].join('\n');
+}
+
 function blockTexts(content) {
   const out = [];
   for (const b of Array.isArray(content) ? content : []) {
@@ -85,7 +98,7 @@ function parseCodexRollout(lines) {
 
     switch (p.type) {
       case 'message': {
-        const text = blockTexts(p.content).join('\n').trim();
+        const text = dedentHangingWrap(blockTexts(p.content).join('\n').trim());
         if (!text) break;
         if (p.role === 'user' && !isInjectedUserText(text)) out.push({ kind: 'user', at, text });
         else if (p.role === 'assistant') out.push({ kind: 'assistant', at, text });
