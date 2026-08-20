@@ -5,6 +5,43 @@
 const IMAGE_EXT = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
 const VIDEO_EXT = /\.(?:m4v|mov|mp4|ogv|webm)(?:[?#].*)?$/i;
 
+let modulePromise;
+let stylePromise;
+
+function loadEditorStyle() {
+  if (stylePromise) return stylePromise;
+  stylePromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('link[data-nami-markdown-editor]');
+    if (existing) {
+      if (existing.dataset.loaded === 'true' || existing.sheet) resolve();
+      else {
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Could not load Markdown editor styles.')), { once: true });
+      }
+      return;
+    }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './vendor/markdown-editor.css';
+    link.dataset.namiMarkdownEditor = '';
+    link.addEventListener('load', () => { link.dataset.loaded = 'true'; resolve(); }, { once: true });
+    link.addEventListener('error', () => reject(new Error('Could not load Markdown editor styles.')), { once: true });
+    document.head.appendChild(link);
+  });
+  return stylePromise;
+}
+
+export async function loadMarkdownEditor() {
+  modulePromise ||= import('./vendor/markdown-editor.mjs');
+  const [editorModule] = await Promise.all([modulePromise, loadEditorStyle()]);
+  return editorModule;
+}
+
+export async function mountMarkdownEditor(root, markdown, options) {
+  const { createNamiMarkdownEditor } = await loadMarkdownEditor();
+  return createNamiMarkdownEditor(root, markdown, options);
+}
+
 export function richMarkdownPath(filePath) {
   return /\.(?:md|markdown)$/i.test(String(filePath || ''));
 }

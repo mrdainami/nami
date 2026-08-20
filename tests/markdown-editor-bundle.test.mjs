@@ -24,3 +24,12 @@ test('Read mode does not statically import the rich editor bundle', () => {
   assert.doesNotMatch(app, /^import .*vendor\/markdown-editor/m,
     'the rich bundle must be loaded dynamically only when Edit opens');
 });
+
+test('the adapter shares one lazy import and one stylesheet across cards', () => {
+  const adapter = fs.readFileSync(path.join(root, 'src/renderer/markdown-rich.mjs'), 'utf8');
+  assert.match(adapter, /import\('\.\/vendor\/markdown-editor\.mjs'\)/);
+  assert.match(adapter, /markdown-editor\.css/);
+  assert.match(adapter, /modulePromise/);
+  assert.match(adapter, /stylePromise/);
+  assert.match(adapter, /export async function mountMarkdownEditor/);
+});
