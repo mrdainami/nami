@@ -113,6 +113,11 @@ contextBridge.exposeInMainWorld('dainami', {
   cardsWatch: (args) => ipcRenderer.invoke('cards:watch', args),
   onSessionEvents: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:events', h); return () => ipcRenderer.removeListener('session:events', h); },
 
+  // Main found the conversation a terminal-run agent tile landed in, by
+  // polling the agent's store after spawn — { id, sid }. The renderer saves
+  // it as acpSid so the next launch resumes it.
+  onTermSessionId: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:session-id', h); return () => ipcRenderer.removeListener('term:session-id', h); },
+
   // claude worked out a name for this conversation — { id, title }
   onSessionTitle: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:title', h); return () => ipcRenderer.removeListener('session:title', h); },
   // Claude moved this tile to a different conversation (the user ran /resume).
