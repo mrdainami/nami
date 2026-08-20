@@ -41,6 +41,13 @@ body[data-theme="graphite"] {
   --red-bg: rgba(239, 100, 97, 0.16);
   --red-line: #ef6461;
   --red-ink: #ff9d9a;
+  --tok-kw: #8fb2ee;
+  --tok-str: #a3cf9b;
+  --tok-num: #e6c05c;
+  --tok-com: #b4b6c4;
+  --tok-key: #d7bde8;
+  --tok-add-ink: #a3cf9b;  --tok-add-bg: rgba(163, 207, 155, 0.12);
+  --tok-del-ink: #ff9d9a;  --tok-del-bg: rgba(255, 157, 154, 0.12);
   --red-body: #e88f8c;
   --red-btn: #ef6461;
   --red-btn-line: #ff8b88;

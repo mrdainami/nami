@@ -9,6 +9,8 @@
 // No dependency and no HTML passthrough: everything is escaped first, so a file
 // containing <script> renders as the literal characters.
 
+import { highlightCode } from './md-code.mjs';
+
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -17,7 +19,7 @@ const esc = (s) => String(s == null ? '' : s)
 // deliberately absent: snake_case identifiers are far more common than _em_.
 // The bare-URL branch comes last so `[text](url)` and code spans win first, and
 // it stops before the punctuation that ends a sentence around a link.
-const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*\*[^*\n]+\*\*\*)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 // ---- where a link in the Read view points -----------------------------------
 // Pure: hand it an href and the path of the doc it came from, get back what the
@@ -67,13 +69,14 @@ export function docHrefTarget(href, docPath) {
 // Emphasis recurses into its own content — `**[title](url)**` is a bold LINK
 // (found literal in a real Notion reply) — through a fresh regex each level:
 // recursing through one global RegExp would clobber the outer lastIndex.
-const INLINE_R = /(`[^`\n]+`)|(==[^=\n]+==)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE_R = /(`[^`\n]+`)|(==[^=\n]+==)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*\*[^*\n]+\*\*\*)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 function inlineEscR(s, resolve) {
-  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, mark, img, link, strong, del, em, bare) => {
+  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, mark, img, link, both, strong, del, em, bare) => {
     let cut;
     if (code) return `<code>${code.slice(1, -1)}</code>`;
     if (mark) return `<mark>${inlineEscR(mark.slice(2, -2), resolve)}</mark>`;
+    if (both) return `<strong><em>${inlineEscR(both.slice(3, -3), resolve)}</em></strong>`;
     if (img) {
       cut = img.lastIndexOf('](');
       const src = img.slice(cut + 2, -1);
@@ -211,7 +214,7 @@ export function renderMarkdown(text, opts = {}) {
     if (fence) {
       const closeHit = line.match(/^\s*(```|~~~)\s*$/);
       if (closeHit && closeHit[1] === fence) {
-        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${esc(fenceBuf.join('\n'))}</code></pre>`);
+        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
         fence = null; fenceBuf = []; fenceLang = '';
       } else fenceBuf.push(line);
       continue;
@@ -221,7 +224,9 @@ export function renderMarkdown(text, opts = {}) {
 
     if (!line.trim()) { closePara(); continue; }
 
-    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    // CommonMark allows up to 3 leading spaces — wrapped TUI transcripts
+    // (codex stores a 2-space hanging indent) depend on it.
+    const h = line.match(/^ {0,3}(#{1,6})\s+(.*)$/);
     if (h) { closePara(); const n = h[1].length; out.push(`<h${n}>${inl(h[2])}</h${n}>`); continue; }
 
     // Setext: an underline promotes the pending paragraph. A bare --- with
@@ -261,7 +266,7 @@ export function renderMarkdown(text, opts = {}) {
 
     para.push(line.trim());
   }
-  if (fence) out.push(`<pre class="md-pre"><code>${esc(fenceBuf.join('\n'))}</code></pre>`);
+  if (fence) out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
   closePara();
   return out.join('\n');
 }
@@ -270,10 +275,11 @@ export function renderMarkdown(text, opts = {}) {
 // Every character survives, markers included, so the layer lines up
 // glyph-for-glyph with the textarea sitting on top of it.
 function hlInline(raw) {
-  return esc(raw).replace(INLINE, (m, code, highlight, link, strong, del, em, bare) => {
+  return esc(raw).replace(INLINE, (m, code, highlight, link, both, strong, del, em, bare) => {
     const mark = (t) => `<span class="hl-mark">${t}</span>`;
     if (code) return `<span class="hl-code">${mark('`')}${code.slice(1, -1)}${mark('`')}</span>`;
     if (highlight) return `<span class="hl-highlight">${mark('==')}${highlight.slice(2, -2)}${mark('==')}</span>`;
+    if (both) return `<span class="hl-strong"><span class="hl-em">${mark('***')}${both.slice(3, -3)}${mark('***')}</span></span>`;
     if (link) {
       const cut = link.lastIndexOf('](');
       return `${mark('[')}<span class="hl-link">${link.slice(1, cut)}</span>${mark(link.slice(cut))}`;
@@ -291,8 +297,8 @@ export function highlightMarkdown(text) {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return `<span class="hl-fence">${esc(line)}</span>`; }
     if (fence) return `<span class="hl-code">${esc(line)}</span>`;
 
-    const h = line.match(/^(#{1,6})(\s+)(.*)$/);
-    if (h) return `<span class="hl-h hl-h${h[1].length}"><span class="hl-mark">${h[1]}${h[2]}</span>${hlInline(h[3])}</span>`;
+    const h = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+    if (h) return `<span class="hl-h hl-h${h[2].length}"><span class="hl-mark">${h[1]}${h[2]}${h[3]}</span>${hlInline(h[4])}</span>`;
     if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) return `<span class="hl-mark">${esc(line)}</span>`;
 
     const quote = line.match(/^(\s*>\s?)(.*)$/);
@@ -305,6 +311,19 @@ export function highlightMarkdown(text) {
   });
   // a trailing newline needs something after it or the layer scrolls short
   return out.join('\n') + '\n';
+}
+
+// Plain text with its links made real — for rows that must never render as
+// markdown (the user's own words) but whose URLs and paths should still
+// click. Escape-first like everything else; a path needs two segments so
+// "either/or" stays prose.
+export function linkifyPlain(text) {
+  return esc(text).replace(
+    /(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])|((?:~|\.{0,2})?\/[\w.@-]+(?:\/[\w.@-]+)+(?::\d+)?)/g,
+    (m, url, p) => (url
+      ? `<a href="${url}">${url}</a>`
+      : `<a class="cd-path" data-path="${p}">${p}</a>`),
+  );
 }
 
 export function isMarkdownPath(p) { return /\.(md|markdown|mdx)$/i.test(String(p || '')); }

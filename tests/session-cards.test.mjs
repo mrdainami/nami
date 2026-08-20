@@ -272,3 +272,15 @@ test('a turn ended by the next user turn folds too — SDK transcripts carry no 
   assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'assistant', 'user', 'tool']);
   assert.equal(rows[1].duration, '', 'no meter to borrow a duration from');
 });
+
+test('events without ids never collide — each still gets its own row', () => {
+  const rows = buildRows([
+    { kind: 'user', text: 'hi' },
+    { kind: 'assistant', text: 'one' },
+    { kind: 'assistant', text: 'two' },
+  ]);
+  assert.equal(rows.length, 3);
+  const ids = rows.map((r) => r.id);
+  assert.equal(new Set(ids).size, 3, 'ids must be unique');
+  assert.ok(ids.every((id) => id != null), 'no undefined ids');
+});

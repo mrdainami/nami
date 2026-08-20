@@ -3,7 +3,7 @@
 // zero-dependency, escape-first, no HTML passthrough.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMarkdown } from '../src/renderer/md.mjs';
+import { renderMarkdown, linkifyPlain } from '../src/renderer/md.mjs';
 
 const FIXTURE = [
   '---',
@@ -96,10 +96,12 @@ test('images render through the resolver; without one they stay links', () => {
   assert.match(renderMarkdown('![dot](data:image/gif;base64,R0lGOD)'), /<img src="data:image\/gif;base64,R0lGOD" alt="dot">/);
 });
 
-test('a fence keeps its language as a corner label and its body escaped', () => {
+test('a fence keeps its language as a corner label, tokens classed, body escaped', () => {
   const html = renderMarkdown(FIXTURE);
-  assert.match(html, /<pre class="md-pre"><span class="md-lang">js<\/span><code>const x = 1;<\/code><\/pre>/);
+  assert.match(html, /<pre class="md-pre"><span class="md-lang">js<\/span><code><span class="tok-kw">const<\/span> x = <span class="tok-num">1<\/span>;<\/code><\/pre>/);
   assert.match(renderMarkdown('```\n<script>alert(1)</script>\n```'), /&lt;script&gt;/);
+  // a known language must escape too — colouring never reintroduces markup
+  assert.match(renderMarkdown('```js\nconst s = "<script>";\n```'), /&lt;script&gt;/);
 });
 
 test('hostile content in new constructs is escaped, never markup', () => {
@@ -141,4 +143,36 @@ test('a standalone video or file link becomes a lightweight linked block', () =>
 test('a --- under a paragraph is a setext h2, but alone it is still a rule', () => {
   assert.match(renderMarkdown('Title\n---'), /<h2>Title<\/h2>/);
   assert.match(renderMarkdown('para\n\n---\n\nafter'), /<hr \/>/);
+});
+
+test('triple-star bold-italic nests, stars never leak', () => {
+  const html = renderMarkdown('a ***both*** b');
+  assert.match(html, /<strong><em>both<\/em><\/strong>/);
+  assert.ok(!/\*/.test(html), 'no literal stars in output');
+});
+
+test('triple-star inside a code span stays literal', () => {
+  const html = renderMarkdown('`***x***`');
+  assert.match(html, /<code>\*\*\*x\*\*\*<\/code>/);
+});
+
+test('wrapped text: up to 3 leading spaces keep block meaning (CommonMark)', () => {
+  // codex's TUI stores continuation lines with a 2-space hanging indent
+  const html = renderMarkdown('# Big title\n  ## Section\n   ### Sub\n  ---\n  Setext\n  ===');
+  assert.match(html, /<h1>Big title<\/h1>/);
+  assert.match(html, /<h2>Section<\/h2>/);
+  assert.match(html, /<h3>Sub<\/h3>/);
+  assert.match(html, /<hr \/>/);
+  assert.match(html, /<h1>Setext<\/h1>/);
+  // 4+ spaces is not a heading — that is indented content
+  assert.ok(!/<h2>deep<\/h2>/.test(renderMarkdown('    ## deep')));
+});
+
+test('linkifyPlain: plain text stays plain, urls and paths become anchors', () => {
+  assert.equal(linkifyPlain('no links here'), 'no links here');
+  assert.match(linkifyPlain('see https://x.dev/a?b=1 now'), /<a href="https:\/\/x.dev\/a\?b=1">https:\/\/x.dev\/a\?b=1<\/a>/);
+  assert.match(linkifyPlain('open /tmp/test.js please'), /<a class="cd-path" data-path="\/tmp\/test.js">\/tmp\/test.js<\/a>/);
+  assert.match(linkifyPlain('home ~/notes/todo.md'), /data-path="~\/notes\/todo.md"/);
+  assert.equal(linkifyPlain('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
+  assert.ok(!/<a/.test(linkifyPlain('either/or choices')), 'bare word pairs are not paths');
 });
