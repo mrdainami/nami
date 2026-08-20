@@ -24,3 +24,8 @@ test('every library channel the preload invokes has a registered handler', () =>
     );
   }
 });
+
+test('the local browser-file action is paired across preload and main', () => {
+  assert.match(preloadSrc, /openFileInBrowser:\s*\(file\)\s*=>\s*ipcRenderer\.invoke\('file:openBrowser', file\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('file:openBrowser'/);
+});

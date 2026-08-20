@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('dainami', {
   saveFile: (args) => ipcRenderer.invoke('file:save', args),
   statPath: (args) => ipcRenderer.invoke('path:stat', args),
   revealFile: (file) => ipcRenderer.invoke('file:reveal', file),
+  openFileInBrowser: (file) => ipcRenderer.invoke('file:openBrowser', file),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   readClipboard: () => ipcRenderer.invoke('clipboard:read'),
   transcribe: (args) => ipcRenderer.invoke('stt:transcribe', args),

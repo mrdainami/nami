@@ -48,6 +48,7 @@ const { checkForUpdate, updateStatus } = require('./update-check');
 const { sendPing } = require('./ping');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
 const { parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
+const { browserFileUrl } = require('./browser-file');
 const stt = require('./stt');
 
 // nami-doc:// — how a viewed HTML page and its neighbouring images are served.
@@ -1179,6 +1180,16 @@ ipcMain.handle('file:read', (_e, file) => {
   } catch (e) { return { kind: 'text', name: baseName(file), rows: [{ n: 1, t: 'Could not read: ' + e.message }] }; }
 });
 ipcMain.handle('file:reveal', (_e, file) => { try { shell.showItemInFolder(file); } catch (_) {} });
+ipcMain.handle('file:openBrowser', async (_e, file) => {
+  const url = browserFileUrl(file);
+  if (!url) return { ok: false, error: 'Only saved HTML files can open in the browser.' };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : 'Could not open the browser.' };
+  }
+});
 // Workspace file verbs: guarded in fs-actions.js to stay inside the project root.
 ipcMain.handle('fs:newFile', (_e, a) => fsActions.newFile(a || {}));
 ipcMain.handle('fs:newFolder', (_e, a) => fsActions.newFolder(a || {}));

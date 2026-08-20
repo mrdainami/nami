@@ -601,7 +601,7 @@ body[data-glass] .setup-box, body[data-glass] .peek-box {
   box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.32);
 }
 body[data-glass] .peek-head { border-bottom: 1px solid var(--dash); background: none; border-radius: 24px 24px 0 0; }
-body[data-glass] .peek-head .pk-pin:focus-visible, body[data-glass] .peek-head .pk-x:focus-visible { outline-color: var(--gl-accent); }
+body[data-glass] .peek-head .pk-browser:focus-visible, body[data-glass] .peek-head .pk-pin:focus-visible, body[data-glass] .peek-head .pk-x:focus-visible { outline-color: var(--gl-accent); }
 body[data-glass] .modal-head { border-bottom: 1px solid var(--dash); }
 body[data-glass] .modal-foot { border-top: 1px solid var(--dash); }
 body[data-glass] .modal-x { border-radius: 999px; }
