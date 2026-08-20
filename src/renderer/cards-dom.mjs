@@ -8,7 +8,7 @@
 // made to run HTML), URLs open in the browser, bare paths are statted before
 // they light up, and fenced code scrolls inside its own block.
 
-import { renderMarkdown, linkifyPlain } from './md.mjs';
+import { renderMarkdown, renderMarkdownStream, linkifyPlain } from './md.mjs';
 import { pixIcon, iconKeyFor, iconSvg } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -108,6 +108,31 @@ function proseHtml(text) {
   return el;
 }
 
+// Streaming prose: one child element per markdown block, and on an append
+// only the live tail is repainted — frozen blocks keep their DOM (and the
+// reader's selection) untouched. While streaming, fences stay plain; the
+// settle pass re-renders once with colours.
+function proseInto(host, text, streaming) {
+  let el = q('.cd-md', host);
+  if (!el) { el = document.createElement('div'); el.className = 'cd-md'; host.appendChild(el); }
+  const src = String(text || '');
+  const prev = (!streaming && el._mdStreaming) ? null : (el._md || null); // settle = full re-render
+  const r = renderMarkdownStream(src, prev && prev.state, streaming ? { streaming: true } : {});
+  const keep = prev ? Math.min(r.stableCount, el.children.length) : 0;
+  while (el.children.length > keep) el.removeChild(el.lastElementChild);
+  for (let i = keep; i < r.blocks.length; i++) {
+    const w = document.createElement('div');
+    w.className = 'md-b';
+    w.innerHTML = r.blocks[i].html;
+    linkifyPaths(w);
+    el.appendChild(w);
+  }
+  el._md = { state: r.state };
+  el._mdStreaming = !!streaming;
+  el._mdText = src;
+  return el;
+}
+
 // ---- diffs -----------------------------------------------------------------
 // Lessons paid for in screenshots: block spans must never also be joined with
 // newlines inside a pre-wrap container (every line doubles), a diff opens as
@@ -177,14 +202,14 @@ function renderRow(ctx, row) {
 
   if (row.kind === 'assistant') {
     el.dataset.n = String(row.text || '').length;
-    el.appendChild(proseHtml(row.text));
+    proseInto(el, row.text, row.streaming);
     return el;
   }
 
   if (row.kind === 'thinking') {
     // Collapsed by default: thought is context, not content.
     el.innerHTML = `<button class="cd-th-head">⋯ Thought <span class="cd-th-arr">▸</span></button><div class="cd-th-body" hidden></div>`;
-    q('.cd-th-body', el).appendChild(proseHtml(row.text));
+    proseInto(q('.cd-th-body', el), row.text, row.streaming);
     q('.cd-th-head', el).onclick = () => {
       const open = el.classList.toggle('open');
       q('.cd-th-body', el).hidden = !open;
@@ -327,12 +352,17 @@ function updateRow(ctx, el, row) {
     return;
   }
   // Streaming prose: an adapter re-emits the same row id with more text.
+  // Only the live tail repaints; a settle (streaming flag drops) re-renders
+  // once with colours.
   if (row.kind === 'assistant' || row.kind === 'thinking') {
     const n = String(row.text || '').length;
-    if (String(el.dataset.n || '') === String(n)) return;
-    el.dataset.n = n;
     const host = row.kind === 'assistant' ? el : q('.cd-th-body', el);
-    if (host) { const old = q('.cd-md', host); if (old) old.remove(); host.appendChild(proseHtml(row.text)); }
+    if (!host) return;
+    const md = q('.cd-md', host);
+    const settling = md && md._mdStreaming && !row.streaming;
+    if (!settling && String(el.dataset.n || '') === String(n)) return;
+    el.dataset.n = n;
+    proseInto(host, row.text, row.streaming);
     return;
   }
   if (row.kind !== 'tool') return;
@@ -717,16 +747,45 @@ export function buildCards(ctx) {
   // Rows only ever append, and a row mutates in place when its state moves, so
   // a full rebuild is reserved for a reset — it would otherwise close every
   // expanded row and throw away the scroll position.
-  function feed(rows, full) {
-    if (full) { list.innerHTML = ''; rowEls.clear(); }
+  // Streaming deltas coalesce to one paint per animation frame — a burst of
+  // chunk events costs one repaint, and only of the live tail row.
+  const frameQueue = new Map();
+  let framePending = false;
+  function flushFrames() {
+    framePending = false;
+    if (!frameQueue.size) return;
     const stick = nearBottom();
+    for (const [, job] of frameQueue) updateRow(ctx, job.el, job.row);
+    frameQueue.clear();
+    if (stick) scrollToEnd(false);
+  }
+
+  function feed(rows, full) {
+    if (full) { list.innerHTML = ''; rowEls.clear(); frameQueue.clear(); }
+    const stick = nearBottom();
+    // while the turn runs, the last prose row is the live tail: it streams
+    let tailStream = null;
+    if (workingOn) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const k = rows[i] && rows[i].kind;
+        if (k === 'assistant' || k === 'thinking') { tailStream = rows[i].id; break; }
+        if (k === 'user' || k === 'turn_end') break; // the tail belongs to an older turn
+      }
+    }
     const live = new Set(rows.map((r) => r.id));
     for (const [id, rowEl] of rowEls) {
-      if (!live.has(id)) { rowEl.remove(); rowEls.delete(id); }
+      if (!live.has(id)) { rowEl.remove(); rowEls.delete(id); frameQueue.delete(id); }
     }
     for (const row of rows) {
+      if (row.id === tailStream) row.streaming = true;
       const seen = rowEls.get(row.id);
-      if (seen) { updateRow(ctx, seen, row); continue; }
+      if (seen) {
+        if (row.streaming && (row.kind === 'assistant' || row.kind === 'thinking')) {
+          frameQueue.set(row.id, { el: seen, row });
+          if (!framePending) { framePending = true; requestAnimationFrame(flushFrames); }
+        } else updateRow(ctx, seen, row);
+        continue;
+      }
       const rowEl = renderRow(ctx, row);
       rowEls.set(row.id, rowEl);
       list.appendChild(rowEl);
@@ -798,8 +857,17 @@ export function buildCards(ctx) {
   // the only real path was the Escape key with focus in the composer. The
   // way out is now clickable too.
   q('.cw-esc', workEl).onclick = () => { if (ctx.onInterrupt) ctx.onInterrupt(); };
-  let workTimer = null, workStart = 0;
+  let workTimer = null, workStart = 0, workingOn = false;
+  // when the turn ends, streamed rows settle: one full re-render with colours
+  function settleStreams() {
+    for (const [, rowEl] of rowEls) {
+      const md = q('.cd-md', rowEl);
+      if (md && md._mdStreaming) proseInto(md.parentElement, md._mdText, false);
+    }
+  }
   function setWorking(on, tokens, phase) {
+    workingOn = !!on;
+    if (!on) { flushFrames(); settleStreams(); }
     if (on) {
       const ph = typeof phase === 'string' && phase
         ? phase.charAt(0).toUpperCase() + phase.slice(1) + '…'

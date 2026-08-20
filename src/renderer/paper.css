@@ -1389,6 +1389,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-left: 3px solid var(--dash-dark); color: var(--muted);
 }
 .cd-md blockquote > :last-child { margin-bottom: 0; }
+/* streaming prose wraps each block in .md-b; margins collapse through the
+   wrapper, but the first/last trims must reach inside it */
+.cd-md > .md-b:first-child > :first-child { margin-top: 0; }
+.cd-md > .md-b:last-child > :last-child { margin-bottom: 0; }
 /* The desk is drag-surface (user-select: none on body), but a card's
    conversation is reading material — text must highlight and copy.
    .cd-list is the conversation; .cd-body is a tool-result snippet. */
