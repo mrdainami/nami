@@ -37,6 +37,7 @@ const { deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies 
 const { writePointers, pointerStatus, linkNative, hasForeignSkillsSection, POINTER_FILE } = require('./pointer.js');
 const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
+const { fmtSize, listDirectory, readTree } = require('./workspace-tree');
 const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
@@ -255,32 +256,6 @@ function readFrontmatter(file) {
     return out;
   } catch (_) { return {}; }
 }
-
-const IGNORE = new Set(['node_modules', '.git', '.DS_Store', 'dist', 'build', '.next', '.cache']);
-function readTree(dir, depth, maxDepth) {
-  const rows = [];
-  let entries = [];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return rows; }
-  entries = entries
-    .filter((e) => !IGNORE.has(e.name) && !(e.name.startsWith('.') && e.name !== '.claude'))
-    .sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name))
-    .slice(0, 40);
-  for (const e of entries) {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      let count = 0;
-      try { count = fs.readdirSync(full).length; } catch (_) {}
-      rows.push({ name: e.name, kind: 'dir', pad: depth, meta: count + (count === 1 ? ' item' : ' items') });
-      if (depth < maxDepth - 1) rows.push(...readTree(full, depth + 1, maxDepth));
-    } else {
-      let size = '';
-      try { const s = fs.statSync(full); size = fmtSize(s.size); } catch (_) {}
-      rows.push({ name: e.name, kind: 'file', pad: depth, meta: size });
-    }
-  }
-  return rows;
-}
-function fmtSize(n) { if (n < 1024) return n + ' B'; if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB'; return (n / 1048576).toFixed(1) + ' MB'; }
 
 function rememberFolder(folder) {
   state.recentFolders = rememberFolderIn(state.recentFolders || [], folder, Date.now());
@@ -1019,24 +994,13 @@ ipcMain.handle('folder:rescan', (_e, folder) => (folder && fs.existsSync(folder)
 ipcMain.handle('dir:list', (_e, arg) => {
   const dir = typeof arg === 'string' ? arg : arg.dir;
   const all = typeof arg === 'object' && !!arg.all;
-  try {
-    let entries = fs.readdirSync(dir, { withFileTypes: true })
-      .filter((e) => all ? e.name !== '.DS_Store'
-                        : !IGNORE.has(e.name) && !(e.name.startsWith('.') && e.name !== '.claude'))
-      .sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
-    return entries.map((e) => {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) { let c = 0; try { c = fs.readdirSync(full).length; } catch (_) {} return { name: e.name, path: full, kind: 'dir', meta: c + (c === 1 ? ' item' : ' items') }; }
-      let size = ''; try { size = fmtSize(fs.statSync(full).size); } catch (_) {}
-      return { name: e.name, path: full, kind: 'file', meta: size };
-    });
-    // null, not []: "this folder is gone" and "this folder is empty" are
-    // different answers, and the tree acts on the difference — a deleted folder's
-    // row is removed, an empty one is kept. Returning [] for both made
-    // onDirChanged's removal branch unreachable. Every other caller tolerates a
-    // null: one guards with `|| []`, the rest assign into S.tree, whose readers
-    // all begin `if (!children) return`.
-  } catch (_) { return null; }
+  // null, not []: "this folder is gone" and "this folder is empty" are
+  // different answers, and the tree acts on the difference — a deleted folder's
+  // row is removed, an empty one is kept. Returning [] for both made
+  // onDirChanged's removal branch unreachable. Every other caller tolerates a
+  // null: one guards with `|| []`, the rest assign into S.tree, whose readers
+  // all begin `if (!children) return`.
+  return listDirectory(dir, all);
 });
 ipcMain.handle('file:raw', (_e, file) => {
   try {
