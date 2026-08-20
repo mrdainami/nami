@@ -43,3 +43,9 @@ test('the trimmed editor preserves Nami highlight and colour markdown', () => {
   assert.match(entry, /label: 'Highlight'/);
   assert.match(entry, /label: 'Coral text'/);
 });
+
+test('the block menu omits image creation while existing Markdown images still render', () => {
+  const entry = fs.readFileSync(path.join(root, 'scripts/markdown-editor-entry.mjs'), 'utf8');
+  assert.match(entry, /addFeature\(imageBlock/);
+  assert.match(entry, /advancedGroup:\s*\{[^}]*image:\s*null/s);
+});

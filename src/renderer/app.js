@@ -15,7 +15,7 @@ import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
-import { mountMarkdownEditor, richMarkdownPath, relativeMarkdownPath, markdownAssetKind, markdownImageUrl } from './markdown-rich.mjs';
+import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
@@ -3633,13 +3633,7 @@ function mountEditor(p, rec) {
     : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
   wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
-    ${rich ? `<div class="ed-rich-tools"><button class="btn ed-add" type="button" aria-expanded="false">+ Add</button><span>Type / for blocks · select text to format</span>
-      <div class="ed-asset-pop" hidden>
-        <div class="ed-asset-types" role="group" aria-label="Attachment type"><button class="on" data-kind="image">Image</button><button data-kind="video">Video</button><button data-kind="link">File / link</button></div>
-        <label>Paste a URL or path<input class="ed-asset-input" placeholder="https://… or ./project/path" spellcheck="false"></label>
-        <small class="ed-asset-note">Local files are copied into ./assets so this note stays portable.</small>
-        <div class="ed-asset-actions"><span>or drop a file here</span><button class="btn ed-asset-browse" type="button">Browse…</button><button class="btn btn--go ed-asset-insert" type="button">Insert</button></div>
-      </div></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
+    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
@@ -3662,19 +3656,6 @@ function mountEditor(p, rec) {
     if (p.dirty) return;
     p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
   };
-  const prepareMarkdownAsset = async (source) => {
-    const raw = String(source || '').trim();
-    // Network/data links stay untouched. Local files go through main so a
-    // picked Desktop image cannot turn into a blocked ../../../ path.
-    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#')) return raw;
-    const result = await api.importMarkdownAsset({ documentPath: p.filePath, sourcePath: raw });
-    if (!result || !result.ok) {
-      toast((result && result.error) || 'Could not add that file.');
-      return null;
-    }
-    if (result.copied) toast('Copied ' + baseName(result.path) + ' into this note’s assets.');
-    return relativeMarkdownPath(p.filePath, result.path);
-  };
   const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
   const ensureRichEditor = async () => {
     if (!rich || disposed) return null;
@@ -3686,13 +3667,6 @@ function mountEditor(p, rec) {
     richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
     richLoading = mountMarkdownEditor(richRoot, p.text || '', {
       resolveImage,
-      onImageFile: async (file) => {
-        const filePath = api.droppedFilePath(file);
-        if (!filePath) return URL.createObjectURL(file);
-        const target = await prepareMarkdownAsset(filePath);
-        if (!target) throw new Error('Could not add that image.');
-        return target;
-      },
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
       onChange: (next) => {
@@ -3804,60 +3778,6 @@ function mountEditor(p, rec) {
       if (p.edMode === 'markdown' || (p.edMode === 'edit' && !rich)) ta.focus();
     };
   });
-  if (rich) {
-    const add = q('.ed-add', wrap), pop = q('.ed-asset-pop', wrap), input = q('.ed-asset-input', wrap);
-    let assetKind = 'image';
-    const closeAssets = () => { pop.hidden = true; add.setAttribute('aria-expanded', 'false'); };
-    const openAssets = () => { pop.hidden = false; add.setAttribute('aria-expanded', 'true'); setTimeout(() => input.focus(), 0); };
-    const setAssetKind = (kind) => {
-      assetKind = kind;
-      pop.querySelectorAll('[data-kind]').forEach((button) => button.classList.toggle('on', button.dataset.kind === kind));
-    };
-    const insertAsset = async () => {
-      const raw = input.value.trim();
-      if (!raw) { input.focus(); return; }
-      const target = await prepareMarkdownAsset(raw);
-      if (!target) { input.focus(); return; }
-      const encodedLabel = target.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'Open file';
-      let label = encodedLabel; try { label = decodeURIComponent(encodedLabel); } catch (_) {}
-      const detected = markdownAssetKind(target);
-      const safeLabel = label.replace(/[\[\]]/g, '');
-      const markdownTarget = target.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-      let markdown;
-      if (assetKind === 'image') markdown = `![${safeLabel}](${markdownTarget})`;
-      else if (assetKind === 'video' || detected === 'video') markdown = `\n\n[Video · ${safeLabel}](${markdownTarget})\n\n`;
-      else markdown = `[${safeLabel}](${markdownTarget})`;
-      const editor = await ensureRichEditor();
-      if (!editor) return;
-      if (assetKind === 'image') editor.insertImage(markdownTarget, safeLabel);
-      else editor.insertMarkdown(markdown, assetKind === 'link');
-      input.value = ''; closeAssets(); editor.focus();
-    };
-    add.onclick = (event) => { event.stopPropagation(); pop.hidden ? openAssets() : closeAssets(); };
-    pop.querySelectorAll('[data-kind]').forEach((button) => { button.onclick = () => setAssetKind(button.dataset.kind); });
-    q('.ed-asset-browse', pop).onclick = async () => {
-      const picked = await api.chooseFile(assetKind === 'link' ? 'file' : assetKind);
-      if (!picked) return;
-      input.value = picked; input.focus();
-    };
-    q('.ed-asset-insert', pop).onclick = insertAsset;
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') { event.preventDefault(); void insertAsset(); }
-      if (event.key === 'Escape') { event.preventDefault(); closeAssets(); add.focus(); }
-    });
-    pop.addEventListener('dragover', (event) => { event.preventDefault(); pop.classList.add('drag'); });
-    pop.addEventListener('dragleave', () => pop.classList.remove('drag'));
-    pop.addEventListener('drop', (event) => {
-      event.preventDefault(); pop.classList.remove('drag');
-      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-      const dropped = file && api.droppedFilePath(file);
-      if (!dropped) return;
-      input.value = dropped;
-      const detected = markdownAssetKind(dropped);
-      setAssetKind(detected === 'image' ? 'image' : detected === 'video' ? 'video' : 'link');
-    });
-    wrap.addEventListener('click', (event) => { if (!pop.hidden && !pop.contains(event.target) && event.target !== add) closeAssets(); });
-  }
   const edPath = q('.ed-path', wrap);
   if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
   bindBrowserButton(q('.ed-browser', wrap), p);

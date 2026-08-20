@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { newFile, newFolder, movePath, trashPath, renamePath, importPaths, importMarkdownAsset, isDescendant, duplicatePath } =
+const { newFile, newFolder, movePath, trashPath, renamePath, importPaths, isDescendant, duplicatePath } =
   require('../src/main/fs-actions.js');
 
 const ROOT = '/proj';
@@ -129,54 +129,6 @@ test('importPaths with nothing to import is a no-op, not a crash', async () => {
   const ops = fakeOps([]);
   const res = await importPaths({ root: ROOT, destDir: ROOT, srcPaths: [], ops });
   assert.equal(res.ok, false);
-});
-
-test('Markdown assets outside the note folder are copied into a portable assets folder', async () => {
-  const ops = fakeOps(['/proj/notes/note.md', '/Users/me/Desktop/diagram.png']);
-  const res = await importMarkdownAsset({
-    documentPath: '/proj/notes/note.md',
-    sourcePath: '/Users/me/Desktop/diagram.png',
-    ops,
-  });
-  assert.deepEqual(res, { ok: true, path: '/proj/notes/assets/diagram.png', copied: true });
-  assert.deepEqual(ops.calls.mkdirs, ['/proj/notes/assets']);
-  assert.deepEqual(ops.calls.copies, [['/Users/me/Desktop/diagram.png', '/proj/notes/assets/diagram.png']]);
-});
-
-test('Markdown assets already beside the note stay in place', async () => {
-  const ops = fakeOps(['/proj/notes/note.md', '/proj/notes/images/diagram.png']);
-  const res = await importMarkdownAsset({
-    documentPath: '/proj/notes/note.md',
-    sourcePath: './images/diagram.png',
-    ops,
-  });
-  assert.deepEqual(res, { ok: true, path: '/proj/notes/images/diagram.png', copied: false });
-  assert.deepEqual(ops.calls.mkdirs, []);
-  assert.deepEqual(ops.calls.copies, []);
-});
-
-test('Markdown asset import rejects missing sources and names collisions safely', async () => {
-  const missingOps = fakeOps(['/proj/notes/note.md']);
-  const missing = await importMarkdownAsset({
-    documentPath: '/proj/notes/note.md',
-    sourcePath: '/Users/me/missing.png',
-    ops: missingOps,
-  });
-  assert.equal(missing.ok, false);
-
-  const ops = fakeOps([
-    '/proj/notes/note.md',
-    '/Users/me/diagram.png',
-    '/proj/notes/assets',
-    '/proj/notes/assets/diagram.png',
-  ]);
-  const copied = await importMarkdownAsset({
-    documentPath: '/proj/notes/note.md',
-    sourcePath: '/Users/me/diagram.png',
-    ops,
-  });
-  assert.equal(copied.path, '/proj/notes/assets/diagram-copy.png');
-  assert.deepEqual(ops.calls.mkdirs, []);
 });
 
 // ---- duplicate ---------------------------------------------------------------

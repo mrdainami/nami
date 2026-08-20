@@ -111,33 +111,6 @@ async function importPaths({ root, destDir, srcPaths, ops = fsOps }) {
   return { ok: true, paths: out };
 }
 
-// A Markdown file cannot safely render an arbitrary absolute path. When media
-// comes from outside the note's folder, bring a copy into ./assets and return
-// that path to the renderer. The saved Markdown is then both safe to preview
-// and portable to another editor. Existing in-folder paths need no copy.
-async function importMarkdownAsset({ documentPath, sourcePath, ops = fsOps }) {
-  const doc = String(documentPath || '');
-  const source = String(sourcePath || '').trim();
-  if (!path.isAbsolute(doc) || !source || !ops.exists(path.resolve(doc))) {
-    return { ok: false, error: 'The note or selected file could not be found' };
-  }
-  const noteDir = path.dirname(path.resolve(doc));
-  const src = path.isAbsolute(source) ? path.resolve(source) : path.resolve(noteDir, source);
-  if (!ops.exists(src)) return { ok: false, error: 'Could not find the selected file' };
-  if (inside(noteDir, src)) return { ok: true, path: src, copied: false };
-
-  const assetsDir = path.join(noteDir, 'assets');
-  try {
-    if (!ops.exists(assetsDir)) ops.mkdir(assetsDir);
-    const name = freeName(assetsDir, path.basename(src), ops.exists);
-    const dest = path.join(assetsDir, name);
-    await ops.cp(src, dest);
-    return { ok: true, path: dest, copied: true };
-  } catch (e) {
-    return { ok: false, error: e && e.message ? e.message : 'Could not copy the selected file' };
-  }
-}
-
 // A copy beside the original. Recursive, so duplicating a folder brings its
 // contents — which is what the word means everywhere else.
 async function duplicatePath({ root, src, ops = fsOps }) {
@@ -157,5 +130,5 @@ async function trashPath({ root, path: target, trashFn, ops = fsOps }) {
 }
 module.exports = {
   newFile, newFolder, movePath, trashPath,
-  renamePath, importPaths, importMarkdownAsset, duplicatePath, isDescendant,
+  renamePath, importPaths, duplicatePath, isDescendant,
 };

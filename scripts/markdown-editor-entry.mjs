@@ -7,9 +7,9 @@ import { listItem } from '@milkdown/crepe/feature/list-item';
 import { placeholder } from '@milkdown/crepe/feature/placeholder';
 import { table } from '@milkdown/crepe/feature/table';
 import { toolbar } from '@milkdown/crepe/feature/toolbar';
-import { editorViewCtx, remarkStringifyOptionsCtx, schemaCtx } from '@milkdown/kit/core';
+import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { toggleMark } from '@milkdown/kit/prose/commands';
-import { $markSchema, $remark, insert, replaceAll } from '@milkdown/kit/utils';
+import { $markSchema, $remark, replaceAll } from '@milkdown/kit/utils';
 
 import '@milkdown/crepe/theme/common/prosemirror.css';
 import '@milkdown/crepe/theme/common/reset.css';
@@ -134,7 +134,9 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
       proxyDomURL: (url) => options.resolveImage ? options.resolveImage(url) : url,
     })
     .addFeature(blockEdit, {
-      advancedGroup: { math: null },
+      // Existing Markdown images still render through imageBlock, but image and
+      // video creation stay out of the menu until Nami has one complete flow.
+      advancedGroup: { image: null, math: null },
     })
     .addFeature(placeholder, { text: 'Type / for blocks', mode: 'block' })
     .addFeature(toolbar, {
@@ -191,18 +193,6 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
   return {
     getMarkdown: () => builder.getMarkdown(),
     setMarkdown: (value) => builder.editor.action(replaceAll(value || '')),
-    insertMarkdown: (value, inline = false) => builder.editor.action(insert(value || '', inline)),
-    insertImage: (src, alt = '') => builder.editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      const type = ctx.get(schemaCtx).nodes['image-block'];
-      const node = type && type.createAndFill({ src, caption: alt, ratio: 1 });
-      if (!node) return;
-      const { $from } = view.state.selection;
-      let depth = $from.depth;
-      while (depth > 1) depth--;
-      const position = depth ? $from.after(depth) : view.state.selection.to;
-      view.dispatch(view.state.tr.insert(position, node).scrollIntoView());
-    }),
     setReadonly: (value) => builder.setReadonly(!!value),
     focus: () => root.querySelector('.ProseMirror')?.focus({ preventScroll: true }),
     destroy: () => builder.destroy(),

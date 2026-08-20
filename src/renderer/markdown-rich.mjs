@@ -2,9 +2,6 @@
 // rich editor bundle. Keeping these outside the bundle lets Read and Markdown
 // mode use path/media helpers without loading ProseMirror.
 
-const IMAGE_EXT = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
-const VIDEO_EXT = /\.(?:m4v|mov|mp4|ogv|webm)(?:[?#].*)?$/i;
-
 let modulePromise;
 let stylePromise;
 
@@ -52,24 +49,6 @@ export function editorModesFor(filePath) {
   return ['markdown'];
 }
 
-function pathParts(value) {
-  return String(value || '').split('/').filter((part) => part && part !== '.');
-}
-
-export function relativeMarkdownPath(documentPath, targetPath) {
-  const target = String(targetPath || '');
-  if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('#')) return target;
-  const doc = String(documentPath || '');
-  if (!doc.startsWith('/') || !target.startsWith('/')) return target;
-  const from = pathParts(doc).slice(0, -1);
-  const to = pathParts(target);
-  let shared = 0;
-  while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared++;
-  const relative = [...Array(from.length - shared).fill('..'), ...to.slice(shared)].join('/');
-  if (!relative) return './';
-  return relative.startsWith('..') ? relative : './' + relative;
-}
-
 function encodePathPart(part) {
   // Markdown commonly stores spaces as %20. Decode once before encoding so a
   // correct path does not become %2520 when it is turned into a protocol URL.
@@ -83,14 +62,6 @@ export function markdownImageUrl(documentPath, source) {
   if (!documentPath || src.startsWith('/') || src.startsWith('~')) return null;
   const dir = String(documentPath).split('/').slice(0, -1).join('/') || '/';
   return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodePathPart).join('/');
-}
-
-export function markdownAssetKind(value) {
-  const path = String(value || '');
-  if (IMAGE_EXT.test(path)) return 'image';
-  if (VIDEO_EXT.test(path)) return 'video';
-  if (/\.(?:md|markdown)(?:[?#].*)?$/i.test(path)) return 'markdown';
-  return 'file';
 }
 
 function escapeHtml(value) {
@@ -111,5 +82,3 @@ export function colourSpan(colour, text) {
   const body = escapeHtml(text);
   return safe ? `<span style="color:${safe}">${body}</span>` : body;
 }
-
-export const markdownRichInternals = { IMAGE_EXT, VIDEO_EXT, COLOUR_TOKENS };
