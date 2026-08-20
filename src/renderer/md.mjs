@@ -182,20 +182,24 @@ function tableAt(lines, i, inl) {
   return { html: `<div class="md-tablewrap">${html}</tbody></table></div>`, next: j };
 }
 
-export function renderMarkdown(text, opts = {}) {
-  const lines = String(text == null ? '' : text).split('\n');
+// One pass over the lines, from startIdx, emitting blocks with their
+// exclusive end line — the shared engine behind both faces below. Behavior
+// is renderMarkdown's, unchanged; the boundaries are what streaming needs.
+function blockPass(lines, opts, startIdx) {
   const inl = (raw) => inlineRaw(raw, opts.resolveImage);
+  const code = (lang, body) => (opts.streaming ? esc(body) : highlightCode(lang, body));
   const out = [];
+  const push = (html, end) => out.push({ html, end });
   let fence = null;     // open fence marker, or null
   let fenceLang = '';
   let fenceBuf = [];
   let para = [];
-  const closePara = () => { if (para.length) { out.push(`<p>${inl(para.join(' '))}</p>`); para = []; } };
+  const closePara = (end) => { if (para.length) { push(`<p>${inl(para.join(' '))}</p>`, end); para = []; } };
 
-  let i = 0;
+  let i = startIdx;
   // Frontmatter — only at the very top of a whole document, rendered as one
   // quiet meta block instead of the rules-and-junk the old renderer made.
-  if (!opts.sub && lines[0] === '---') {
+  if (!opts.sub && !opts.noFm && startIdx === 0 && lines[0] === '---') {
     let e = 1;
     while (e < lines.length && lines[e].trim() !== '---') e++;
     if (e < lines.length) {
@@ -203,7 +207,7 @@ export function renderMarkdown(text, opts = {}) {
         const m = l.match(/^([\w][\w-]*):\s*(.*)$/);
         return m ? `<b>${esc(m[1])}</b>: ${esc(m[2])}` : esc(l);
       }).join('<br>');
-      out.push(`<div class="md-fm">${fm}</div>`);
+      push(`<div class="md-fm">${fm}</div>`, e + 1);
       i = e + 1;
     }
   }
@@ -214,44 +218,44 @@ export function renderMarkdown(text, opts = {}) {
     if (fence) {
       const closeHit = line.match(/^\s*(```|~~~)\s*$/);
       if (closeHit && closeHit[1] === fence) {
-        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
+        push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${code(fenceLang, fenceBuf.join('\n'))}</code></pre>`, i + 1);
         fence = null; fenceBuf = []; fenceLang = '';
       } else fenceBuf.push(line);
       continue;
     }
     const fh = line.match(/^\s*(```|~~~)\s*(\S+)?\s*$/);
-    if (fh) { closePara(); fence = fh[1]; fenceLang = fh[2] || ''; fenceBuf = []; continue; }
+    if (fh) { closePara(i); fence = fh[1]; fenceLang = fh[2] || ''; fenceBuf = []; continue; }
 
-    if (!line.trim()) { closePara(); continue; }
+    if (!line.trim()) { closePara(i); continue; }
 
     // CommonMark allows up to 3 leading spaces — wrapped TUI transcripts
     // (codex stores a 2-space hanging indent) depend on it.
     const h = line.match(/^ {0,3}(#{1,6})\s+(.*)$/);
-    if (h) { closePara(); const n = h[1].length; out.push(`<h${n}>${inl(h[2])}</h${n}>`); continue; }
+    if (h) { closePara(i); const n = h[1].length; push(`<h${n}>${inl(h[2])}</h${n}>`, i + 1); continue; }
 
     // Setext: an underline promotes the pending paragraph. A bare --- with
     // nothing pending is still a rule, checked next.
-    if (para.length && /^\s*=+\s*$/.test(line)) { out.push(`<h1>${inl(para.join(' '))}</h1>`); para = []; continue; }
-    if (para.length && /^\s*-+\s*$/.test(line)) { out.push(`<h2>${inl(para.join(' '))}</h2>`); para = []; continue; }
+    if (para.length && /^\s*=+\s*$/.test(line)) { push(`<h1>${inl(para.join(' '))}</h1>`, i + 1); para = []; continue; }
+    if (para.length && /^\s*-+\s*$/.test(line)) { push(`<h2>${inl(para.join(' '))}</h2>`, i + 1); para = []; continue; }
 
-    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { closePara(); out.push('<hr />'); continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { closePara(i); push('<hr />', i + 1); continue; }
 
     if (/^\s*>/.test(line)) {
-      closePara();
+      closePara(i);
       const q = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
       i--;
-      out.push(`<blockquote>${renderMarkdown(q.join('\n'), { ...opts, sub: true })}</blockquote>`);
+      push(`<blockquote>${renderMarkdown(q.join('\n'), { ...opts, sub: true })}</blockquote>`, i + 1);
       continue;
     }
 
     const tb = tableAt(lines, i, inl);
-    if (tb) { closePara(); out.push(tb.html); i = tb.next - 1; continue; }
+    if (tb) { closePara(i); push(tb.html, tb.next); i = tb.next - 1; continue; }
 
     if (LIST_RE.test(line)) {
-      closePara();
+      closePara(i);
       const lb = listBlock(lines, i);
-      out.push(renderList(lb.items, inl));
+      push(renderList(lb.items, inl), lb.next);
       i = lb.next - 1;
       continue;
     }
@@ -259,16 +263,49 @@ export function renderMarkdown(text, opts = {}) {
     const attachment = line.trim().match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
     const attachmentType = attachment && attachmentKind(attachment[2]);
     if (attachmentType) {
-      closePara();
-      out.push(`<a class="md-attachment md-attachment--${attachmentType}" href="${esc(attachment[2])}"><b>${attachmentType === 'video' ? '▶' : '↗'}</b><span>${inl(attachment[1])}</span></a>`);
+      closePara(i);
+      push(`<a class="md-attachment md-attachment--${attachmentType}" href="${esc(attachment[2])}"><b>${attachmentType === 'video' ? '▶' : '↗'}</b><span>${inl(attachment[1])}</span></a>`, i + 1);
       continue;
     }
 
     para.push(line.trim());
   }
-  if (fence) out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
-  closePara();
-  return out.join('\n');
+  if (fence) push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${code(fenceLang, fenceBuf.join('\n'))}</code></pre>`, lines.length);
+  closePara(lines.length);
+  return out;
+}
+
+export function renderMarkdown(text, opts = {}) {
+  const lines = String(text == null ? '' : text).split('\n');
+  return blockPass(lines, opts, 0).map((b) => b.html).join('\n');
+}
+
+// The streaming face: same engine, but appends reuse the frozen prefix.
+// All but the trailing 2 blocks are stable — and a block that could still
+// change (the possibly-extended last line, an open fence, pending paragraph)
+// is by construction inside that live tail. `state` goes back in on the next
+// call; non-append input resets wholesale.
+export function renderMarkdownStream(text, prev, opts = {}) {
+  const src = String(text == null ? '' : text);
+  const lines = src.split('\n');
+  let stable = [];
+  let startIdx = 0;
+  if (prev && typeof prev.text === 'string' && Array.isArray(prev.blocks) && src.startsWith(prev.text)) {
+    // an append may extend prev's final line, so no frozen block may end at
+    // or past it — trim until the boundary sits strictly before that line
+    const prevLastLine = prev.text.split('\n').length - 1;
+    let keep = Math.max(0, prev.blocks.length - 2);
+    while (keep > 0 && prev.blocks[keep - 1].end > prevLastLine) keep--;
+    stable = prev.blocks.slice(0, keep);
+    startIdx = keep ? stable[keep - 1].end : 0;
+  }
+  const tail = blockPass(lines, startIdx > 0 ? { ...opts, noFm: true } : opts, startIdx);
+  const blocks = stable.concat(tail);
+  return {
+    blocks,
+    stableCount: stable.length,
+    state: { text: src, blocks, parsedLines: lines.length - startIdx },
+  };
 }
 
 // ---- highlight underlay ----------------------------------------------------
