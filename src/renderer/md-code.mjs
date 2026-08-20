@@ -59,13 +59,17 @@ const ALIAS = {
 };
 
 // Diff is line-shaped, not token-shaped: the class covers the whole line.
+// Classed lines are display:block, which already breaks the line — joining
+// them with \n as well double-spaces the block, so plain lines carry their
+// own newline and classed lines carry none.
 function diffLines(text) {
-  return String(text).split('\n').map((line) => {
+  const lines = String(text).split('\n');
+  return lines.map((line, i) => {
     if (/^\+/.test(line) && !/^\+\+\+/.test(line)) return `<span class="tok-add">${esc(line)}</span>`;
     if (/^-/.test(line) && !/^---/.test(line)) return `<span class="tok-del">${esc(line)}</span>`;
     if (/^@@/.test(line)) return `<span class="tok-hunk">${esc(line)}</span>`;
-    return esc(line);
-  }).join('\n');
+    return esc(line) + (i < lines.length - 1 ? '\n' : '');
+  }).join('');
 }
 
 export function highlightCode(lang, text) {

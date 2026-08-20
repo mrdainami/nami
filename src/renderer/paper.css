@@ -1951,7 +1951,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-pre .tok-key { color: var(--tok-key); }
 .md-pre .tok-add { color: var(--tok-add-ink); background: var(--tok-add-bg); display: block; }
 .md-pre .tok-del { color: var(--tok-del-ink); background: var(--tok-del-bg); display: block; }
-.md-pre .tok-hunk { color: var(--muted); }
+.md-pre .tok-hunk { color: var(--muted); display: block; }
 .md-read .md-lang, .cd-md .md-lang {
   position: absolute; top: 4px; right: 8px; font-size: 0.769em; color: var(--muted);   /* 10/13 */
   text-transform: uppercase; letter-spacing: 0.08em; user-select: none;

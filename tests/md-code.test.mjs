@@ -38,7 +38,8 @@ test('diff: whole lines classed add/del, context untouched', () => {
   const html = highlightCode('diff', '-old line\n+new line\n context');
   assert.match(html, /<span class="tok-del">-old line<\/span>/);
   assert.match(html, /<span class="tok-add">\+new line<\/span>/);
-  assert.match(html, /\n context/);
+  assert.match(html, /<\/span> context/);
+  assert.ok(!/<\/span>\n/.test(html), 'no double-spacing after block lines');
 });
 
 test('unknown language: escaped plain text, no spans', () => {
