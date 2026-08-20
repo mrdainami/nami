@@ -17,7 +17,7 @@ const esc = (s) => String(s == null ? '' : s)
 // deliberately absent: snake_case identifiers are far more common than _em_.
 // The bare-URL branch comes last so `[text](url)` and code spans win first, and
 // it stops before the punctuation that ends a sentence around a link.
-const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*\*[^*\n]+\*\*\*)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 // ---- where a link in the Read view points -----------------------------------
 // Pure: hand it an href and the path of the doc it came from, get back what the
@@ -67,13 +67,14 @@ export function docHrefTarget(href, docPath) {
 // Emphasis recurses into its own content — `**[title](url)**` is a bold LINK
 // (found literal in a real Notion reply) — through a fresh regex each level:
 // recursing through one global RegExp would clobber the outer lastIndex.
-const INLINE_R = /(`[^`\n]+`)|(==[^=\n]+==)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE_R = /(`[^`\n]+`)|(==[^=\n]+==)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*\*[^*\n]+\*\*\*)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 function inlineEscR(s, resolve) {
-  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, mark, img, link, strong, del, em, bare) => {
+  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, mark, img, link, both, strong, del, em, bare) => {
     let cut;
     if (code) return `<code>${code.slice(1, -1)}</code>`;
     if (mark) return `<mark>${inlineEscR(mark.slice(2, -2), resolve)}</mark>`;
+    if (both) return `<strong><em>${inlineEscR(both.slice(3, -3), resolve)}</em></strong>`;
     if (img) {
       cut = img.lastIndexOf('](');
       const src = img.slice(cut + 2, -1);
@@ -270,10 +271,11 @@ export function renderMarkdown(text, opts = {}) {
 // Every character survives, markers included, so the layer lines up
 // glyph-for-glyph with the textarea sitting on top of it.
 function hlInline(raw) {
-  return esc(raw).replace(INLINE, (m, code, highlight, link, strong, del, em, bare) => {
+  return esc(raw).replace(INLINE, (m, code, highlight, link, both, strong, del, em, bare) => {
     const mark = (t) => `<span class="hl-mark">${t}</span>`;
     if (code) return `<span class="hl-code">${mark('`')}${code.slice(1, -1)}${mark('`')}</span>`;
     if (highlight) return `<span class="hl-highlight">${mark('==')}${highlight.slice(2, -2)}${mark('==')}</span>`;
+    if (both) return `<span class="hl-strong"><span class="hl-em">${mark('***')}${both.slice(3, -3)}${mark('***')}</span></span>`;
     if (link) {
       const cut = link.lastIndexOf('](');
       return `${mark('[')}<span class="hl-link">${link.slice(1, cut)}</span>${mark(link.slice(cut))}`;
