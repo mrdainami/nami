@@ -9,6 +9,8 @@
 // No dependency and no HTML passthrough: everything is escaped first, so a file
 // containing <script> renders as the literal characters.
 
+import { highlightCode } from './md-code.mjs';
+
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -212,7 +214,7 @@ export function renderMarkdown(text, opts = {}) {
     if (fence) {
       const closeHit = line.match(/^\s*(```|~~~)\s*$/);
       if (closeHit && closeHit[1] === fence) {
-        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${esc(fenceBuf.join('\n'))}</code></pre>`);
+        out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
         fence = null; fenceBuf = []; fenceLang = '';
       } else fenceBuf.push(line);
       continue;
@@ -262,7 +264,7 @@ export function renderMarkdown(text, opts = {}) {
 
     para.push(line.trim());
   }
-  if (fence) out.push(`<pre class="md-pre"><code>${esc(fenceBuf.join('\n'))}</code></pre>`);
+  if (fence) out.push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${highlightCode(fenceLang, fenceBuf.join('\n'))}</code></pre>`);
   closePara();
   return out.join('\n');
 }
