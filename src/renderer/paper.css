@@ -898,8 +898,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .peek-head .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .peek-head .pk-title { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .peek-head .pk-sub { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-.peek-head .pk-pin { font-size: 11px; padding: 6px 12px; }
-.peek-head .pk-pin:focus-visible, .peek-head .pk-x:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: 1px; }
+.peek-head .pk-browser, .peek-head .pk-pin { flex: none; font-size: 11px; padding: 6px 12px; white-space: nowrap; }
+.peek-head .pk-browser:focus-visible, .peek-head .pk-pin:focus-visible, .peek-head .pk-x:focus-visible { outline: 2px solid var(--dash-dark); outline-offset: 1px; }
 .peek-body { position: relative; height: min(560px, calc(100vh - 220px)); }
 
 .ql-lines { background: repeating-linear-gradient(0deg, transparent 0 25px, rgba(120, 145, 180, 0.14) 25px 26px); }
@@ -1876,6 +1876,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read a { text-decoration: underline; }
 .md-read strong { font-weight: 700; }
 .ed-bar .ed-path { flex: 1; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-bar .ed-browser { font-size: 11px; padding: 6px 10px; white-space: nowrap; }
 .ed-bar .ed-save { font-size: 11px; padding: 6px 12px; }
 
 /* ---- viewer tiles ---- */
@@ -2242,6 +2243,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 @media (max-width: 700px) {
   .tile-head { gap: 6px; padding: 9px 8px; }
   .tile-head .t-zoom-in, .tile-head .t-zoom-out { display: none; }
+}
+@media (max-width: 520px) {
+  .peek-head .pk-pin { display: none; }
+  .editor--html .ed-bar .ed-path, .editor--html .ed-bar .ed-finder { display: none; }
 }
 
 /* The rail is 282px of a 560px window — more than half the desk given to a list.
