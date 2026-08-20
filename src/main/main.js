@@ -11,6 +11,7 @@ const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { listConversations } = require('./session-store.js');
+const { agentForCommand, resumeCommand, sessionExists, startDiscovery } = require('./agent-resume.js');
 const { codexRollout, codexBacklog } = require('./codex-transcript.js');
 const { kimiWire, kimiBacklog } = require('./kimi-transcript.js');
 const { agyTranscript, agyBacklog } = require('./agy-transcript.js');
@@ -1322,7 +1323,7 @@ function sessionEnv(path) {
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that then runs `command`), 'harness' (spawn `program args`).
-ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, name, watchDone }) => {
+ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, acpSid, name, watchDone }) => {
   const wc = e.sender;
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   // Primed at startup, so by the time anyone opens a tile this is already
@@ -1332,7 +1333,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
-  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null;
+  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null, discoverAgent = null;
   if (kind === 'claude') {
     // sid: the panel's own conversation id, minted in the renderer at first spawn.
     // A fresh spawn pins it with --session-id; a restored panel resumes it with
@@ -1371,7 +1372,24 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // interactive shell's PATH can miss a binary the launcher calls ready
     // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
-    const typed = resolveRunCommand(command);
+    let typed = resolveRunCommand(command);
+    // A known agent tile restoring with a saved conversation id gets its
+    // resume line typed instead of the bare bin — but only while the agent's
+    // store still holds that session (the same restored-but-unused guard as
+    // claude's hasTranscript above): a store without it falls back to the
+    // bare bin, fresh. resolveRunCommand resolves the whole line, so the bin
+    // keeps its absolute path here too; the sid is charset-checked inside
+    // resumeCommand, so the tail needs no quoting.
+    // A tile with no saved id spawns fresh and is registered for discovery
+    // after the spawn below. One-shots (watchDone) are Nami's errands, never
+    // conversations — neither path applies.
+    const agent = watchDone ? null : agentForCommand(command);
+    if (agent) {
+      if (cont && acpSid) {
+        const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
+        if (resume) typed = resolveRunCommand(resume);
+      } else if (!acpSid) discoverAgent = agent;
+    }
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     else afterStart = typed;
   } else {
@@ -1390,6 +1408,16 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   termSessions.set(id, p);
   sessionOwners.set(id, wc.id);
   if (claudeWatch) watchTitle(id, wc, claudeWatch.transcript, { pid: p.pid, sid: claudeWatch.sid, cwd: claudeWatch.cwd });
+  // A fresh agent tile does not know its conversation id — the agent only
+  // files the new session in its store once it starts. Poll for it (shared
+  // unref'd interval, see agent-resume.js); a hit goes to the renderer, which
+  // saves it as the id the next launch resumes. Stopped at teardown below.
+  const stopDiscovery = discoverAgent ? startDiscovery({
+    id, agent: discoverAgent,
+    cwd: (cwd && fs.existsSync(cwd)) ? cwd : os.homedir(), // the pty's own cwd rule
+    sinceMs: Date.now(),
+    onFound: (found) => sendWc(wc, 'term:session-id', { id, sid: found }),
+  }) : null;
   // Claude publishes its name for the LIVE conversation as an OSC 0 title on
   // nearly every frame. Reading it out of the stream costs nothing and, unlike
   // the transcript, it is still right after the user runs /resume inside the
@@ -1426,6 +1454,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   });
   p.onExit(({ exitCode, signal }) => {
     if (seedGate) { seedGate.stop(); seedGate = null; }
+    if (stopDiscovery) stopDiscovery(); // a closed tile stops polling agent stores
     termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
     // The note is built here rather than in the renderer because only main knows
     // whether this teardown was Nami's own doing.
