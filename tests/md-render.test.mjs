@@ -155,3 +155,15 @@ test('triple-star inside a code span stays literal', () => {
   const html = renderMarkdown('`***x***`');
   assert.match(html, /<code>\*\*\*x\*\*\*<\/code>/);
 });
+
+test('wrapped text: up to 3 leading spaces keep block meaning (CommonMark)', () => {
+  // codex's TUI stores continuation lines with a 2-space hanging indent
+  const html = renderMarkdown('# Big title\n  ## Section\n   ### Sub\n  ---\n  Setext\n  ===');
+  assert.match(html, /<h1>Big title<\/h1>/);
+  assert.match(html, /<h2>Section<\/h2>/);
+  assert.match(html, /<h3>Sub<\/h3>/);
+  assert.match(html, /<hr \/>/);
+  assert.match(html, /<h1>Setext<\/h1>/);
+  // 4+ spaces is not a heading — that is indented content
+  assert.ok(!/<h2>deep<\/h2>/.test(renderMarkdown('    ## deep')));
+});
