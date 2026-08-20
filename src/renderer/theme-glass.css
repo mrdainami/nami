@@ -55,6 +55,13 @@ body[data-theme="glass"] {
   --red-bg: rgba(239, 100, 97, 0.14);
   --red-line: #ef6461;
   --red-ink: #b2322f;
+  --tok-kw: #3d6bb3;
+  --tok-str: #4a7a4a;
+  --tok-num: #9a6c14;
+  --tok-com: #6f7079;
+  --tok-key: #7a4a8a;
+  --tok-add-ink: #33503b;  --tok-add-bg: rgba(74, 122, 74, 0.14);
+  --tok-del-ink: #b2322f;  --tok-del-bg: rgba(178, 50, 47, 0.12);
   --red-body: #a94643;
   --red-btn: #e0524f;
   --red-btn-line: #c8433f;

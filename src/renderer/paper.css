@@ -71,6 +71,14 @@
   --red-bg: #fbe9e4;
   --red-line: #c07a6a;
   --red-ink: #8a2d21;
+  /* fence syntax tokens — md-code.mjs classes; each theme lifts its own set */
+  --tok-kw: #3d6bb3;
+  --tok-str: #4a6b52;
+  --tok-num: #a8792a;
+  --tok-com: #8d8065;
+  --tok-key: #6a4a05;
+  --tok-add-ink: #33503b;  --tok-add-bg: rgba(74, 122, 74, 0.12);
+  --tok-del-ink: #8a2d21;  --tok-del-bg: rgba(138, 45, 33, 0.10);
   --red-body: #97463a;
   --red-btn: #b4503c;
   --red-btn-line: #8a3527;
@@ -1936,6 +1944,14 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read li > ul, .md-read li > ol, .cd-md li > ul, .cd-md li > ol { margin: 3px 0 0; }
 .md-read blockquote > :last-child, .cd-md blockquote > :last-child { margin-bottom: 0; }
 .md-read .md-pre, .cd-md .md-pre { position: relative; }
+.md-pre .tok-kw { color: var(--tok-kw); }
+.md-pre .tok-str { color: var(--tok-str); }
+.md-pre .tok-num { color: var(--tok-num); }
+.md-pre .tok-com { color: var(--tok-com); font-style: italic; }
+.md-pre .tok-key { color: var(--tok-key); }
+.md-pre .tok-add { color: var(--tok-add-ink); background: var(--tok-add-bg); display: block; }
+.md-pre .tok-del { color: var(--tok-del-ink); background: var(--tok-del-bg); display: block; }
+.md-pre .tok-hunk { color: var(--muted); }
 .md-read .md-lang, .cd-md .md-lang {
   position: absolute; top: 4px; right: 8px; font-size: 0.769em; color: var(--muted);   /* 10/13 */
   text-transform: uppercase; letter-spacing: 0.08em; user-select: none;

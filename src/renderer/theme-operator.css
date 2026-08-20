@@ -47,6 +47,13 @@ body[data-theme="operator"] {
   --red-bg: #2a1a19;
   --red-line: #ef6461;
   --red-ink: #ff9d9a;
+  --tok-kw: #7ea4e0;
+  --tok-str: #a9c49a;
+  --tok-num: #e0b95e;
+  --tok-com: #aaa79f;
+  --tok-key: #d3aa6a;
+  --tok-add-ink: #a9c49a;  --tok-add-bg: rgba(169, 196, 154, 0.12);
+  --tok-del-ink: #ff9d9a;  --tok-del-bg: rgba(255, 157, 154, 0.12);
   --red-body: #d59391;
   --red-btn: #ef6461;
   --red-btn-line: #ff8b88;
