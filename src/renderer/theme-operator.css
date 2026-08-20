@@ -311,7 +311,7 @@ body[data-theme="operator"] .setup-box, body[data-theme="operator"] .peek-box {
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
 }
 body[data-theme="operator"] .peek-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 10px 10px 0 0; }
-body[data-theme="operator"] .peek-head .pk-pin:focus-visible, body[data-theme="operator"] .peek-head .pk-x:focus-visible { outline-color: var(--op-accent); }
+body[data-theme="operator"] .peek-head .pk-browser:focus-visible, body[data-theme="operator"] .peek-head .pk-pin:focus-visible, body[data-theme="operator"] .peek-head .pk-x:focus-visible { outline-color: var(--op-accent); }
 body[data-theme="operator"] .modal-head { border-bottom: 1px solid var(--dash); }
 body[data-theme="operator"] .modal-head .sub, body[data-theme="operator"] .picker-row .desc { color: var(--muted); }
 body[data-theme="operator"] .modal-foot { border-top: 1px solid var(--dash); }
