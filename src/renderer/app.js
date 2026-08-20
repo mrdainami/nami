@@ -15,6 +15,7 @@ import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
+import { mountMarkdownEditor, richMarkdownPath, relativeMarkdownPath, markdownAssetKind } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
@@ -1892,7 +1893,7 @@ function renderGrid() {
   }
   els.grid.classList.remove('is-empty');
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
-  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); } }
+  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
   // Moving a node takes the keyboard with it: insertBefore below re-parents the
   // tile, and the browser drops focus from whatever was inside it — for a
@@ -3619,27 +3620,91 @@ function mountEditor(p, rec) {
   // Markdown and html open rendered; everything else has nothing to render, so
   // it opens straight in the editor and never shows the Read tab.
   const md = isMarkdownPath(p.filePath);
+  const rich = richMarkdownPath(p.filePath);
   const html = fileKind(p.filePath) === 'html';
   const rendered = md || html;
   if (!rendered) p.edMode = 'edit';
-  else if (p.edMode !== 'edit') p.edMode = 'read';
+  else if (rich && !['read', 'edit', 'markdown'].includes(p.edMode)) p.edMode = 'read';
+  else if (!rich && p.edMode !== 'edit') p.edMode = 'read';
 
   const wrap = document.createElement('div'); wrap.className = 'editor';
-  wrap.innerHTML = `${rendered ? `<div class="ed-tabs card-tabs">
-      <button class="card-tab ed-tab" data-m="read">Read</button>
-      <button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : ''}
+  const tabs = rich
+    ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button><button class="card-tab ed-tab" data-m="markdown">Markdown</button></div>`
+    : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
+  wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
+    ${rich ? `<div class="ed-rich-tools"><button class="btn ed-add" type="button" aria-expanded="false">+ Add</button><span>Type / for blocks · select text to format</span>
+      <div class="ed-asset-pop" hidden>
+        <div class="ed-asset-types" role="group" aria-label="Attachment type"><button class="on" data-kind="image">Image</button><button data-kind="video">Video</button><button data-kind="link">File / link</button></div>
+        <label>Paste a URL or path<input class="ed-asset-input" placeholder="https://… or ./project/path" spellcheck="false"></label>
+        <div class="ed-asset-actions"><span>or drop a file here</span><button class="btn ed-asset-browse" type="button">Browse…</button><button class="btn btn--go ed-asset-insert" type="button">Insert</button></div>
+      </div></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
+  wrap.classList.toggle('editor--rich', rich);
   wrap.classList.toggle('editor--html', html);
   rec.body.appendChild(wrap);
 
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
+  const richRoot = q('.ed-rich', wrap);
   rec.ta = ta; rec.gutter = gutter;
   ta.value = p.text || '';
+  let richEditor = null;
+  let richLoading = null;
+  let richStale = false;
+  let disposed = false;
+
+  const markDirty = () => {
+    if (p.dirty) return;
+    p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+  };
+  const resolveImage = (src) => {
+    if (/^(https?:|data:|blob:)/i.test(src)) return src;
+    if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return src;
+    const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
+    return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
+  };
+  const ensureRichEditor = async () => {
+    if (!rich || disposed) return null;
+    if (richEditor) {
+      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      return richEditor;
+    }
+    if (richLoading) return richLoading;
+    richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
+    richLoading = mountMarkdownEditor(richRoot, p.text || '', {
+      resolveImage,
+      onImageFile: async (file) => {
+        const filePath = api.droppedFilePath(file);
+        return filePath ? relativeMarkdownPath(p.filePath, filePath) : URL.createObjectURL(file);
+      },
+      onCopyLink: (link) => api.copyText(link),
+      onFocus: () => { S.activeId = p.id; refreshRail(); },
+      onChange: (next) => {
+        if (disposed || next === p.text) return;
+        p.text = next; ta.value = next; markDirty(); sync();
+      },
+    }).then((editor) => {
+      if (disposed) { editor.destroy(); return null; }
+      richEditor = editor; richLoading = null;
+      const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
+      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      return editor;
+    }).catch((error) => {
+      richLoading = null;
+      richRoot.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
+      return null;
+    });
+    return richLoading;
+  };
+  rec.disposeEditor = () => {
+    disposed = true;
+    if (richEditor) richEditor.destroy();
+    richEditor = null;
+  };
   // A link in a rendered doc is a link: plain click, no modifier. The terminal
   // needs Cmd because a click there belongs to whatever is running; a document
   // has no competing meaning for it.
@@ -3708,10 +3773,13 @@ function mountEditor(p, rec) {
       }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
-    if (p.edMode === 'edit') sync();
+    if (p.edMode === 'edit' && rich) void ensureRichEditor().then((editor) => {
+      if (editor && p.edMode === 'edit') editor.focus();
+    });
+    if ((p.edMode === 'edit' && !rich) || p.edMode === 'markdown') sync();
   };
 
-  ta.addEventListener('input', () => { p.text = ta.value; if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p); } sync(); });
+  ta.addEventListener('input', () => { p.text = ta.value; markDirty(); if (rich) richStale = true; sync(); });
   ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
@@ -3724,8 +3792,64 @@ function mountEditor(p, rec) {
   });
   ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
   wrap.querySelectorAll('.ed-tab').forEach((b) => {
-    b.onclick = () => { p.edMode = b.dataset.m; applyMode(); if (p.edMode === 'edit') ta.focus(); };
+    b.onclick = () => {
+      p.edMode = b.dataset.m; applyMode();
+      if (p.edMode === 'markdown' || (p.edMode === 'edit' && !rich)) ta.focus();
+    };
   });
+  if (rich) {
+    const add = q('.ed-add', wrap), pop = q('.ed-asset-pop', wrap), input = q('.ed-asset-input', wrap);
+    let assetKind = 'image';
+    const closeAssets = () => { pop.hidden = true; add.setAttribute('aria-expanded', 'false'); };
+    const openAssets = () => { pop.hidden = false; add.setAttribute('aria-expanded', 'true'); setTimeout(() => input.focus(), 0); };
+    const setAssetKind = (kind) => {
+      assetKind = kind;
+      pop.querySelectorAll('[data-kind]').forEach((button) => button.classList.toggle('on', button.dataset.kind === kind));
+    };
+    const insertAsset = async () => {
+      const raw = input.value.trim();
+      if (!raw) { input.focus(); return; }
+      const target = relativeMarkdownPath(p.filePath, raw);
+      const encodedLabel = target.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'Open file';
+      let label = encodedLabel; try { label = decodeURIComponent(encodedLabel); } catch (_) {}
+      const detected = markdownAssetKind(target);
+      const safeLabel = label.replace(/[\[\]]/g, '');
+      const markdownTarget = target.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
+      let markdown;
+      if (assetKind === 'image') markdown = `![${safeLabel}](${markdownTarget})`;
+      else if (assetKind === 'video' || detected === 'video') markdown = `\n\n[Video · ${safeLabel}](${markdownTarget})\n\n`;
+      else markdown = `[${safeLabel}](${markdownTarget})`;
+      const editor = await ensureRichEditor();
+      if (!editor) return;
+      if (assetKind === 'image') editor.insertImage(markdownTarget, safeLabel);
+      else editor.insertMarkdown(markdown, assetKind === 'link');
+      input.value = ''; closeAssets(); editor.focus();
+    };
+    add.onclick = (event) => { event.stopPropagation(); pop.hidden ? openAssets() : closeAssets(); };
+    pop.querySelectorAll('[data-kind]').forEach((button) => { button.onclick = () => setAssetKind(button.dataset.kind); });
+    q('.ed-asset-browse', pop).onclick = async () => {
+      const picked = await api.chooseFile(assetKind === 'link' ? 'file' : assetKind);
+      if (!picked) return;
+      input.value = relativeMarkdownPath(p.filePath, picked); input.focus();
+    };
+    q('.ed-asset-insert', pop).onclick = insertAsset;
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); void insertAsset(); }
+      if (event.key === 'Escape') { event.preventDefault(); closeAssets(); add.focus(); }
+    });
+    pop.addEventListener('dragover', (event) => { event.preventDefault(); pop.classList.add('drag'); });
+    pop.addEventListener('dragleave', () => pop.classList.remove('drag'));
+    pop.addEventListener('drop', (event) => {
+      event.preventDefault(); pop.classList.remove('drag');
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      const dropped = file && api.droppedFilePath(file);
+      if (!dropped) return;
+      input.value = relativeMarkdownPath(p.filePath, dropped);
+      const detected = markdownAssetKind(dropped);
+      setAssetKind(detected === 'image' ? 'image' : detected === 'video' ? 'video' : 'link');
+    });
+    wrap.addEventListener('click', (event) => { if (!pop.hidden && !pop.contains(event.target) && event.target !== add) closeAssets(); });
+  }
   const edPath = q('.ed-path', wrap);
   if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
   bindBrowserButton(q('.ed-browser', wrap), p);
@@ -4305,7 +4429,7 @@ function closePanel(id) {
     api.termKill({ id });
     if (p.agentLive) api.agentStop({ id });
   }
-  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); }
+  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
   if (S.expandedId === id) S.expandedId = null;
@@ -5249,7 +5373,9 @@ function renderImproveItem() {
 
 // ---- overlays --------------------------------------------------------------
 let lastOverlayType = null; // same-type re-renders skip the entrance animation
+let overlayDispose = null;
 function renderOverlay() {
+  if (overlayDispose) { overlayDispose(); overlayDispose = null; }
   els.overlayRoot.innerHTML = ''; const o = S.overlay;
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
@@ -5740,6 +5866,7 @@ function renderPeek() {
   if (p.kind === 'editor') mountEditor(p, rec);
   else if (p.kind === 'card') mountCard(p, rec);
   else mountViewer(p, rec);
+  overlayDispose = rec.disposeEditor || null;
   if (browser) bindBrowserButton(q('.pk-browser', box), p);
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;

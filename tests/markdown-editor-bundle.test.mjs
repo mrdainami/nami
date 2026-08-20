@@ -33,3 +33,13 @@ test('the adapter shares one lazy import and one stylesheet across cards', () =>
   assert.match(adapter, /stylePromise/);
   assert.match(adapter, /export async function mountMarkdownEditor/);
 });
+
+test('the trimmed editor preserves Nami highlight and colour markdown', () => {
+  const entry = fs.readFileSync(path.join(root, 'scripts/markdown-editor-entry.mjs'), 'utf8');
+  assert.match(entry, /\$markSchema\('namiHighlight'/);
+  assert.match(entry, /\$markSchema\('namiColour'/);
+  assert.match(entry, /namiHighlight:.*==/s);
+  assert.match(entry, /namiColour:.*<span style=/s);
+  assert.match(entry, /label: 'Highlight'/);
+  assert.match(entry, /label: 'Coral text'/);
+});

@@ -112,8 +112,9 @@ function inlineRaw(raw, resolve) {
 function attachmentKind(href) {
   const clean = String(href || '').split(/[?#]/)[0];
   if (/\.(?:m4v|mov|mp4|ogv|webm)$/i.test(clean)) return 'video';
+  if (/^https?:/i.test(clean)) return '';
   if (/\.(?:md|markdown)$/i.test(clean)) return '';
-  return 'file';
+  return /\.[a-z0-9]{1,12}$/i.test(clean) ? 'file' : '';
 }
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
