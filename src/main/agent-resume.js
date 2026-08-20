@@ -195,50 +195,51 @@ function sessionExists(agent, cwd, sid, home = os.homedir()) {
   return false;
 }
 
-// The newest session this folder produced at/after sinceMs — what discovery
-// is looking for. null when the store has none (yet).
-function findSession(agent, cwd, sinceMs, home = os.homedir()) {
+// Every session this folder produced at/after sinceMs, oldest first, one
+// entry per id. The list (not just the newest) is what discovery pairs
+// against when several tiles are waiting.
+function sessionMatches(agent, cwd, sinceMs, home = os.homedir()) {
   try {
     const since = Number(sinceMs) || 0;
+    let out = null;
     if (agent === 'kimi') {
-      let best = null;
-      for (const r of kimiSessions(home)) {
-        if (r.workDir !== cwd || r.mtime < since) continue;
-        if (!best || r.mtime > best.mtime) best = r;
-      }
-      return best ? best.id : null;
-    }
-    if (agent === 'codex') {
-      let best = null;
-      for (const r of codexMetas(home)) {
-        if (r.cwd !== cwd || r.at < since) continue;
-        if (!best || r.at > best.at) best = r;
-      }
-      return best ? best.id : null;
-    }
-    if (agent === 'opencode') {
-      return withDb(opencodeDb(home), (db) => {
-        const rows = db.prepare('select id, time_created from session where directory = ? order by time_created desc').all(cwd);
-        for (const r of rows) if (Number(r.time_created) >= since) return String(r.id);
-        return null;
-      });
-    }
-    if (agent === 'hermes') {
-      return withDb(hermesDb(home), (db) => {
-        const rows = db.prepare('select id, cwd, started_at from sessions order by started_at desc limit 200').all();
-        for (const r of rows) {
-          if (String(r.cwd || '') !== cwd) continue;
-          if ((Number(r.started_at) || 0) * 1000 >= since) return String(r.id);
-        }
-        return null;
-      });
-    }
-    if (agent === 'agy') {
+      out = kimiSessions(home)
+        .filter((r) => r.workDir === cwd && r.mtime >= since)
+        .map((r) => ({ id: r.id, at: r.mtime }));
+    } else if (agent === 'codex') {
+      out = codexMetas(home)
+        .filter((r) => r.cwd === cwd && r.at >= since)
+        .map((r) => ({ id: r.id, at: r.at }));
+    } else if (agent === 'opencode') {
+      out = withDb(opencodeDb(home), (db) =>
+        db.prepare('select id, time_created from session where directory = ? and time_created >= ? order by time_created asc limit 200')
+          .all(cwd, since)
+          .map((r) => ({ id: String(r.id), at: Number(r.time_created) || 0 })));
+    } else if (agent === 'hermes') {
+      out = withDb(hermesDb(home), (db) =>
+        db.prepare('select id, started_at from sessions where cwd = ? order by started_at asc limit 200')
+          .all(cwd)
+          .map((r) => ({ id: String(r.id), at: (Number(r.started_at) || 0) * 1000 }))
+          .filter((m) => m.at >= since));
+    } else if (agent === 'agy') {
       const r = agyLatest(home, cwd);
-      return r && r.mtime >= since ? r.id : null;
+      out = r && r.mtime >= since ? [{ id: r.id, at: r.mtime }] : [];
     }
+    if (!out) return [];
+    // One rollout per resume means an id can repeat; keep its earliest sighting.
+    const seen = new Set();
+    return out
+      .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)))
+      .sort((a, b) => a.at - b.at);
   } catch (_) {}
-  return null;
+  return [];
+}
+
+// The newest session this folder produced at/after sinceMs, null when the
+// store has none (yet).
+function findSession(agent, cwd, sinceMs, home = os.homedir()) {
+  const ms = sessionMatches(agent, cwd, sinceMs, home);
+  return ms.length ? ms[ms.length - 1].id : null;
 }
 
 // ---- discovery: which session did this tile just land in --------------------
@@ -248,25 +249,34 @@ function findSession(agent, cwd, sinceMs, home = os.homedir()) {
 // entry drops out; ten minutes without a hit gives up quietly.
 const DISCOVER_MS = 3000;
 const GIVE_UP_MS = 10 * 60 * 1000;
-const pending = new Map(); // tile id -> { agent, cwd, sinceMs, onFound, home, added }
+const pending = new Map(); // tile id -> { agent, cwd, sinceMs, baseline, onFound, home, added }
 const claimed = new Set(); // sids already handed to a tile — never handed out twice
 let discoverTimer = null;
 
-// Two tiles of one agent in one folder spawned in the same moment would
-// otherwise both be handed the same new session. Oldest tile (smallest
-// sinceMs) polls first and a claimed sid is skipped, so the loser keeps
-// waiting for the next session instead of double-resuming this one.
+// A candidate must be NEW, not just recent: each entry registers with the set
+// of ids its folder already held at spawn (baseline), and only an id outside
+// it can be reported. That is what keeps a neighbour tile's traffic from
+// being misfiled as this tile's session — a resumed codex thread files a
+// fresh rollout under its OLD id, an agy resume re-points last_conversations
+// at the old id, a kimi turn bumps its sessionDir mtime; all are fresh by
+// timestamp and all are correctly ignored, because the id was already known.
+// Two tiles spawned in the same moment still race over the genuinely new
+// ids: oldest tile (smallest sinceMs) polls first and takes the oldest
+// unclaimed match, sessions are filed in spawn order, so the pairing lands
+// right — and the loser keeps waiting for its own session instead of
+// double-resuming the winner's.
 function sweepDiscovery() {
   const now = Date.now();
   const entries = [...pending.values()].sort((a, b) => a.sinceMs - b.sinceMs);
   for (const e of entries) {
     if (!pending.has(e.id)) continue; // stopped mid-sweep by an onFound
     if (now - e.added > GIVE_UP_MS) { pending.delete(e.id); continue; }
-    const sid = findSession(e.agent, e.cwd, e.sinceMs, e.home);
-    if (!sid || claimed.has(sid)) continue;
-    claimed.add(sid);
+    const hit = sessionMatches(e.agent, e.cwd, e.sinceMs, e.home)
+      .find((m) => !e.baseline.has(m.id) && !claimed.has(m.id));
+    if (!hit) continue;
+    claimed.add(hit.id);
     pending.delete(e.id);
-    try { e.onFound(sid); } catch (_) {}
+    try { e.onFound(hit.id); } catch (_) {}
   }
   if (!pending.size && discoverTimer) { clearInterval(discoverTimer); discoverTimer = null; }
 }
@@ -276,7 +286,8 @@ function sweepDiscovery() {
 // interval it was created with.
 function startDiscovery({ id, agent, cwd, sinceMs, onFound, home, everyMs } = {}) {
   if (!id || !AGENT_BINS.includes(agent)) return () => {};
-  pending.set(id, { id, agent, cwd, sinceMs: Number(sinceMs) || Date.now(), onFound, home, added: Date.now() });
+  const baseline = new Set(sessionMatches(agent, cwd, 0, home).map((m) => m.id));
+  pending.set(id, { id, agent, cwd, sinceMs: Number(sinceMs) || Date.now(), baseline, onFound, home, added: Date.now() });
   if (!discoverTimer) {
     discoverTimer = setInterval(sweepDiscovery, everyMs || DISCOVER_MS);
     if (discoverTimer.unref) discoverTimer.unref(); // never hold the app open
