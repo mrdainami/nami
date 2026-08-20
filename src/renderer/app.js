@@ -15,6 +15,7 @@ import { agentLaunch } from './agent-launch.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
+import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
@@ -1892,7 +1893,7 @@ function renderGrid() {
   }
   els.grid.classList.remove('is-empty');
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
-  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); } }
+  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
   // Moving a node takes the keyboard with it: insertBefore below re-parents the
   // tile, and the browser drops focus from whatever was inside it — for a
@@ -3619,27 +3620,77 @@ function mountEditor(p, rec) {
   // Markdown and html open rendered; everything else has nothing to render, so
   // it opens straight in the editor and never shows the Read tab.
   const md = isMarkdownPath(p.filePath);
+  const rich = richMarkdownPath(p.filePath);
   const html = fileKind(p.filePath) === 'html';
   const rendered = md || html;
   if (!rendered) p.edMode = 'edit';
-  else if (p.edMode !== 'edit') p.edMode = 'read';
+  else if (rich && !['read', 'edit', 'markdown'].includes(p.edMode)) p.edMode = 'read';
+  else if (!rich && p.edMode !== 'edit') p.edMode = 'read';
 
   const wrap = document.createElement('div'); wrap.className = 'editor';
-  wrap.innerHTML = `${rendered ? `<div class="ed-tabs card-tabs">
-      <button class="card-tab ed-tab" data-m="read">Read</button>
-      <button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : ''}
+  const tabs = rich
+    ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button><button class="card-tab ed-tab" data-m="markdown">Markdown</button></div>`
+    : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
+  wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
+    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
+  wrap.classList.toggle('editor--rich', rich);
   wrap.classList.toggle('editor--html', html);
   rec.body.appendChild(wrap);
 
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
+  const richRoot = q('.ed-rich', wrap);
   rec.ta = ta; rec.gutter = gutter;
   ta.value = p.text || '';
+  let richEditor = null;
+  let richLoading = null;
+  let richStale = false;
+  let disposed = false;
+
+  const markDirty = () => {
+    if (p.dirty) return;
+    p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+  };
+  const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
+  const ensureRichEditor = async () => {
+    if (!rich || disposed) return null;
+    if (richEditor) {
+      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      return richEditor;
+    }
+    if (richLoading) return richLoading;
+    richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
+    richLoading = mountMarkdownEditor(richRoot, p.text || '', {
+      resolveImage,
+      onCopyLink: (link) => api.copyText(link),
+      onFocus: () => { S.activeId = p.id; refreshRail(); },
+      onChange: (next) => {
+        if (disposed || next === p.text) return;
+        p.text = next; ta.value = next; markDirty(); sync();
+      },
+    }).then((editor) => {
+      if (disposed) { editor.destroy(); return null; }
+      richEditor = editor; richLoading = null;
+      const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
+      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      return editor;
+    }).catch((error) => {
+      richLoading = null;
+      richRoot.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
+      return null;
+    });
+    return richLoading;
+  };
+  rec.disposeEditor = () => {
+    disposed = true;
+    if (richEditor) richEditor.destroy();
+    richEditor = null;
+  };
   // A link in a rendered doc is a link: plain click, no modifier. The terminal
   // needs Cmd because a click there belongs to whatever is running; a document
   // has no competing meaning for it.
@@ -3698,20 +3749,18 @@ function mountEditor(p, rec) {
         // remote and data URLs as themselves. Absolute paths stay links — a
         // document does not get to display arbitrary files from the disk.
         read.innerHTML = renderMarkdown(p.text || '', {
-          resolveImage: (src) => {
-            if (/^(https?:|data:)/i.test(src)) return src;
-            if (!p.filePath || src.startsWith('/') || src.startsWith('~')) return null;
-            const dir = String(p.filePath).split('/').slice(0, -1).join('/') || '/';
-            return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodeURIComponent).join('/');
-          },
+          resolveImage: (src) => markdownImageUrl(p.filePath, src),
         });
       }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
-    if (p.edMode === 'edit') sync();
+    if (p.edMode === 'edit' && rich) void ensureRichEditor().then((editor) => {
+      if (editor && p.edMode === 'edit') editor.focus();
+    });
+    if ((p.edMode === 'edit' && !rich) || p.edMode === 'markdown') sync();
   };
 
-  ta.addEventListener('input', () => { p.text = ta.value; if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p); } sync(); });
+  ta.addEventListener('input', () => { p.text = ta.value; markDirty(); if (rich) richStale = true; sync(); });
   ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
@@ -3724,7 +3773,10 @@ function mountEditor(p, rec) {
   });
   ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
   wrap.querySelectorAll('.ed-tab').forEach((b) => {
-    b.onclick = () => { p.edMode = b.dataset.m; applyMode(); if (p.edMode === 'edit') ta.focus(); };
+    b.onclick = () => {
+      p.edMode = b.dataset.m; applyMode();
+      if (p.edMode === 'markdown' || (p.edMode === 'edit' && !rich)) ta.focus();
+    };
   });
   const edPath = q('.ed-path', wrap);
   if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
@@ -4305,7 +4357,7 @@ function closePanel(id) {
     api.termKill({ id });
     if (p.agentLive) api.agentStop({ id });
   }
-  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); t.root.remove(); tileEls.delete(id); }
+  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
   if (S.expandedId === id) S.expandedId = null;
@@ -5249,7 +5301,9 @@ function renderImproveItem() {
 
 // ---- overlays --------------------------------------------------------------
 let lastOverlayType = null; // same-type re-renders skip the entrance animation
+let overlayDispose = null;
 function renderOverlay() {
+  if (overlayDispose) { overlayDispose(); overlayDispose = null; }
   els.overlayRoot.innerHTML = ''; const o = S.overlay;
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
@@ -5740,6 +5794,7 @@ function renderPeek() {
   if (p.kind === 'editor') mountEditor(p, rec);
   else if (p.kind === 'card') mountCard(p, rec);
   else mountViewer(p, rec);
+  overlayDispose = rec.disposeEditor || null;
   if (browser) bindBrowserButton(q('.pk-browser', box), p);
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;

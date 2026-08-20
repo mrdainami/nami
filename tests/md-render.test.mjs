@@ -122,6 +122,22 @@ test('what already worked still works: #-headings, hr, inline, plain paragraphs'
   assert.match(html, /<hr \/>/);
 });
 
+test('highlight and strictly limited text colour survive the read renderer', () => {
+  const html = renderMarkdown('Use ==highlight== and <span style="color:#445566">colour</span>.');
+  assert.match(html, /<mark>highlight<\/mark>/);
+  assert.match(html, /<span style="color:#445566">colour<\/span>/);
+  assert.doesNotMatch(renderMarkdown('<span style="color:url(javascript:alert(1))">bad</span>'), /<span/);
+});
+
+test('a standalone video or file link becomes a lightweight linked block', () => {
+  const video = renderMarkdown('[Product walkthrough](./assets/demo.mp4)');
+  assert.match(video, /class="md-attachment md-attachment--video"/);
+  assert.match(video, /href="\.\/assets\/demo\.mp4"/);
+  const file = renderMarkdown('[Research bundle](./research.zip)');
+  assert.match(file, /class="md-attachment md-attachment--file"/);
+  assert.match(renderMarkdown('See [the video](./demo.mp4) later\.'), /<p>See <a href="\.\/demo\.mp4">the video<\/a> later\.<\/p>/);
+});
+
 test('a --- under a paragraph is a setext h2, but alone it is still a rule', () => {
   assert.match(renderMarkdown('Title\n---'), /<h2>Title<\/h2>/);
   assert.match(renderMarkdown('para\n\n---\n\nafter'), /<hr \/>/);

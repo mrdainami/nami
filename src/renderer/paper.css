@@ -1754,6 +1754,69 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ed-tabs { flex: none; }
 .editor[data-mode="read"] .ed-pane { display: none; }
 .editor[data-mode="edit"] .ed-read { display: none; }
+.editor--rich[data-mode="read"] .ed-rich, .editor--rich[data-mode="read"] .ed-rich-tools { display: none; }
+.editor--rich[data-mode="edit"] .ed-pane { display: none; }
+.editor--rich[data-mode="markdown"] .ed-read, .editor--rich[data-mode="markdown"] .ed-rich,
+.editor--rich[data-mode="markdown"] .ed-rich-tools { display: none; }
+.ed-rich, .ed-rich-tools { display: none; }
+.editor--rich[data-mode="edit"] .ed-rich { display: block; }
+.editor--rich[data-mode="edit"] .ed-rich-tools { display: flex; }
+
+/* Rich Markdown is loaded only after Edit opens. The editor library gets
+   Nami's existing paper variables rather than carrying a fifth theme of its
+   own, so paper/operator/glass/graphite change this surface exactly once. */
+.ed-rich {
+  flex: 1; min-height: 0; overflow: auto; position: relative; color: var(--ink);
+  --crepe-font-default: 'Courier Prime', monospace;
+  --crepe-font-title: 'Caveat', cursive;
+  --crepe-font-code: 'Courier Prime', monospace;
+  --crepe-base-font-size: calc(13px * var(--doc-scale, 1));
+  --crepe-color-background: transparent;
+  --crepe-color-on-background: var(--ink);
+  --crepe-color-surface: var(--menu-sheet);
+  --crepe-color-on-surface: var(--ink);
+  --crepe-color-outline: var(--muted);
+  --crepe-color-primary: var(--green);
+  --crepe-color-secondary: var(--paper-2);
+  --crepe-color-on-secondary: var(--ink);
+  --crepe-color-selected: color-mix(in srgb, var(--green), transparent 76%);
+  --crepe-color-hover: var(--hover);
+  --crepe-color-inline-area: var(--paper-2);
+  --crepe-color-inline-code: var(--amber-ink);
+  --crepe-color-inverse: var(--ink);
+  --crepe-color-on-inverse: var(--paper);
+  --crepe-shadow-1: 2px 3px 0 var(--shadow-mid), 0 0 0 1px var(--dash);
+}
+.ed-rich .milkdown { min-height: 100%; background: transparent; }
+.ed-rich .milkdown .ProseMirror.editor {
+  /* ProseMirror names its editable element `editor`; Nami's card root has the
+     same class. Reset the card's absolute flex layout here or the document is
+     positioned like a second full card, leaving a large empty band above it. */
+  position: relative; inset: auto; display: block; flex: none;
+  min-height: 100%; max-width: calc(76ch + 108px); margin: 0 auto;
+  padding: 18px 54px 60px; line-height: 1.72; caret-color: var(--ink);
+}
+.ed-rich .milkdown .ProseMirror h1, .ed-rich .milkdown .ProseMirror h2,
+.ed-rich .milkdown .ProseMirror h3, .ed-rich .milkdown .ProseMirror h4,
+.ed-rich .milkdown .ProseMirror h5, .ed-rich .milkdown .ProseMirror h6 { font-weight: 700; }
+.ed-rich .milkdown .ProseMirror table { color: var(--ink); background: transparent; }
+.ed-rich .milkdown .milkdown-table-block th { color: var(--ink); background: var(--paper-2); }
+.ed-rich .milkdown .milkdown-table-block td { color: var(--ink); background: var(--paper); }
+.ed-rich .milkdown .milkdown-block-handle { margin-left: -18px; }
+.ed-rich .milkdown .milkdown-toolbar { max-width: calc(100% - 12px); overflow-x: auto; }
+.ed-rich .milkdown .milkdown-block-handle[data-show="false"],
+.ed-rich .milkdown .milkdown-slash-menu[data-show="false"] { pointer-events: none; }
+.ed-rich-loading, .ed-rich-error {
+  min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; color: var(--muted); font-size: calc(11px * var(--doc-scale, 1));
+}
+.ed-rich-error small { max-width: 52ch; color: var(--faint); text-align: center; }
+
+.ed-rich-tools {
+  flex: none; position: relative; align-items: center; gap: 9px; padding: 5px 10px;
+  border-bottom: 1px dashed var(--dash); background: var(--paper-3); color: var(--muted);
+  font-size: 10.5px; z-index: 4;
+}
 .ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
 .ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
   font-family: 'Courier Prime', monospace;
@@ -1793,6 +1856,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ed-hl .hl-h { font-weight: 700; }
 .ed-hl .hl-strong { font-weight: 700; }
 .ed-hl .hl-em { font-style: italic; }
+.ed-hl .hl-highlight { background: var(--amber-bg); color: var(--ink); }
 .ed-hl .hl-code, .ed-hl .hl-fence { color: var(--amber-btn); }
 .ed-hl .hl-link { color: #2f5c8a; }
 .ed-hl .hl-quote { color: var(--muted); }
@@ -1875,6 +1939,19 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read hr { border: none; border-top: 1px dashed var(--dash); margin: 20px 0; }
 .md-read a { text-decoration: underline; }
 .md-read strong { font-weight: 700; }
+.md-read mark, .cd-md mark, .ed-rich mark[data-nami-highlight] {
+  padding: 0 2px; background: var(--amber-bg); color: inherit;
+  text-decoration: underline; text-decoration-color: var(--amber-line); text-decoration-thickness: 2px;
+}
+.md-read .md-attachment, .cd-md .md-attachment {
+  display: flex; align-items: center; gap: 9px; width: fit-content; max-width: 100%;
+  margin: 2px 0 12px; padding: 7px 10px; border: 1px dashed var(--dash-dark);
+  background: var(--paper-2); color: var(--ink); text-decoration: none;
+}
+.md-read .md-attachment::before, .cd-md .md-attachment::before { color: var(--green); font-weight: 700; }
+.md-read .md-attachment--video::before, .cd-md .md-attachment--video::before { content: '▶'; }
+.md-read .md-attachment--file::before, .cd-md .md-attachment--file::before { content: '↗'; }
+.md-read .md-attachment:hover, .cd-md .md-attachment:hover { background: var(--hover); text-decoration: underline; }
 .ed-bar .ed-path { flex: 1; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-bar .ed-browser { font-size: 11px; padding: 6px 10px; white-space: nowrap; }
 .ed-bar .ed-save { font-size: 11px; padding: 6px 12px; }
