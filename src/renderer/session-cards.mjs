@@ -152,6 +152,7 @@ function toolRow(e) {
     kind: 'tool', id: e.id, at: e.at, toolId: e.toolId, name: e.name,
     toolKind: kind, glyph: TOOL_GLYPHS[kind] || TOOL_GLYPHS.other,
     label: toolLabel(e.name, e.input), detail: toolDetail(e.name, e.input),
+    file: (e.input && (e.input.file_path || e.input.filepath || e.input.notebook_path || e.input.AbsolutePath || e.input.TargetFile)) || null,
     diff: e.diff || toolDiff(e.name, e.input),
     body: '', isError: false, truncated: false, pending: true,
     children: null,
@@ -316,9 +317,31 @@ export function buildRows(events) {
   return groupTurns(rows);
 }
 
-// A finished turn folds its work — the Codex reading: your bubble, then
-// `worked for 12.4s · 6 steps ▸`, then the prose, then an Edited-N-files
-// card, then the meter. Only completed turns fold; the live one is watched.
+// What a run of activity was, in words — "read 4 files · ran 2 commands".
+// Counts come from the rows' own kinds; nothing is guessed.
+function workLabel(rows) {
+  const n = { read: 0, edit: 0, execute: 0, search: 0, fetch: 0, think: 0, other: 0 };
+  for (const r of rows) {
+    if (r.kind === 'thinking') n.think++;
+    else if (r.kind === 'tool') n[r.toolKind in n ? r.toolKind : 'other']++;
+  }
+  const parts = [];
+  const s = (c) => (c === 1 ? '' : 's');
+  if (n.read) parts.push(`read ${n.read} file${s(n.read)}`);
+  if (n.edit) parts.push(`edited ${n.edit} file${s(n.edit)}`);
+  if (n.execute) parts.push(`ran ${n.execute} command${s(n.execute)}`);
+  if (n.search) parts.push(n.search === 1 ? 'searched once' : `searched ${n.search}×`);
+  if (n.fetch) parts.push(`fetched ${n.fetch}`);
+  if (n.think) parts.push('thought');
+  if (n.other) parts.push(`${n.other} step${s(n.other)}`);
+  return parts.join(' · ');
+}
+
+// A finished turn folds its work — the Codex-desktop reading: work folds IN
+// PLACE, between the thoughts it belongs to, so the turn stays a story. A
+// lone tool row stays inline; a run of two or more becomes one quiet chip
+// that says what kind of work it was. Only completed turns fold; the live
+// one is watched.
 function groupTurns(rows) {
   const out = [];
   let turn = [];   // everything since the last user row
@@ -332,33 +355,39 @@ function groupTurns(rows) {
     if (!turn.length) { if (meter) out.push(meter); return; }
     if (how === 'live') { out.push(...turn); turn = []; return; }
 
-    // What folds: the activity. What stays: what was said, what failed, and
-    // anything still waiting on the user.
-    const folded = [];
-    const visible = [];
+    // What folds: runs of activity, each where it happened. What stays put:
+    // what was said, what failed, and anything still waiting on the user.
     const edited = [];
+    const activity = [];
+    const anchor = meter || turn[0];
+    let run = [];
+    const closeRun = (into) => {
+      if (!run.length) return;
+      if (run.length === 1) into.push(run[0]);
+      else into.push({
+        kind: 'fold', id: `fold:${run[0].id}`,
+        count: run.length, label: workLabel(run), children: run,
+      });
+      run = [];
+    };
+    const placed = [];
     for (const r of turn) {
       if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) {
-        folded.push(r);
+        run.push(r);
+        activity.push(r);
         if (r.kind === 'tool' && r.toolKind === 'edit' && !r.isError) {
           const path = (r.diff && r.diff.path) || '';
           edited.push({ path: path || r.label.replace(/^\S+\s+/, ''), diff: r.diff || null });
         }
       } else {
-        visible.push(r);
+        closeRun(placed);
+        placed.push(r);
       }
     }
-
-    const anchor = meter || folded[0] || visible[0];
-    if (folded.length) {
-      out.push({
-        kind: 'fold', id: `fold:${anchor.id}`,
-        count: folded.length, duration: meter ? meter.duration : '', children: folded,
-      });
-    }
-    out.push(...visible);
+    closeRun(placed);
+    out.push(...placed);
     if (edited.length) out.push({ kind: 'edits', id: `edits:${anchor.id}`, files: edited });
-    if (meter) out.push(meter);
+    if (meter) { const w = workLabel(activity); if (w) meter.work = w; out.push(meter); }
     turn = [];
   };
 

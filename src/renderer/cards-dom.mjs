@@ -264,8 +264,10 @@ function renderRow(ctx, row) {
   if (row.kind === 'fold') {
     // A finished turn's work, folded to one line. Children render lazily —
     // most folds are never opened, and a long session holds many.
-    const worked = row.duration ? `worked for ${esc(row.duration)}` : 'worked';
-    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> ${worked} · ${row.count} step${row.count > 1 ? 's' : ''}</button><div class="cd-fold-b" hidden></div>`;
+    const head = row.label
+      ? esc(row.label)
+      : `${row.duration ? `worked for ${esc(row.duration)}` : 'worked'} · ${row.count} step${row.count > 1 ? 's' : ''}`;
+    el.innerHTML = `<button class="cd-fold-h"><span class="arr">▸</span> ${head}</button><div class="cd-fold-b" hidden></div>`;
     const body = q('.cd-fold-b', el);
     q('.cd-fold-h', el).onclick = () => {
       const open = el.classList.toggle('open');
@@ -329,6 +331,7 @@ function renderRow(ctx, row) {
     // number that reads like per-turn spend when it is neither confuses more
     // than it informs. Duration and tokens are true per turn; they stay.
     const meter = [`done in ${row.duration}`];
+    if (row.work) meter.push(row.work);
     if (row.tokens) meter.push(`${row.tokens.toLocaleString()} tok`);
     if (row.tokPerSec) meter.push(`${row.tokPerSec} tok/s`);
     if (row.ttftMs != null) meter.push(`first token ${(row.ttftMs / 1000).toFixed(1)}s`);
@@ -372,7 +375,12 @@ function updateRow(ctx, el, row) {
   el.classList.toggle('pending', !!row.pending);
   q('.cd-kd', el).textContent = row.glyph || '•';
   q('.cd-ic', el).textContent = row.pending ? '·' : (row.isError ? '✕' : '✓');
-  q('.cd-lb', el).textContent = row.label;
+  // a row that touched a file names it as a link — click opens the previewer
+  const lb = q('.cd-lb', el);
+  const base = row.file ? String(row.file).split('/').filter(Boolean).pop() : '';
+  if (row.file && base && row.label && row.label.endsWith(base)) {
+    lb.innerHTML = `${esc(row.label.slice(0, -base.length))}<a class="cd-path" data-path="${esc(row.file)}">${esc(base)}</a>`;
+  } else lb.textContent = row.label;
   q('.cd-dt', el).textContent = row.detail;
 
   const open = q('.cd-open', el);

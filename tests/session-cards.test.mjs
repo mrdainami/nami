@@ -55,7 +55,8 @@ test('a finished turn folds its work; the prose and the meter stay out', () => {
   const fold = rows[1];
   assert.equal(fold.count, 2, 'the thought and the read fold');
   assert.deepEqual(fold.children.map((c) => c.kind), ['thinking', 'tool']);
-  assert.equal(fold.duration, '5.7s');
+  assert.match(fold.label, /read 1 file/, 'the chip says what the work was');
+  assert.match(fold.label, /thought/);
 });
 
 test('the live turn never folds — you watch it happen', () => {
@@ -74,7 +75,9 @@ test('edits in a finished turn become an Edited-files card; errors stay visible'
     { kind: 'error', id: 'err', message: 'HTTP 500' },
     { kind: 'turn_end', id: 'e1', durationMs: 1000 },
   ]);
-  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'error', 'edits', 'turn_end']);
+  // a lone edit stays inline (runs of one never fold); the Edited card and
+  // the error keep their places
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'tool', 'error', 'edits', 'turn_end']);
   assert.equal(rows[3].files.length, 1);
   assert.equal(rows[3].files[0].path, '/repo/app.js');
   assert.ok(rows[3].files[0].diff);
@@ -88,7 +91,8 @@ test('an unresolved approval never folds; a resolved one does', () => {
     { kind: 'turn_end', id: 'e1', durationMs: 1000 },
   ]);
   assert.deepEqual(mk(false).map((r) => r.kind), ['user', 'permission', 'turn_end']);
-  assert.deepEqual(mk(true).map((r) => r.kind), ['user', 'fold', 'turn_end']);
+  // a lone resolved approval tucks away as activity but has no run to join
+  assert.deepEqual(mk(true).map((r) => r.kind), ['user', 'permission', 'turn_end']);
 });
 
 test('a turn_end row carries a duration a person can read', () => {
@@ -269,8 +273,8 @@ test('a turn ended by the next user turn folds too — SDK transcripts carry no 
     { kind: 'user', id: 'u2', text: 'second' },
     use('t2', 'Read', { file_path: '/b.js' }),
   ]);
-  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'assistant', 'user', 'tool']);
-  assert.equal(rows[1].duration, '', 'no meter to borrow a duration from');
+  // the lone read stays inline; the second (live) turn is watched raw
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'tool', 'assistant', 'user', 'tool']);
 });
 
 test('events without ids never collide — each still gets its own row', () => {
@@ -312,4 +316,41 @@ test('turn footer timestamps accept ISO strings', () => {
   ]).find((r) => r.kind === 'turn_end');
   assert.equal(end.ttftMs, 1500);
   assert.equal(end.tokPerSec, 25);
+});
+
+test('a finished turn folds runs in place — the story keeps its order', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'assistant', id: 'a1', text: 'first thought' },
+    { kind: 'tool', id: 't1', toolId: 'x1', name: 'Read', input: { file_path: '/p/a.md' } },
+    { kind: 'tool', id: 't2', toolId: 'x2', name: 'Bash', input: { command: 'ls' } },
+    { kind: 'assistant', id: 'a2', text: 'second thought' },
+    { kind: 'tool', id: 't3', toolId: 'x3', name: 'Grep', input: { pattern: 'x' } },
+    { kind: 'turn_end', id: 'e1', durationMs: 5000 },
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'assistant', 'fold', 'assistant', 'tool', 'turn_end'],
+    'run of 2 folds in place between the thoughts; a lone tool stays inline');
+  const fold = rows.find((r) => r.kind === 'fold');
+  assert.equal(fold.count, 2);
+  assert.match(fold.label, /read 1 file/);
+  assert.match(fold.label, /ran 1 command/);
+});
+
+test('the meter says what kind of work the turn was', () => {
+  const end = buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'tool', id: 't1', toolId: 'x1', name: 'Read', input: { file_path: '/p/a.md' } },
+    { kind: 'tool', id: 't2', toolId: 'x2', name: 'Read', input: { file_path: '/p/b.md' } },
+    { kind: 'tool', id: 't3', toolId: 'x3', name: 'Bash', input: { command: 'ls' } },
+    { kind: 'turn_end', id: 'e1', durationMs: 5000 },
+  ]).find((r) => r.kind === 'turn_end');
+  assert.match(end.work, /read 2 files/);
+  assert.match(end.work, /ran 1 command/);
+});
+
+test('read and edit rows carry their file path for the click-through', () => {
+  const rows = buildRows([
+    { kind: 'tool', id: 't1', toolId: 'x1', name: 'Read', input: { file_path: '/p/a.md' } },
+  ]);
+  assert.equal(rows[0].file, '/p/a.md');
 });
