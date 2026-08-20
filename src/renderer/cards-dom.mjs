@@ -393,7 +393,18 @@ function updateRow(ctx, el, row) {
   if (row.body) {
     const pre = document.createElement('pre');
     pre.className = 'cd-body';
-    pre.textContent = row.body + (row.truncated ? '\n\n… cut here — the whole thing is in Term' : '');
+    const bodyText = row.body + (row.truncated ? '\n\n… cut here — the whole thing is in Term' : '');
+    const bl = bodyText.split('\n');
+    if (bl.length > 12) {
+      // middle-collapse: the head and the tail tell the story; the bulk waits
+      pre.textContent = bl.slice(0, 6).join('\n') + '\n';
+      const more = document.createElement('button');
+      more.className = 'cd-body-more';
+      more.textContent = `… expand remaining ${bl.length - 10} lines`;
+      more.onclick = (ev) => { ev.stopPropagation(); pre.textContent = bodyText; };
+      pre.appendChild(more);
+      pre.appendChild(document.createTextNode('\n' + bl.slice(-4).join('\n')));
+    } else pre.textContent = bodyText;
     open.appendChild(pre);
   }
   // A sub-agent you can watch: while its Task still runs, the children are a
@@ -765,7 +776,10 @@ export function buildCards(ctx) {
     framePending = false;
     if (!frameQueue.size) return;
     const stick = nearBottom();
-    for (const [, job] of frameQueue) updateRow(ctx, job.el, job.row);
+    for (const [, job] of frameQueue) {
+      try { updateRow(ctx, job.el, job.row); }
+      catch (err) { console.error('card row failed to draw', job.row && job.row.kind, err); }
+    }
     frameQueue.clear();
     if (stick) scrollToEnd(false);
   }
@@ -799,16 +813,30 @@ export function buildCards(ctx) {
     for (const row of rows) {
       if (row.id === tailStream) row.streaming = true;
       const seen = rowEls.get(row.id);
-      if (seen) {
-        if (row.streaming && (row.kind === 'assistant' || row.kind === 'thinking')) {
-          frameQueue.set(row.id, { el: seen, row });
-          if (!framePending) { framePending = true; requestAnimationFrame(flushFrames); }
-        } else updateRow(ctx, seen, row);
-        continue;
+      try {
+        if (seen) {
+          if (row.streaming && (row.kind === 'assistant' || row.kind === 'thinking')) {
+            frameQueue.set(row.id, { el: seen, row });
+            if (!framePending) { framePending = true; requestAnimationFrame(flushFrames); }
+          } else updateRow(ctx, seen, row);
+          continue;
+        }
+        const rowEl = renderRow(ctx, row);
+        rowEls.set(row.id, rowEl);
+        list.appendChild(rowEl);
+      } catch (err) {
+        // One bad row must never blank everything after it. It renders as a
+        // visible casualty instead, and the console carries the why.
+        console.error('card row failed to draw', row && row.kind, err);
+        if (!seen) {
+          const fb = document.createElement('div');
+          fb.className = 'cd-row cd-error';
+          fb.innerHTML = `<span class="m">✕</span><span class="tx"></span>`;
+          q('.tx', fb).textContent = `couldn't draw a ${row && row.kind ? row.kind : 'card'} row — see the console`;
+          rowEls.set(row.id, fb);
+          list.appendChild(fb);
+        }
       }
-      const rowEl = renderRow(ctx, row);
-      rowEls.set(row.id, rowEl);
-      list.appendChild(rowEl);
     }
     if (stick) scrollToEnd(false);
   }

@@ -353,7 +353,29 @@ function groupTurns(rows) {
   //      'live' — still happening: never folded, you watch it.
   const flush = (how, meter) => {
     if (!turn.length) { if (meter) out.push(meter); return; }
-    if (how === 'live') { out.push(...turn); turn = []; return; }
+    if (how === 'live') {
+      // fold as you go: a run the agent has already moved past collapses the
+      // moment its next thought lands; only the trailing run is watched raw.
+      // (a folded child's late result updates on reopen — results in practice
+      // land before the agent speaks again.)
+      let liveRun = [];
+      const liveOut = [];
+      const foldLive = () => {
+        if (liveRun.length >= 2) liveOut.push({
+          kind: 'fold', id: `fold:${liveRun[0].id}`,
+          count: liveRun.length, label: workLabel(liveRun), children: liveRun,
+        });
+        else liveOut.push(...liveRun);
+        liveRun = [];
+      };
+      for (const r of turn) {
+        if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) liveRun.push(r);
+        else { foldLive(); liveOut.push(r); }
+      }
+      liveOut.push(...liveRun); // the active tail, raw
+      out.push(...liveOut);
+      turn = []; return;
+    }
 
     // What folds: runs of activity, each where it happened. What stays put:
     // what was said, what failed, and anything still waiting on the user.

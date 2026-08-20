@@ -354,3 +354,16 @@ test('read and edit rows carry their file path for the click-through', () => {
   ]);
   assert.equal(rows[0].file, '/p/a.md');
 });
+
+test('live turns fold as they go — only the trailing run stays raw', () => {
+  const rows = buildRows([
+    { kind: 'user', id: 'u1', text: 'go' },
+    { kind: 'tool', id: 't1', toolId: 'x1', name: 'Read', input: { file_path: '/a.md' } },
+    { kind: 'tool', id: 't2', toolId: 'x2', name: 'Bash', input: { command: 'ls' } },
+    { kind: 'assistant', id: 'a1', text: 'progress note' },
+    { kind: 'tool', id: 't3', toolId: 'x3', name: 'Read', input: { file_path: '/b.md' } },
+    { kind: 'tool', id: 't4', toolId: 'x4', name: 'Read', input: { file_path: '/c.md' } },
+  ]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'fold', 'assistant', 'tool', 'tool'],
+    'the finished run folds live; the still-active trailing run is watched raw');
+});

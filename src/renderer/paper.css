@@ -1355,7 +1355,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-fold-h:hover { color: var(--ink); }
 .cd-fold-h .arr { font-size: calc(9px * var(--cdz, 1)); }
-.cd-fold-b { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.cd-fold-b { margin-top: 6px; display: flex; flex-direction: column; gap: 2px;
+  border-left: 2px solid var(--dash); margin-left: 5px; padding-left: 12px; }
+.cd-fold-b[hidden] { display: none; }  /* display:flex beat the hidden attr — folds could never close */
+/* inside a fold, rows go quiet: no box, tighter, plain weight */
+.cd-fold-b .cd-tool .cd-line { border: none; background: none; padding: 2px 0; }
+.cd-fold-b .cd-line .cd-lb { font-weight: 400; }
+.cd-fold-b .cd-row[data-kd="execute"] .cd-lb { font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--muted); font-size: calc(11.5px * var(--cdz, 1)); }
+.cd-body-more { display: block; background: none; border: none; color: var(--muted); cursor: pointer;
+  font: inherit; padding: 2px 0; text-decoration: underline; text-underline-offset: 2px; }
+.cd-body-more:hover { color: var(--ink); }
 
 /* Edited N files — name left, counts right, diff behind the row. */
 .cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
