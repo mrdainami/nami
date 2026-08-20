@@ -5,6 +5,7 @@ import {
   richMarkdownPath,
   editorModesFor,
   relativeMarkdownPath,
+  markdownImageUrl,
   markdownAssetKind,
   colourSpan,
 } from '../src/renderer/markdown-rich.mjs';
@@ -28,6 +29,15 @@ test('picked assets become portable document-relative markdown paths', () => {
   assert.equal(relativeMarkdownPath('/p/docs/note.md', '/p/assets/demo.mp4'), '../assets/demo.mp4');
   assert.equal(relativeMarkdownPath('/p/docs/note.md', '/p/docs/diagrams/flow.svg'), './diagrams/flow.svg');
   assert.equal(relativeMarkdownPath('/p/docs/note.md', 'https://example.com/a.png'), 'https://example.com/a.png');
+});
+
+test('Markdown image URLs resolve beside the note without double-encoding spaces', () => {
+  assert.equal(
+    markdownImageUrl('/p/docs/note.md', './assets/my%20diagram.png'),
+    'nami-doc://doc/%2Fp%2Fdocs/./assets/my%20diagram.png',
+  );
+  assert.equal(markdownImageUrl('/p/docs/note.md', 'https://example.com/image.png'), 'https://example.com/image.png');
+  assert.equal(markdownImageUrl('/p/docs/note.md', '/Users/me/image.png'), null);
 });
 
 test('asset kinds stay small and predictable', () => {

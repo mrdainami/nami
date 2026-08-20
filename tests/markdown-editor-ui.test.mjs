@@ -21,6 +21,8 @@ test('asset insertion is contextual and supports picker, path, URL, and drop', (
   assert.match(app, /api\.chooseFile\(/);
   assert.match(app, /api\.droppedFilePath\(/);
   assert.match(app, /relativeMarkdownPath\(/);
+  assert.match(app, /api\.importMarkdownAsset\(/);
+  assert.match(app, /Local files are copied into \.\/assets/);
 });
 
 test('rich and source panes are mutually exclusive and theme-token driven', () => {
