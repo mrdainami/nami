@@ -1015,6 +1015,20 @@ ipcMain.handle('file:raw', (_e, file) => {
 ipcMain.handle('file:save', (_e, { file, text }) => {
   try { fs.writeFileSync(file, text); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
 });
+ipcMain.handle('file:choose', async (e, kind) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || win;
+  const filters = kind === 'image'
+    ? [{ name: 'Images', extensions: ['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp'] }]
+    : kind === 'video'
+      ? [{ name: 'Videos', extensions: ['m4v', 'mov', 'mp4', 'ogv', 'webm'] }]
+      : [];
+  const res = await dialog.showOpenDialog(parent, {
+    properties: ['openFile'],
+    title: kind === 'image' ? 'Choose an image' : kind === 'video' ? 'Choose a video' : 'Choose a file',
+    filters,
+  });
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
+});
 // Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
 // `relative` is reported because it is the only case a second base could
 // change: an absolute path that is missing is missing everywhere.
