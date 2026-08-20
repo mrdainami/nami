@@ -313,4 +313,17 @@ export function highlightMarkdown(text) {
   return out.join('\n') + '\n';
 }
 
+// Plain text with its links made real — for rows that must never render as
+// markdown (the user's own words) but whose URLs and paths should still
+// click. Escape-first like everything else; a path needs two segments so
+// "either/or" stays prose.
+export function linkifyPlain(text) {
+  return esc(text).replace(
+    /(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])|((?:~|\.{0,2})?\/[\w.@-]+(?:\/[\w.@-]+)+(?::\d+)?)/g,
+    (m, url, p) => (url
+      ? `<a href="${url}">${url}</a>`
+      : `<a class="cd-path" data-path="${p}">${p}</a>`),
+  );
+}
+
 export function isMarkdownPath(p) { return /\.(md|markdown|mdx)$/i.test(String(p || '')); }
