@@ -34,3 +34,10 @@ test('the plain folder chooser is paired across preload and main', () => {
   assert.match(preloadSrc, /chooseFolder:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('folder:choose'\)/);
   assert.match(mainSrc, /ipcMain\.handle\('folder:choose'/);
 });
+
+test('term session-id discovery is paired across preload and main', () => {
+  // main discovers a terminal agent tile's conversation id and pushes it; the
+  // preload must listen on the same channel or the id is never saved.
+  assert.match(preloadSrc, /onTermSessionId:.*ipcRenderer\.on\('term:session-id'/);
+  assert.match(mainSrc, /'term:session-id'/);
+});
