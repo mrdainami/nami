@@ -96,10 +96,12 @@ test('images render through the resolver; without one they stay links', () => {
   assert.match(renderMarkdown('![dot](data:image/gif;base64,R0lGOD)'), /<img src="data:image\/gif;base64,R0lGOD" alt="dot">/);
 });
 
-test('a fence keeps its language as a corner label and its body escaped', () => {
+test('a fence keeps its language as a corner label, tokens classed, body escaped', () => {
   const html = renderMarkdown(FIXTURE);
-  assert.match(html, /<pre class="md-pre"><span class="md-lang">js<\/span><code>const x = 1;<\/code><\/pre>/);
+  assert.match(html, /<pre class="md-pre"><span class="md-lang">js<\/span><code><span class="tok-kw">const<\/span> x = <span class="tok-num">1<\/span>;<\/code><\/pre>/);
   assert.match(renderMarkdown('```\n<script>alert(1)</script>\n```'), /&lt;script&gt;/);
+  // a known language must escape too — colouring never reintroduces markup
+  assert.match(renderMarkdown('```js\nconst s = "<script>";\n```'), /&lt;script&gt;/);
 });
 
 test('hostile content in new constructs is escaped, never markup', () => {
