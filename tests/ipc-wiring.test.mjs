@@ -30,11 +30,7 @@ test('the local browser-file action is paired across preload and main', () => {
   assert.match(mainSrc, /ipcMain\.handle\('file:openBrowser'/);
 });
 
-test('markdown asset pickers are paired across preload and main', () => {
-  assert.match(preloadSrc, /chooseFile:\s*\(kind\)\s*=>\s*ipcRenderer\.invoke\('file:choose', kind\)/);
-  assert.match(mainSrc, /ipcMain\.handle\('file:choose'/);
-  assert.match(preloadSrc, /importMarkdownAsset:\s*\(args\)\s*=>\s*ipcRenderer\.invoke\('file:importMarkdownAsset', args\)/);
-  assert.match(mainSrc, /ipcMain\.handle\('file:importMarkdownAsset'/);
+test('the plain folder chooser is paired across preload and main', () => {
   assert.match(preloadSrc, /chooseFolder:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('folder:choose'\)/);
   assert.match(mainSrc, /ipcMain\.handle\('folder:choose'/);
 });

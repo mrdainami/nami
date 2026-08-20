@@ -1817,31 +1817,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-bottom: 1px dashed var(--dash); background: var(--paper-3); color: var(--muted);
   font-size: 10.5px; z-index: 4;
 }
-.ed-rich-tools .ed-add { padding: 4px 9px; color: var(--green); font-weight: 700; }
-.ed-asset-pop {
-  position: absolute; top: calc(100% + 6px); left: 10px; z-index: 30; width: min(390px, calc(100% - 20px));
-  padding: 10px; border: 1px solid var(--line); background: var(--menu-sheet);
-  box-shadow: 3px 4px 0 var(--shadow-mid); color: var(--ink);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-}
-.ed-asset-pop[hidden] { display: none; }
-.ed-asset-pop.drag { outline: 2px dashed var(--green); outline-offset: -5px; }
-.ed-asset-types { display: flex; gap: 4px; margin-bottom: 9px; }
-.ed-asset-types button {
-  padding: 4px 8px; border: 1px dashed transparent; background: transparent; color: var(--muted);
-  font: inherit; cursor: pointer;
-}
-.ed-asset-types button:hover { background: var(--hover); }
-.ed-asset-types button.on { border-color: var(--dash-dark); background: var(--paper-2); color: var(--green); font-weight: 700; }
-.ed-asset-pop label { display: block; color: var(--muted); }
-.ed-asset-input {
-  display: block; width: 100%; margin-top: 4px; padding: 7px 8px;
-  border: 1px dashed var(--dash-dark); background: var(--paper); color: var(--ink);
-}
-.ed-asset-note { display: block; margin-top: 5px; color: var(--faint); line-height: 1.35; }
-.ed-asset-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
-.ed-asset-actions span { flex: 1; color: var(--faint); }
-.ed-asset-actions .btn { padding: 5px 9px; font-size: 10.5px; }
 .ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
 .ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
   font-family: 'Courier Prime', monospace;

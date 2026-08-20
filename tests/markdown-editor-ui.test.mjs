@@ -15,14 +15,11 @@ test('plain Markdown cards expose Read, Edit, and Markdown without affecting MDX
   assert.match(app, /class="ed-rich/);
 });
 
-test('asset insertion is contextual and supports picker, path, URL, and drop', () => {
-  assert.match(app, /class="ed-asset-pop/);
-  assert.match(app, /Paste a URL or path/);
-  assert.match(app, /api\.chooseFile\(/);
-  assert.match(app, /api\.droppedFilePath\(/);
-  assert.match(app, /relativeMarkdownPath\(/);
-  assert.match(app, /api\.importMarkdownAsset\(/);
-  assert.match(app, /Local files are copied into \.\/assets/);
+test('media creation is deliberately absent until its interaction is ready', () => {
+  assert.doesNotMatch(app, /class="ed-add/);
+  assert.doesNotMatch(app, /class="ed-asset-pop/);
+  assert.doesNotMatch(app, /api\.chooseFile\(/);
+  assert.doesNotMatch(app, /api\.importMarkdownAsset\(/);
 });
 
 test('rich and source panes are mutually exclusive and theme-token driven', () => {
