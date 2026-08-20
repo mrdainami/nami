@@ -296,6 +296,16 @@ function dropPathOnPanel(p, path, isDir) {
     const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
   });
 
+  // Main watched the agent's store after spawn and found the conversation this
+  // terminal-run tile landed in — save it so the next launch resumes it. A tile
+  // already driven in Cards keeps the drive channel's id: that channel wins.
+  api.onTermSessionId(({ id, sid }) => {
+    const p = S.panels.find((x) => x.id === id);
+    if (!p || !sid || p.acpSid || p.agentLive) return;
+    p.acpSid = sid;
+    savePanels();
+  });
+
   // The same session, read out of the transcript it is already writing. Only
   // arrives for tiles that asked (cardsWatch), and `reset` means the
   // conversation underneath changed — /resume, or /clear rewriting the file.
@@ -2797,7 +2807,7 @@ async function startProcess(p, cols, rows) {
   // A name nami chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
-  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, name, watchDone: !!p.watchDone });
+  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone });
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
@@ -2850,13 +2860,15 @@ function cardIntro(p, agent, extra) {
 function cardView(p) { return p.view === 'cards' ? 'cards' : 'term'; }
 
 // The agent's own resume handle, for reopening this conversation in its TUI.
-// Only handles that were verified on this Mac; anything else starts fresh and
-// the menu says so.
+// All five were verified live on this Mac (2026-08-20); anything without a
+// saved id starts fresh and the menu says so.
 function terminalResumeSpec(p) {
   const agent = cardAgentFor(p);
   if (agent === 'claude') return { kind: 'claude', sid: p.sid, cont: !!p.sid, resumes: true };
   if (agent === 'codex' && p.acpSid) return { kind: 'run', command: `codex resume ${p.acpSid}`, resumes: true };
   if (agent === 'kimi' && p.acpSid) return { kind: 'run', command: `kimi -r ${p.acpSid}`, resumes: true };
+  if (agent === 'opencode' && p.acpSid) return { kind: 'run', command: `opencode -s ${p.acpSid}`, resumes: true };
+  if (agent === 'hermes' && p.acpSid) return { kind: 'run', command: `hermes --resume ${p.acpSid}`, resumes: true };
   if (agent === 'agy' && p.acpSid) return { kind: 'run', command: `agy --conversation ${p.acpSid}`, resumes: true };
   return { kind: 'run', command: p.command, resumes: false };
 }
@@ -4252,6 +4264,8 @@ async function restorePanels(snaps) {
   // before sids existed can't be told apart, so only the newest of them may use
   // --continue (which always means "the most recent conversation in this cwd") —
   // giving it to all of them is exactly the everything-becomes-one-session bug.
+  // A run panel (kimi, codex, …) resumes by its saved acpSid; main checks the
+  // agent's store still holds that session and falls back to a fresh spawn.
   const newestLegacy = snaps.find((s) => s.kind === 'claude' && !s.sid);
   // open* unshift; walk the list backwards so the restored order matches
   for (const s of [...snaps].reverse()) {
@@ -4264,7 +4278,7 @@ async function restorePanels(snaps) {
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
-      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' && (!!s.sid || s === newestLegacy) });
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' ? (!!s.sid || s === newestLegacy) : !!s.acpSid });
       // A snapshot from before spans existed carries none, and a panel with no
       // span renders at the default. That is the whole of the migration.
       if (S.panels.length > before && (s.spanX || s.spanY)) {
