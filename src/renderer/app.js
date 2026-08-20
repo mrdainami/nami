@@ -1447,7 +1447,11 @@ async function relistDir(dir) {
 }
 function treeMenu(n, parentDir) {
   const root = S.project.path;
-  const items = [{ label: 'Reveal in Finder', run: () => api.revealFile(n.path) }];
+  const items = [];
+  if (n.kind === 'file' && fileKind(n.path) === 'html') {
+    items.push({ label: 'Open in browser', run: () => openFileInBrowser(n.path) });
+  }
+  items.push({ label: 'Reveal in Finder', run: () => api.revealFile(n.path) });
   if (n.kind === 'dir') {
     items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
     items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
@@ -3574,6 +3578,39 @@ async function openDocLink(href, p, read) {
   else api.revealFile(st.abs);
 }
 
+function browserPanelFor(filePath) {
+  const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (peek && peek.filePath === filePath) return peek;
+  return S.panels.find((p) => p.filePath === filePath) || null;
+}
+function browserButtonLabel(button, p) {
+  if (!button) return;
+  button.innerHTML = p && p.dirty ? 'Save &amp; open ↗' : 'Browser ↗';
+  button.title = p && p.dirty
+    ? 'Save this page, then open it in your default browser'
+    : 'Open this saved page in your default browser';
+}
+function bindBrowserButton(button, p) {
+  if (!button) return;
+  button._browserPanel = p;
+  browserButtonLabel(button, p);
+  button.onclick = () => openFileInBrowser(p.filePath, p);
+}
+function refreshBrowserButtons(p) {
+  document.querySelectorAll('.pk-browser, .ed-browser').forEach((button) => {
+    if (button._browserPanel === p) browserButtonLabel(button, p);
+  });
+}
+async function openFileInBrowser(filePath, panel) {
+  const p = panel || browserPanelFor(filePath);
+  if (p && p.dirty) {
+    const saved = await saveEditor(p);
+    if (!saved) return;
+  }
+  const res = await api.openFileInBrowser(filePath);
+  if (!res || !res.ok) toast((res && res.error) || 'Could not open the browser.');
+}
+
 // ---- editor tiles ----------------------------------------------------------
 function mountEditor(p, rec) {
   // Markdown and html open rendered; everything else has nothing to render, so
@@ -3591,7 +3628,7 @@ function mountEditor(p, rec) {
     <div class="ed-read md-read"></div>
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
-    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
   wrap.classList.toggle('editor--html', html);
   rec.body.appendChild(wrap);
@@ -3671,7 +3708,7 @@ function mountEditor(p, rec) {
     if (p.edMode === 'edit') sync();
   };
 
-  ta.addEventListener('input', () => { p.text = ta.value; if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); } sync(); });
+  ta.addEventListener('input', () => { p.text = ta.value; if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p); } sync(); });
   ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
@@ -3688,14 +3725,20 @@ function mountEditor(p, rec) {
   });
   const edPath = q('.ed-path', wrap);
   if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
+  bindBrowserButton(q('.ed-browser', wrap), p);
   q('.ed-finder', wrap).onclick = () => api.revealFile(p.filePath);
   q('.ed-save', wrap).onclick = () => saveEditor(p);
   sync(); applyMode();
 }
 async function saveEditor(p) {
   const res = await api.saveFile({ file: p.filePath, text: p.text });
-  if (res && res.ok) { p.dirty = false; refreshTileHead(p); refreshRail(); toast('Saved ' + baseNameOf(p.filePath)); }
-  else toast('Save failed: ' + (res && res.error || '?'));
+  if (res && res.ok) {
+    p.dirty = false; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+    toast('Saved ' + baseNameOf(p.filePath));
+    return true;
+  }
+  toast('Save failed: ' + (res && res.error || '?'));
+  return false;
 }
 
 // ---- viewer tiles (image / video / audio / pdf / fallback) -----------------
@@ -5679,19 +5722,22 @@ function openPeek(p) {
 }
 function renderPeek() {
   const p = S.overlay.panel;
+  const browser = p.kind === 'editor' && fileKind(p.filePath) === 'html';
   const wrap = document.createElement('div'); wrap.className = 'overlay'; wrap.onclick = requestClosePeek;
   const box = document.createElement('div'); box.className = 'peek-box'; box.onclick = (e) => e.stopPropagation();
   box.innerHTML = `<div class="peek-head">
       ${panelChip(p)}
       <span class="col"><span class="pk-title">${esc(p.title)}${p.dirty ? ' •' : ''}</span><span class="pk-sub">${esc(shortHome(p.filePath))}</span></span>
+      ${browser ? '<button class="btn pk-browser"></button>' : ''}
       <button class="btn btn--go pk-pin" title="Keep it open as a tile on the desk">Pin to desk</button>
       <button class="t-btn pk-x" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="peek-body"></div>`;
   wrap.appendChild(box); els.overlayRoot.appendChild(wrap);
-  const rec = { body: q('.peek-body', box) };
+  const rec = { body: q('.peek-body', box), peek: true };
   if (p.kind === 'editor') mountEditor(p, rec);
   else if (p.kind === 'card') mountCard(p, rec);
   else mountViewer(p, rec);
+  if (browser) bindBrowserButton(q('.pk-browser', box), p);
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;
 }
