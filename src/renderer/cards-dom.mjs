@@ -8,7 +8,7 @@
 // made to run HTML), URLs open in the browser, bare paths are statted before
 // they light up, and fenced code scrolls inside its own block.
 
-import { renderMarkdown } from './md.mjs';
+import { renderMarkdown, linkifyPlain } from './md.mjs';
 import { pixIcon, iconKeyFor, iconSvg } from './icons.mjs';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -167,7 +167,10 @@ function renderRow(ctx, row) {
 
   if (row.kind === 'user') {
     el.innerHTML = `<span class="m">❯</span><span class="tx"></span>`;
-    q('.tx', el).textContent = row.command ? '/' + row.text.replace(/^\//, '') : row.text;
+    // never markdown — the user's words render verbatim — but a URL or a
+    // path in them clicks like it would anywhere else on the card
+    if (row.command) q('.tx', el).textContent = '/' + row.text.replace(/^\//, '');
+    else q('.tx', el).innerHTML = linkifyPlain(String(row.text || ''));
     el.classList.toggle('cd-cmd', !!row.command);
     return el;
   }

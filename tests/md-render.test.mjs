@@ -3,7 +3,7 @@
 // zero-dependency, escape-first, no HTML passthrough.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMarkdown } from '../src/renderer/md.mjs';
+import { renderMarkdown, linkifyPlain } from '../src/renderer/md.mjs';
 
 const FIXTURE = [
   '---',
@@ -166,4 +166,13 @@ test('wrapped text: up to 3 leading spaces keep block meaning (CommonMark)', () 
   assert.match(html, /<h1>Setext<\/h1>/);
   // 4+ spaces is not a heading — that is indented content
   assert.ok(!/<h2>deep<\/h2>/.test(renderMarkdown('    ## deep')));
+});
+
+test('linkifyPlain: plain text stays plain, urls and paths become anchors', () => {
+  assert.equal(linkifyPlain('no links here'), 'no links here');
+  assert.match(linkifyPlain('see https://x.dev/a?b=1 now'), /<a href="https:\/\/x.dev\/a\?b=1">https:\/\/x.dev\/a\?b=1<\/a>/);
+  assert.match(linkifyPlain('open /tmp/test.js please'), /<a class="cd-path" data-path="\/tmp\/test.js">\/tmp\/test.js<\/a>/);
+  assert.match(linkifyPlain('home ~/notes/todo.md'), /data-path="~\/notes\/todo.md"/);
+  assert.equal(linkifyPlain('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
+  assert.ok(!/<a/.test(linkifyPlain('either/or choices')), 'bare word pairs are not paths');
 });
