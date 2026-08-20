@@ -212,9 +212,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test('discovery reports a matching session once, then stops', async () => {
   const home = mkhome();
-  kimiStore(home, [{ id: 'k-1', cwd: CWD, mtime: 9000 }]);
+  kimiStore(home, []); // spawn-time store: nothing known yet
   const found = [];
   const stop = startDiscovery({ id: 't1', agent: 'kimi', cwd: CWD, sinceMs: 1000, home, everyMs: 15, onFound: (sid) => found.push(sid) });
+  kimiStore(home, [{ id: 'k-1', cwd: CWD, mtime: 9000 }]); // the agent files its session
   await sleep(120);
   stop();
   assert.deepEqual(found, ['k-1']); // once, not every tick
@@ -222,9 +223,10 @@ test('discovery reports a matching session once, then stops', async () => {
 
 test('discovery stays silent when nothing matches, and stop ends the polling', async () => {
   const home = mkhome();
-  kimiStore(home, [{ id: 'k-1', cwd: CWD, mtime: 9000 }]);
+  kimiStore(home, []);
   const found = [];
   const stop = startDiscovery({ id: 't2', agent: 'kimi', cwd: OTHER, sinceMs: 1000, home, everyMs: 15, onFound: (sid) => found.push(sid) });
+  kimiStore(home, [{ id: 'k-1', cwd: CWD, mtime: 9000 }]); // another folder's session: not ours
   await sleep(60);
   stop();
   // a session appearing after stop must never be reported
@@ -233,17 +235,49 @@ test('discovery stays silent when nothing matches, and stop ends the polling', a
   assert.deepEqual(found, []);
 });
 
+test('a session the folder already had at spawn is never reported, however fresh its mtime', async () => {
+  // the resume race: a neighbour tile resuming an OLD conversation bumps its
+  // timestamps — fresh by the clock, but the id was known at spawn
+  const home = mkhome();
+  kimiStore(home, [{ id: 'k-old', cwd: CWD, mtime: 9000 }]);
+  const found = [];
+  const stop = startDiscovery({ id: 't3', agent: 'kimi', cwd: CWD, sinceMs: 1000, home, everyMs: 15, onFound: (sid) => found.push(sid) });
+  kimiStore(home, [{ id: 'k-old', cwd: CWD, mtime: 999999 }]); // activity, same id
+  await sleep(80);
+  stop();
+  assert.deepEqual(found, []);
+});
+
 test('two tiles in one folder never get the same session; the oldest claims it', async () => {
   const home = mkhome();
-  kimiStore(home, [{ id: 'k-shared', cwd: CWD, mtime: 9000 }]);
+  kimiStore(home, []);
   const foundA = [];
   const foundB = [];
   // A spawned first (smaller sinceMs) — it must win; B keeps waiting for the
   // NEXT session rather than double-resuming this one.
   const stopA = startDiscovery({ id: 'tA', agent: 'kimi', cwd: CWD, sinceMs: 1000, home, everyMs: 15, onFound: (sid) => foundA.push(sid) });
   const stopB = startDiscovery({ id: 'tB', agent: 'kimi', cwd: CWD, sinceMs: 2000, home, everyMs: 15, onFound: (sid) => foundB.push(sid) });
+  kimiStore(home, [{ id: 'k-shared', cwd: CWD, mtime: 9000 }]);
   await sleep(150);
   stopA(); stopB();
   assert.deepEqual(foundA, ['k-shared']);
   assert.deepEqual(foundB, []); // k-shared was claimed; B never re-receives it
+});
+
+test('two waiting tiles pair with arriving sessions oldest-first', async () => {
+  // sessions are filed in spawn order, so oldest tile + oldest session belong
+  // together — newest-first would hand A the conversation B is typing in
+  const home = mkhome();
+  kimiStore(home, []);
+  const foundA = [];
+  const foundB = [];
+  const stopA = startDiscovery({ id: 'pA', agent: 'kimi', cwd: CWD, sinceMs: 1000, home, everyMs: 15, onFound: (sid) => foundA.push(sid) });
+  const stopB = startDiscovery({ id: 'pB', agent: 'kimi', cwd: CWD, sinceMs: 2000, home, everyMs: 15, onFound: (sid) => foundB.push(sid) });
+  kimiStore(home, [{ id: 'k-a', cwd: CWD, mtime: 5000 }]);
+  await sleep(80);
+  kimiStore(home, [{ id: 'k-a', cwd: CWD, mtime: 5000 }, { id: 'k-b', cwd: CWD, mtime: 8000 }]);
+  await sleep(80);
+  stopA(); stopB();
+  assert.deepEqual(foundA, ['k-a']);
+  assert.deepEqual(foundB, ['k-b']);
 });
