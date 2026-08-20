@@ -16,6 +16,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "build:markdown-editor": "node scripts/build-markdown-editor.mjs",
     "test": "node --test tests/*.test.mjs",
     "shot": "electron . --demo --screenshot shots/app.png",
     "fetch-model": "node scripts/fetch-model.mjs",
@@ -39,9 +40,11 @@
     "onnxruntime-node": "1.21.0"
   },
   "devDependencies": {
+    "@milkdown/crepe": "^7.22.1",
     "@xterm/addon-webgl": "^0.19.0",
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "js-yaml": "^4.3.1"
   },
   "//deps": "transformers and onnxruntime-node are pinned exactly on purpose: a v3→v4 transformers bump swaps the tokenizer and the wasm-vendoring story, and onnxruntime-node's prebuilt-binary layout moves between napi generations. Re-pin deliberately, never by caret drift. Packaging lives in electron-builder.yml."

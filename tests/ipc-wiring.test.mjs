@@ -29,3 +29,8 @@ test('the local browser-file action is paired across preload and main', () => {
   assert.match(preloadSrc, /openFileInBrowser:\s*\(file\)\s*=>\s*ipcRenderer\.invoke\('file:openBrowser', file\)/);
   assert.match(mainSrc, /ipcMain\.handle\('file:openBrowser'/);
 });
+
+test('the plain folder chooser is paired across preload and main', () => {
+  assert.match(preloadSrc, /chooseFolder:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('folder:choose'\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('folder:choose'/);
+});

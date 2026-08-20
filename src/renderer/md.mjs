@@ -17,7 +17,7 @@ const esc = (s) => String(s == null ? '' : s)
 // deliberately absent: snake_case identifiers are far more common than _em_.
 // The bare-URL branch comes last so `[text](url)` and code spans win first, and
 // it stops before the punctuation that ends a sentence around a link.
-const INLINE = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 // ---- where a link in the Read view points -----------------------------------
 // Pure: hand it an href and the path of the doc it came from, get back what the
@@ -67,12 +67,13 @@ export function docHrefTarget(href, docPath) {
 // Emphasis recurses into its own content — `**[title](url)**` is a bold LINK
 // (found literal in a real Notion reply) — through a fresh regex each level:
 // recursing through one global RegExp would clobber the outer lastIndex.
-const INLINE_R = /(`[^`\n]+`)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
+const INLINE_R = /(`[^`\n]+`)|(==[^=\n]+==)|(!\[[^\]\n]*\]\([^)\s]+\))|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>"'`)\]]*[^\s<>"'`)\].,;:!?])/g;
 
 function inlineEscR(s, resolve) {
-  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, img, link, strong, del, em, bare) => {
+  return s.replace(new RegExp(INLINE_R.source, 'g'), (m, code, mark, img, link, strong, del, em, bare) => {
     let cut;
     if (code) return `<code>${code.slice(1, -1)}</code>`;
+    if (mark) return `<mark>${inlineEscR(mark.slice(2, -2), resolve)}</mark>`;
     if (img) {
       cut = img.lastIndexOf('](');
       const src = img.slice(cut + 2, -1);
@@ -89,6 +90,31 @@ function inlineEscR(s, resolve) {
     if (em) return `<em>${inlineEscR(em.slice(1, -1), resolve)}</em>`;
     return `<a href="${bare}">${bare}</a>`;
   });
+}
+
+const SAFE_COLOUR = /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|var\(--(?:red-ink|green|amber-ink|muted)\))$/i;
+function inlineRaw(raw, resolve) {
+  const preserved = [];
+  const text = String(raw == null ? '' : raw).replace(
+    /<span\s+style="color:\s*([^";]+);?">([^<]*)<\/span>/gi,
+    (whole, colour, body) => {
+      if (!SAFE_COLOUR.test(String(colour).trim())) return whole;
+      const token = `\uE000${preserved.length}\uE001`;
+      preserved.push(`<span style="color:${esc(String(colour).trim())}">${esc(body)}</span>`);
+      return token;
+    },
+  );
+  let html = inlineEscR(esc(text), resolve);
+  preserved.forEach((span, index) => { html = html.replace(`\uE000${index}\uE001`, span); });
+  return html;
+}
+
+function attachmentKind(href) {
+  const clean = String(href || '').split(/[?#]/)[0];
+  if (/\.(?:m4v|mov|mp4|ogv|webm)$/i.test(clean)) return 'video';
+  if (/^https?:/i.test(clean)) return '';
+  if (/\.(?:md|markdown)$/i.test(clean)) return '';
+  return /\.[a-z0-9]{1,12}$/i.test(clean) ? 'file' : '';
 }
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
@@ -155,7 +181,7 @@ function tableAt(lines, i, inl) {
 
 export function renderMarkdown(text, opts = {}) {
   const lines = String(text == null ? '' : text).split('\n');
-  const inl = (raw) => inlineEscR(esc(raw), opts.resolveImage);
+  const inl = (raw) => inlineRaw(raw, opts.resolveImage);
   const out = [];
   let fence = null;     // open fence marker, or null
   let fenceLang = '';
@@ -225,6 +251,14 @@ export function renderMarkdown(text, opts = {}) {
       continue;
     }
 
+    const attachment = line.trim().match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+    const attachmentType = attachment && attachmentKind(attachment[2]);
+    if (attachmentType) {
+      closePara();
+      out.push(`<a class="md-attachment md-attachment--${attachmentType}" href="${esc(attachment[2])}"><b>${attachmentType === 'video' ? '▶' : '↗'}</b><span>${inl(attachment[1])}</span></a>`);
+      continue;
+    }
+
     para.push(line.trim());
   }
   if (fence) out.push(`<pre class="md-pre"><code>${esc(fenceBuf.join('\n'))}</code></pre>`);
@@ -236,9 +270,10 @@ export function renderMarkdown(text, opts = {}) {
 // Every character survives, markers included, so the layer lines up
 // glyph-for-glyph with the textarea sitting on top of it.
 function hlInline(raw) {
-  return esc(raw).replace(INLINE, (m, code, link, strong, del, em, bare) => {
+  return esc(raw).replace(INLINE, (m, code, highlight, link, strong, del, em, bare) => {
     const mark = (t) => `<span class="hl-mark">${t}</span>`;
     if (code) return `<span class="hl-code">${mark('`')}${code.slice(1, -1)}${mark('`')}</span>`;
+    if (highlight) return `<span class="hl-highlight">${mark('==')}${highlight.slice(2, -2)}${mark('==')}</span>`;
     if (link) {
       const cut = link.lastIndexOf('](');
       return `${mark('[')}<span class="hl-link">${link.slice(1, cut)}</span>${mark(link.slice(cut))}`;
