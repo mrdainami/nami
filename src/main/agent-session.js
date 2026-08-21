@@ -23,6 +23,7 @@ const ADAPTERS = {
   claude: ClaudeSdkAdapter,
   opencode: AcpAdapter,
   hermes: AcpAdapter,
+  grok: AcpAdapter,
   codex: CodexAdapter,
   kimi: KimiAdapter,
   agy: AgyAdapter,

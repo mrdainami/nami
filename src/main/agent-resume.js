@@ -1,9 +1,9 @@
 // Resuming a run tile's conversation where claude got it for free. Claude
 // pins --session-id at spawn, so a restore is --resume of an id Nami already
-// knows. The other agents — kimi, codex, opencode, hermes, agy — run as plain
-// `run` tiles (their bare bin typed into a shell) and all take a resume flag
-// too (probed live 2026-08-20: each was given a codeword, resumed by id, and
-// answered for it). Two gaps this module closes:
+// knows. The other agents — kimi, codex, opencode, hermes, agy, grok — run as
+// plain `run` tiles (their bare bin typed into a shell) and all take a resume
+// flag too (probed live 2026-08-20, grok 2026-08-21: each was given a codeword,
+// resumed by id, and answered for it). Two gaps this module closes:
 //
 //   restore  — a run tile with a saved id is spawned with the resume line
 //              (resumeCommand), guarded by the store actually holding that
@@ -29,6 +29,9 @@
 //             epoch-secs float). No source filter: cli rows DO carry the cwd
 //             (the source='acp' filter in hermes-transcript.js serves the
 //             card backlog, a different question).
+//   grok      ~/.grok/sessions/<encodeURIComponent(cwd)>/<uuid>/ — one
+//             directory per session, filed under the folder it ran in. The
+//             only store that answers both questions with a readdir.
 //   agy       ~/.gemini/antigravity-cli/cache/last_conversations.json maps
 //             cwd → latest conversation id; the conversation itself is
 //             conversations/<id>.db. The old antigravity/conversations/*.pb
@@ -41,7 +44,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const AGENT_BINS = ['kimi', 'codex', 'opencode', 'hermes', 'agy'];
+const AGENT_BINS = ['kimi', 'codex', 'opencode', 'hermes', 'agy', 'grok'];
 
 function statSafe(p) { try { return fs.statSync(p); } catch (_) { return null; } }
 function listDirSafe(p) { try { return fs.readdirSync(p); } catch (_) { return []; } }
@@ -64,6 +67,7 @@ function resumeCommand(agent, sid) {
   if (agent === 'opencode') return `opencode -s ${s}`;
   if (agent === 'hermes') return `hermes --resume ${s}`;
   if (agent === 'agy') return `agy --conversation ${s}`;
+  if (agent === 'grok') return `grok --resume ${s}`;
   return null;
 }
 
@@ -171,6 +175,24 @@ function agyLatest(home, cwd) {
   return st ? { id: String(id), mtime: st.mtimeMs } : null;
 }
 
+// grok is the one store that files by folder outright:
+// ~/.grok/sessions/<encodeURIComponent(cwd)>/<uuid>/. No index, no database —
+// the cwd IS the directory name, so a readdir answers both questions. Verified
+// against the real folders on this Mac 2026-08-21, where encodeURIComponent
+// reproduced every one exactly (including /tmp and a nested project path).
+// prompt_history.jsonl lives beside the session folders and is not one, so
+// only directories count.
+function grokSessions(home, cwd) {
+  const dir = path.join(home, '.grok', 'sessions', encodeURIComponent(String(cwd || '')));
+  const out = [];
+  for (const name of listDirSafe(dir)) {
+    const st = statSafe(path.join(dir, name));
+    if (!st || !st.isDirectory()) continue;
+    out.push({ id: name, mtime: st.mtimeMs });
+  }
+  return out;
+}
+
 // ---- exists / find ----------------------------------------------------------
 
 // "Is this saved id still in the agent's store" — the restore guard. Without
@@ -191,6 +213,7 @@ function sessionExists(agent, cwd, sid, home = os.homedir()) {
     if (agent === 'agy') {
       return !!statSafe(path.join(home, '.gemini', 'antigravity-cli', 'conversations', s + '.db'));
     }
+    if (agent === 'grok') return grokSessions(home, cwd).some((r) => r.id === s);
   } catch (_) {}
   return false;
 }
@@ -224,6 +247,8 @@ function sessionMatches(agent, cwd, sinceMs, home = os.homedir()) {
     } else if (agent === 'agy') {
       const r = agyLatest(home, cwd);
       out = r && r.mtime >= since ? [{ id: r.id, at: r.mtime }] : [];
+    } else if (agent === 'grok') {
+      out = grokSessions(home, cwd).filter((r) => r.mtime >= since).map((r) => ({ id: r.id, at: r.mtime }));
     }
     if (!out) return [];
     // One rollout per resume means an id can repeat; keep its earliest sighting.

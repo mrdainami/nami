@@ -147,3 +147,58 @@ test('shortModel takes the last path segment', () => {
   assert.equal(shortModel('gpt-5'), 'gpt-5');
   assert.equal(shortModel(''), '');
 });
+
+// grok keeps ~/.grok/auth.json as a map keyed "<issuer>::<client_id>" — one
+// entry per sign-in, and the CLI uses the newest. Shape captured 2026-08-21
+// (grok 1.0.5); values synthetic, keys and nesting are not. The real file also
+// holds `key` (a JWT) and `refresh_token`; neither may ever reach a row.
+const GROK_IN = JSON.stringify({
+  'https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828': {
+    key: 'eyJhbGciOiJFUzI1NiJ9.SECRET.SIGNATURE',
+    auth_mode: 'oidc',
+    create_time: '2026-08-21T03:53:40.441473Z',
+    user_id: '9683642d-4d1a-45d7-a804-ce0d7dd2a012',
+    email: 'dev@example.com',
+    first_name: 'Dev',
+    principal_type: 'User',
+    team_id: 'ee0e550b-b5d9-4a97-aab5-ae0cb4c6e474',
+    refresh_token: 'SECRET-RT',   // short on purpose: repo-shape.test.mjs scans for credential shapes
+    expires_at: '2026-08-21T09:53:40.441473Z',
+    oidc_issuer: 'https://auth.x.ai',
+  },
+});
+
+test('grok: signed in shows the account and how', () => {
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': GROK_IN } });
+  assert.equal(s.signedIn, true);
+  assert.equal(s.label, 'dev@example.com');
+  assert.deepEqual(s.rows.find((r) => r.k === 'Account'), { k: 'Account', v: 'dev@example.com' });
+  assert.deepEqual(s.rows.find((r) => r.k === 'Signed in'), { k: 'Signed in', v: 'through your xAI account' });
+});
+
+test('grok: an API-key sign-in has no email and says so', () => {
+  const raw = JSON.stringify({ 'https://auth.x.ai::c1': { auth_mode: 'api_key', key: 'SECRET' } });
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': raw } });
+  assert.equal(s.signedIn, true);
+  assert.equal(s.label, 'signed in with an API key');
+});
+
+test('grok: an empty auth file is signed out, not unknown', () => {
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': '{}' } });
+  assert.equal(s.signedIn, false);
+  assert.equal(s.label, 'signed out');
+});
+
+test('grok: a missing or unreadable auth file is unknown, never a crash', () => {
+  assert.equal(parseAgentStatus('grok', { files: {} }).signedIn, null);
+  assert.equal(parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': 'not json' } }).signedIn, null);
+});
+
+// The one rule this whole file exists to keep.
+test('grok: no token, key or refresh token ever reaches a row', () => {
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': GROK_IN } });
+  const blob = JSON.stringify(s);
+  for (const secret of ['SECRET', 'SIGNATURE', 'eyJhbGciOiJFUzI1NiJ9', '9683642d']) {
+    assert.ok(!blob.includes(secret), `grok status leaked ${secret}`);
+  }
+});

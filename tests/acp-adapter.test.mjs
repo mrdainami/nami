@@ -274,3 +274,122 @@ test('interleaved thought/message chunks keep two growing rows, not a cascade', 
   const ids2 = new Set(events.filter((e) => e.kind === 'thinking').map((e) => e.id));
   assert.equal(ids2.size, 2, 'a boundary starts a fresh thought row');
 });
+
+// ---- grok ------------------------------------------------------------------
+// Frames from a real `grok agent stdio` session recorded 2026-08-21 (grok
+// 1.0.5): initialize, session/new, set_mode plan, then a prompt that read a
+// file. The _x.ai/mcp/* notifications are dropped from the fixture — they
+// carry the machine's own MCP server env, and the adapter ignores them anyway.
+//
+// grok differs from opencode in exactly two ways, and both are here:
+//   models — the ACP spec shape, not opencode's configOptions entry
+//   modes  — advertised nowhere at all, so Nami pins them
+
+test('grok is in the table, spawning its stdio endpoint', () => {
+  assert.deepEqual(ACP_AGENTS.grok.args, ['agent', 'stdio']);
+  assert.equal(ACP_AGENTS.grok.program, 'grok');
+});
+
+test('every event out of a full grok replay is in the vocabulary', () => {
+  const { a, events } = makeAdapter('grok');
+  for (const m of fixtureFrames('grok-acp.jsonl')) a.handleFrame(m);
+  assert.ok(events.length > 0, 'the replay should produce events');
+  for (const e of events) assert.ok(EVENT_KINDS.has(e.kind), `grok: '${e.kind}' not in vocabulary`);
+});
+
+test('grok prose and thinking each coalesce into one growing row', () => {
+  const { a, events } = makeAdapter('grok');
+  for (const m of fixtureFrames('grok-acp.jsonl')) a.handleFrame(m);
+  for (const kind of ['assistant', 'thinking']) {
+    const rows = events.filter((e) => e.kind === kind);
+    assert.ok(rows.length >= 2, `${kind} should re-emit as it grows`);
+    assert.equal(new Set(rows.map((e) => e.id)).size, 1, `${kind} chunks must share one row id`);
+    assert.ok(rows.at(-1).text.length > rows[0].text.length, `${kind} text must accumulate`);
+  }
+});
+
+test('grok tool calls become typed rows', () => {
+  const { a, events } = makeAdapter('grok');
+  for (const m of fixtureFrames('grok-acp.jsonl')) a.handleFrame(m);
+  const tools = events.filter((e) => e.kind === 'tool');
+  assert.ok(tools.length >= 1, 'the recorded turn read a file');
+  assert.ok(tools.some((e) => e.toolKind), 'a tool row should carry its kind');
+});
+
+// The reader that would otherwise leave grok's model picker empty: grok answers
+// with the ACP spec's own shape, where opencode answers with a configOptions
+// entry. Both must work.
+test('readModels understands the ACP spec shape grok uses', () => {
+  const { a } = makeAdapter('grok');
+  a.readModels({
+    models: {
+      currentModelId: 'grok-4.6',
+      availableModels: [
+        { modelId: 'grok-4.6', name: 'Grok 4.6', description: 'frontier' },
+        { modelId: 'grok-4.6-mini', name: 'Grok 4.6 Mini' },
+      ],
+    },
+  });
+  assert.equal(a.models.current, 'grok-4.6');
+  assert.deepEqual(a.models.options, [
+    { value: 'grok-4.6', name: 'Grok 4.6' },
+    { value: 'grok-4.6-mini', name: 'Grok 4.6 Mini' },
+  ]);
+});
+
+test('readModels still understands opencode\'s configOptions shape', () => {
+  const { a } = makeAdapter('opencode');
+  a.readModels({ configOptions: [{ id: 'model', currentValue: 'm1', options: [{ value: 'm1', name: 'One' }] }] });
+  assert.equal(a.models.current, 'm1');
+  assert.deepEqual(a.models.options, [{ value: 'm1', name: 'One' }]);
+});
+
+test('a session that names no models leaves the picker off', () => {
+  const { a } = makeAdapter('grok');
+  a.readModels({ _meta: {} });
+  assert.equal(a.models, null);
+  a.readModels({ models: { currentModelId: 'x', availableModels: [] } });
+  assert.equal(a.models, null, 'an empty list is no list');
+});
+
+// grok advertises no modes at all — no `modes`, no configOptions entry. Its
+// four are pinned from its own docs, and session/set_mode accepts ANY string
+// without erroring, so a wrong entry would show a mode grok is not in.
+test('grok gets its four pinned modes even though it advertises none', () => {
+  const { a } = makeAdapter('grok');
+  a.readModes({ sessionId: 'x' });
+  assert.ok(a.modes, 'grok must still grow a mode chip');
+  assert.deepEqual(a.modes.options.map((m) => m.id), ['default', 'plan', 'auto', 'bypassPermissions']);
+  assert.equal(a.modes.current, 'default');
+  // acceptEdits and dontAsk are claude-compat aliases grok's own docs say map
+  // to nothing real ("grok's auto is the nearest") — they must not be offered
+  for (const alias of ['acceptEdits', 'dontAsk']) {
+    assert.ok(!a.modes.options.some((m) => m.id === alias), `${alias} is not a grok mode`);
+  }
+});
+
+test('pinning grok\'s modes never overrides an agent that does advertise them', () => {
+  const { a } = makeAdapter('hermes');
+  a.readModes({ modes: { currentModelId: null, currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] } });
+  assert.deepEqual(a.modes.options.map((m) => m.id), ['ask']);
+});
+
+test('the recorded grok session reports its mode switch, and the chip follows the agent', () => {
+  const { a, events } = makeAdapter('grok');
+  a.readModes({});   // start() always seeds the list before any frame arrives
+  for (const m of fixtureFrames('grok-acp.jsonl')) a.handleFrame(m);
+  const modeEvents = events.filter((e) => e.mode);
+  assert.ok(modeEvents.some((e) => e.mode === 'plan'),
+    'set_mode plan was echoed back by grok and must reach the card');
+});
+
+test('a mode the agent reports but Nami never listed is adopted, not ignored', () => {
+  // grok's TUI vocabulary is not its ACP vocabulary, and set_mode does not
+  // validate — so an id outside PINNED_MODES is entirely possible. The chip
+  // must never keep claiming a mode the agent has left.
+  const { a } = makeAdapter('grok');
+  a.readModes({});
+  a.handleFrame({ method: 'session/update', params: { update: { sessionUpdate: 'current_mode_update', currentModeId: 'always-approve' } } });
+  assert.equal(a.modes.current, 'always-approve');
+  assert.ok(a.modes.options.some((m) => m.id === 'always-approve'), 'the unlisted mode joins the list');
+});

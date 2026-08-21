@@ -5,13 +5,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, pathFromShellOutput, findOnDisk } = require('../src/main/agents-detect.js');
 
-test('registry carries the curated six with everything the launcher needs', () => {
+test('registry carries the curated seven with everything the launcher needs', () => {
   // gemini and cursor left the registry 2026-08-12: Google shut Gemini CLI
   // down and Antigravity (agy) replaced it; cursor was never verified here.
   const ids = KNOWN_AGENTS.map((a) => a.id);
   assert.ok(!ids.includes('gemini'), 'gemini is gone');
   assert.ok(!ids.includes('cursor'), 'cursor is gone');
-  for (const id of ['claude', 'codex', 'opencode', 'antigravity', 'hermes', 'kimi']) {
+  for (const id of ['claude', 'codex', 'opencode', 'grok', 'antigravity', 'hermes', 'kimi']) {
     assert.ok(ids.includes(id), `registry missing ${id}`);
   }
   for (const a of KNOWN_AGENTS) {
@@ -140,9 +140,11 @@ const HERMES_AUTH = JSON.stringify({
 
 test('lifecycle fields only exist for agents verified on a real machine', () => {
   // all six were verified on this Mac 2026-08-12; antigravity and kimi
-  // joined when their auth files and commands were confirmed live
+  // joined when their auth files and commands were confirmed live, grok on
+  // 2026-08-21 (login/logout/doctor all in its own command table, and
+  // ~/.grok/auth.json read off disk)
   const withLifecycle = KNOWN_AGENTS.filter((a) => a.lifecycle).map((a) => a.id).sort();
-  assert.deepEqual(withLifecycle, ['antigravity', 'claude', 'codex', 'hermes', 'kimi', 'opencode']);
+  assert.deepEqual(withLifecycle, ['antigravity', 'claude', 'codex', 'grok', 'hermes', 'kimi', 'opencode']);
   // kimi can log in but its CLI has no logout — so the sheet offers neither,
   // and the pairing rule below stays intact
   assert.equal(KNOWN_AGENTS.find((a) => a.id === 'kimi').lifecycle.login, undefined);

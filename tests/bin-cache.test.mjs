@@ -97,3 +97,58 @@ test('a scanned path with awkward characters is quoted for the shell', () => {
   assert.equal(resolveRunCommand('codex resume t'), "'/Users/x/My Tools/codex' resume t");
   forgetBins();
 });
+
+// ---- spawn flags -----------------------------------------------------------
+// grok paints a full-screen TUI by default, which sits on top of the Nami
+// theme instead of inside it; --minimal makes it print into the tile's own
+// scrollback. The flag deliberately does NOT live on the panel's `command`:
+// two identity checks (agentForCommand, cardAgentFor) match p.command against
+// bare binary names, and relaxing them to "first word" would start matching
+// the resume lines moveToSurface already assigns (`codex resume <id>`,
+// `opencode -s <id>`) — changing four agents this has no business touching.
+
+test('withSpawnFlags gives grok --minimal and leaves every other agent alone', () => {
+  const { withSpawnFlags } = require('../src/main/bin-cache.js');
+  assert.equal(withSpawnFlags('grok'), 'grok --minimal');
+  for (const other of ['codex', 'kimi', 'opencode', 'hermes', 'agy', 'claude', 'npm test']) {
+    assert.equal(withSpawnFlags(other), other, `${other} must pass through untouched`);
+  }
+});
+
+test('withSpawnFlags puts the flag before the agent\'s own arguments', () => {
+  const { withSpawnFlags } = require('../src/main/bin-cache.js');
+  // a restored tile resumes; grok must still be minimal when it does
+  assert.equal(withSpawnFlags('grok --resume 01a0-22b6'), 'grok --minimal --resume 01a0-22b6');
+  assert.equal(withSpawnFlags('codex resume th_1'), 'codex resume th_1');
+});
+
+test('withSpawnFlags never adds the same flag twice', () => {
+  const { withSpawnFlags } = require('../src/main/bin-cache.js');
+  assert.equal(withSpawnFlags('grok --minimal'), 'grok --minimal');
+  assert.equal(withSpawnFlags(withSpawnFlags('grok')), 'grok --minimal');
+  assert.equal(withSpawnFlags('grok --minimal --resume x'), 'grok --minimal --resume x');
+});
+
+test('withSpawnFlags survives the empty and the strange', () => {
+  const { withSpawnFlags } = require('../src/main/bin-cache.js');
+  assert.equal(withSpawnFlags(''), '');
+  assert.equal(withSpawnFlags(undefined), '');
+  assert.equal(withSpawnFlags('  '), '  ');
+  // an absolute path is not a bare bin: flags are applied before resolution,
+  // so this shape should never arrive — and if it does, it passes through
+  assert.equal(withSpawnFlags('/Users/x/.local/bin/grok'), '/Users/x/.local/bin/grok');
+});
+
+// The composition main.js actually uses: flags first (while the head is still
+// a bare name), then the path swap.
+test('spawn flags compose with the scanned-path swap, in that order', () => {
+  const { withSpawnFlags, resolveRunCommand } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'grok', bin: 'grok', found: true, path: '/Users/x/.local/bin/grok' }]);
+  assert.equal(resolveRunCommand(withSpawnFlags('grok')), '/Users/x/.local/bin/grok --minimal');
+  assert.equal(
+    resolveRunCommand(withSpawnFlags('grok --resume s1')),
+    '/Users/x/.local/bin/grok --minimal --resume s1',
+  );
+  forgetBins();
+});
