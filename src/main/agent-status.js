@@ -141,8 +141,16 @@ function grokApiKeyStatus() {
 }
 function parseGrok(payload) {
   const hasApiKey = !!(payload && payload.hasApiKey);
-  const j = readJson(onlyFile(payload));
-  if (!j || typeof j !== "object") return hasApiKey ? grokApiKeyStatus() : UNKNOWN();
+  const raw = onlyFile(payload);
+  const j = readJson(raw);
+  if (!j || typeof j !== "object") {
+    if (hasApiKey) return grokApiKeyStatus();
+    // No file, or an empty one, is signed out — Grok's normal first-run
+    // state. Garbage contents stay unknown so we don't claim signed-out
+    // when we simply failed to parse.
+    if (raw == null || raw === '') return SIGNED_OUT();
+    return UNKNOWN();
+  }
   const entries = Object.values(j).filter((v) => v && typeof v === "object");
   if (!entries.length) return hasApiKey ? grokApiKeyStatus() : SIGNED_OUT();
   // newest sign-in wins; an entry with no timestamp sorts last, never first
