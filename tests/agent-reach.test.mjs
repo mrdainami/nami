@@ -20,7 +20,7 @@ const ALL = ['claude', 'codex', 'opencode', 'antigravity', 'kimi', 'hermes'];
 
 test('a master reaches every tool Nami can write a dialect for, and not Hermes', () => {
   const r = reachOf(master());
-  assert.deepEqual([...r].sort(), ['antigravity', 'claude', 'codex', 'kimi', 'opencode']);
+  assert.deepEqual([...r].sort(), ['antigravity', 'claude', 'codex', 'grok', 'kimi', 'opencode']);
   assert.ok(!r.includes('hermes'), 'Hermes reads no agent format');
 });
 
@@ -29,6 +29,7 @@ test('a hand-made agent reaches exactly the tool whose folder it sits in', () =>
   assert.deepEqual(reachOf(pinned('codex')), ['codex']);
   assert.deepEqual(reachOf(pinned('opencode')), ['opencode']);
   assert.deepEqual(reachOf(pinned('kimi')), ['kimi']);
+  assert.deepEqual(reachOf(pinned('grok')), ['grok']);
 });
 
 test('the library calls Antigravity’s folder gemini; the detected tool is antigravity', () => {

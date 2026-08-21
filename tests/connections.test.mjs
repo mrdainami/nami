@@ -165,7 +165,7 @@ test('presentInYaml sees keys under mcp_servers: only', () => {
 test('deliveryPlan project scope: json merges for the four natives + opencode translation + codex block', () => {
   const plan = deliveryPlan({
     masters: { notion: NOTION }, scope: 'project',
-    agentIds: ['claude', 'cursor', 'gemini', 'kimi', 'opencode', 'codex', 'hermes'],
+    agentIds: ['claude', 'cursor', 'gemini', 'kimi', 'opencode', 'codex', 'hermes', 'grok'],
     projectPath: PROJ, homeDir: HOME,
   });
   const byAgent = Object.fromEntries(plan.map((s) => [s.agent + ':' + s.kind, s]));
@@ -178,6 +178,7 @@ test('deliveryPlan project scope: json merges for the four natives + opencode tr
   assert.equal(byAgent['opencode:json'].section, 'mcp');
   assert.equal(byAgent['opencode:json'].entries.notion.type, 'local');
   assert.equal(byAgent['codex:block'].file, '/proj/.codex/config.toml');
+  assert.equal(byAgent['grok:block'].file, '/proj/.grok/config.toml');
   assert.equal(byAgent['hermes:manual'].kind, 'manual');
 });
 
@@ -198,6 +199,16 @@ test('deliveryPlan user scope: claude goes via its own CLI, codex block lands in
   assert.equal(codex.file, '/home/u/.codex/config.toml');
   const cursor = plan.find((s) => s.agent === 'cursor');
   assert.equal(cursor.file, '/home/u/.cursor/mcp.json');
+});
+
+test('deliveryPlan user scope: grok’s notebook is ~/.grok/config.toml', () => {
+  const plan = deliveryPlan({
+    masters: { notion: NOTION }, scope: 'user',
+    agentIds: ['grok'], projectPath: null, homeDir: HOME,
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].kind, 'block');
+  assert.equal(plan[0].file, '/home/u/.grok/config.toml');
 });
 
 test('deliveryPlan refuses a service id with shell metacharacters (no cli step built)', () => {
@@ -224,11 +235,12 @@ test('readNotebooks + coverage: who has it, who is missing it', () => {
     '/proj/.mcp.json': JSON.stringify({ mcpServers: { notion: NOTION } }),
     '/home/u/.cursor/mcp.json': JSON.stringify({ mcpServers: { notion: NOTION, n8n: { command: 'x' } } }),
     '/home/u/.codex/config.toml': '[mcp_servers.notion]\ncommand = "npx"\n',
+    '/home/u/.grok/config.toml': '[cli]\ninstaller = "internal"\n\n[mcp_servers.notion]\ncommand = "npx"\n',
     '/home/u/.hermes/config.yaml': 'mcp_servers:\n  other:\n    command: y\n',
   });
-  const notebooks = readNotebooks({ projectPath: PROJ, homeDir: HOME, agentIds: ['claude', 'cursor', 'codex', 'hermes', 'gemini'], io });
+  const notebooks = readNotebooks({ projectPath: PROJ, homeDir: HOME, agentIds: ['claude', 'cursor', 'codex', 'hermes', 'gemini', 'grok'], io });
   const cov = coverage({ masters: { notion: NOTION }, notebooks });
-  assert.deepEqual(cov.notion.have.sort(), ['claude', 'codex', 'cursor']);
+  assert.deepEqual(cov.notion.have.sort(), ['claude', 'codex', 'cursor', 'grok']);
   assert.deepEqual(cov.notion.missing.sort(), ['gemini', 'hermes']);
   assert.ok(notebooks.cursor.has('n8n'), 'hand-made entries are visible for adoption');
 });
@@ -241,7 +253,7 @@ test('runPlan merges json, writes the block, records cli and manual honestly', a
   const ran = [];
   const plan = deliveryPlan({
     masters: { notion: NOTION }, scope: 'project',
-    agentIds: ['claude', 'opencode', 'codex', 'hermes'],
+    agentIds: ['claude', 'opencode', 'codex', 'hermes', 'grok'],
     projectPath: PROJ, homeDir: HOME,
   });
   const results = await runPlan({ plan, io, execCmd: async (cmd) => { ran.push(cmd); return { ok: true }; } });
@@ -250,6 +262,7 @@ test('runPlan merges json, writes the block, records cli and manual honestly', a
   assert.ok(oc.mcp.theirs, 'hand-made opencode entry preserved');
   assert.equal(oc.mcp.notion.type, 'local');
   assert.match(io.files['/proj/.codex/config.toml'], /mcp_servers\.notion/);
+  assert.match(io.files['/proj/.grok/config.toml'], /mcp_servers\.notion/);
   assert.equal(ran.length, 0, 'no cli in project scope');
   const hermes = results.find((r) => r.agent === 'hermes');
   assert.equal(hermes.ok, false);
