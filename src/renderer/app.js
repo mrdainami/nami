@@ -1396,7 +1396,7 @@ const TYPE_CHIP = { agent: { code: 'AG', kind: 'agent' }, skill: { code: 'SK', k
 const LIB_MAKE = [
   { key: 'agent', icon: 'agent', code: 'AG', kind: 'agent', name: 'Agent', sub: 'build', title: 'Create an agent' },
   { key: 'skill', icon: 'skill', code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Create a skill' },
-  { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'connect', title: 'Connect a service over MCP' },
+  { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'connect', title: 'Connect MCP' },
 ];
 function libItemTag(i) {
   if (i.type === 'skill' && i.scope === 'project') {
@@ -1602,7 +1602,7 @@ function refreshLibraryRail(c) {
       if (g.key === 'services') {
         const add = document.createElement('div'); add.className = 'agent-row';
         add.innerHTML = `<span class="code" data-kind="service">⚡</span>
-          <span class="col"><span class="name">connect a service</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
+          <span class="col"><span class="name">connect MCP</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
         add.onclick = () => openConnect();
         sect.appendChild(add);
       }
@@ -4901,7 +4901,7 @@ function renderConnectCatalog() {
   const cat = S.services.catalog;
   const connectedIds = new Set(S.services.connected.map((s) => s.id));
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">⚡</span>
-    <span style="font-weight:700">What should your agents reach?</span>
+    <span style="font-weight:700">Connect MCP</span>
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">pick one to start</span></div>
     ${cat.length ? '' : '<div class="rail-empty" style="padding:14px">Loading the catalog…</div>'}
     <div class="svc-grid">${cat.map((s) => `
@@ -5155,7 +5155,7 @@ function renderConnectCustom() {
       ? `a new session with <select class="agent-pick" id="svc-agent">${agentOptionsHtml(worker.id)}</select> builds it for you`
       : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
     <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="svc-go" ${worker ? '' : 'disabled'}>Go</button></div>
-    <p class="setup-note">Watch it work, talk to it if you want. The service appears under Library when it lands.</p>`);
+    <p class="setup-note">Watch it work, talk to it if you want. It appears under MCP in the Library when it lands.</p>`);
   const agentSel = q('#svc-agent', modal);
   if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
   const input = q('#svc-desc', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
@@ -5171,7 +5171,7 @@ function renderConnectCustom() {
       : undefined;
     agentSession(w, { title: 'build: connector', code: 'BC', seed:
       `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`, onExit });
-    toast('Your agent is on it. The service appears under Library when it lands.');
+    toast('Your agent is on it. It appears under MCP in the Library when it lands.');
   };
 }
 function startGuidedSetup(svc, worker) {
