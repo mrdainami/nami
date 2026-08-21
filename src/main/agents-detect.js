@@ -65,6 +65,24 @@ const KNOWN_AGENTS = [
       configPath: '~/.config/opencode/opencode.json',
       removePaths: ['~/.local/share/opencode/auth.json'],
     } },
+  { id: 'grok', name: 'Grok', bin: 'grok', kind: 'run',
+    sub: "xAI's coding agent",
+    install: 'curl -fsSL https://x.ai/cli/install.sh | bash',
+    docs: 'https://grok.com/build',
+    contextFile: 'AGENTS.md',
+    lifecycle: {
+      // ~/.grok/auth.json is a map keyed issuer::client_id; parseGrok picks the
+      // newest sign-in. Reading it beats `grok auth`, which has no status verb.
+      statusFiles: ['~/.grok/auth.json'],
+      source: 'reads ~/.grok',
+      login: 'grok login',
+      logout: 'grok logout',
+      health: 'grok doctor',
+      configPath: '~/.grok/config.toml',
+      // No uninstall path: ~/.grok holds the user's own sessions, skills and
+      // memory, same reasoning as claude above.
+      removePaths: [],
+    } },
   // Gemini CLI is gone — Google shut it down 2026-06-18; Antigravity (agy)
   // is its replacement and lives in the same ~/.gemini home, GEMINI.md
   // context file included.
