@@ -3410,7 +3410,6 @@ function closePanel(id) {
   if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
   else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') {
     api.termKill({ id });
-    if (p.agentLive) api.agentStop({ id });
   }
   const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);

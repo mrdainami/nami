@@ -27,9 +27,6 @@ const MUST_NOT_SHIP = ['docs', 'tests', 'scripts', '.claude', '.opencode', '.git
 // A bundle can be wrong by being empty as easily as by being fat.
 const MUST_SHIP = [
   'src/main/main.js', 'src/renderer/index.html', 'package.json',
-  // Cards drive claude through the agent SDK; a future prune that drops it
-  // would leave Cards working in dev and dead in the release.
-  'node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs',
 ];
 
 function bundles() {
@@ -72,12 +69,7 @@ for (const file of found) {
   const missing = MUST_SHIP.filter((f) => !entries.includes(f));
   if (missing.length) { console.error(`   FAIL  the app cannot run without: ${missing.join(', ')}`); bad++; }
 
-  // The other half of the same boundary: the SDK's vendored 265 MB copy of
-  // Claude Code never ships — Nami runs the user's own logged-in claude.
-  const vendored = entries.filter((e) => /@anthropic-ai\/claude-agent-sdk-[a-z]/.test(e));
-  if (vendored.length) { console.error(`   FAIL  the vendored claude binary is shipping (${vendored.length} files)`); bad++; }
-
-  if (!strays.length && !named.length && !missing.length && !vendored.length) console.log('   ok    only what it needs to run');
+  if (!strays.length && !named.length && !missing.length) console.log('   ok    only what it needs to run');
 }
 
 if (bad) {
