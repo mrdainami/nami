@@ -23,6 +23,7 @@ import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-w
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 import { isOutsideProject } from './path-guard.mjs';
+import { createClockB } from './pty-notify.mjs';
 
 const api = window.dainami;
 
@@ -1857,6 +1858,7 @@ function wireGrip(p, rec, grip) {
     rec.root.style.width = startW + 'px';
     rec.root.style.height = startH + 'px';
     rec.holdPty = true;                 // clock B waits for the drop
+    clockB.setHold(p.id, true);
 
     const place = (w, h) => {
       rec.root.style.width = w + 'px';
@@ -1885,19 +1887,22 @@ function wireGrip(p, rec, grip) {
       rec.root.style.position = ''; rec.root.style.left = ''; rec.root.style.top = '';
       rec.root.style.width = ''; rec.root.style.height = '';
       rec.holdPty = false;
+      clockB.setHold(p.id, false);
       // A press that never moved is not a resize: no commit, no re-render, no
       // message to the agent — and the stored ask is left alone, which is what
       // keeps a stray click from overwriting a clamped card's remembered size.
-      if (!moved) { rec.ptyPending = false; markFit(rec); return; }
+      if (!moved) { clockB.clearPending(p.id); markFit(rec); return; }
       ptyDiscrete();                    // the drop is one committed change
       commit(sx, sy);
       markFit(rec);
       // The one message. Usually the post-drop refit changes cols and raises it
-      // itself (which clears ptyPending). When the final size matches the last
+      // itself (which clears pending). When the final size matches the last
       // live fit, no resize event fires and nothing would ever tell the agent —
       // this backstop sends the parked notification, and only then.
       setTimeout(() => {
-        if (rec.ptyPending) { rec.ptyPending = false; notifyPty(p, rec); }
+        if (clockB.isPending(p.id) && rec.term) {
+          clockB.flushPending(p.id, rec.term.cols, rec.term.rows);
+        }
       }, 60);
     };
     try { grip.setPointerCapture(e.pointerId); } catch (_) {}
@@ -2013,7 +2018,7 @@ function mountTile(p) {
       <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
     </div><div class="tile-body"></div>`;
   const head = q('.tile-head', root), body = q('.tile-body', root);
-  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null, ptyTimer: null };
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null };
   tileEls.set(p.id, rec);
   // The grip lives on the card, not in its header — the corner is the thing
   // itself rather than a button that opens a way to do the thing, and the header
@@ -2130,23 +2135,19 @@ function drainFits() {
 // How long a gesture has to be still before the agent is told. The settle is
 // for CONTINUOUS gestures only — a window-edge drag, where the size keeps
 // changing and coalescing is the point. A committed change — expand, collapse,
-// a grip drop — is one movement, and waiting 140ms after it just splits one
-// visible change into two: the tile moves, then the agent repaints later.
-// ptyDiscrete() opens a short window in which notifications skip the settle.
-const PTY_SETTLE_MS = 140;
-let ptyFastUntil = 0;
-function ptyDiscrete() { ptyFastUntil = performance.now() + 300; }
+// a grip drop — is one movement. Discrete used to mean delay 0 for 300ms,
+// which fired once per extra fit frame (the stacked chrome). It now trails
+// 32ms so those frames become one SIGWINCH, still on the same paint.
+const clockB = createClockB({
+  send: (m) => api.termResize(m),
+  now: () => performance.now(),
+  schedule: (ms, fn) => setTimeout(fn, ms),
+  cancel: (h) => clearTimeout(h),
+});
+function ptyDiscrete() { clockB.discrete(); }
 function notifyPty(p, rec) {
-  // A grip drag is in flight: the canvas refits live under the hand, but the
-  // agent hears nothing until the drop flushes this once.
-  if (rec.holdPty) { rec.ptyPending = true; return; }
-  clearTimeout(rec.ptyTimer);
-  rec.ptyTimer = setTimeout(() => {
-    rec.ptyTimer = null;
-    if (!rec.term) return;
-    rec.ptyPending = false;   // delivered — a drop's backstop flush can stand down
-    api.termResize({ id: p.id, cols: rec.term.cols, rows: rec.term.rows });
-  }, performance.now() < ptyFastUntil ? 0 : PTY_SETTLE_MS);
+  if (!rec.term) return;
+  clockB.notify(p.id, rec.term.cols, rec.term.rows);
 }
 
 function fitCanvas(rec) {
@@ -2162,9 +2163,17 @@ function fitCanvas(rec) {
   // No frame is scheduled here — the ResizeObserver fires the moment the tile
   // has a size, and that is what drains this.
   if (!rec.body.clientWidth || !rec.body.clientHeight) { dirtyFits.add(rec); return; }
-  try { rec.fit.fit(); } catch (_) { return; }
+  // One resize from FitAddon's proposal, then at most one overflow clip.
+  // Both happen in this turn; Clock B coalesces them into one pty notify.
+  let dim;
+  try { dim = rec.fit.proposeDimensions(); } catch (_) { return; }
+  if (!dim || isNaN(dim.cols) || isNaN(dim.rows)) return;
+  const term = rec.term;
+  if (term.cols !== dim.cols || term.rows !== dim.rows) {
+    try { term.resize(dim.cols, dim.rows); } catch (_) { return; }
+  }
   try {
-    const body = rec.body, term = rec.term;
+    const body = rec.body;
     const screen = body.querySelector('.xterm-screen'); if (!screen) return;
     const cs = getComputedStyle(body);
     const limit = body.getBoundingClientRect().right
@@ -2215,7 +2224,7 @@ function mountTerminal(p, rec) {
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
   rec.disposeRo = () => {
-    clearTimeout(rec.ptyTimer); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
     for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
 }
