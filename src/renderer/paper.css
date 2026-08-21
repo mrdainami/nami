@@ -858,6 +858,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .setup-cmd { font-size: 12px; border: 1px dashed var(--dash); padding: 8px 10px;
   background: var(--paper-2); margin-bottom: 14px; user-select: all; overflow-x: auto; white-space: nowrap; }
 .setup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-box > .key-row { margin-top: 10px; }
 .setup-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
 
 /* installed-agent sheet: where identity came from, the links row, and the

@@ -12,6 +12,7 @@ import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
 import { agentLaunch } from './agent-launch.mjs';
+import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
 import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
@@ -4588,6 +4589,9 @@ function runAgentCommand(agent, command, title) {
 function renderAgentInstalled(a) {
   const lc = a.lifecycle || {};
   const st = S.agentStatus[a.id] || null;
+  const grok = a.id === 'grok';
+  const ga = grok ? grokAuthActions(st) : null;
+  const editingKey = grok && S.overlay.editGrokKey;
   const line = st && st.signedIn === true ? esc(st.label)
     : st && st.signedIn === false ? 'signed out'
     : 'checking…';
@@ -4597,6 +4601,25 @@ function renderAgentInstalled(a) {
   // A button only exists when the registry has a real command behind it, so an
   // unverified CLI shows identity and nothing that could fail.
   const btn = (id, label, on) => on ? `<button class="btn" id="${id}">${esc(label)}</button>` : '';
+  const actions = grok ? `
+      ${btn('ag-in', 'Sign in with xAI account', ga.signInAccount)}
+      ${btn('ag-out', 'Sign out', ga.signOutAccount)}
+      ${btn('ag-key-switch', 'Switch to API key', ga.switchToKey)}
+      ${btn('ag-key', ga.pasteLabel, ga.pasteKey && !editingKey)}
+      ${btn('ag-health', "Check it's healthy", lc.health)}`
+    : `
+      ${btn('ag-switch', lc.switchLabel || 'Switch account', lc.switchCmd || (lc.login && lc.logout))}
+      ${btn('ag-out', 'Sign out', lc.logout && (!st || st.signedIn !== false))}
+      ${btn('ag-in', 'Sign in', lc.login && st && st.signedIn === false)}
+      ${btn('ag-setup', 'Run setup again', lc.setup)}
+      ${btn('ag-health', "Check it's healthy", lc.health)}`;
+  const pasteRow = editingKey ? `
+    <div class="key-row" data-key="${esc(GROK_API_KEY)}">
+      <span class="k-name">${esc(GROK_API_KEY)}</span>
+      <input class="text-input k-input" id="grok-key-val" type="password" placeholder="paste the secret…" spellcheck="false" />
+      <button class="k-act k-save" id="grok-key-save">save</button>
+      <button class="k-act" id="grok-key-cancel">cancel</button>
+    </div>` : '';
 
   const modal = overlay('setup-box', `
     <div class="setup-head"><button class="t-btn su-back" title="Back to new session">←</button>
@@ -4610,16 +4633,13 @@ function renderAgentInstalled(a) {
       <div class="scan-row"><span class="mark">✓</span><span class="label2">Program</span><span class="value">${esc(a.pathShort || a.path || 'installed')}</span></div>
     </div>
 
-    <div class="setup-actions">
-      ${btn('ag-switch', lc.switchLabel || 'Switch account', lc.switchCmd || (lc.login && lc.logout))}
-      ${btn('ag-out', 'Sign out', lc.logout && (!st || st.signedIn !== false))}
-      ${btn('ag-in', 'Sign in', lc.login && st && st.signedIn === false)}
-      ${btn('ag-setup', 'Run setup again', lc.setup)}
-      ${btn('ag-health', "Check it's healthy", lc.health)}
+    <div class="setup-actions">${actions}
     </div>
+    ${pasteRow}
     <div class="ag-links">
       ${a.configFile ? '<span class="action" id="ag-config">Open its settings file</span>' : ''}
       ${lc.accountUrl ? '<span class="action" id="ag-account">Manage account online</span>' : ''}
+      ${grok ? '<span class="action" id="ag-key-docs">Get an API key</span>' : ''}
       <span class="action" id="ag-docs">Read the guide</span>
     </div>
     <div class="ag-danger">
@@ -4632,12 +4652,41 @@ function renderAgentInstalled(a) {
   on('ag-switch', () => runAgentCommand(a, lc.switchCmd || `${lc.logout} && ${lc.login}`, `${a.name} · sign in`));
   on('ag-out', () => runAgentCommand(a, lc.logout, `${a.name} · sign out`));
   on('ag-in', () => runAgentCommand(a, lc.login, `${a.name} · sign in`));
+  on('ag-key-switch', () => runAgentCommand(a, lc.logout, `${a.name} · switch to API key`));
+  on('ag-key', () => { S.overlay.editGrokKey = true; renderOverlay(); });
   on('ag-setup', () => runAgentCommand(a, lc.setup, `${a.name} · setup`));
   on('ag-health', () => runAgentCommand(a, lc.health, `${a.name} · check`));
   on('ag-config', () => { closeOverlay(); openFile(a.configFile, { pin: true }); });
   on('ag-account', () => api.openUrl(lc.accountUrl));
+  on('ag-key-docs', () => api.openUrl('https://console.x.ai'));
   on('ag-docs', () => api.openUrl(a.docs));
   on('ag-remove', () => openAgentRemove(a));
+  const keyInput = q('#grok-key-val', modal);
+  const saveKey = async () => {
+    const v = keyInput && keyInput.value.trim();
+    if (!v) { toast('Paste the secret first.'); return; }
+    const res = await api.keysSet(GROK_API_KEY, v);
+    if (!res.ok) { toast(res.error || 'Could not save it.'); return; }
+    S.overlay.editGrokKey = false;
+    toast(`${GROK_API_KEY} saved — every new session gets it.`);
+    // Grok prefers a session token over the env key. Logging out is what
+    // makes the key the one the next tile actually uses.
+    if (ga && ga.logoutAfterSave && lc.logout) {
+      runAgentCommand(a, lc.logout, `${a.name} · switch to API key`);
+    } else {
+      await refreshAgentStatus(a.id);
+      renderOverlay();
+    }
+  };
+  if (keyInput) {
+    keyInput.focus();
+    keyInput.onkeydown = (e) => {
+      if (e.key === 'Enter') saveKey();
+      if (e.key === 'Escape') { e.stopPropagation(); S.overlay.editGrokKey = false; renderOverlay(); }
+    };
+  }
+  on('grok-key-save', saveKey);
+  on('grok-key-cancel', () => { S.overlay.editGrokKey = false; renderOverlay(); });
 }
 
 // The only action here that destroys anything, so it is the only one that stops
@@ -5695,11 +5744,12 @@ function wireAboutPane(modal) {
 // One obvious place to paste API keys. Each saved key is exported into the
 // environment of every session Nami spawns (shell env still wins), and the
 // Voice providers read the same store — never a second place to paste.
-// Agent CLIs (Claude Code, OpenCode…) carry their own logins — no API key here.
-// These are the keys Nami itself can use, plus whatever the user adds for scripts.
+// Agent CLIs (Claude Code, OpenCode…) carry their own logins — no API key here,
+// except Grok, whose API-key path is the XAI_API_KEY env var.
 const SUGGESTED_KEYS = [
   { name: 'OPENAI_API_KEY', hint: 'backs Voice · OpenAI Whisper' },
   { name: 'ELEVENLABS_API_KEY', hint: 'backs Voice · ElevenLabs Scribe' },
+  { name: GROK_API_KEY, hint: 'backs Grok · console.x.ai' },
 ];
 function keyRowHtml({ name, value, sub, actions }) {
   return `<div class="key-row" data-key="${esc(name)}">
