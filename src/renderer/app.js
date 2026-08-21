@@ -4291,8 +4291,7 @@ function createHeadHtml(o) {
 }
 function renderCreateSheet() { return renderCreateStep3(S.overlay); }
 // Who ends up knowing about a new skill or agent: only the CLIs we actually
-// write to (receivers.mjs). Skills are announced in AGENTS.md; agents are
-// copies. Hermes is named for agents only because it cannot receive one.
+// write to (receivers.mjs). Skills are announced in AGENTS.md; agents are copies.
 function knowsLine(kind) {
   const text = knowsCopy({
     kind,
