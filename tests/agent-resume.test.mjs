@@ -73,8 +73,8 @@ function hermesStore(home, rows) {
 
 // ---- command shapes ----------------------------------------------------------
 
-test('agentForCommand knows exactly the five bare bins', () => {
-  assert.deepEqual(AGENT_BINS, ['kimi', 'codex', 'opencode', 'hermes', 'agy']);
+test('agentForCommand knows exactly the six bare bins', () => {
+  assert.deepEqual(AGENT_BINS, ['kimi', 'codex', 'opencode', 'hermes', 'agy', 'grok']);
   for (const b of AGENT_BINS) assert.equal(agentForCommand(b), b);
   assert.equal(agentForCommand('  kimi  '), 'kimi');
   assert.equal(agentForCommand('kimi -r abc'), null); // already a resume line
@@ -82,6 +82,13 @@ test('agentForCommand knows exactly the five bare bins', () => {
   assert.equal(agentForCommand('claude'), null);
   assert.equal(agentForCommand(''), null);
   assert.equal(agentForCommand(null), null);
+  // The bare-bin rule is load-bearing, not incidental. grok spawns with
+  // --minimal, and the flag is added at term:create (bin-cache.js withSpawnFlags)
+  // precisely so this stays null-free of it: a tile's command is still the bin.
+  // Loosening this to a first-word match would also start matching the resume
+  // lines above, which moveToSurface assigns as commands.
+  assert.equal(agentForCommand('grok --minimal'), null, 'a flagged line is not a fresh tile');
+  assert.equal(agentForCommand('grok --resume s1'), null);
 });
 
 test('resumeCommand is the probed line per agent', () => {
@@ -280,4 +287,71 @@ test('two waiting tiles pair with arriving sessions oldest-first', async () => {
   stopA(); stopB();
   assert.deepEqual(foundA, ['k-a']);
   assert.deepEqual(foundB, ['k-b']);
+});
+
+// ---- grok ------------------------------------------------------------------
+// The simplest store of the seven: ~/.grok/sessions/<encodeURIComponent(cwd)>/
+// <uuid>/, one directory per session. The cwd IS the directory name, so there
+// is nothing to scan and no database to open — a readdir plus an mtime.
+// Encoding verified against the five real folders on this Mac 2026-08-21;
+// encodeURIComponent reproduced every one exactly.
+function grokStore(home, rows) {
+  for (const r of rows) {
+    const dir = path.join(home, '.grok', 'sessions', encodeURIComponent(r.cwd), r.id);
+    fs.mkdirSync(dir, { recursive: true });
+    put(path.join(dir, 'chat_history.jsonl'), '{}\n');
+    setMtime(dir, r.mtime);
+  }
+  // grok also drops this beside the session folders; it is not a session
+  put(path.join(home, '.grok', 'sessions', encodeURIComponent(rows[0].cwd), 'prompt_history.jsonl'), '{}\n');
+}
+
+test('grok joins the resumable agents', () => {
+  assert.ok(AGENT_BINS.includes('grok'));
+  assert.equal(agentForCommand('grok'), 'grok');
+});
+
+test('resumeCommand: grok resumes by id', () => {
+  assert.equal(resumeCommand('grok', '01a022b6-e47c-7f50-9f3a-005e1be7ca73'),
+    'grok --resume 01a022b6-e47c-7f50-9f3a-005e1be7ca73');
+  // the sid is typed into a shell, so anything outside the safe charset is refused
+  assert.equal(resumeCommand('grok', 'a b; rm -rf /'), null);
+  assert.equal(resumeCommand('grok', ''), null);
+});
+
+test('sessionExists: grok finds the id under its own folder only', () => {
+  const home = mkhome();
+  grokStore(home, [{ id: 'ses_1', cwd: CWD, mtime: 5000 }, { id: 'ses_2', cwd: OTHER, mtime: 5000 }]);
+  assert.equal(sessionExists('grok', CWD, 'ses_1', home), true);
+  assert.equal(sessionExists('grok', CWD, 'ses_2', home), false, 'another folder is not this folder');
+  assert.equal(sessionExists('grok', CWD, 'ses_nope', home), false);
+});
+
+test('sessionExists: grok on a home with no store is false, never a throw', () => {
+  assert.equal(sessionExists('grok', CWD, 'ses_1', mkhome()), false);
+});
+
+test('findSession: grok takes the newest session in this folder', () => {
+  const home = mkhome();
+  grokStore(home, [
+    { id: 'ses_old', cwd: CWD, mtime: 1000 },
+    { id: 'ses_new', cwd: CWD, mtime: 9000 },
+    { id: 'ses_elsewhere', cwd: OTHER, mtime: 9500 },
+  ]);
+  assert.equal(findSession('grok', CWD, 500, home), 'ses_new');
+  assert.equal(findSession('grok', CWD, 9500, home), null, 'nothing new enough');
+});
+
+test('findSession: grok ignores the prompt_history file sitting beside the sessions', () => {
+  const home = mkhome();
+  grokStore(home, [{ id: 'ses_1', cwd: CWD, mtime: 9000 }]);
+  assert.equal(findSession('grok', CWD, 0, home), 'ses_1');
+});
+
+test('a cwd with spaces and unicode still finds its own sessions', () => {
+  const home = mkhome();
+  const odd = '/proj/My Things/café';
+  grokStore(home, [{ id: 'ses_odd', cwd: odd, mtime: 4000 }]);
+  assert.equal(sessionExists('grok', odd, 'ses_odd', home), true);
+  assert.equal(findSession('grok', odd, 0, home), 'ses_odd');
 });

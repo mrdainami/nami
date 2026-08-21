@@ -7,7 +7,8 @@
 //          sentence in that tool's own idiom.
 //
 // Every entry is backed by a probe transcript in
-// specs/2026-08-13-agents-universal.md, Appendix A — run on this machine,
+// specs/2026-08-13-agents-universal.md Appendix A (and, for grok,
+// specs/2026-08-21-grok.md Appendix A, marked G) — run on this machine,
 // answer checked for the agent's own identity line. Change an entry only with
 // new probe evidence; the tests pin each string on purpose.
 //
@@ -18,6 +19,11 @@
 //   kimi        A.3  0.35/0.36 TUI ignores --agent/--agent-file (headless
 //                    honors them) — seeded to read its delivered copy; flip
 //                    to the flag the release the TUI starts honoring it
+//   grok        G.1  1.0.5's TUI ignores --agent (headless honours it) — the
+//                    same split kimi has, so it is seeded to read its copy.
+//                    --agent-profile is not a top-level flag despite what the
+//                    bundled README says; it exists only on `grok agent`.
+//                    Flip to the flag the release the TUI starts honouring it
 //   hermes      —    no custom agents
 
 const TABLE = {
@@ -31,6 +37,10 @@ const TABLE = {
   kimi: {
     kind: 'seed', status: 'seeded',
     seed: (slug) => `Read .kimi-code/agents/${slug}.md and adopt it as your role for this entire session.`,
+  },
+  grok: {
+    kind: 'seed', status: 'seeded',
+    seed: (slug) => `Read .grok/agents/${slug}.md and adopt it as your role for this entire session.`,
   },
 };
 

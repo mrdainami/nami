@@ -25,7 +25,7 @@ const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
-const { rememberBins, knownBin, resolveRunCommand } = require('./bin-cache');
+const { rememberBins, knownBin, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -1372,7 +1372,11 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // interactive shell's PATH can miss a binary the launcher calls ready
     // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
-    let typed = resolveRunCommand(command);
+    // withSpawnFlags first, while the head is still a bare name: it is keyed
+    // by binary, and resolveRunCommand may replace the head with a full path.
+    // This is where grok gets --minimal; see the table in bin-cache.js for why
+    // the flag is not stored on the panel.
+    let typed = resolveRunCommand(withSpawnFlags(command));
     // A known agent tile restoring with a saved conversation id gets its
     // resume line typed instead of the bare bin — but only while the agent's
     // store still holds that session (the same restored-but-unused guard as
@@ -1387,7 +1391,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) typed = resolveRunCommand(resume);
+        if (resume) typed = resolveRunCommand(withSpawnFlags(resume));
       } else if (!acpSid) discoverAgent = agent;
     }
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }

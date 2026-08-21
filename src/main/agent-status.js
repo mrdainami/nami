@@ -12,6 +12,7 @@
 //   opencode { files }   — ~/.local/share/opencode/auth.json
 //                          (`opencode auth list` prints decorated prose)
 //   codex    { files }   — ~/.codex/auth.json
+//   grok     { files }   — ~/.grok/auth.json (a map, keyed issuer::client_id)
 
 const UNKNOWN = () => ({ signedIn: null, label: '', rows: [] });
 const SIGNED_OUT = () => ({ signedIn: false, label: 'signed out', rows: [] });
@@ -119,7 +120,36 @@ function parseCodex(payload) {
   return { signedIn: true, label, rows };
 }
 
-const PARSERS = { claude: parseClaude, hermes: parseHermes, opencode: parseOpencode, codex: parseCodex };
+// grok keeps ~/.grok/auth.json as a MAP keyed "<issuer>::<client_id>", not a
+// flat record — one entry per place you have signed in, so the newest
+// create_time is the one the CLI is using. Everything interesting sits beside
+// two things that must never leave this function: `key` (a JWT) and
+// `refresh_token`.
+function parseGrok(payload) {
+  const j = readJson(onlyFile(payload));
+  if (!j || typeof j !== "object") return UNKNOWN();
+  const entries = Object.values(j).filter((v) => v && typeof v === "object");
+  if (!entries.length) return SIGNED_OUT();
+  // newest sign-in wins; an entry with no timestamp sorts last, never first
+  const a = entries.slice().sort((x, y) =>
+    (Date.parse(y.create_time) || 0) - (Date.parse(x.create_time) || 0))[0];
+  const email = typeof a.email === "string" ? a.email.trim() : "";
+  const byKey = a.auth_mode === "api_key";
+  if (!email && !byKey && !a.auth_mode) return SIGNED_OUT();
+  const rows = [];
+  if (email) rows.push({ k: "Account", v: email });
+  if (typeof a.first_name === "string" && a.first_name.trim() && email) {
+    rows.push({ k: "Name", v: a.first_name.trim() });
+  }
+  rows.push({ k: "Signed in", v: byKey ? "with an API key" : "through your xAI account" });
+  return {
+    signedIn: true,
+    label: email || (byKey ? "signed in with an API key" : "signed in"),
+    rows,
+  };
+}
+
+const PARSERS = { claude: parseClaude, hermes: parseHermes, opencode: parseOpencode, codex: parseCodex, grok: parseGrok };
 
 function parseAgentStatus(id, payload) {
   const fn = PARSERS[id];

@@ -2829,6 +2829,13 @@ const CARD_EVENT_CAP = 900;
 
 // Which adapter can drive this tile's agent, or null. A claude tile needs its
 // conversation id; an ACP agent tile is one whose command is exactly the bin.
+// Which run-tile binaries Nami can drive as cards — the agent ids in
+// ADAPTERS (main/agent-session.js) that arrive as a `run` tile, by the name
+// their command uses. Read in two places, and it must stay ONE list: when this
+// was two, grok was added to cardAgentFor and missed in the launcher, so its
+// row silently lost the Cards and Terminal buttons every other row has.
+const CARD_AGENT_BINS = ['opencode', 'hermes', 'codex', 'kimi', 'agy', 'grok'];
+
 function cardAgentFor(p) {
   // an errand tile is never a conversation, fixture or not
   if (p && p.sceneStatic) return p.oneShot ? null : 'claude'; // the fixture tile draws as claude
@@ -2836,7 +2843,7 @@ function cardAgentFor(p) {
   if (p.kind === 'claude') return p.sid ? 'claude' : null;
   if (p.kind === 'run') {
     const c = String(p.command || '').trim();
-    if (['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(c)) return c;
+    if (CARD_AGENT_BINS.includes(c)) return c;
     // A bare agent-looking binary we have no adapter for still gets the
     // switch — its card explains, honestly, why it stays a terminal.
     if (/^[a-z][\w.-]*$/i.test(c)) return 'unknown:' + c;
@@ -2845,7 +2852,7 @@ function cardAgentFor(p) {
 }
 function canShowCards(p) { return !!cardAgentFor(p); }
 
-const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
+const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity', grok: 'Grok' };
 
 // The welcome a card can synthesize before (or without) a channel: the
 // registry already knows who this is and where. Watch mode gets this too —
@@ -2868,6 +2875,7 @@ function terminalResumeSpec(p) {
   if (agent === 'codex' && p.acpSid) return { kind: 'run', command: `codex resume ${p.acpSid}`, resumes: true };
   if (agent === 'kimi' && p.acpSid) return { kind: 'run', command: `kimi -r ${p.acpSid}`, resumes: true };
   if (agent === 'opencode' && p.acpSid) return { kind: 'run', command: `opencode -s ${p.acpSid}`, resumes: true };
+  if (agent === 'grok' && p.acpSid) return { kind: 'run', command: `grok --resume ${p.acpSid}`, resumes: true };
   if (agent === 'hermes' && p.acpSid) return { kind: 'run', command: `hermes --resume ${p.acpSid}`, resumes: true };
   if (agent === 'agy' && p.acpSid) return { kind: 'run', command: `agy --conversation ${p.acpSid}`, resumes: true };
   return { kind: 'run', command: p.command, resumes: false };
@@ -4501,7 +4509,7 @@ function renderLauncher() {
     // Which agents can be born as cards: claude plus every bin the adapter
     // table drives. The surface is chosen here, at birth; the row remembers
     // each agent's last pick.
-    const cardable = a.kind === 'claude' || ['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(a.bin);
+    const cardable = a.kind === 'claude' || CARD_AGENT_BINS.includes(a.bin);
     const lastPick = (() => { try { return localStorage.getItem('nami.surface.' + a.id) || 'term'; } catch (_) { return 'term'; } })();
     // The one just installed says so, and says it here — this list is where the
     // install sends you back to, and an agent that arrived thirty seconds ago
