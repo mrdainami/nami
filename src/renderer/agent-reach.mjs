@@ -17,6 +17,7 @@ export const PLATFORM_TO_TOOL = {
   opencode: 'opencode',
   gemini: 'antigravity',
   kimi: 'kimi',
+  grok: 'grok',
 };
 
 // A master lives in the project's own drawer and wears no tool's name.
@@ -25,7 +26,7 @@ export const MASTER_PLATFORM = 'project';
 // Every tool agent-master.js can render a dialect for. Hermes is absent because
 // it reads no agent format at all; Cursor is absent because it reads Claude's
 // copy and is not a binary Nami detects.
-export const WRITERS = ['claude', 'codex', 'opencode', 'antigravity', 'kimi'];
+export const WRITERS = ['claude', 'codex', 'opencode', 'antigravity', 'kimi', 'grok'];
 
 export function isMaster(item) {
   return !!item && item.platform === MASTER_PLATFORM;
