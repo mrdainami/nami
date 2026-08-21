@@ -11,7 +11,7 @@ import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
-import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent } from './library-groups.mjs';
+import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { agentLaunch } from './agent-launch.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
@@ -174,7 +174,7 @@ const S = {
   treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
   // Your project's skills are what you came for; other tools' folders and broken
   // links start folded, or 139 borrowed rows sit between you and everything else.
-  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(MAC_GROUP_KEYS) },
+  library: { items: [], edges: [], q: '', loaded: false, loading: false, macLoaded: false, macLoading: false, collapsed: new Set(MAC_GROUP_KEYS), macGen: 0 },
   pointer: null, pointerLoading: false,
   services: { catalog: [], connected: [], loading: false },   // connect-a-service state
   railCollapsed: false,
@@ -1369,13 +1369,39 @@ function renderFsName() {
 async function loadLibrary(force) {
   if (S.library.loading || (S.library.loaded && !force)) return;
   S.library.loading = true;
+  const keepMac = S.library.macLoaded;
+  S.library.macGen += 1;
+  S.library.macLoading = false;
   try {
-    const res = (await api.libraryScan({ projectPath: S.project && S.project.path })) || {};
+    const res = (await api.libraryScan({ projectPath: S.project && S.project.path, scope: 'project' })) || {};
     S.library.items = res.items || []; S.library.edges = res.edges || [];
   } catch (_) { S.library.items = []; S.library.edges = []; }
+  S.library.macLoaded = false;
   S.library.loading = false; S.library.loaded = true;
+  if (keepMac) await loadMacLibrary();
+  else maybeLoadMac();
   if (S.railTab === 'library') refreshRail();
   refreshPointer(true);   // read-only; it never writes a file on its own
+}
+function maybeLoadMac() {
+  if (S.library.macLoaded || S.library.macLoading) return;
+  const openGroups = new Set(MAC_GROUP_KEYS.filter((k) => !S.library.collapsed.has(k)));
+  if (shouldLoadMac({ openGroups, query: S.library.q, macLoaded: false })) loadMacLibrary();
+}
+async function loadMacLibrary() {
+  if (S.library.macLoaded || S.library.macLoading) return;
+  S.library.macLoading = true;
+  const gen = S.library.macGen;
+  try {
+    const res = (await api.libraryScan({ projectPath: S.project && S.project.path, scope: 'mac' })) || {};
+    if (gen !== S.library.macGen) return;
+    const seen = new Set(S.library.items.map((i) => i.id));
+    for (const i of (res.items || [])) if (!seen.has(i.id)) S.library.items.push(i);
+    if (res.edges && res.edges.length) S.library.edges = (S.library.edges || []).concat(res.edges);
+    S.library.macLoaded = true;
+  } catch (_) {}
+  if (gen === S.library.macGen) S.library.macLoading = false;
+  if (S.railTab === 'library') refreshRail();
 }
 async function refreshServices() {
   if (S.services.loading) return;
@@ -1520,6 +1546,7 @@ async function writePointers(btn) {
 function toggleLibGroup(key) {
   if (S.library.collapsed.has(key)) S.library.collapsed.delete(key);
   else S.library.collapsed.add(key);
+  maybeLoadMac();
   refreshRail();
 }
 function appendLibItem(sect, i) {
@@ -1558,7 +1585,7 @@ function refreshLibraryRail(c) {
     <span class="racts"><button type="button" class="lib-exp">expand all</button>
     <button type="button" class="lib-col">close all</button></span>`;
   c.appendChild(head);
-  q('.lib-exp', head).onclick = () => { S.library.collapsed.clear(); refreshRail(); };
+  q('.lib-exp', head).onclick = () => { S.library.collapsed.clear(); maybeLoadMac(); refreshRail(); };
   q('.lib-col', head).onclick = () => {
     for (const g of SHELF_GROUPS) S.library.collapsed.add(g.key);
     refreshRail();
@@ -1576,7 +1603,7 @@ function refreshLibraryRail(c) {
   const top = document.createElement('div'); top.className = 'lib-top';
   const search = document.createElement('input');
   search.className = 'lib-search'; search.placeholder = 'Filter the library…'; search.value = S.library.q;
-  search.oninput = () => { S.library.q = search.value; refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
+  search.oninput = () => { S.library.q = search.value; maybeLoadMac(); refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
   top.appendChild(search); c.appendChild(top);
   const list = document.createElement('div'); list.className = 'lib-list'; c.appendChild(list);
   if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; list.appendChild(e); return; }
@@ -1588,15 +1615,23 @@ function refreshLibraryRail(c) {
     const items = isSvc
       ? S.services.connected.filter((sv) => serviceShelf(sv) === g.key && (!ql || (sv.id + ' ' + sv.name).toLowerCase().includes(ql)))
       : S.library.items.filter((i) => shelfOf(i) === g.key && match(i));
-    if (!items.length && !(g.key === 'services' && !ql)) continue;
-    shown += items.length + (g.key === 'services' ? 1 : 0);
+    const pendingMac = g.mac && !isSvc && !S.library.macLoaded;
+    if (!items.length && !pendingMac && !(g.key === 'services' && !ql)) continue;
+    shown += items.length + (g.key === 'services' ? 1 : 0) + (pendingMac ? 1 : 0);
     const open = ql ? true : !S.library.collapsed.has(g.key);
     const sect = document.createElement('div'); sect.className = 'lib-sect'; list.appendChild(sect);
     const lab = document.createElement('div'); lab.className = 'lib-group';
-    lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${items.length}</span>`;
+    const count = pendingMac ? macCountLabel({ loaded: false, n: items.length }) : items.length;
+    lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${esc(String(count))}</span>`;
     lab.onclick = () => toggleLibGroup(g.key);
     sect.appendChild(lab);
     if (!open) continue;
+    if (pendingMac) {
+      const wait = document.createElement('div'); wait.className = 'rail-empty';
+      wait.textContent = 'Scanning…';
+      sect.appendChild(wait);
+      continue;
+    }
     if (isSvc) {
       for (const sv of items) appendServiceRow(sect, sv);
       if (g.key === 'services') {
@@ -5382,7 +5417,8 @@ function renderSwitchChoice() {
 
 function applyProject(info) {
   S.project = info; S.tree = {}; S.expanded = new Set();
-  S.library.loaded = false; S.library.items = [];
+  S.library.loaded = false; S.library.items = []; S.library.edges = [];
+  S.library.macLoaded = false; S.library.macLoading = false; S.library.macGen += 1;
   // The pointer belongs to a folder, so the old folder's answer must not be
   // shown against the new one — clear it and let the next scan refill it.
   S.pointer = null;
