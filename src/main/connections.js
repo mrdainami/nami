@@ -180,6 +180,7 @@ function notebookTargets({ scope, projectPath, homeDir }) {
       kimi: { kind: 'json', file: p('.kimi-code/mcp.json'), section: 'mcpServers' },
       opencode: { kind: 'json', file: p('opencode.json'), section: 'mcp', translate: true },
       codex: { kind: 'block', file: p('.codex/config.toml') },
+      grok: { kind: 'block', file: p('.grok/config.toml') },
       hermes: { kind: 'manual', reason: 'Hermes keeps its list machine-wide — add it once with `hermes mcp`' },
     };
   }
@@ -194,6 +195,7 @@ function notebookTargets({ scope, projectPath, homeDir }) {
     kimi: { kind: 'json', file: h('.kimi-code/mcp.json'), section: 'mcpServers' },
     opencode: { kind: 'json', file: h('.config/opencode/opencode.json'), section: 'mcp', translate: true },
     codex: { kind: 'block', file: h('.codex/config.toml') },
+    grok: { kind: 'block', file: h('.grok/config.toml') },
     hermes: { kind: 'manual', reason: 'Hermes’s config.yaml is hand-owned — add it once with `hermes mcp`' },
   };
 }

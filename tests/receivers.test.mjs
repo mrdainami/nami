@@ -30,13 +30,13 @@ test('a skill is announced to every CLI that reads AGENTS.md, including Hermes',
   );
 });
 
-test('MCP writes skip Grok (no notebook yet) and Hermes (manual)', () => {
-  assert.equal(adapterOf('mcp', 'grok'), '');
+test('MCP writes skip Hermes (manual) and include Grok', () => {
+  assert.equal(adapterOf('mcp', 'grok'), 'write');
   assert.equal(adapterOf('mcp', 'hermes'), 'manual');
   assert.equal(adapterOf('mcp', 'claude'), 'write');
   assert.deepEqual(
     receiversOf('mcp', ['claude', 'grok', 'hermes', 'codex']),
-    ['claude', 'codex'],
+    ['claude', 'grok', 'codex'],
   );
 });
 
@@ -48,7 +48,7 @@ test('knowsCopy names the writers and, for MCP, Hermes’s own command', () => {
   );
   assert.equal(
     knowsCopy({ kind: 'mcp', installed, nameOf }),
-    'Claude Code gets this connection. Hermes: `hermes mcp`',
+    'Claude Code and Grok get this connection. Hermes: `hermes mcp`',
   );
   assert.match(
     knowsCopy({ kind: 'skill', installed, nameOf, stubCount: 1 }),

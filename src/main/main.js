@@ -831,10 +831,11 @@ ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
     for (const t of Object.values(targets)) if (t.kind === 'json' && t.file) jsonFiles.add(t.file);
   }
   changed.push(...removeService({ files: [...jsonFiles], id }));
-  // Codex blocks regenerate from what remains in each master.
+  // TOML blocks (Codex, Grok) regenerate from what remains in each master.
   for (const scope of ['project', 'user']) {
-    const t = notebookTargets({ scope, projectPath, homeDir: home }).codex;
-    if (t && t.file && fs.existsSync(t.file)) {
+    const targets = notebookTargets({ scope, projectPath, homeDir: home });
+    for (const t of Object.values(targets)) {
+      if (t.kind !== 'block' || !t.file || !fs.existsSync(t.file)) continue;
       const res = writeCodexBlock({ file: t.file, masters: readMaster({ scope, projectPath, homeDir: home }) });
       if (res.ok) changed.push(t.file);
     }

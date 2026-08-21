@@ -37,6 +37,7 @@ export const ADAPTERS = {
     kimi: 'write',
     opencode: 'write',
     codex: 'write',
+    grok: 'write',
     hermes: 'manual',
   },
 };
