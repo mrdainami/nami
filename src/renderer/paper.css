@@ -79,6 +79,8 @@
   --tok-key: #6a4a05;
   --tok-add-ink: #33503b;  --tok-add-bg: rgba(74, 122, 74, 0.12);
   --tok-del-ink: #8a2d21;  --tok-del-bg: rgba(138, 45, 33, 0.10);
+  --sweep: rgba(90, 72, 44, 0.07);
+  --shimmer-hi: #3a2f1d;
   --red-body: #97463a;
   --red-btn: #b4503c;
   --red-btn-line: #8a3527;
@@ -1353,7 +1355,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 .cd-fold-h:hover { color: var(--ink); }
 .cd-fold-h .arr { font-size: calc(9px * var(--cdz, 1)); }
-.cd-fold-b { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.cd-fold-b { margin-top: 6px; display: flex; flex-direction: column; gap: 2px;
+  border-left: 2px solid var(--dash); margin-left: 5px; padding-left: 12px; }
+.cd-fold-b[hidden] { display: none; }  /* display:flex beat the hidden attr — folds could never close */
+/* inside a fold, rows go quiet: no box, tighter, plain weight */
+.cd-fold-b .cd-tool .cd-line { border: none; background: none; padding: 2px 0; }
+.cd-fold-b .cd-line .cd-lb { font-weight: 400; }
+.cd-fold-b .cd-row[data-kd="execute"] .cd-lb { font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--muted); font-size: calc(11.5px * var(--cdz, 1)); }
+.cd-body-more { display: block; background: none; border: none; color: var(--muted); cursor: pointer;
+  font: inherit; padding: 2px 0; text-decoration: underline; text-underline-offset: 2px; }
+.cd-body-more:hover { color: var(--ink); }
 
 /* Edited N files — name left, counts right, diff behind the row. */
 .cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
@@ -1389,6 +1400,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   border-left: 3px solid var(--dash-dark); color: var(--muted);
 }
 .cd-md blockquote > :last-child { margin-bottom: 0; }
+/* streaming prose wraps each block in .md-b; margins collapse through the
+   wrapper, but the first/last trims must reach inside it */
+.cd-md > .md-b:first-child > :first-child { margin-top: 0; }
+.cd-md > .md-b:last-child > :last-child { margin-bottom: 0; }
 /* The desk is drag-surface (user-select: none on body), but a card's
    conversation is reading material — text must highlight and copy.
    .cd-list is the conversation; .cd-body is a tool-result snippet. */
@@ -1601,7 +1616,28 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   animation: cd-spin 0.9s linear infinite;
 }
 @keyframes cd-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .cd-working .cw-sp { animation: none; } }
+.cd-working .cw-ph {
+  background: linear-gradient(90deg, var(--muted) 40%, var(--shimmer-hi) 50%, var(--muted) 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: cw-shim 1.8s linear infinite;
+}
+@keyframes cw-shim { from { background-position: 180% 0; } to { background-position: -20% 0; } }
+.cd-working .cw-el[hidden] { display: none; }
+/* a pending tool row breathes: one quiet glare pass, no extra element */
+.cd-row.cd-tool.pending { position: relative; overflow: hidden; }
+.cd-row.cd-tool.pending::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, var(--sweep) 50%, transparent 70%);
+  background-size: 300px 100%; background-repeat: no-repeat;
+  animation: cd-sweep 2.6s ease-out infinite;
+}
+@keyframes cd-sweep { from { background-position: -300px 0; } to { background-position: calc(100% + 300px) 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .cd-working .cw-sp { animation: none; }
+  .cd-working .cw-ph { animation: none; background: none; color: var(--muted); }
+  .cd-row.cd-tool.pending::after { animation: none; content: none; }
+}
 .cd-working .cw-esc {
   margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1));
   /* a button now, not decoration — same quiet face, but it answers a click */

@@ -54,6 +54,8 @@ body[data-theme="operator"] {
   --tok-key: #d3aa6a;
   --tok-add-ink: #a9c49a;  --tok-add-bg: rgba(169, 196, 154, 0.12);
   --tok-del-ink: #ff9d9a;  --tok-del-bg: rgba(255, 157, 154, 0.12);
+  --sweep: rgba(255, 255, 255, 0.05);
+  --shimmer-hi: #e8e6e1;
   --red-body: #d59391;
   --red-btn: #ef6461;
   --red-btn-line: #ff8b88;

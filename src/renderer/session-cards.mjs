@@ -35,6 +35,7 @@ function short(s, n) {
   return text.length > n ? text.slice(0, n - 1) + '…' : text;
 }
 function baseName(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || ''; }
+function atMs(v) { if (typeof v === 'number' && v > 0) return v; const n = Date.parse(v); return Number.isFinite(n) ? n : null; }
 function lineCount(s) { return String(s == null ? '' : s) ? String(s).split('\n').length : 0; }
 function nLines(n) { return `${n} line${n === 1 ? '' : 's'}`; }
 
@@ -151,6 +152,7 @@ function toolRow(e) {
     kind: 'tool', id: e.id, at: e.at, toolId: e.toolId, name: e.name,
     toolKind: kind, glyph: TOOL_GLYPHS[kind] || TOOL_GLYPHS.other,
     label: toolLabel(e.name, e.input), detail: toolDetail(e.name, e.input),
+    file: (e.input && (e.input.file_path || e.input.filepath || e.input.notebook_path || e.input.AbsolutePath || e.input.TargetFile)) || null,
     diff: e.diff || toolDiff(e.name, e.input),
     body: '', isError: false, truncated: false, pending: true,
     children: null,
@@ -166,6 +168,8 @@ export function buildRows(events) {
   const byTool = new Map();  // toolId -> the row waiting for its result
   const byPerm = new Map();  // permissionId -> the approval row
   let turnFiles = [];        // files edited since the last meter, for its chips
+  let turnUserAt = null;     // when the turn's prompt landed
+  let turnFirstReplyAt = null; // first assistant/thinking after it
 
   // A sub-agent's turns belong under the Task row that spawned it, folded —
   // the card shows one line, expandable, not the sub-agent's whole life
@@ -183,10 +187,12 @@ export function buildRows(events) {
     switch (e.kind) {
       case 'user':
         rows.push({ kind: 'user', id: e.id, at: e.at, text: e.text, command: !!e.command });
+        turnUserAt = atMs(e.at); turnFirstReplyAt = null;
         break;
 
       case 'assistant':
       case 'thinking':
+        if (turnFirstReplyAt == null) turnFirstReplyAt = atMs(e.at);
         push(e, { kind: e.kind, id: e.id, at: e.at, text: e.text });
         break;
 
@@ -274,15 +280,28 @@ export function buildRows(events) {
         rows.push({ kind: 'error', id: e.id, at: e.at, text: e.message });
         break;
 
-      case 'turn_end':
-        rows.push({
+      case 'turn_end': {
+        const tokens = Number(e.tokens) || 0;
+        const dur = Number(e.durationMs) || 0;
+        const row = {
           kind: 'turn_end', id: e.id, at: e.at,
           duration: fmtDuration(e.durationMs),
-          tokens: Number(e.tokens) || 0,
+          tokens,
           files: turnFiles,
-        });
+        };
+        // stats only from what the events actually carry — never invented
+        if (tokens > 0 && dur > 0) {
+          const tps = tokens / (dur / 1000);
+          row.tokPerSec = tps >= 10 ? Math.round(tps) : Math.round(tps * 10) / 10;
+        }
+        if (turnUserAt != null && turnFirstReplyAt != null && turnFirstReplyAt >= turnUserAt) {
+          row.ttftMs = turnFirstReplyAt - turnUserAt;
+        }
+        rows.push(row);
         turnFiles = [];
+        turnUserAt = null; turnFirstReplyAt = null;
         break;
+      }
 
       // init and status shape the tile (badge, composer, commands), not the
       // list — app.js reads them before the rows are built.
@@ -298,9 +317,31 @@ export function buildRows(events) {
   return groupTurns(rows);
 }
 
-// A finished turn folds its work — the Codex reading: your bubble, then
-// `worked for 12.4s · 6 steps ▸`, then the prose, then an Edited-N-files
-// card, then the meter. Only completed turns fold; the live one is watched.
+// What a run of activity was, in words — "read 4 files · ran 2 commands".
+// Counts come from the rows' own kinds; nothing is guessed.
+function workLabel(rows) {
+  const n = { read: 0, edit: 0, execute: 0, search: 0, fetch: 0, think: 0, other: 0 };
+  for (const r of rows) {
+    if (r.kind === 'thinking') n.think++;
+    else if (r.kind === 'tool') n[r.toolKind in n ? r.toolKind : 'other']++;
+  }
+  const parts = [];
+  const s = (c) => (c === 1 ? '' : 's');
+  if (n.read) parts.push(`read ${n.read} file${s(n.read)}`);
+  if (n.edit) parts.push(`edited ${n.edit} file${s(n.edit)}`);
+  if (n.execute) parts.push(`ran ${n.execute} command${s(n.execute)}`);
+  if (n.search) parts.push(n.search === 1 ? 'searched once' : `searched ${n.search}×`);
+  if (n.fetch) parts.push(`fetched ${n.fetch}`);
+  if (n.think) parts.push('thought');
+  if (n.other) parts.push(`${n.other} step${s(n.other)}`);
+  return parts.join(' · ');
+}
+
+// A finished turn folds its work — the Codex-desktop reading: work folds IN
+// PLACE, between the thoughts it belongs to, so the turn stays a story. A
+// lone tool row stays inline; a run of two or more becomes one quiet chip
+// that says what kind of work it was. Only completed turns fold; the live
+// one is watched.
 function groupTurns(rows) {
   const out = [];
   let turn = [];   // everything since the last user row
@@ -312,35 +353,63 @@ function groupTurns(rows) {
   //      'live' — still happening: never folded, you watch it.
   const flush = (how, meter) => {
     if (!turn.length) { if (meter) out.push(meter); return; }
-    if (how === 'live') { out.push(...turn); turn = []; return; }
+    if (how === 'live') {
+      // fold as you go: a run the agent has already moved past collapses the
+      // moment its next thought lands; only the trailing run is watched raw.
+      // (a folded child's late result updates on reopen — results in practice
+      // land before the agent speaks again.)
+      let liveRun = [];
+      const liveOut = [];
+      const foldLive = () => {
+        if (liveRun.length >= 2) liveOut.push({
+          kind: 'fold', id: `fold:${liveRun[0].id}`,
+          count: liveRun.length, label: workLabel(liveRun), children: liveRun,
+        });
+        else liveOut.push(...liveRun);
+        liveRun = [];
+      };
+      for (const r of turn) {
+        if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) liveRun.push(r);
+        else { foldLive(); liveOut.push(r); }
+      }
+      liveOut.push(...liveRun); // the active tail, raw
+      out.push(...liveOut);
+      turn = []; return;
+    }
 
-    // What folds: the activity. What stays: what was said, what failed, and
-    // anything still waiting on the user.
-    const folded = [];
-    const visible = [];
+    // What folds: runs of activity, each where it happened. What stays put:
+    // what was said, what failed, and anything still waiting on the user.
     const edited = [];
+    const activity = [];
+    const anchor = meter || turn[0];
+    let run = [];
+    const closeRun = (into) => {
+      if (!run.length) return;
+      if (run.length === 1) into.push(run[0]);
+      else into.push({
+        kind: 'fold', id: `fold:${run[0].id}`,
+        count: run.length, label: workLabel(run), children: run,
+      });
+      run = [];
+    };
+    const placed = [];
     for (const r of turn) {
       if (r.kind === 'tool' || r.kind === 'thinking' || (r.kind === 'permission' && r.resolved)) {
-        folded.push(r);
+        run.push(r);
+        activity.push(r);
         if (r.kind === 'tool' && r.toolKind === 'edit' && !r.isError) {
           const path = (r.diff && r.diff.path) || '';
           edited.push({ path: path || r.label.replace(/^\S+\s+/, ''), diff: r.diff || null });
         }
       } else {
-        visible.push(r);
+        closeRun(placed);
+        placed.push(r);
       }
     }
-
-    const anchor = meter || folded[0] || visible[0];
-    if (folded.length) {
-      out.push({
-        kind: 'fold', id: `fold:${anchor.id}`,
-        count: folded.length, duration: meter ? meter.duration : '', children: folded,
-      });
-    }
-    out.push(...visible);
+    closeRun(placed);
+    out.push(...placed);
     if (edited.length) out.push({ kind: 'edits', id: `edits:${anchor.id}`, files: edited });
-    if (meter) out.push(meter);
+    if (meter) { const w = workLabel(activity); if (w) meter.work = w; out.push(meter); }
     turn = [];
   };
 

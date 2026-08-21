@@ -254,3 +254,23 @@ test('withDeadline settles: pass-through on answer, rejection on silence', async
     /Hermes session\/load did not answer within/);
   await assert.rejects(withDeadline(Promise.reject(new Error('refused')), 50, 'x'), /refused/);
 });
+
+test('interleaved thought/message chunks keep two growing rows, not a cascade', () => {
+  const events = [];
+  const a = new AcpAdapter({ id: 'r', cwd: '/tmp', env: process.env, onEvent: (e) => events.push(e), agent: 'opencode' });
+  a._write = () => {}; a.child = { stdin: { write() {} }, kill() {} };
+  const th = (text) => a.handleUpdate({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text } });
+  const ms = (text) => a.handleUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+  th('The '); ms('Sure'); th('user '); ms(', two'); th('wants two'); ms(' steps');
+  const ids = { thinking: new Set(), assistant: new Set() };
+  for (const e of events) ids[e.kind] && ids[e.kind].add(e.id);
+  assert.equal(ids.thinking.size, 1, 'one thought row grows across interleaves');
+  assert.equal(ids.assistant.size, 1, 'one reply row grows across interleaves');
+  const lastTh = events.filter((e) => e.kind === 'thinking').pop();
+  assert.equal(lastTh.text, 'The user wants two');
+  // a tool call is a real boundary: both segments restart after it
+  a.breakBurst();
+  th('Next thought');
+  const ids2 = new Set(events.filter((e) => e.kind === 'thinking').map((e) => e.id));
+  assert.equal(ids2.size, 2, 'a boundary starts a fresh thought row');
+});
