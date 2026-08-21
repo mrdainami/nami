@@ -45,6 +45,20 @@ export function serviceShelf(sv) {
 
 export const MAC_GROUP_KEYS = SHELF_GROUPS.filter((g) => g.mac).map((g) => g.key);
 
+// Walk ~/.claude/plugins (and the other CLI homes) only when a Mac group is
+// open, or when the filter box has something to look for. Opening Library
+// itself stays a folder scan.
+export function shouldLoadMac({ openGroups, query, macLoaded } = {}) {
+  if (macLoaded) return false;
+  if (String(query || '').trim()) return true;
+  const open = openGroups instanceof Set ? openGroups : new Set(openGroups || []);
+  return MAC_GROUP_KEYS.some((k) => open.has(k));
+}
+
+export function macCountLabel({ loaded, n } = {}) {
+  return loaded ? String(n || 0) : '…';
+}
+
 // ⌘K launches what this folder owns: masters and hand-made in-project files.
 export function isPickerAgent(item) {
   return !!item && item.type === 'agent' && item.scope === 'project' && !item.shadows;
