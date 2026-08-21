@@ -490,41 +490,6 @@ body[data-glass] .term-body { padding: 0; }
    the glass panes bleed their blur to the tile edge, so padding the body would
    punch a hard-edged frame out of it */
 body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
-/* the card view — the glass family rounds its edges and lets the pane show
-   through, so the rows are outlines on the slab rather than filled boxes */
-body[data-glass] .t-view { border-radius: 6px; overflow: hidden; }
-/* round-3: the whole card vocabulary joins the glass material */
-/* menus fill with --menu-sheet (set in each theme's tokens) — the old
-   per-menu literals graduated into that token so no menu can miss it */
-/* turn meters: --faint vanishes on the dark grounds (graphite rule) */
-body[data-glass] .cd-turn_end { color: var(--muted); }
-/* graphite's --amber-btn is a dim #c98d1a on the dark pane — the most
-   dangerous mode must not be the dimmest chip; its lifted amber ink wins */
-body[data-theme="graphite"] .m-bypass { color: var(--amber-ink); }
-/* the selected launcher pill is coral-filled here; translucent paper as its
-   ink would ghost — solid white, same as graphite's .t-surface.cards */
-body[data-glass] .picker-row .way.last { color: #fff; }
-body[data-glass] .cd-user,
-body[data-glass] .cd-diff-sum,
-body[data-glass] .cd-edits,
-body[data-glass] .cd-plan,
-body[data-glass] .cd-perm-open,
-body[data-glass] .cd-perm-cmd,
-body[data-glass] .cd-perm-btn,
-body[data-glass] .cd-note-btn,
-body[data-glass] .cd-menu,
-body[data-glass] .cd-picker,
-body[data-glass] .cd-intro .cd-wl,
-body[data-glass] .cd-wpick,
-body[data-glass] .head-menu,
-body[data-glass] .picker-row .way { border-radius: 9px; }
-body[data-glass] .t-surface { border-radius: 999px; }
-body[data-glass] .cd-open { border-radius: 0 0 9px 9px; }
-body[data-glass] .cd-line { border-radius: 8px; background: var(--gl-pane-dim); }
-body[data-glass] .cd-row.open .cd-line { border-radius: 8px 8px 0 0; }
-body[data-glass] .cd-body { border-radius: 0 0 8px 8px; background: var(--gl-well); }
-body[data-glass] .cd-send { border-radius: 6px; }
-body[data-glass] .cd-ask { border-top-color: var(--dash); }
 body[data-glass] .ed-gutter { color: var(--faint); background: none; }
 body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
 body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }

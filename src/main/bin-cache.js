@@ -18,7 +18,13 @@
 // every reader falls back to what it did before, and a scan that stops finding
 // an agent clears it rather than leaving a path that would ENOENT forever.
 //
-// Pure and process-local: no I/O, no electron, no persistence across launches.
+// The memo itself is process-local and has no I/O. resolveClaudeExecutable
+// is the one reader that stats the disk, so Term spawn and the (retired)
+// card adapter ask the same question.
+
+const fs = require('fs');
+const os = require('os');
+const { claudeCandidates } = require('./platform.js');
 
 const bins = new Map();
 
@@ -50,6 +56,29 @@ function knownBin(id) {
 
 function forgetBins() { bins.clear(); }
 
+// Find the user's logged-in claude binary so a terminal tile runs on their
+// subscription, not an API key. No fallback on purpose: packaged builds drop
+// the SDK's own 265 MB copy of Claude Code (see electron-builder.yml).
+//
+// The scan goes first. A claude installed through nvm, volta, asdf, mise or
+// bun used to read as "ready" in the launcher and missing at spawn, because
+// spawn walked a hardcoded list of five paths. The list stays as the floor:
+// it answers before the first scan lands, and on a machine where the shell
+// probe fails entirely.
+function resolveClaudeExecutable({ home = os.homedir(), env = process.env, exists, detected } = {}) {
+  const there = exists || ((p) => fs.existsSync(p));
+  const scanned = detected === undefined ? knownBin('claude') : detected;
+  const candidates = [
+    env.CLAUDE_CODE_EXECUTABLE,
+    scanned,
+    ...claudeCandidates({ home, env }),
+  ];
+  for (const c of candidates) {
+    try { if (c && there(c)) return c; } catch (_) {}
+  }
+  return null;
+}
+
 // A run tile types its command into the user's *interactive* shell, and that
 // shell's PATH is not the scan's: an nvm/npm-prefix conflict in .zshrc makes
 // nvm bail before it adds the npm-global dir, so bare `codex` reads as
@@ -75,15 +104,10 @@ function resolveRunCommand(command) {
 // into the tile's own scrollback the way claude does. It is session-scoped,
 // so nothing is written to the user's ~/.grok/config.toml.
 //
-// Why here and not on the panel: two identity checks — agentForCommand
-// (agent-resume.js) and cardAgentFor (app.js) — match a tile's `command`
-// against BARE binary names, and they gate resume, session discovery and the
-// Term/Cards switch. Relaxing them to compare only the first word looks free
-// and is not: moveToSurface already assigns resume lines as commands
-// (`codex resume <id>`, `opencode -s <id>`, `hermes --resume <id>`,
-// `agy --conversation <id>`), so first-word matching would start matching all
-// four where it does not today. Keeping `command` exactly 'grok' and adding
-// the flag here, at the moment of spawn, leaves every one of those untouched.
+// Why here and not on the panel: agentForCommand (agent-resume.js) matches a
+// tile's `command` against BARE binary names to gate resume and session
+// discovery. Keeping `command` exactly 'grok' and adding the flag here, at
+// the moment of spawn, leaves that check untouched.
 //
 // --minimal is marked Experimental in `grok --help` (1.0.5). If a release
 // drops it grok falls back to its full-screen TUI: uglier against the theme,
@@ -105,4 +129,4 @@ function withSpawnFlags(command) {
   return missing.length ? m[1] + ' ' + missing.join(' ') + tail : s;
 }
 
-module.exports = { rememberBins, knownBin, forgetBins, resolveRunCommand, withSpawnFlags, SPAWN_FLAGS };
+module.exports = { rememberBins, knownBin, forgetBins, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags, SPAWN_FLAGS };

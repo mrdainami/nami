@@ -1,23 +1,15 @@
 // Nami — Electron main process.
-// Owns: the window, PTY terminal sessions, agent sessions (via agent-session),
+// Owns: the window, PTY terminal sessions,
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Menu } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
-const { AgentSessions, claudeTranscript } = require('./agent-session.js');
+const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
-const { listConversations } = require('./session-store.js');
 const { agentForCommand, resumeCommand, sessionExists, startDiscovery } = require('./agent-resume.js');
-const { codexRollout, codexBacklog } = require('./codex-transcript.js');
-const { kimiWire, kimiBacklog } = require('./kimi-transcript.js');
-const { agyTranscript, agyBacklog } = require('./agy-transcript.js');
-const { hermesBacklog } = require('./hermes-transcript.js');
-const { readFrom, tailStart } = require('./transcript-tail.js');
-const { parseTranscript } = require('./transcript-events.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
@@ -25,7 +17,6 @@ const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
-const { rememberBins, knownBin, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -162,7 +153,6 @@ function killSession(id) {
   termSessions.delete(id);
   return true;
 }
-const agentSessions = new AgentSessions(); // tile id -> live adapter (Cards drive mode)
 
 // ---- state (restart-proof) -------------------------------------------------
 function stateFile() { return path.join(app.getPath('userData'), 'state.json'); }
@@ -428,7 +418,6 @@ function reapSessions(wcId) {
     if (owner !== wcId) continue;
     sessionOwners.delete(id);
     killSession(id);
-    agentSessions.stop(id);
   }
 }
 
@@ -497,7 +486,6 @@ app.on('before-quit', () => {
     fs.renameSync(stateFile() + '.tmp', stateFile());
   } catch (_) {}
   for (const id of [...termSessions.keys()]) killSession(id);
-  agentSessions.stopAll();
 });
 
 // Quit means quit. The window closes at once, but the process was observed
@@ -675,7 +663,7 @@ function stagedUpdateWaiting() {
 // before installing, because an update that silently kills four agents
 // mid-thought is the outcome this whole feature was shaped to avoid.
 function liveSessionCount() {
-  return termSessions.size + agentSessions.size;
+  return termSessions.size;
 }
 ipcMain.handle('update:sessions', () => liveSessionCount());
 
@@ -1232,75 +1220,6 @@ ipcMain.handle('stt:prepare', (e) =>
     deps: { onProgress: (p) => sendWc(e.sender, 'stt:progress', p) },
   })));
 
-// ---- IPC: agent sessions (Cards drive mode) --------------------------------
-// One live runtime per tile: starting an agent session for a tile closes any
-// previous one, and the pty is the renderer's to stop first. Events flow back
-// on 'agent:event', already speaking the vocabulary in agent-events.js.
-ipcMain.handle('agent:start', async (e, { id, agent, cwd, sid, model, prompt }) => {
-  const wc = e.sender;
-  sessionOwners.set(id, wc.id);
-  const envPath = await userPath();
-  const res = await agentSessions.start({
-    id, agent, cwd, sid, model, prompt,
-    // The same env discipline the ptys get: login PATH, stripInheritedClaude,
-    // stored keys — a session must behave the same in either view.
-    env: sessionEnv(envPath),
-    // tileId rides its own field — every event already owns `id` for its row.
-    onEvent: (ev) => sendWc(wc, 'agent:event', { tileId: id, ...ev }),
-  });
-  // The SDK writes the same transcript the pty would, so the title watcher
-  // keeps the rail name honest while Cards drive.
-  if (res.ok && agent === 'claude' && sid) {
-    const file = path.join(os.homedir(), '.claude', 'projects', projectSlug(cwd), sid + '.jsonl');
-    watchTitle(id, wc, file, { sid, cwd });
-  }
-  return res;
-});
-ipcMain.handle('agent:send', (_e, { id, text }) => ({ ok: agentSessions.send(id, text) }));
-ipcMain.handle('agent:permission', (_e, { id, permissionId, optionId }) => ({ ok: agentSessions.permission(id, permissionId, optionId) }));
-ipcMain.handle('agent:interrupt', (_e, { id }) => ({ ok: agentSessions.interrupt(id) }));
-ipcMain.handle('agent:config', (_e, { id, configId, value }) => ({ ok: agentSessions.config(id, configId, value) }));
-ipcMain.handle('agent:stop', (_e, { id }) => { agentSessions.stop(id); return { ok: true }; });
-ipcMain.handle('agent:conversations', (_e, { agent, cwd }) => listConversations({ agent, cwd }));
-
-// Everything the conversation already holds, read once on a switch to Cards —
-// the backlog a live adapter cannot replay. Bounded exactly like the tail: a
-// large transcript opens on its last screenful, never whole.
-ipcMain.handle('cards:backlog', (_e, { cwd, sid, agent }) => {
-  // codex resumes the model but replays nothing over exec; its history is
-  // read back from the rollout the thread id names. The claude path below
-  // is untouched — agent is absent on every claude call.
-  if (agent === 'codex') {
-    const file = codexRollout(sid);
-    if (!file) return { events: [] };
-    try { return codexBacklog(file); } catch (_) { return { events: [] }; }
-  }
-  if (agent === 'kimi') {
-    const file = kimiWire(sid);
-    if (!file) return { events: [] };
-    try { return kimiBacklog(file); } catch (_) { return { events: [] }; }
-  }
-  if (agent === 'agy') {
-    const file = agyTranscript(sid);
-    if (!file) return { events: [] };
-    try { return agyBacklog(file); } catch (_) { return { events: [] }; }
-  }
-  // hermes answers session/load but replays nothing (probed 2026-08-16) —
-  // its history reads from state.db instead.
-  if (agent === 'hermes') {
-    try { return hermesBacklog(sid); } catch (_) { return { events: [] }; }
-  }
-  const file = claudeTranscript(cwd, sid);
-  if (!file) return { events: [] };
-  try {
-    const size = fs.statSync(file).size;
-    const { offset, partial } = tailStart(size, {});
-    const r = readFrom(file, offset, {});
-    return { events: parseTranscript(r.lines), partial };
-  } catch (_) { return { events: [] }; }
-});
-
-
 // Every session inherits the saved Keys as env vars. A key saved in Nami wins
 // over the shell's own export — what you set in the app is what runs.
 //
@@ -1498,65 +1417,16 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 // would fire hundreds of times per turn for a string that changes twice a
 // session. Only the tail is read — these files reach hundreds of megabytes.
 //
-// The same watcher feeds the card view. A tile in Cards is reading this file's
-// body as well as its name — see pumpCards below — so the sweep speeds up while
-// any tile has cards open, and drops back to the title cadence when none does.
-const titleWatch = new Map(); // panel id -> { file, wc, mtime, title, cards, offset }
+const titleWatch = new Map(); // panel id -> { file, wc, mtime, title }
 let titleTimer = null;
 let titleEvery = 0;
 const TITLE_MS = 4000;
-// A turn writes a dozen records; anything slower than this and a card view
-// arrives in visible lurches. Only ever runs while a tile is actually in Cards.
-const CARDS_MS = 700;
 
-// One tick may cross several bounded reads — a burst after the app was asleep,
-// or a long tool result — but never more than this, so a huge backlog cannot
-// hold the main process inside one sweep.
-const CARD_READS_PER_TICK = 8;
-
-// Everything new in this transcript since the last tick, as card events.
-function pumpCards(id, w) {
-  // First tick after Cards was switched on: a large transcript opens on its
-  // last screenful rather than its history, and the renderer clears whatever
-  // it had. A short one is read from the top.
-  if (w.offset === null) {
-    let size = 0;
-    try { size = fs.statSync(w.file).size; } catch (_) { return; }
-    w.offset = tailStart(size).offset;
-    sendWc(w.wc, 'session:events', { id, events: [], reset: true });
-  }
-  for (let i = 0; i < CARD_READS_PER_TICK; i++) {
-    const r = readFrom(w.file, w.offset);
-    if (r.missing) return;
-    w.offset = r.offset;
-    // The file shrank: /clear, or a resume that replaced it. What the tile is
-    // showing belongs to a conversation that no longer exists.
-    if (r.reset) sendWc(w.wc, 'session:events', { id, events: [], reset: true });
-    if (r.lines.length) {
-      // Titles come from readTailTitle below — one name, one source.
-      const events = parseTranscript(r.lines).filter((e) => e.kind !== 'title');
-      if (events.length) {
-        // Watch mode has no adapter to say 'running' — synthesize it from the
-        // tail: records still streaming means work in flight; a turn_duration
-        // record closes it. Live pump only, never the backlog read, so an old
-        // conversation that died mid-turn cannot pin a spinner forever.
-        const last = events[events.length - 1];
-        events.push({ kind: 'status', state: last.kind === 'turn_end' ? 'idle' : 'running' });
-        sendWc(w.wc, 'session:events', { id, events });
-      }
-    }
-    if (!r.lines.length && !r.dropped) return;
-  }
-}
-
-// Cards want 700ms; titles alone are content with 4s. Restart the interval only
-// when the answer actually changes.
 function retimeTitles() {
-  const want = [...titleWatch.values()].some((w) => w.cards) ? CARDS_MS : TITLE_MS;
-  if (titleTimer && titleEvery === want) return;
+  if (titleTimer && titleEvery === TITLE_MS) return;
   if (titleTimer) clearInterval(titleTimer);
-  titleEvery = want;
-  titleTimer = setInterval(sweepTitles, want);
+  titleEvery = TITLE_MS;
+  titleTimer = setInterval(sweepTitles, TITLE_MS);
   if (titleTimer.unref) titleTimer.unref(); // never hold the app open
 }
 
@@ -1572,9 +1442,6 @@ function sweepTitles() {
         w.sid = live.sessionId;
         w.file = path.join(os.homedir(), '.claude', 'projects', projectSlug(w.cwd), w.sid + '.jsonl');
         w.mtime = 0;
-        // A different conversation entirely: re-seed the tail so the cards
-        // show the one the user is now in, not the tail of the old one.
-        w.offset = null;
         // The renderer persists this, so the next launch resumes the conversation
         // the user is actually in rather than starting a blank one.
         sendWc(w.wc, 'session:sid', { id, sid: w.sid });
@@ -1582,9 +1449,6 @@ function sweepTitles() {
     }
     let stat = null;
     try { stat = fs.statSync(w.file); } catch (_) { continue; } // not written yet
-    // Cards are seeded on their first tick, before anything has been appended,
-    // so they run whether or not the file moved since last time.
-    if (w.cards) pumpCards(id, w);
     if (stat.mtimeMs === w.mtime) continue;
     w.mtime = stat.mtimeMs;
     const title = readTailTitle(w.file);
@@ -1596,21 +1460,9 @@ function sweepTitles() {
 }
 
 function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
-  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd, cards: false, offset: null });
+  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd });
   retimeTitles();
 }
-
-// A tile switched to Cards (or back). Turning it on re-seeds the tail and
-// sweeps at once, so the view fills immediately instead of on the next tick.
-ipcMain.handle('cards:watch', (_e, { id, on }) => {
-  const w = titleWatch.get(id);
-  if (!w) return { ok: false };
-  w.cards = !!on;
-  if (on) w.offset = null;
-  retimeTitles();
-  if (on) sweepTitles();
-  return { ok: true };
-});
 
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
 ipcMain.handle('term:resize', (_e, { id, cols, rows }) => { const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p }; });

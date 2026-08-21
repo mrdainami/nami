@@ -54,19 +54,17 @@ so the shipped app can transcribe offline. Packaging config lives in
 - `src/renderer/` — the paper UI (`app.js`, `paper.css`, vendored xterm)
 - `docs/design.md` — the approved design · `docs/media/` — what it looks like now
 
-State persists to `userData/state.json` (projects, sessions, card content), so a
+State persists to `userData/state.json` (projects, sessions), so a
 restart restores the desk.
 
 ## How the pieces behave
 
-- **Claude sessions** are driven through the Claude Agent SDK and render as cards —
-  the goal in handwriting, tool calls as steps that strike through as they finish,
-  todos as a checklist, the yellow **Needs your OK** card for real permission
-  prompts, produced files in **Pasted in**.
-- **Terminal sessions** run a real shell (node-pty) inside an ink-on-paper xterm.
-- **Sessions survive restarts** — editors, viewers and cards reopen, terminals
+- **Agent sessions** run the agent's own CLI in a real PTY (node-pty) inside
+  an ink-on-paper xterm. Claude, Codex, OpenCode, Grok and the rest each keep
+  their TUI; Nami is the desk around them.
+- **Sessions survive restarts** — editors and viewers reopen, terminals
   restart in their folder, and Claude sessions pick their conversation back up
-  via `claude --continue`.
+  via `claude --resume` of the pinned id.
 - **The launcher** (⌘N) shows the agents actually installed on your Mac, checked
   through your own shell at startup: Claude Code, Codex, OpenCode, Gemini CLI,
   Hermes, Kimi Code. Missing ones open a guided setup sheet with the verified

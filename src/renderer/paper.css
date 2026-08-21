@@ -1105,8 +1105,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 }
 @container nami-tile (max-width: 252px) {
   .tile-head .t-sub { display: none; }
-  .t-surface .ts-l { display: none; }         /* the chevron alone still opens the menu */
-  .t-surface { padding: 4px 7px; }
 }
 .tile-head:active { cursor: grabbing; }
 .tile-head .code { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60,45,25,0.3); }
@@ -1190,77 +1188,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb { background: rgba(90, 72, 44, 0.4); background-clip: content-box; }
 .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 
-/* ---- the card view ----
-   The same live session, read out of the transcript it is already writing. It
-   sits as a sibling of .tile-body so the terminal keeps every rule it has: only
-   one of the two is ever displayed, and the hidden one is never torn down. */
-/* The surface is a state, not a toggle: one small label, stamped when beta.
-   Switching surfaces is an explicit act in the ⌄ menu. */
-/* One control now: the label is the menu. The chevron is a drawn stroke rather
-   than the ⌄ character, which hangs low in every font and looked sunk beside
-   the word — drawn, it centres on the label's own midline. */
-.t-surface {
-  position: relative; flex: none; display: inline-flex; align-items: center; gap: 5px;
-  font: inherit; font-size: 9px; letter-spacing: 0.08em; font-weight: 700;
-  padding: 4px 7px 4px 9px; background: none; border: 1px solid transparent;
-  color: inherit; cursor: pointer;
-}
-.t-surface .ts-c { width: 10px; height: 6px; flex: none; display: block; }
-.t-surface .ts-c path { stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.t-surface.cards { background: var(--green); color: var(--paper); }
-.t-surface.term { color: var(--muted); border: 1px solid var(--dash); font-weight: 400; }
-.t-surface.term:hover { color: var(--ink); border-color: var(--dash-dark); background: var(--hover); }
-.t-surface.cards:hover { filter: brightness(1.08); }
-/* the channel badge: which structured channel this card speaks, said once in
-   the head. Quiet fact; amber only when it explains a limit (watching,
-   one-shot, terminal-only). Hidden entirely in Term view.
-   It is the FIRST thing in the head to give ground: .tile-head never clips
-   and the buttons are flex:none, so a rigid badge shoved the ✕ off the card
-   on narrow tiles — the huge shrink factor collapses this before the title
-   loses a pixel, and the buttons never move. */
-.t-channel {
-  flex: 0 999 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--muted); white-space: nowrap;
-}
-.t-channel.warn { color: var(--amber-btn); }
-
-/* the ⌄ menu those labels defer to — it floats over card text, so it fills
-   with the menu sheet, and the blur backs it up on the glass family */
-.head-menu {
-  position: fixed; z-index: 300; min-width: 240px; max-width: 320px;
-  background: var(--menu-sheet); border: 1px solid var(--dash-dark);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
-  display: flex; flex-direction: column;
-}
-.hm-item {
-  font: inherit; font-size: 12px; text-align: left; padding: 8px 12px;
-  background: transparent; color: var(--ink); border: 0; cursor: pointer;
-  display: flex; flex-direction: column; gap: 1px;
-}
-.hm-item + .hm-item { border-top: 1px dashed var(--dash); }
-.hm-item:hover { background: var(--hover); }
-.hm-item .hm-l { font-weight: 700; }
-.hm-item .hm-d { font-size: 10.5px; color: var(--muted); }
-
-/* the birth choice on a launcher row — same convention as .t-surface: the
-   remembered pick wears the solid accent, the other stays a quiet outline.
-   Two border shades apart was invisible; fill vs no-fill is not. */
-.picker-row .ways { flex: none; display: flex; gap: 6px; margin-right: 4px; }
-.picker-row .way {
-  position: relative; font: inherit; font-size: 9.5px; letter-spacing: 0.06em;
-  padding: 5px 11px; margin-top: 5px; cursor: pointer;
-  background: transparent; color: var(--muted); border: 1px solid var(--dash);
-}
-.picker-row .way:hover { border-color: var(--green); color: var(--ink); }
-.picker-row .way.last {
-  background: var(--green); border-color: var(--green-dark);
-  color: var(--paper); font-weight: 700;
-}
-.picker-row .way.last:hover { background: var(--green-dark); color: var(--paper); }
-.picker-row .way--cards { font-weight: 700; }
-
 /* ---- the agent picker's sections and rows -------------------------------- */
 /* Calvin's four headers in ownership order. The row itself is the launch —
    no button; the resolved tool sits as a quiet label before the ›. */
@@ -1326,486 +1253,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .tool-row.dead:hover { background: none; }
 .tool-row.picked .tl-name { color: var(--green); }
 .tool-foot { padding: 8px 12px 2px 0; font-size: 10.5px; color: var(--muted-3); line-height: 1.5; }
-/* In Cards the mic lives in the composer; the head keeps everything else —
-   − ＋ size the card text exactly as they size terminal cells. */
-.tile.cards-on .t-mic { display: none; }
-
-.tile-cards { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.cd-list {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
-  font-size: calc(12.5px * var(--cdz, 1)); line-height: 1.6;
-}
-.cd-row { min-width: 0; }
-/* Your turn is a bubble: right-shifted, tinted, accent-edged — the
-   conversation reads as alternation at a glance. */
-.cd-user {
-  display: flex; gap: 8px; align-self: flex-end; max-width: 85%;
-  background: var(--u-bg); border: 1px solid var(--dash);
-  border-right: 3px solid var(--green);
-  padding: 6px 11px;
-}
-.cd-user .m { color: var(--green); font-weight: 700; flex: none; }
-.cd-user .tx { white-space: pre-wrap; word-break: break-word; }
-.cd-cmd .tx { color: var(--green); }
-
-/* A finished turn's work, folded to one line. */
-.cd-fold-h {
-  font: inherit; font-size: calc(11px * var(--cdz, 1)); letter-spacing: 0.04em; color: var(--muted);
-  background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
-}
-.cd-fold-h:hover { color: var(--ink); }
-.cd-fold-h .arr { font-size: calc(9px * var(--cdz, 1)); }
-.cd-fold-b { margin-top: 6px; display: flex; flex-direction: column; gap: 2px;
-  border-left: 2px solid var(--dash); margin-left: 5px; padding-left: 12px; }
-.cd-fold-b[hidden] { display: none; }  /* display:flex beat the hidden attr — folds could never close */
-/* inside a fold, rows go quiet: no box, tighter, plain weight */
-.cd-fold-b .cd-tool .cd-line { border: none; background: none; padding: 2px 0; }
-.cd-fold-b .cd-line .cd-lb { font-weight: 400; }
-.cd-fold-b .cd-row[data-kd="execute"] .cd-lb { font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--muted); font-size: calc(11.5px * var(--cdz, 1)); }
-.cd-body-more { display: block; background: none; border: none; color: var(--muted); cursor: pointer;
-  font: inherit; padding: 2px 0; text-decoration: underline; text-underline-offset: 2px; }
-.cd-body-more:hover { color: var(--ink); }
-
-/* Edited N files — name left, counts right, diff behind the row. */
-.cd-edits { border: 1px solid var(--dash); background: var(--paper-2); }
-.cd-edits-h {
-  padding: 6px 10px; font-size: calc(11px * var(--cdz, 1)); font-weight: 700;
-  border-bottom: 1px solid var(--dash);
-}
-.cd-edits-f {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  width: 100%; font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; cursor: pointer;
-  background: transparent; color: var(--ink); border: 0; padding: 5px 10px;
-}
-.cd-edits-f:hover { background: var(--hover); }
-.cd-edits-f + .cd-edits-f { border-top: 1px dashed var(--dash); }
-.cd-edits-f .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-edits-f .c { flex: none; }
-.cd-edits .plus { color: var(--diff-add-ink); font-weight: 700; }
-.cd-edits .minus { color: var(--diff-del-ink); font-weight: 700; }
-.cd-edits .cd-diff-body { border-top: 1px solid var(--dash); }
-
-/* Prose rendered as markdown: never poorer than the terminal it filters. */
-.cd-assistant { word-break: break-word; }
-.cd-md > *:first-child { margin-top: 0; }
-.cd-md > *:last-child { margin-bottom: 0; }
-.cd-md p, .cd-md ul, .cd-md ol { margin: 0 0 0.55em; }
-.cd-md h1, .cd-md h2, .cd-md h3, .cd-md h4, .cd-md h5, .cd-md h6 { margin: 0.7em 0 0.35em; font-weight: 700; }
-.cd-md h1 { font-size: 1.55em; border-bottom: 1px dashed var(--dash); padding-bottom: 0.15em; }
-.cd-md h2 { font-size: 1.35em; }
-.cd-md h3 { font-size: 1.18em; }
-.cd-md h4, .cd-md h5, .cd-md h6 { font-size: 1.05em; }
-.cd-md blockquote {
-  margin: 0 0 0.55em; padding: 2px 0 2px 12px;
-  border-left: 3px solid var(--dash-dark); color: var(--muted);
-}
-.cd-md blockquote > :last-child { margin-bottom: 0; }
-/* streaming prose wraps each block in .md-b; margins collapse through the
-   wrapper, but the first/last trims must reach inside it */
-.cd-md > .md-b:first-child > :first-child { margin-top: 0; }
-.cd-md > .md-b:last-child > :last-child { margin-bottom: 0; }
-/* The desk is drag-surface (user-select: none on body), but a card's
-   conversation is reading material — text must highlight and copy.
-   .cd-list is the conversation; .cd-body is a tool-result snippet. */
-.cd-list, .cd-body { user-select: text; }
-.cd-md ul, .cd-md ol { padding-left: 1.4em; }
-.cd-md code {
-  background: var(--paper-3); border: 1px solid var(--dash);
-  padding: 0 4px; font-size: 0.92em;
-}
-.cd-md pre {
-  background: var(--paper-3); border: 1px solid var(--dash);
-  padding: 8px 10px; margin: 0.35em 0 0.55em;
-  overflow-x: auto; font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5;
-}
-.cd-md pre code { background: transparent; border: 0; padding: 0; }
-.cd-md a { color: var(--green); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.cd-path { color: var(--green); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-
-/* Thought is context, not content: one quiet line until asked. */
-.cd-th-head {
-  font: inherit; font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted); font-style: italic;
-  background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
-}
-.cd-th-head:hover { color: var(--ink); }
-.cd-th-arr { font-style: normal; font-size: calc(9px * var(--cdz, 1)); }
-.cd-th-body {
-  margin-top: 4px; color: var(--muted); font-style: italic;
-  border-left: 2px dashed var(--dash); padding-left: 9px;
-}
-
-/* A finished turn is marked by air, not a line: the composer's dashed top
-   edge is the one dashed bar at the bottom of a card — a second one 30px
-   above it read as a duplicate input field. The meter row alone is the
-   boundary, with breathing room so it never crowds the composer. */
-.cd-turn_end {
-  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  font-size: calc(10.5px * var(--cdz, 1)); letter-spacing: 0.06em; color: var(--faint);
-  margin: 2px 0 8px; padding-top: 2px;
-}
-.cd-meter { flex: none; }
-.cd-chip {
-  flex: none; font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0; padding: 1px 7px;
-  border: 1px solid var(--dash); background: var(--paper-2); color: var(--muted);
-  cursor: pointer; text-decoration: none;
-}
-.cd-chip:hover { color: var(--green); border-color: var(--green); }
-/* the channel badge moved to the tile head (.t-channel) — it is session
-   state, not turn state, so it says itself once instead of on every turn */
-.cd-note { text-align: left; font-size: calc(11px * var(--cdz, 1)); color: var(--muted); font-style: italic; }
-.cd-row.cd-note { border-left: 2px solid var(--dash); padding-left: 9px; }
-.cd-error {
-  display: flex; gap: 8px; border: 1px solid var(--red-line); background: var(--red-bg);
-  color: var(--red-ink); padding: 7px 10px; font-size: calc(12px * var(--cdz, 1));
-}
-.cd-note-act {
-  display: block; margin-top: 6px; font: inherit; font-size: calc(11px * var(--cdz, 1));
-  padding: 4px 10px; cursor: pointer; font-style: normal;
-  background: var(--amber-btn); color: var(--paper); border: 1px solid var(--amber-btn-line);
-}
-.cd-note-act:hover { filter: brightness(1.08); }
-.cd-error .m { font-weight: 700; flex: none; }
-.cd-error .tx { white-space: pre-wrap; word-break: break-word; }
-
-/* A tool is one row: its kind's glyph, what it did, and — for anything that
-   returned output — the whole of what came back, behind a click. */
-.cd-tool .cd-line {
-  display: flex; align-items: baseline; gap: 8px;
-  border: 1px solid var(--dash); background: var(--paper-2);
-  padding: 6px 9px; font-size: calc(12px * var(--cdz, 1));
-}
-.cd-row[data-body="1"] .cd-line { cursor: pointer; }
-.cd-row[data-body="1"] .cd-line:hover { background: var(--hover); }
-.cd-line .cd-kd { flex: none; color: var(--muted); width: 12px; text-align: center; }
-/* the glyph wears its kind's colour — what a row DID reads before its words */
-.cd-row[data-kd="execute"] .cd-kd { color: var(--amber-btn); }
-.cd-row[data-kd="edit"] .cd-kd { color: var(--green); }
-.cd-row[data-kd="read"] .cd-kd { color: var(--green-ok); }
-.cd-row[data-kd="checkpoint"] .cd-kd { color: var(--faint); }
-.cd-line .cd-ic { flex: none; color: var(--green-ok); font-weight: 700; width: 10px; }
-/* The label may shrink but never disappear; the detail gives way first. */
-.cd-line .cd-lb { flex: 1 1 auto; font-weight: 700; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-line .cd-dt {
-  flex: 0 1 auto; min-width: 0; max-width: 45%; text-align: right;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted); font-size: calc(11px * var(--cdz, 1));
-}
-.cd-row.pending .cd-ic { color: var(--amber-btn); animation: cd-pending 1.2s ease-in-out infinite; }
-@keyframes cd-pending { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-@media (prefers-reduced-motion: reduce) {
-  .cd-row.pending .cd-ic { animation: none; }
-}
-.cd-row.err .cd-line { border-color: var(--red-line); }
-.cd-row.err .cd-ic { color: var(--red-ink); }
-.cd-open { border: 1px solid var(--dash); border-top: 0; background: var(--paper-3); }
-.cd-body {
-  margin: 0; padding: 8px 10px; max-height: 260px; overflow: auto;
-  font-family: inherit; font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5;
-  white-space: pre-wrap; word-break: break-word; color: var(--muted);
-  background: transparent; border: 0;
-}
-
-/* Diffs: what left, what landed — the call's own strings, tinted by tokens. */
-.cd-diff { font-size: calc(11.5px * var(--cdz, 1)); line-height: 1.5; }
-.cd-diff-sum {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  width: 100%; font: inherit; font-size: calc(11.5px * var(--cdz, 1)); text-align: left; cursor: pointer;
-  background: var(--paper-2); color: var(--ink); border: 1px solid var(--dash);
-  padding: 5px 10px;
-}
-.cd-diff-sum:hover { background: var(--hover); }
-.cd-diff-sum .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-diff-sum .c { flex: none; color: var(--muted); }
-.cd-diff .plus { color: var(--diff-add-ink); font-weight: 700; }
-.cd-diff .minus { color: var(--diff-del-ink); font-weight: 700; }
-.cd-diff-body { max-height: 260px; overflow: auto; }
-.cd-diff-path { padding: 5px 10px 0; font-size: calc(10.5px * var(--cdz, 1)); color: var(--muted); }
-.cd-diff-b { margin: 4px 0 0; padding: 4px 10px; white-space: pre-wrap; word-break: break-word; font-family: inherit; }
-.cd-diff-b span { display: block; }
-.cd-diff-b.del { background: var(--diff-del-bg); color: var(--diff-del-ink); }
-.cd-diff-b.add { background: var(--diff-add-bg); color: var(--diff-add-ink); }
-.cd-diff-more { padding: 3px 10px; font-size: calc(10.5px * var(--cdz, 1)); color: var(--faint); }
-
-/* A sub-agent folds under the Task that spawned it. */
-.cd-sub { padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 7px; }
-.cd-sub-t { font-size: calc(10.5px * var(--cdz, 1)); letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
-
-/* The agent's plan, as it keeps it. */
-.cd-plan { border: 1px dashed var(--dash); background: var(--paper-2); padding: 7px 10px; font-size: calc(12px * var(--cdz, 1)); }
-.cd-plan-t { font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
-.cd-plan-i { display: flex; gap: 7px; }
-.cd-plan-i .mk { flex: none; color: var(--muted); }
-.cd-plan-i.completed { color: var(--muted); }
-.cd-plan-i.completed .mk { color: var(--green-ok); }
-.cd-plan-i.in_progress .mk { color: var(--amber-btn); }
-
-/* The approval card renders what the agent sent, and asks in amber. */
-.cd-perm-open {
-  border: 1px solid var(--amber-line); background: var(--amber-bg);
-  padding: 9px 11px; display: flex; flex-direction: column; gap: 7px;
-}
-.cd-perm-t { display: flex; gap: 8px; align-items: baseline; }
-.cd-perm-mk { flex: none; font-weight: 700; color: var(--amber-btn); }
-.cd-perm-name { font-weight: 700; color: var(--amber-ink); }
-.cd-perm-d { color: var(--amber-body); font-size: calc(12px * var(--cdz, 1)); word-break: break-word; }
-.cd-perm-cmd { max-height: 200px; border: 1px solid var(--amber-line); background: var(--paper-3); cursor: pointer; }
-.cd-perm-cmd.clamp { max-height: 56px; overflow: hidden; position: relative; }
-.cd-perm-diff:empty { display: none; }
-.cd-perm-diff { border: 1px solid var(--dash); background: var(--paper-3); }
-.cd-perm-b { display: flex; gap: 7px; flex-wrap: wrap; }
-/* Secondary buttons draw with the card's own ink, so they hold on every
-   theme's amber ground — paper-grey on graphite's dark red was invisible. */
-.cd-perm-btn {
-  font: inherit; font-size: calc(11px * var(--cdz, 1)); padding: 5px 11px; cursor: pointer;
-  background: transparent; color: var(--amber-ink); border: 1px solid var(--amber-ink);
-}
-.cd-perm-btn:hover { background: var(--hover); }
-.cd-perm-btn.allow { background: var(--amber-btn); border-color: var(--amber-btn-line); color: var(--paper); font-weight: 700; }
-.cd-perm-btn.allow:hover { filter: brightness(1.08); }
-.cd-perm-done { font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted); display: flex; gap: 8px; }
-.cd-perm-done .cd-kd { flex: none; }
-
-/* The card's own status line, above the list. */
-.tile-cards > .cd-note {
-  flex: none; padding: 8px 14px; font-size: calc(11.5px * var(--cdz, 1)); color: var(--muted);
-  border-bottom: 1px dashed var(--dash); font-style: normal; border-left: 0;
-}
-.tile-cards > .cd-note.urgent { background: var(--amber-bg); color: var(--amber-ink); border-bottom-color: var(--amber-line); }
-.cd-note-btn {
-  margin-left: 10px; font: inherit; font-size: calc(10px * var(--cdz, 1)); letter-spacing: 0.06em;
-  text-transform: uppercase; padding: 2px 9px; cursor: pointer;
-  background: transparent; color: var(--green); border: 1px solid var(--green);
-}
-.cd-note-btn:hover { background: var(--green); color: var(--paper); }
-
-/* The composer: prompt, textarea, mic beside the send arrow. Filled means
-   armed. The draft grows the strip downward (grow() caps it near six lines,
-   then it scrolls): ❯ holds the first line like the TUI, the buttons ride
-   the last. */
-.cd-ask {
-  /* one line at rest: everything centres against the round buttons — the old
-     resting state pinned ❯ to the top and the text to the bottom, ~10px
-     apart. The TUI layout (❯ on the first line, buttons riding the last)
-     only applies once the draft actually has more than one line: grow()
-     stamps .multi. */
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border-top: 1px dashed var(--dash);
-}
-.cd-ask.multi { align-items: flex-end; }
-.cd-ask .m { color: var(--green); font-weight: 700; }
-.cd-ask.multi .m { align-self: flex-start; }
-.cd-input {
-  flex: 1; min-width: 0; font: inherit; font-size: calc(12.5px * var(--cdz, 1)); color: var(--ink);
-  background: transparent; border: 0; outline: none;
-  resize: none; overflow-y: auto; max-height: 132px;
-  line-height: 1.45; padding: 0; display: block;
-}
-.cd-input::placeholder { color: var(--faint); }
-/* display classes must never beat the hidden attribute */
-.cd-working[hidden], .cd-status[hidden], .cd-menu[hidden], .cd-picker[hidden], .cd-note[hidden] { display: none; }
-
-/* The working line — spinner, elapsed, live tokens, the way out. */
-.cd-working {
-  flex: none; display: flex; align-items: center; gap: 9px;
-  padding: 6px 14px; font-size: calc(11px * var(--cdz, 1)); color: var(--muted);
-  border-top: 1px dashed var(--dash);
-}
-.cd-working .cw-sp {
-  width: 9px; height: 9px; border-radius: 50%; flex: none;
-  border: 2px solid var(--amber-btn); border-top-color: transparent;
-  animation: cd-spin 0.9s linear infinite;
-}
-@keyframes cd-spin { to { transform: rotate(360deg); } }
-.cd-working .cw-ph {
-  background: linear-gradient(90deg, var(--muted) 40%, var(--shimmer-hi) 50%, var(--muted) 60%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: cw-shim 1.8s linear infinite;
-}
-@keyframes cw-shim { from { background-position: 180% 0; } to { background-position: -20% 0; } }
-.cd-working .cw-el[hidden] { display: none; }
-/* a pending tool row breathes: one quiet glare pass, no extra element */
-.cd-row.cd-tool.pending { position: relative; overflow: hidden; }
-.cd-row.cd-tool.pending::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(100deg, transparent 30%, var(--sweep) 50%, transparent 70%);
-  background-size: 300px 100%; background-repeat: no-repeat;
-  animation: cd-sweep 2.6s ease-out infinite;
-}
-@keyframes cd-sweep { from { background-position: -300px 0; } to { background-position: calc(100% + 300px) 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .cd-working .cw-sp { animation: none; }
-  .cd-working .cw-ph { animation: none; background: none; color: var(--muted); }
-  .cd-row.cd-tool.pending::after { animation: none; content: none; }
-}
-.cd-working .cw-esc {
-  margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1));
-  /* a button now, not decoration — same quiet face, but it answers a click */
-  background: none; border: 1px solid transparent; border-radius: 2px;
-  font-family: inherit; padding: 1px 5px; cursor: pointer;
-}
-.cd-working .cw-esc:hover { color: var(--red-line, var(--ink)); border-color: var(--dash); }
-
-/* a sub-agent's live lane, indented under its Task row */
-.cd-lane {
-  border-left: 3px solid var(--line); margin: 6px 0 0 8px; padding-left: 10px;
-  display: flex; flex-direction: column; gap: 8px;
-}
-
-/* The status line — the terminal's own bottom line, kept. Fixed height,
-   single line, never wraps; hints give way first on narrow tiles. */
-.cd-status {
-  flex: none; height: 20px; display: flex; align-items: baseline; gap: 6px;
-  padding: 0 14px 6px; font-size: calc(10px * var(--cdz, 1)); color: var(--muted);
-  white-space: nowrap; overflow: hidden;
-}
-.cd-status .cs-mk { color: var(--amber-btn); font-weight: 700; flex: none; }
-.cd-status .cs-dot { color: var(--faint); flex: none; }
-.cd-status .cs-kb, .cd-status .cs-right { color: var(--faint); flex: none; }
-.cd-status .cs-right { margin-left: auto; }
-.cs-mode {
-  font: inherit; font-size: calc(10px * var(--cdz, 1)); font-weight: 700; color: var(--ink);
-  background: transparent; border: 0; padding: 0; cursor: pointer; flex: none;
-}
-.cs-mode:hover:not(:disabled) { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
-.cs-mode:disabled { cursor: default; }
-.cs-mode.warn { color: var(--amber-btn); }
-/* One stable colour per mode, wherever a mode appears (chip, welcome pick,
-   mode menu): neutral asks, blue plans, green accepts edits, amber bypasses.
-   shift⇥ state reads by hue before the word. */
-.m-plan { color: var(--mode-plan); }
-.m-accept { color: var(--green-ok); }
-.m-bypass { color: var(--amber-btn); }
-.hm-item:disabled { opacity: 0.55; cursor: default; }
-.hm-item:disabled:hover { background: transparent; }
-.hm-item .hm-mark { color: var(--green); }
-.cs-model {
-  font: inherit; font-size: calc(10px * var(--cdz, 1)); font-weight: 700; color: var(--ink);
-  background: transparent; border: 0; padding: 0; cursor: pointer;
-  max-width: 170px; flex: none; appearance: none; -webkit-appearance: none;
-}
-.cs-model:hover:not(:disabled) { color: var(--green); }
-.cs-model:disabled { cursor: default; color: var(--muted); font-weight: 400; }
-/* narrow tiles: the keyboard hints leave, the facts stay */
-.tile:not(.focused) .cd-status .cs-kb, .tile:not(.focused) .cd-status .cs-right { display: none; }
-
-/* The welcome — the session introducing itself, centred like the TUI banner. */
-.cd-intro {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 6px; padding: 22px 12px 14px;
-}
-.cd-intro .cd-wl {
-  width: 52px; height: 52px; border: 1px solid var(--line); background: var(--paper-2);
-  display: flex; align-items: center; justify-content: center;
-}
-.cd-intro .cd-wl svg { width: 26px; height: 26px; }
-.cd-intro .cd-wl-t { font-weight: 700; font-size: calc(18px * var(--cdz, 1)); }
-.cd-intro .cd-wn { font-weight: 700; font-size: calc(14px * var(--cdz, 1)); }
-.cd-intro .cd-wn .v { font-weight: 400; color: var(--muted); font-size: calc(10.5px * var(--cdz, 1)); }
-.cd-intro .cd-wf { color: var(--muted); font-size: calc(10.5px * var(--cdz, 1)); }
-/* the channel's own caveat, said on the welcome — 'headless: approvals run
-   by its own config' beats finding out by surprise */
-.cd-intro .cd-wnote { color: var(--muted); font-size: calc(10px * var(--cdz, 1)); font-style: italic; max-width: 46ch; }
-.cd-intro .cd-wp { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 90%; margin-top: 4px; }
-.cd-wpick {
-  display: flex; align-items: baseline; gap: 8px; font: inherit; font-size: calc(11px * var(--cdz, 1));
-  border: 1px solid var(--dash); background: var(--paper-2); color: var(--ink);
-  padding: 5px 11px; cursor: pointer; text-align: left;
-}
-.cd-wpick:hover { border-color: var(--green); }
-.cd-wpick .lab { color: var(--faint); font-size: calc(8.5px * var(--cdz, 1)); text-transform: uppercase; letter-spacing: 0.08em; width: 46px; flex: none; }
-.cd-wpick .val { flex: 1; font-weight: 700; }
-.cd-wpick .c { color: var(--faint); }
-.cd-intro .cd-wh { color: var(--faint); font-size: calc(10px * var(--cdz, 1)); margin-top: 4px; }
-.cd-mic-btn, .cd-send-btn {
-  flex: none; width: 26px; height: 26px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font: inherit; cursor: pointer; padding: 0;
-}
-.cd-mic-btn {
-  background: transparent; color: var(--muted); border: 1px solid var(--dash-dark);
-}
-.cd-mic-btn:hover { color: var(--ink); border-color: var(--ink); }
-.cd-mic-btn.rec { color: var(--red-btn); border-color: var(--red-btn); }
-.cd-mic-btn .rec-square { width: 8px; height: 8px; background: var(--red-btn); }
-.cd-send-btn {
-  background: var(--green); color: var(--paper); border: 1px solid var(--green-dark);
-}
-.cd-send-btn:hover:not(:disabled) { background: var(--green-dark); }
-.cd-send-btn:disabled {
-  background: transparent; color: var(--faint); border-color: var(--dash); cursor: default;
-}
-.cd-send-btn .pix-glyph, .cd-mic-btn .pix-glyph { width: 11px; height: 11px; }
-
-/* `/` offers the agent's own commands. */
-.cd-menu {
-  position: absolute; left: 10px; right: 10px; bottom: 44px;
-  border: 1px solid var(--dash-dark); background: var(--menu-sheet);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
-  display: flex; flex-direction: column; max-height: 240px; overflow-y: auto;
-  overscroll-behavior: contain; z-index: 5;
-}
-.cd-menu-i {
-  display: flex; align-items: baseline; gap: 10px;
-  font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; padding: 6px 11px;
-  background: transparent; color: var(--ink); border: 0; cursor: pointer;
-}
-.cd-menu-i + .cd-menu-i { border-top: 1px dashed var(--dash); }
-.cd-menu-i:hover, .cd-menu-i.on { background: var(--hover); }
-.cd-menu-i .mi-n { color: var(--green); font-weight: 700; flex: none; }
-.cd-menu-i .mi-d {
-  color: var(--muted); font-size: calc(11px * var(--cdz, 1)); min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cd-menu-i .mi-h { margin-left: auto; color: var(--faint); font-size: calc(10px * var(--cdz, 1)); flex: none; }
-.cd-menu-f {
-  padding: 4px 11px; font-size: calc(9.5px * var(--cdz, 1)); color: var(--faint);
-  border-top: 1px solid var(--dash); background: var(--paper-3);
-  position: sticky; bottom: 0;
-}
-/* The picker — the terminal's numbered selection surface, kept: model, mode
-   and resume all speak it. Same sheet as the menus; header says what is
-   being chosen, footer says the keys, the current choice wears its ✓. */
-.cd-picker {
-  position: absolute; left: 10px; right: 10px; bottom: 44px;
-  border: 1px solid var(--dash-dark); background: var(--menu-sheet);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.14);
-  display: flex; flex-direction: column; max-height: 300px; z-index: 6;
-}
-.cd-pk-h { padding: 8px 12px 2px; }
-.cd-pk-h b { font-size: calc(12px * var(--cdz, 1)); color: var(--green); }
-.cd-pk-h p { margin: 3px 0 4px; color: var(--muted); font-size: calc(11px * var(--cdz, 1)); line-height: 1.5; }
-.cd-pk-list { overflow-y: auto; overscroll-behavior: contain; }
-.cd-pk-i {
-  display: flex; align-items: baseline; gap: 9px; width: 100%;
-  font: inherit; font-size: calc(12px * var(--cdz, 1)); text-align: left; padding: 6px 12px;
-  background: transparent; color: var(--ink); border: 0; cursor: pointer;
-}
-.cd-pk-i + .cd-pk-i { border-top: 1px dashed var(--dash); }
-.cd-pk-i:hover:not(.dis), .cd-pk-i.on { background: var(--hover); }
-.cd-pk-i .pk-n { color: var(--faint); flex: none; width: 18px; }
-.cd-pk-i .pk-l { font-weight: 700; flex: none; }
-.cd-pk-i.on .pk-l { color: var(--green); }
-.cd-pk-i .pk-cur { color: var(--green-ok); font-weight: 400; font-size: calc(10px * var(--cdz, 1)); }
-.cd-pk-i .pk-d {
-  color: var(--muted); font-size: calc(11px * var(--cdz, 1)); min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cd-pk-i.dis { opacity: 0.55; cursor: default; }
-.cd-pk-f {
-  padding: 4px 12px; font-size: calc(9.5px * var(--cdz, 1)); color: var(--muted);
-  border-top: 1px solid var(--dash); background: var(--paper-3);
-  position: sticky; bottom: 0;
-}
-/* keyboard focus on an approval option — arrow first, so Enter alone never approves */
-.cd-perm-btn.kb { outline: 2px solid var(--green); outline-offset: 1px; }
-
-.tile.focused .cd-menu, .tile.focused .cd-picker, .tile.focused .cd-open, .tile.focused .cd-body { max-height: 55vh; }
-.tile.focused .cd-diff-body { max-height: 45vh; }
-
 /* ---- paper editor ----
    Read and Edit are two panes in one column; only one is ever displayed. */
 .editor { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -1960,31 +1407,30 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   font-family: 'Courier Prime', monospace; font-size: 0.923em; line-height: 1.667;   /* 12/13, 20/12 */
 }
 .md-read .md-pre code { background: none; border: none; padding: 0; font-size: inherit; }
-/* ---- the blocks real markdown has (Read tab and cards share them) ----------
+/* ---- the blocks real markdown has ------------------------------------------
    Frontmatter as a quiet meta strip, GFM tables with dashed cell rules, task
    checkboxes, a fence's language label, images. Token-driven throughout so
    every theme follows. */
-.md-read .md-fm, .cd-md .md-fm {
+.md-read .md-fm {
   margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--dash);
   background: var(--paper-3); font-family: 'Courier Prime', monospace;
-  /* em, not px: .md-read's ± dial scales its base and .cd-md already works in
-     em off the cards' own dial — a fixed size here would sit still under both */
+  /* em, not px: .md-read's ± dial scales its base */
   font-size: 0.846em; color: var(--muted); line-height: 1.7;   /* 11/13 */
 }
-.md-read .md-fm b, .cd-md .md-fm b { color: var(--amber-ink); font-weight: 700; }
-.md-read .md-tablewrap, .cd-md .md-tablewrap { overflow-x: auto; margin: 0 0 12px; max-width: 100%; }
-.md-read table, .cd-md table { border-collapse: collapse; font-size: 0.962em; }   /* 12.5/13 */
-.md-read th, .md-read td, .cd-md th, .cd-md td {
+.md-read .md-fm b { color: var(--amber-ink); font-weight: 700; }
+.md-read .md-tablewrap { overflow-x: auto; margin: 0 0 12px; max-width: 100%; }
+.md-read table { border-collapse: collapse; font-size: 0.962em; }   /* 12.5/13 */
+.md-read th, .md-read td {
   border: 1px dashed var(--dash); padding: 4px 10px; text-align: left; vertical-align: top;
 }
-.md-read th, .cd-md th { font-weight: 700; background: var(--paper-2); }
-.md-read li.md-task, .cd-md li.md-task { list-style: none; margin-left: -18px; }
-.md-read li.md-task input, .cd-md li.md-task input {
+.md-read th { font-weight: 700; background: var(--paper-2); }
+.md-read li.md-task { list-style: none; margin-left: -18px; }
+.md-read li.md-task input {
   accent-color: var(--green); margin-right: 6px; vertical-align: -1px; pointer-events: none;
 }
-.md-read li > ul, .md-read li > ol, .cd-md li > ul, .cd-md li > ol { margin: 3px 0 0; }
-.md-read blockquote > :last-child, .cd-md blockquote > :last-child { margin-bottom: 0; }
-.md-read .md-pre, .cd-md .md-pre { position: relative; }
+.md-read li > ul, .md-read li > ol { margin: 3px 0 0; }
+.md-read blockquote > :last-child { margin-bottom: 0; }
+.md-read .md-pre { position: relative; }
 .md-pre .tok-kw { color: var(--tok-kw); }
 .md-pre .tok-str { color: var(--tok-str); }
 .md-pre .tok-num { color: var(--tok-num); }
@@ -1993,11 +1439,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-pre .tok-add { color: var(--tok-add-ink); background: var(--tok-add-bg); display: block; }
 .md-pre .tok-del { color: var(--tok-del-ink); background: var(--tok-del-bg); display: block; }
 .md-pre .tok-hunk { color: var(--muted); display: block; }
-.md-read .md-lang, .cd-md .md-lang {
+.md-read .md-lang {
   position: absolute; top: 4px; right: 8px; font-size: 0.769em; color: var(--muted);   /* 10/13 */
   text-transform: uppercase; letter-spacing: 0.08em; user-select: none;
 }
-.md-read img, .cd-md img { max-width: 100%; border: 1px solid var(--dash); display: block; margin: 0 0 11px; }
+.md-read img { max-width: 100%; border: 1px solid var(--dash); display: block; margin: 0 0 11px; }
 .md-read blockquote {
   margin: 0 0 11px; padding: 2px 0 2px 12px;
   border-left: 3px solid var(--dash-dark); color: var(--muted);
@@ -2005,19 +1451,19 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .md-read hr { border: none; border-top: 1px dashed var(--dash); margin: 20px 0; }
 .md-read a { text-decoration: underline; }
 .md-read strong { font-weight: 700; }
-.md-read mark, .cd-md mark, .ed-rich mark[data-nami-highlight] {
+.md-read mark, .ed-rich mark[data-nami-highlight] {
   padding: 0 2px; background: var(--amber-bg); color: inherit;
   text-decoration: underline; text-decoration-color: var(--amber-line); text-decoration-thickness: 2px;
 }
-.md-read .md-attachment, .cd-md .md-attachment {
+.md-read .md-attachment {
   display: flex; align-items: center; gap: 9px; width: fit-content; max-width: 100%;
   margin: 2px 0 12px; padding: 7px 10px; border: 1px dashed var(--dash-dark);
   background: var(--paper-2); color: var(--ink); text-decoration: none;
 }
-.md-read .md-attachment::before, .cd-md .md-attachment::before { color: var(--green); font-weight: 700; }
-.md-read .md-attachment--video::before, .cd-md .md-attachment--video::before { content: '▶'; }
-.md-read .md-attachment--file::before, .cd-md .md-attachment--file::before { content: '↗'; }
-.md-read .md-attachment:hover, .cd-md .md-attachment:hover { background: var(--hover); text-decoration: underline; }
+.md-read .md-attachment::before { color: var(--green); font-weight: 700; }
+.md-read .md-attachment--video::before { content: '▶'; }
+.md-read .md-attachment--file::before { content: '↗'; }
+.md-read .md-attachment:hover { background: var(--hover); text-decoration: underline; }
 .ed-bar .ed-path { flex: 1; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-bar .ed-browser { font-size: 11px; padding: 6px 10px; white-space: nowrap; }
 .ed-bar .ed-save { font-size: 11px; padding: 6px 12px; }
