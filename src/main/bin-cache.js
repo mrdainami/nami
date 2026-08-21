@@ -104,15 +104,10 @@ function resolveRunCommand(command) {
 // into the tile's own scrollback the way claude does. It is session-scoped,
 // so nothing is written to the user's ~/.grok/config.toml.
 //
-// Why here and not on the panel: two identity checks — agentForCommand
-// (agent-resume.js) and cardAgentFor (app.js) — match a tile's `command`
-// against BARE binary names, and they gate resume, session discovery and the
-// Term/Cards switch. Relaxing them to compare only the first word looks free
-// and is not: moveToSurface already assigns resume lines as commands
-// (`codex resume <id>`, `opencode -s <id>`, `hermes --resume <id>`,
-// `agy --conversation <id>`), so first-word matching would start matching all
-// four where it does not today. Keeping `command` exactly 'grok' and adding
-// the flag here, at the moment of spawn, leaves every one of those untouched.
+// Why here and not on the panel: agentForCommand (agent-resume.js) matches a
+// tile's `command` against BARE binary names to gate resume and session
+// discovery. Keeping `command` exactly 'grok' and adding the flag here, at
+// the moment of spawn, leaves that check untouched.
 //
 // --minimal is marked Experimental in `grok --help` (1.0.5). If a release
 // drops it grok falls back to its full-screen TUI: uglier against the theme,

@@ -2,7 +2,7 @@
   "name": "nami",
   "productName": "Nami",
   "version": "0.3.5",
-  "description": "Nami — AI agent workbench, by Dainami. Open a folder, run Claude Code and terminal sessions as paper session cards.",
+  "description": "Nami — AI agent workbench, by Dainami. Open a folder, run Claude Code and other agents as paper tiles.",
   "main": "src/main/main.js",
   "author": "Calvin Hia",
   "license": "MIT",
