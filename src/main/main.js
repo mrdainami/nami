@@ -1465,5 +1465,14 @@ function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
 }
 
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
-ipcMain.handle('term:resize', (_e, { id, cols, rows }) => { const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p }; });
+let ptyResizeN = 0;
+ipcMain.handle('term:resize', (_e, { id, cols, rows }) => {
+  if (process.env.NAMI_PTY_LOG) {
+    ptyResizeN++;
+    const line = `${ptyResizeN} ${id} ${cols}x${rows}\n`;
+    try { fs.appendFileSync(process.env.NAMI_PTY_LOG, line); } catch (_) {}
+    console.log('[term:resize]', line.trim());
+  }
+  const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p };
+});
 ipcMain.handle('term:kill', (_e, { id }) => { killSession(id); sessionOwners.delete(id); titleWatch.delete(id); return { ok: true }; });
