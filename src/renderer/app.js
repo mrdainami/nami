@@ -11,6 +11,7 @@ import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
+import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf } from './library-groups.mjs';
 import { agentLaunch } from './agent-launch.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
@@ -173,7 +174,7 @@ const S = {
   treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
   // Your project's skills are what you came for; other tools' folders and broken
   // links start folded, or 139 borrowed rows sit between you and everything else.
-  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(['plugins', 'skills-mac', 'skills-broken']) },
+  library: { items: [], edges: [], q: '', loaded: false, loading: false, collapsed: new Set(MAC_GROUP_KEYS) },
   pointer: null, pointerLoading: false,
   services: { catalog: [], connected: [], loading: false },   // connect-a-service state
   railCollapsed: false,
@@ -1391,35 +1392,32 @@ async function refreshServices() {
   if (S.railTab === 'library') refreshRail();
   if (S.overlay && S.overlay.type === 'connect') renderOverlay();
 }
-// The library reads like an inventory: what you have, grouped by what it is —
-// and for skills, by where they live, because that is what you scan for. Whether
-// a session started here can actually run one is a different question, answered
-// per row by the availability tag.
-const LIB_TYPE_GROUPS = [
-  { key: 'agents', label: 'Agents' },
-  { key: 'skills', label: 'Skills · this project' },
-  { key: 'skills-mac', label: 'Skills · elsewhere on your Mac' },
-  { key: 'skills-broken', label: 'Skills · broken links', shy: true },
-  { key: 'commands', label: 'Commands' },
-  { key: 'services', label: 'Services' },
-  { key: 'plugins', label: 'Plugins · read-only' },
-];
 const TYPE_CHIP = { agent: { code: 'AG', kind: 'agent' }, skill: { code: 'SK', kind: 'skill' }, command: { code: 'CM', kind: 'command' } };
-// The three things you can make, sitting under the Library title where they read as buttons.
-// Agent and Skill open the create wizard; MCP opens the service catalog that already exists.
 const LIB_MAKE = [
-  // subs stay one short word — the cards are ~80px wide and anything longer wraps
   { key: 'agent', icon: 'agent', code: 'AG', kind: 'agent', name: 'Agent', sub: 'build', title: 'Create an agent' },
   { key: 'skill', icon: 'skill', code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Create a skill' },
   { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'connect', title: 'Connect a service over MCP' },
 ];
-// A command is not a skill. Filing everything that wasn't an agent under Skills
-// is why that count was never trustworthy — and a pointer status hangs off it now.
-function libGroupOf(i) {
-  if (i.scope === 'plugin') return 'plugins';
-  if (i.type !== 'skill') return i.type + 's';
-  if (i.broken) return 'skills-broken';
-  return i.scope === 'project' ? 'skills' : 'skills-mac';
+function libItemTag(i) {
+  if (i.type === 'skill' && i.scope === 'project') {
+    const a = availabilityTag(i);
+    return `<span class="scope-tag" data-tone="${a.tone}" title="${esc(a.title)}">${esc(a.text)}</span>`;
+  }
+  if (i.platform === 'project') {
+    return `<span class="scope-tag" data-tone="ok" title="${esc(i.filePath)}">project</span>`;
+  }
+  const who = agentNameOf(cliKey(i) || i.platform);
+  return `<span class="scope-tag" title="${esc(i.filePath)}">${esc(who)}</span>`;
+}
+function serviceCovLine(sv) {
+  const cov = S.services.coverage && S.services.coverage[sv.id];
+  const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
+  if (!cov) return `<span class="ok">●</span> ${esc((sv.platforms || []).map(agentNameOf).join(' · ') || 'connected')}`;
+  if (missing.length) {
+    return `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(', '))} can’t see it`;
+  }
+  const have = (cov.have || []).filter((id) => id !== 'hermes');
+  return `<span class="ok">●</span> ${esc(have.map(agentNameOf).join(' · ') || 'connected')}`;
 }
 
 // What a row is allowed to claim. Only two things make a skill runnable from
@@ -1519,11 +1517,52 @@ async function writePointers(btn) {
   await refreshPointer(true);
   loadLibrary(true);
 }
+function toggleLibGroup(key) {
+  if (S.library.collapsed.has(key)) S.library.collapsed.delete(key);
+  else S.library.collapsed.add(key);
+  refreshRail();
+}
+function appendLibItem(sect, i) {
+  const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
+  const row = document.createElement('div'); row.className = 'agent-row';
+  const path = shortHome(i.filePath || i.dirPath || '');
+  row.innerHTML = `${chipHtml({ key: i.type, code: chip.code, kind: chip.kind })}
+    <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(path)}</span></span>
+    ${libItemTag(i)}<span class="chev">›</span>`;
+  row.onclick = () => openCard(i);
+  sect.appendChild(row);
+}
+function appendServiceRow(sect, sv) {
+  const cat = S.services.catalog.find((s) => s.id === sv.id);
+  const cov = S.services.coverage && S.services.coverage[sv.id];
+  const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
+  const row = document.createElement('div'); row.className = 'agent-row';
+  row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
+    <span class="col"><span class="name">${esc(sv.name)}</span>
+    <span class="tools">${serviceCovLine(sv)}</span></span>
+    ${missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${sv.scopes && sv.scopes.includes('project') ? 'project' : 'this Mac'}</span>`}`;
+  row.onclick = () => openServiceDetails(sv);
+  const tell = row.querySelector('.sv-tell');
+  if (tell) tell.onclick = async (e) => {
+    e.stopPropagation();
+    tell.disabled = true; tell.textContent = 'telling…';
+    await api.deliverServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
+    refreshServices();
+  };
+  sect.appendChild(row);
+}
 function refreshLibraryRail(c) {
   if (!S.library.loaded) loadLibrary();
   const head = document.createElement('div'); head.className = 'rail-head';
-  head.innerHTML = `<span class="title">Library</span>`;
+  head.innerHTML = `<span class="title">Library</span>
+    <span class="racts"><button type="button" class="lib-exp">expand all</button>
+    <button type="button" class="lib-col">close all</button></span>`;
   c.appendChild(head);
+  q('.lib-exp', head).onclick = () => { S.library.collapsed.clear(); refreshRail(); };
+  q('.lib-col', head).onclick = () => {
+    for (const g of SHELF_GROUPS) S.library.collapsed.add(g.key);
+    refreshRail();
+  };
   const make = document.createElement('div'); make.className = 'lib-new-grid';
   make.innerHTML = LIB_MAKE.map((m) => `<div class="add-card lib-new" data-make="${esc(m.key)}" tabindex="0" role="button" title="${esc(m.title)}">
       ${chipHtml({ key: m.icon, code: m.code, kind: m.kind })}
@@ -1542,81 +1581,53 @@ function refreshLibraryRail(c) {
   const list = document.createElement('div'); list.className = 'lib-list'; c.appendChild(list);
   if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; list.appendChild(e); return; }
   const ql = S.library.q.trim().toLowerCase();
-  const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug).toLowerCase().includes(ql);
+  const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug + ' ' + (i.filePath || '')).toLowerCase().includes(ql);
   let shown = 0;
-  for (const g of LIB_TYPE_GROUPS) {
-    const isSvc = g.key === 'services';
+  for (const g of SHELF_GROUPS) {
+    const isSvc = g.key === 'services' || g.key === 'mac-services';
     const items = isSvc
-      ? S.services.connected.filter((sv) => !ql || (sv.id + ' ' + sv.name).toLowerCase().includes(ql))
-      : S.library.items.filter((i) => libGroupOf(i) === g.key && match(i));
-    if (!items.length && !(isSvc && !ql)) continue; // the services group always offers connect when not filtering
-    shown += items.length + (isSvc ? 1 : 0);
-    const open = ql ? true : !S.library.collapsed.has(g.key); // filtering always reveals matches
-    // Each group owns a section so its sticky header can only travel inside its
-    // own rows — siblings sharing one scroller all pin at top:0 and pile up.
+      ? S.services.connected.filter((sv) => serviceShelf(sv) === g.key && (!ql || (sv.id + ' ' + sv.name).toLowerCase().includes(ql)))
+      : S.library.items.filter((i) => shelfOf(i) === g.key && match(i));
+    if (!items.length && !(g.key === 'services' && !ql)) continue;
+    shown += items.length + (g.key === 'services' ? 1 : 0);
+    const open = ql ? true : !S.library.collapsed.has(g.key);
     const sect = document.createElement('div'); sect.className = 'lib-sect'; list.appendChild(sect);
     const lab = document.createElement('div'); lab.className = 'lib-group';
     lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${items.length}</span>`;
-    lab.onclick = () => {
-      if (S.library.collapsed.has(g.key)) S.library.collapsed.delete(g.key); else S.library.collapsed.add(g.key);
-      refreshRail();
-    };
+    lab.onclick = () => toggleLibGroup(g.key);
     sect.appendChild(lab);
     if (!open) continue;
     if (isSvc) {
-      for (const sv of items) {
-        const cat = S.services.catalog.find((s) => s.id === sv.id);
-        const row = document.createElement('div'); row.className = 'agent-row';
-        // Coverage answers the only question that matters: who can use this?
-        // Healthy says "everywhere" and shuts up; drift names who is missing.
-        const cov = S.services.coverage && S.services.coverage[sv.id];
-        // Hermes is excluded from the amber: Nami can't deliver to it (its
-        // config is hand-owned), so a button promising to fix it would lie.
-        const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
-        const covLine = !cov
-          ? `<span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))}`
-          : missing.length
-            ? `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(', '))} can’t see it`
-            : '<span class="ok">●</span> connected · everywhere';
-        row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
-          <span class="col"><span class="name">${esc(sv.name)}</span>
-          <span class="tools">${covLine}</span></span>
-          ${cov && missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${scopeTagText(sv.scopes.includes('project') ? 'project' : 'user')}</span>`}`;
-        row.onclick = () => openServiceDetails(sv);
-        const tell = row.querySelector('.sv-tell');
-        if (tell) tell.onclick = async (e) => {
-          e.stopPropagation();
-          tell.disabled = true; tell.textContent = 'telling…';
-          await api.deliverServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
-          refreshServices();
-        };
-        sect.appendChild(row);
+      for (const sv of items) appendServiceRow(sect, sv);
+      if (g.key === 'services') {
+        const add = document.createElement('div'); add.className = 'agent-row';
+        add.innerHTML = `<span class="code" data-kind="service">⚡</span>
+          <span class="col"><span class="name">connect a service</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
+        add.onclick = () => openConnect();
+        sect.appendChild(add);
       }
-      const add = document.createElement('div'); add.className = 'agent-row';
-      add.innerHTML = `<span class="code" data-kind="service">⚡</span>
-        <span class="col"><span class="name">connect a service</span><span class="tools">Notion, Slack, a folder…</span></span><span class="chev">›</span>`;
-      add.onclick = () => openConnect();
-      sect.appendChild(add);
       continue;
     }
-    for (const i of items) {
-      const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
-      const row = document.createElement('div'); row.className = 'agent-row';
-      // One vocabulary: skills say what they can do, masters say "everywhere",
-      // and a hand-made platform agent says honestly whose it is.
-      const tag = i.type === 'skill' && i.scope !== 'plugin'
-        ? (() => { const a = availabilityTag(i); return `<span class="scope-tag" data-tone="${a.tone}" title="${esc(a.title)}">${esc(a.text)}</span>`; })()
-        : i.type === 'agent' && i.platform === 'project'
-          ? '<span class="scope-tag" data-tone="ok" title="The master in agents/ — Nami keeps a copy fresh for every installed tool.">everywhere</span>'
-        : i.type === 'agent' && i.scope !== 'plugin' && ['claude', 'opencode', 'gemini', 'kimi'].includes(i.platform)
-          ? `<span class="scope-tag" title="Lives in this tool's own folder — open the card to make it everyone's.">only ${esc(agentNameOf(i.platform))}</span>`
-        : (i.scope === 'plugin' ? '' : `<span class="scope-tag">${scopeTagText(i.scope)}</span>`);
-      row.innerHTML = `${chipHtml({ key: i.type, code: chip.code, kind: chip.kind })}
-        <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(i.description || i.meta.tools || i.filePath)}</span></span>
-        ${tag}<span class="chev">›</span>`;
-      row.onclick = () => openCard(i);
-      sect.appendChild(row);
+    if (g.mac) {
+      const buckets = new Map();
+      for (const i of items) {
+        const k = cliKey(i) || 'other';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(i);
+      }
+      const keys = CLI_ORDER.filter((k) => buckets.has(k)).concat([...buckets.keys()].filter((k) => !CLI_ORDER.includes(k)));
+      for (const k of keys) {
+        const subKey = g.key + ':' + k;
+        const subOpen = ql ? true : !S.library.collapsed.has(subKey);
+        const sub = document.createElement('div'); sub.className = 'lib-group sub';
+        sub.innerHTML = `<span class="lg-caret">${subOpen ? '▾' : '▸'}</span><span>${esc(agentNameOf(k))}</span><span class="lg-count">${buckets.get(k).length}</span>`;
+        sub.onclick = () => toggleLibGroup(subKey);
+        sect.appendChild(sub);
+        if (subOpen) for (const i of buckets.get(k)) appendLibItem(sect, i);
+      }
+      continue;
     }
+    for (const i of items) appendLibItem(sect, i);
     if (g.key === 'skills') appendPointerBar(sect);
   }
   if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }

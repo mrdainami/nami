@@ -351,6 +351,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .rail-head .title { font-family: 'Caveat', cursive; font-size: 22px; font-weight: 700; }
 .rail-head .action { font-size: 11px; color: var(--muted-2); cursor: pointer; text-decoration: underline; }
 .rail-head .action:hover { color: var(--ink); }
+.rail-head .racts { display: flex; gap: 10px; }
+.rail-head .racts button {
+  font-family: inherit; font-size: 11px; color: var(--muted-2); background: none; border: 0;
+  padding: 0; cursor: pointer; text-decoration: underline;
+}
+.rail-head .racts button:hover { color: var(--ink); }
 
 .rail-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 8px; }
 .nav-card {
@@ -1518,6 +1524,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
   padding: 8px 0 6px; margin-top: 10px; border-top: 1px dashed var(--dash);
 }
 .lib-sect:first-child .lib-group { margin-top: 0; border-top: none; }
+.lib-group.sub {
+  padding-left: 10px; margin-top: 4px; font-size: 10px; letter-spacing: 0.08em;
+  border-top: none; background: var(--rail);
+}
 .lib-group:hover { color: var(--ink); }
 .lib-group .lg-caret { width: 10px; font-size: 10px; color: var(--muted-3); }
 .lib-group .lg-count { margin-left: auto; font-weight: 700; color: var(--muted-3); letter-spacing: 0; }
