@@ -2851,7 +2851,9 @@ function cardAgentFor(p) {
   }
   return null;
 }
-function canShowCards(p) { return !!cardAgentFor(p); }
+// Cards is retired (2026-08-21). Callers still exist; they all no-op through
+// this until the drive channel is deleted. The launcher no longer offers it.
+function canShowCards() { return false; }
 
 const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity', grok: 'Grok' };
 
@@ -4251,7 +4253,7 @@ function panelSnapshot() {
     if (p.oneShot && (p.commandDone || p.exited)) {
       return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
     }
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, view: p.view, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, oneShot: p.oneShot, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
   });
 }
 function savePanels() {
@@ -4315,6 +4317,9 @@ function startPanel(opts) {
     title: opts.title || 'Session', cwd, status: 'live',
     attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed, cont: opts.cont,
   }, opts);
+  // Cards is retired. A desk saved with view:'cards' (or any leftover caller)
+  // must open as a terminal, not a missing surface.
+  if (p.view === 'cards') p.view = 'term';
   // A session born with a generic name ("Claude session") takes its name from
   // the first real prompt the user submits, then from claude itself. Only a
   // flow says 'flow' outright (agentSession) — everything else lands on the
@@ -4507,11 +4512,6 @@ function renderLauncher() {
     const row = document.createElement('div'); row.className = 'picker-row';
     const st = statusLineFor(a);
     const manageable = !!a.lifecycle;
-    // Which agents can be born as cards: claude plus every bin the adapter
-    // table drives. The surface is chosen here, at birth; the row remembers
-    // each agent's last pick.
-    const cardable = a.kind === 'claude' || CARD_AGENT_BINS.includes(a.bin);
-    const lastPick = (() => { try { return localStorage.getItem('nami.surface.' + a.id) || 'term'; } catch (_) { return 'term'; } })();
     // The one just installed says so, and says it here — this list is where the
     // install sends you back to, and an agent that arrived thirty seconds ago
     // looks exactly like one that has been there for months without it.
@@ -4521,24 +4521,17 @@ function renderLauncher() {
       <span class="col"><span class="name">${esc(a.name)}</span>
       <span class="desc"><span class="ok${st.dot === 'warn' ? ' ok--warn' : ''}">●</span> ready · ${esc(st.text)}</span></span>
       ${fresh ? '<span class="row-new">just added</span>' : ''}
-      ${cardable ? `<span class="ways">
-        <button class="way way--cards${lastPick === 'cards' ? ' last' : ''}" data-w="cards">Cards</button>
-        <button class="way${lastPick === 'term' ? ' last' : ''}" data-w="term">Terminal</button>
-      </span>` : ''}
       ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;
-    const launch = (surface) => {
+    const launch = () => {
       closeOverlay();
       withFolder(() => {
-        try { localStorage.setItem('nami.surface.' + a.id, surface); } catch (_) {}
-        if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', view: surface });
-        startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin, view: cardable ? surface : undefined });
+        if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC' });
+        startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin });
       }, a.name);
     };
     row.onclick = async (e) => {
       if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
-      const way = e.target.closest('.way');
-      if (way) { launch(way.dataset.w); return; }
-      launch(cardable ? lastPick : 'term');
+      launch();
     };
     list.appendChild(row);
   }
