@@ -4,10 +4,10 @@
 export const SHELF_GROUPS = [
   { key: 'agents', label: 'Agents' },
   { key: 'skills', label: 'Skills' },
-  { key: 'services', label: 'Services' },
+  { key: 'services', label: 'MCP' },
   { key: 'mac-agents', label: 'Agents on this Mac', mac: true },
   { key: 'mac-skills', label: 'Skills on this Mac', mac: true },
-  { key: 'mac-services', label: 'Services on this Mac', mac: true },
+  { key: 'mac-services', label: 'MCP on this Mac', mac: true },
   { key: 'mac-commands', label: 'Commands on this Mac', mac: true },
 ];
 
@@ -44,3 +44,8 @@ export function serviceShelf(sv) {
 }
 
 export const MAC_GROUP_KEYS = SHELF_GROUPS.filter((g) => g.mac).map((g) => g.key);
+
+// ⌘K launches what this folder owns: masters and hand-made in-project files.
+export function isPickerAgent(item) {
+  return !!item && item.type === 'agent' && item.scope === 'project' && !item.shadows;
+}
