@@ -1,6 +1,7 @@
 // Agents that speak the Agent Client Protocol — JSON-RPC over stdio. One
-// client, two verified agents: `opencode acp` and `hermes acp`. Grown from
-// _local/acp-probe.mjs, which is where every frame shape here was learned.
+// client, three verified agents: `opencode acp`, `hermes acp` and `grok agent
+// stdio`. Grown from _local/acp-probe.mjs, which is where every frame shape
+// here was learned.
 //
 // ACP types its tool calls (read/edit/execute/…), streams prose as chunks, and
 // asks permission with its own option list and its own diff — so this adapter
@@ -20,9 +21,45 @@ const { capability, toolKindFor, clip, safeEvent, classifyFailure } = require('.
 const ACP_AGENTS = {
   opencode: { program: 'opencode', args: ['acp'], label: 'OpenCode' },
   hermes: { program: 'hermes', args: ['acp'], label: 'Hermes' },
+  // grok speaks ACP natively — `grok agent stdio` answered this adapter's exact
+  // handshake unchanged (probed 2026-08-21, grok 1.0.5): loadSession, typed
+  // tool calls, chunked prose and thoughts, permission requests, and
+  // fs/read_text_file back at us. Only the two readers below needed anything.
+  grok: { program: 'grok', args: ['agent', 'stdio'], label: 'Grok' },
 };
 
 const STDERR_CAP = 16 * 1024; // debug ring; stderr is not content
+
+// Modes for an agent that drives them but never lists them.
+//
+// grok returns no `modes` field and no configOptions entry, yet
+// session/set_mode works: from a clean baseline, plan / auto / bypassPermissions
+// / default each came back as a current_mode_update (probed 2026-08-21). The
+// catch that makes this a PINNED list rather than a guessed one — set_mode does
+// not validate. Sent `totally-bogus-mode` it answered {} and echoed the bogus
+// id straight back, so a wrong entry here would put a mode on the chip that
+// grok is not in. These four are grok's own, from its embedded reference.
+//
+// acceptEdits and dontAsk are deliberately absent: grok's docs call them
+// claude-compatibility aliases with "no grok equivalent (grok's auto is the
+// nearest)". Re-probe this list when the CLI is bumped — same standing
+// contract as the codex preset list.
+//
+// KNOWN GAP: grok announces no starting mode. session/new carries no `modes`
+// and no permission mode in _meta (its x.ai/sessionConfig "mode" category is
+// reasoning effort, not permissions), and no current_mode_update arrives until
+// something changes it. So the first value on the chip is this list's first
+// entry — an assumption, not a report — and a user whose ~/.grok/config.toml
+// sets permission_mode will see it until they switch. Everything after the
+// first switch is the agent's own word.
+const PINNED_MODES = {
+  grok: [
+    { id: 'default', name: 'ask first', desc: 'Read-only tools and safe shell commands run without asking' },
+    { id: 'plan', name: 'plan', desc: 'Think it through first; no edits' },
+    { id: 'auto', name: 'auto', desc: 'Whatever the safety check allows' },
+    { id: 'bypassPermissions', name: 'bypass', desc: 'Never asks. Everything runs' },
+  ],
+};
 
 // The connect calls get deadlines because an ACP rpc only fails when the
 // process EXITS — an agent that stays alive but never answers left the card
@@ -184,6 +221,21 @@ class AcpAdapter {
   }
 
   readModels(sess) {
+    // Two shapes in the wild. grok answers with the ACP spec's own
+    // { currentModelId, availableModels } (and re-pushes it as an
+    // _x.ai/models/update notification, which we ignore — session/new already
+    // carried it). opencode instead files models as a configOptions entry,
+    // the same envelope its modes arrive in. Read the spec shape first.
+    const spec = sess && sess.models && Array.isArray(sess.models.availableModels)
+      && sess.models.availableModels.length ? sess.models : null;
+    if (spec) {
+      this.models = {
+        current: spec.currentModelId || spec.availableModels[0].modelId || null,
+        options: spec.availableModels.slice(0, 400)
+          .map((m) => ({ value: m.modelId, name: m.name || m.modelId })),
+      };
+      return;
+    }
     const opt = sess && Array.isArray(sess.configOptions)
       && sess.configOptions.find((o) => o && o.id === 'model' && Array.isArray(o.options));
     if (opt) {
@@ -216,6 +268,14 @@ class AcpAdapter {
         current: opt.currentValue || opt.options[0].value,
         options: opt.options.map((o) => ({ id: String(o.value), name: o.name || String(o.value), desc: String(o.description || '') })),
       };
+      return;
+    }
+    // Said nothing either way. For most agents that correctly means no chip —
+    // but grok drives session/set_mode perfectly while advertising no list at
+    // all, so its four come from PINNED_MODES below.
+    const pinned = PINNED_MODES[this.agent];
+    if (pinned) {
+      this.modes = { current: pinned[0].id, options: pinned.map((m) => ({ ...m })) };
     }
   }
 
@@ -389,8 +449,15 @@ class AcpAdapter {
 
       case 'current_mode_update': {
         // The agent changed its own mode (or confirmed ours): the chip follows.
+        // An id we never listed is still the truth — the agent is the source,
+        // and PINNED_MODES is only Nami's best guess for agents that advertise
+        // nothing. Dropping an unlisted id would leave the chip claiming a mode
+        // the agent has already left, which is the one thing it must never do.
         const id = update.currentModeId || update.current_mode_id;
-        if (id && this.modes && this.modes.options.some((m) => m.id === id)) {
+        if (id && this.modes) {
+          if (!this.modes.options.some((m) => m.id === id)) {
+            this.modes.options.push({ id: String(id), name: String(id), desc: '' });
+          }
           this.modes.current = String(id);
           this.emitInit();
         }

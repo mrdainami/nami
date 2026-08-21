@@ -2836,7 +2836,7 @@ function cardAgentFor(p) {
   if (p.kind === 'claude') return p.sid ? 'claude' : null;
   if (p.kind === 'run') {
     const c = String(p.command || '').trim();
-    if (['opencode', 'hermes', 'codex', 'kimi', 'agy'].includes(c)) return c;
+    if (['opencode', 'hermes', 'codex', 'kimi', 'agy', 'grok'].includes(c)) return c;
     // A bare agent-looking binary we have no adapter for still gets the
     // switch — its card explains, honestly, why it stays a terminal.
     if (/^[a-z][\w.-]*$/i.test(c)) return 'unknown:' + c;
@@ -2845,7 +2845,7 @@ function cardAgentFor(p) {
 }
 function canShowCards(p) { return !!cardAgentFor(p); }
 
-const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity' };
+const KNOWN_AGENT_NAMES = { claude: 'Claude Code', opencode: 'OpenCode', hermes: 'Hermes', codex: 'Codex', kimi: 'Kimi Code', agy: 'Antigravity', grok: 'Grok' };
 
 // The welcome a card can synthesize before (or without) a channel: the
 // registry already knows who this is and where. Watch mode gets this too —
@@ -2868,6 +2868,7 @@ function terminalResumeSpec(p) {
   if (agent === 'codex' && p.acpSid) return { kind: 'run', command: `codex resume ${p.acpSid}`, resumes: true };
   if (agent === 'kimi' && p.acpSid) return { kind: 'run', command: `kimi -r ${p.acpSid}`, resumes: true };
   if (agent === 'opencode' && p.acpSid) return { kind: 'run', command: `opencode -s ${p.acpSid}`, resumes: true };
+  if (agent === 'grok' && p.acpSid) return { kind: 'run', command: `grok --resume ${p.acpSid}`, resumes: true };
   if (agent === 'hermes' && p.acpSid) return { kind: 'run', command: `hermes --resume ${p.acpSid}`, resumes: true };
   if (agent === 'agy' && p.acpSid) return { kind: 'run', command: `agy --conversation ${p.acpSid}`, resumes: true };
   return { kind: 'run', command: p.command, resumes: false };
