@@ -24,6 +24,7 @@ import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 import { isOutsideProject } from './path-guard.mjs';
 import { createClockB } from './pty-notify.mjs';
+import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
 
 const api = window.dainami;
 
@@ -132,11 +133,11 @@ function setTheme(name, persistIt = true) {
   applyThemeAttrs(name);
   try { localStorage.setItem(THEME_KEY, name); } catch (_) {}
   if (persistIt && api.themeSet) api.themeSet(name);
-  tileEls.forEach((t) => {
+  tileEls.forEach((t, id) => {
     if (!t.term) return;
     t.term.options.theme = xtermTheme();
     t.term.options.fontFamily = termFontFamily();
-    t.term.options.fontSize = termFontSize();
+    t.term.options.fontSize = termFontOf(S.panels.find((x) => x.id === id));
     t.term.options.letterSpacing = termLetterSpacing();
     markFit(t);
   });
@@ -1916,15 +1917,11 @@ const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 // terminal text size: one shared preference, defaulting smaller in the glass
 // themes because SF Mono renders larger than Courier Prime at equal px
 const TERM_FONT_KEY = 'dainami-term-fontsize';
-function termFontSize() {
-  const saved = Number(localStorage.getItem(TERM_FONT_KEY));
-  if (saved >= 10 && saved <= 18) return saved;
-  // Whole pixels, every theme: SF Mono at a fractional size yields a fractional
-  // cell width, xterm then computes more columns than it can paint, and every
-  // line loses its tail off the right edge. This was a glass-only rule while
-  // glass was the only theme on SF Mono.
-  return 12;
+function defaultTermFont() {
+  try { return clampTermFont(localStorage.getItem(TERM_FONT_KEY), TERM_FONT_DEFAULT); }
+  catch (_) { return TERM_FONT_DEFAULT; }
 }
+function termFontOf(p) { return clampTermFont(p && p.fontSize, defaultTermFont()); }
 // Zero, every theme. Tracking inherits into xterm's hidden measuring element,
 // which then reports a cell narrower than the font actually paints — same
 // right-edge clipping as a fractional size. Courier Prime wanted 0.2; SF Mono
@@ -1947,13 +1944,13 @@ function termLetterSpacing() { return 0; }
 // still applies to every tile at once (it is one shared preference), but the
 // canvas redraw and the agent's notification are now on separate clocks, so a
 // run of taps settles into one message per session.
-function bumpTermFont(dir) {
-  const next = Math.min(18, Math.max(10, termFontSize() + dir));
-  try { localStorage.setItem(TERM_FONT_KEY, String(next)); } catch (_) {}
-  tileEls.forEach((r) => {
-    if (r.term) { r.term.options.fontSize = next; markFit(r); }
-  });
-  toast('Text size · ' + next + 'px');
+function bumpTermFont(dir, p) {
+  const rec = tileEls.get(p.id);
+  const next = nextTermFont(termFontOf(p), dir, defaultTermFont());
+  p.fontSize = next;
+  savePanels();
+  if (rec && rec.term) { rec.term.options.fontSize = next; markFit(rec); }
+  toast('This session · ' + next + 'px');
 }
 // ---- document text size ------------------------------------------------------
 // Its own dial, separate from the terminal's. 12px monospace and a page of prose
@@ -1964,10 +1961,16 @@ function bumpTermFont(dir) {
 // it, tell it once you stop.
 const isDocTile = (p) => ['card', 'viewer', 'editor'].includes(p.kind);
 const DOC_SCALE_KEY = 'dainami-doc-scale';
-const DOC_STEPS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
-function docScale() {
-  const v = Number(localStorage.getItem(DOC_SCALE_KEY));
-  return DOC_STEPS.includes(v) ? v : 1;
+function defaultDocScale() {
+  try { return clampDocScale(localStorage.getItem(DOC_SCALE_KEY), 1); }
+  catch (_) { return 1; }
+}
+function docScaleOf(p) { return clampDocScale(p && p.docScale, defaultDocScale()); }
+function applyDocScale(p, rec) {
+  if (!rec || !rec.root) return;
+  const s = docScaleOf(p);
+  if (s === 1) rec.root.style.removeProperty('--doc-scale');
+  else rec.root.style.setProperty('--doc-scale', String(s));
 }
 // Both layers of an editor scroll together, so anchoring the textarea is enough —
 // assigning its scrollTop fires the scroll handler that drags the underlay and
@@ -1975,33 +1978,26 @@ function docScale() {
 function docScrollers(rec) {
   return [...rec.root.querySelectorAll('.md-read, .ed-area')];
 }
-function bumpDocFont(dir) {
-  const i = DOC_STEPS.indexOf(docScale());
-  const next = DOC_STEPS[Math.min(DOC_STEPS.length - 1, Math.max(0, i + dir))];
-  try { localStorage.setItem(DOC_SCALE_KEY, String(next)); } catch (_) {}
+function bumpDocFont(dir, p) {
+  const rec = tileEls.get(p.id);
+  const next = nextDocScale(docScaleOf(p), dir, defaultDocScale());
+  p.docScale = next;
+  savePanels();
   // Where you were reading, as a fraction of the document — the pixel offset is
   // meaningless once every line is a different height.
-  const marks = [];
-  tileEls.forEach((r) => {
-    for (const el of docScrollers(r)) {
-      const room = el.scrollHeight - el.clientHeight;
-      marks.push({ el, frac: room > 0 ? el.scrollTop / room : 0 });
-    }
-  });
-  document.documentElement.style.setProperty('--doc-scale', String(next));
+  const marks = rec ? docScrollers(rec).map((el) => {
+    const room = el.scrollHeight - el.clientHeight;
+    return { el, frac: room > 0 ? el.scrollTop / room : 0 };
+  }) : [];
+  applyDocScale(p, rec);
   requestAnimationFrame(() => {
     for (const m of marks) {
       const room = m.el.scrollHeight - m.el.clientHeight;
       m.el.scrollTop = room > 0 ? Math.round(m.frac * room) : 0;
     }
   });
-  toast('Document text · ' + Math.round(next * 100) + '%');
+  toast('This file · ' + Math.round(next * 100) + '%');
 }
-// Before first paint, so a restored desk does not flash at 100% and resettle.
-try {
-  const saved = Number(localStorage.getItem(DOC_SCALE_KEY));
-  if (DOC_STEPS.includes(saved)) document.documentElement.style.setProperty('--doc-scale', String(saved));
-} catch (_) {}
 
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
@@ -2034,8 +2030,9 @@ function mountTile(p) {
   q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
   const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
   const bump = isDocTile(p) ? bumpDocFont : bumpTermFont;
-  if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1); };
-  if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1); };
+  if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1, p); };
+  if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1, p); };
+  if (isDocTile(p)) applyDocScale(p, rec);
   q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
   // Expand is a committed change, not a gesture — every tile it moves is told
   // on the next frame, not 140ms later, so one press is one movement.
@@ -2189,7 +2186,7 @@ function fitCanvas(rec) {
 
 function mountTerminal(p, rec) {
   const term = new Terminal({
-    fontFamily: termFontFamily(), fontSize: termFontSize(), letterSpacing: termLetterSpacing(),
+    fontFamily: termFontFamily(), fontSize: termFontOf(p), letterSpacing: termLetterSpacing(),
     // 1.45 rather than 1.35: an agent writes paragraphs, not log lines, and at
     // 1.35 a long answer reads as one block of grey.
     lineHeight: 1.45,
@@ -3277,7 +3274,12 @@ function panelSnapshot() {
   // The size a card was dragged to belongs to every kind of tile, so it is
   // added here rather than inside each branch — five branches that each had to
   // remember is five places to forget.
-  const size = (p) => ({ spanX: p.spanX, spanY: p.spanY });
+  const size = (p) => {
+    const o = { spanX: p.spanX, spanY: p.spanY };
+    if (p.fontSize >= 10 && p.fontSize <= 18) o.fontSize = p.fontSize;
+    if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
+    return o;
+  };
   return S.panels.map((p) => {
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...size(p) };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...size(p) };
@@ -3328,8 +3330,11 @@ async function restorePanels(snaps) {
       else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' ? (!!s.sid || s === newestLegacy) : !!s.acpSid });
       // A snapshot from before spans existed carries none, and a panel with no
       // span renders at the default. That is the whole of the migration.
-      if (S.panels.length > before && (s.spanX || s.spanY)) {
-        S.panels[0].spanX = s.spanX; S.panels[0].spanY = s.spanY;
+      if (S.panels.length > before) {
+        const n = S.panels[0];
+        if (s.spanX || s.spanY) { n.spanX = s.spanX; n.spanY = s.spanY; }
+        if (s.fontSize) n.fontSize = s.fontSize;
+        if (s.docScale) n.docScale = s.docScale;
       }
     } catch (_) {}
   }
