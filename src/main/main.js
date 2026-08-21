@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Me
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { resolveClaudeExecutable } = require('./adapters/claude-sdk.js');
+const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { AgentSessions, claudeTranscript } = require('./agent-session.js');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
@@ -25,7 +25,6 @@ const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
-const { rememberBins, knownBin, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
