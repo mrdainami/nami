@@ -44,15 +44,15 @@ test('knowsCopy names the writers and, for MCP, Hermes’s own command', () => {
   const installed = ['claude', 'grok', 'hermes'];
   assert.equal(
     knowsCopy({ kind: 'agent', installed, nameOf }),
-    'Claude Code and Grok get a copy · Hermes doesn’t run agents',
+    'Claude Code and Grok get a copy',
   );
   assert.equal(
     knowsCopy({ kind: 'mcp', installed, nameOf }),
-    'Claude Code gets this connection · Hermes: `hermes mcp`',
+    'Claude Code gets this connection. Hermes: `hermes mcp`',
   );
   assert.match(
     knowsCopy({ kind: 'skill', installed, nameOf, stubCount: 1 }),
-    /Claude Code, Grok and Hermes — announced in AGENTS.md \+ 1 stub/,
+    /Claude Code, Grok and Hermes\. Announced in AGENTS.md \+ 1 stub/,
   );
 });
 

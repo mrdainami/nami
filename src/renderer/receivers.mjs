@@ -5,7 +5,7 @@
 //   mcp   → notebookTargets in src/main/connections.js
 //
 // Values: copy / via / announce / write (we do it),
-//         none / manual (we don't — name them separately if they are installed),
+//         none / manual (we don't; name them separately if they are installed),
 //         missing from the table (we don't, and we don't mention them).
 
 export const ADAPTERS = {
@@ -68,18 +68,18 @@ export function knowsCopy({ kind, installed, nameOf, stubCount } = {}) {
   const hermes = (installed || []).includes('hermes');
   const many = ids.length !== 1;
   if (kind === 'agent') {
-    if (!list) return hermes ? 'Hermes doesn’t run agents' : '';
-    return list + (many ? ' get a copy' : ' gets a copy') + (hermes ? ' · Hermes doesn’t run agents' : '');
+    if (!list) return '';
+    return list + (many ? ' get a copy' : ' gets a copy');
   }
   if (kind === 'skill') {
     if (!list) return '';
     const n = stubCount || 0;
     const stub = n ? ` + ${n} stub${n === 1 ? '' : 's'}` : '';
-    return list + ' — announced in AGENTS.md' + stub;
+    return list + '. Announced in AGENTS.md' + stub;
   }
   if (kind === 'mcp') {
     if (!list) return hermes ? 'Hermes: `hermes mcp`' : '';
-    return list + (many ? ' get this connection' : ' gets this connection') + (hermes ? ' · Hermes: `hermes mcp`' : '');
+    return list + (many ? ' get this connection' : ' gets this connection') + (hermes ? '. Hermes: `hermes mcp`' : '');
   }
   return list;
 }
