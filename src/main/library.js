@@ -212,44 +212,52 @@ function walkPlugins(root, items) {
   }
 }
 
-function scanLibrary({ projectPath, homeDir } = {}) {
+// One row per skill, keyed on where the files really are: a link and the
+// folder it points at are the same skill seen twice, and listing both is how
+// 20 skills would read as 80. First source wins, so the store is described as
+// the store rather than as whichever agent happened to link it.
+function addSkills(root, sources, scope, items, seen) {
+  for (const source of sources) {
+    for (const entry of listSkillDirs(path.join(root, source.rel))) {
+      const key = skillIdentity(entry);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(mkSkillItem(source, scope, entry));
+    }
+  }
+}
+
+function scanProject({ projectPath, homeDir } = {}) {
+  if (!projectPath) return [];
   const home = homeDir || os.homedir();
   const items = [];
-  // One row per skill, keyed on where the files really are: a link and the
-  // folder it points at are the same skill seen twice, and listing both is how
-  // 20 skills would read as 80. First source wins, so the store is described as
-  // the store rather than as whichever agent happened to link it.
   const seen = new Set();
-  const addSkills = (root, sources, scope) => {
-    for (const source of sources) {
-      for (const entry of listSkillDirs(path.join(root, source.rel))) {
-        const key = skillIdentity(entry);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        items.push(mkSkillItem(source, scope, entry));
-      }
-    }
-  };
-  if (projectPath) {
-    // Masters first: one agent, one row. Copies Nami delivered into the
-    // platform folders carry the marker and are hidden — listing them too
-    // would turn one agent into six rows the moment it works everywhere.
-    for (const f of listMd(path.join(projectPath, 'agents'))) items.push(mkItem('agent', 'project', 'project', f));
-    for (const f of listMd(path.join(projectPath, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'project', f));
-    addSkills(projectPath, PROJECT_SKILL_SOURCES, 'project');
-    for (const f of listMd(path.join(projectPath, '.opencode/agent'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
-    for (const f of listMd(path.join(projectPath, '.opencode/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
-    for (const f of listMd(path.join(projectPath, '.gemini/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'gemini', 'project', f));
-    for (const f of listToml(path.join(projectPath, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'project', f));
-    for (const f of listMd(path.join(projectPath, '.kimi-code/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'kimi', 'project', f));
-    for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
-    markShadows(items, projectPath, home);
-  }
+  // Masters first: one agent, one row. Copies Nami delivered into the
+  // platform folders carry the marker and are hidden — listing them too
+  // would turn one agent into six rows the moment it works everywhere.
+  for (const f of listMd(path.join(projectPath, 'agents'))) items.push(mkItem('agent', 'project', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'project', f));
+  addSkills(projectPath, PROJECT_SKILL_SOURCES, 'project', items, seen);
+  for (const f of listMd(path.join(projectPath, '.opencode/agent'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.opencode/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'opencode', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.gemini/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'gemini', 'project', f));
+  for (const f of listToml(path.join(projectPath, '.codex/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'codex', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.grok/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'grok', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.kimi-code/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'kimi', 'project', f));
+  for (const f of listMd(path.join(projectPath, '.opencode/command'))) items.push(mkItem('command', 'opencode', 'project', f));
+  markShadows(items, projectPath, home);
+  return items;
+}
+
+function scanMac({ homeDir } = {}) {
+  const home = homeDir || os.homedir();
+  const items = [];
+  const seen = new Set();
   // Marker-filtered like every other scan. Delivery is project-scoped today, so
   // nothing here carries a marker yet — but the one scan that trusts whatever it
   // finds is the one that shows a master twice the day that changes.
   for (const f of listMd(path.join(home, '.claude/agents'))) if (!isDeliveredFile(f)) items.push(mkItem('agent', 'claude', 'user', f));
-  addSkills(home, USER_SKILL_SOURCES, 'user');
+  addSkills(home, USER_SKILL_SOURCES, 'user', items, seen);
   for (const f of listMd(path.join(home, '.config/opencode/agent'))) items.push(mkItem('agent', 'opencode', 'user', f));
   // Codex keeps personal agents at ~/.codex/agents — TOML, like its project
   // folder. Scanned so the copy-over drawer can offer them.
@@ -258,6 +266,28 @@ function scanLibrary({ projectPath, homeDir } = {}) {
   const plugin = [];
   walkPlugins(path.join(home, '.claude/plugins'), plugin);
   return items.concat(dedupePluginVersions(plugin));
+}
+
+function scanLibrary({ projectPath, homeDir, scope } = {}) {
+  const home = homeDir || os.homedir();
+  if (scope === 'project') return scanProject({ projectPath, homeDir: home });
+  if (scope === 'mac') return scanMac({ homeDir: home });
+  const project = scanProject({ projectPath, homeDir: home });
+  const mac = scanMac({ homeDir: home });
+  // Combined list keeps the old first-source-wins rule for skills: a link in
+  // ~/.claude/skills to the same folder as skills/ is one row, the project's.
+  const seen = new Set(project.filter((i) => i.type === 'skill' && i.dirPath).map((i) => {
+    try { return fs.realpathSync(i.dirPath); } catch (_) { return i.dirPath; }
+  }));
+  const extra = mac.filter((i) => {
+    if (i.type !== 'skill' || !i.dirPath) return true;
+    let key = i.dirPath;
+    try { key = fs.realpathSync(i.dirPath); } catch (_) { /* dangling */ }
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return project.concat(extra);
 }
 
 // Plugin caches keep multiple versions of the same plugin side by side; show each
@@ -448,7 +478,7 @@ async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = 
   if (projectPath) {
     for (const s of PROJECT_SKILL_SOURCES) roots.push(path.join(projectPath, s.rel));
     roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
-    roots.push(path.join(projectPath, 'agents'), path.join(projectPath, '.gemini'), path.join(projectPath, '.kimi-code'), path.join(projectPath, '.codex'));
+    roots.push(path.join(projectPath, 'agents'), path.join(projectPath, '.gemini'), path.join(projectPath, '.kimi-code'), path.join(projectPath, '.codex'), path.join(projectPath, '.grok'));
   }
   for (const s of USER_SKILL_SOURCES) roots.push(path.join(home, s.rel));
   roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.config', 'opencode'));
@@ -461,4 +491,4 @@ async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = 
   catch (e) { return { ok: false, error: e.message }; }
 }
 
-module.exports = { scanLibrary, createItem, duplicateItem, deleteItem, extractEdges };
+module.exports = { scanLibrary, scanProject, scanMac, createItem, duplicateItem, deleteItem, extractEdges };
