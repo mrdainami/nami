@@ -31,7 +31,7 @@ export function isMaster(item) {
   return !!item && item.platform === MASTER_PLATFORM;
 }
 
-// A master runs anywhere Nami can write a dialect. Anything else is a file in
+// A master is this folder's file. Anything else is a file in
 // one tool's own folder, and that tool is the whole answer.
 export function reachOf(item) {
   if (!item) return [];
@@ -65,7 +65,7 @@ export function resolveTool({ item, remembered, focusedTool, installed } = {}) {
 // also the answer to "why can it only run there".
 export function originLine(item, nameOf = (id) => id) {
   if (!item) return '';
-  if (isMaster(item)) return 'runs anywhere';
+  if (isMaster(item)) return 'this folder';
   const tool = nameOf(PLATFORM_TO_TOOL[item.platform] || item.platform);
   if (item.scope === 'plugin') return `from a plugin · ${tool} · read-only`;
   if (item.scope === 'user') return `yours in every folder · ${tool}`;
