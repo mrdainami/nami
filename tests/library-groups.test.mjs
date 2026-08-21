@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, MAC_GROUP_KEYS, isPickerAgent } from '../src/renderer/library-groups.mjs';
+import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, MAC_GROUP_KEYS, isPickerAgent, shouldLoadMac, macCountLabel } from '../src/renderer/library-groups.mjs';
 
 const item = (over) => ({ type: 'agent', platform: 'project', scope: 'project', slug: 'x', ...over });
 
@@ -42,6 +42,21 @@ test('a service with a project scope is the project MCP shelf', () => {
 test('Mac groups are named so the rail can collapse them by default', () => {
   assert.ok(MAC_GROUP_KEYS.includes('mac-agents'));
   assert.ok(SHELF_GROUPS.some((g) => g.key === 'agents' && !g.mac));
+});
+
+test('Mac scan waits until a Mac group opens, a search is typed, or it already ran', () => {
+  assert.equal(shouldLoadMac({ openGroups: [], query: '', macLoaded: false }), false);
+  assert.equal(shouldLoadMac({ openGroups: MAC_GROUP_KEYS, query: '', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: ['mac-agents'], query: '', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: [], query: 'researcher', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: [], query: '  ', macLoaded: false }), false);
+  assert.equal(shouldLoadMac({ openGroups: ['mac-agents'], query: 'x', macLoaded: true }), false);
+});
+
+test('a Mac group that has not been scanned yet shows an ellipsis, not 0', () => {
+  assert.equal(macCountLabel({ loaded: false, n: 0 }), '…');
+  assert.equal(macCountLabel({ loaded: true, n: 0 }), '0');
+  assert.equal(macCountLabel({ loaded: true, n: 32 }), '32');
 });
 
 test('⌘K lists a master and an in-folder Claude agent, not a plugin or ~/.claude file', () => {
