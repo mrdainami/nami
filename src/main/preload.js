@@ -84,21 +84,6 @@ contextBridge.exposeInMainWorld('dainami', {
   onDirChanged: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('dir:changed', h); return () => ipcRenderer.removeListener('dir:changed', h); },
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
-  // Cards drive mode: one live agent runtime per tile, whichever adapter its
-  // agent speaks. Events arrive one at a time on agent:event, already in the
-  // agent-events.js vocabulary and stamped with the tile id.
-  agentStart: (args) => ipcRenderer.invoke('agent:start', args),
-  agentSend: (args) => ipcRenderer.invoke('agent:send', args),
-  agentPermission: (args) => ipcRenderer.invoke('agent:permission', args),
-  agentInterrupt: (args) => ipcRenderer.invoke('agent:interrupt', args),
-  agentConfig: (args) => ipcRenderer.invoke('agent:config', args),
-  agentStop: (args) => ipcRenderer.invoke('agent:stop', args),
-  // /resume's picker: the agent's own past conversations, read from its store.
-  agentConversations: (args) => ipcRenderer.invoke('agent:conversations', args),
-  onAgentEvent: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('agent:event', h); return () => ipcRenderer.removeListener('agent:event', h); },
-  // What the conversation already holds, read once on a switch to Cards.
-  cardsBacklog: (args) => ipcRenderer.invoke('cards:backlog', args),
-
   termCreate: (args) => ipcRenderer.invoke('term:create', args),
   termWrite: (args) => ipcRenderer.invoke('term:write', args),
   termResize: (args) => ipcRenderer.invoke('term:resize', args),
@@ -106,12 +91,6 @@ contextBridge.exposeInMainWorld('dainami', {
   onTermData: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
   onTermCommandDone: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:command-done', h); return () => ipcRenderer.removeListener('term:command-done', h); },
   onTermExit: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('term:exit', h); return () => ipcRenderer.removeListener('term:exit', h); },
-  // The card view: the same live session, read out of the transcript it is
-  // already writing. cardsWatch turns the tail on for one tile; the events
-  // arrive in batches — { id, events, reset } — with reset meaning "what you
-  // have belongs to a conversation that is gone, start again".
-  cardsWatch: (args) => ipcRenderer.invoke('cards:watch', args),
-  onSessionEvents: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('session:events', h); return () => ipcRenderer.removeListener('session:events', h); },
 
   // Main found the conversation a terminal-run agent tile landed in, by
   // polling the agent's store after spawn — { id, sid }. The renderer saves
