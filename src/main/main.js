@@ -1036,8 +1036,8 @@ ipcMain.handle('path:stat', async (_e, { token, cwd, id }) => {
 });
 
 // ---- IPC: agents & skills library ------------------------------------------
-ipcMain.handle('library:scan', (_e, { projectPath }) => {
-  try { const items = scanLibrary({ projectPath }); return { items, edges: extractEdges(items) }; }
+ipcMain.handle('library:scan', (_e, { projectPath, scope } = {}) => {
+  try { const items = scanLibrary({ projectPath, scope }); return { items, edges: extractEdges(items) }; }
   catch (_) { return { items: [], edges: [] }; }
 });
 ipcMain.handle('library:create', (_e, args) => {
