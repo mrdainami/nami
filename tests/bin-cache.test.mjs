@@ -102,10 +102,8 @@ test('a scanned path with awkward characters is quoted for the shell', () => {
 // grok paints a full-screen TUI by default, which sits on top of the Nami
 // theme instead of inside it; --minimal makes it print into the tile's own
 // scrollback. The flag deliberately does NOT live on the panel's `command`:
-// two identity checks (agentForCommand, cardAgentFor) match p.command against
-// bare binary names, and relaxing them to "first word" would start matching
-// the resume lines moveToSurface already assigns (`codex resume <id>`,
-// `opencode -s <id>`) — changing four agents this has no business touching.
+// agentForCommand matches p.command against bare binary names, so the flag
+// is added at spawn rather than stored on the panel.
 
 test('withSpawnFlags gives grok --minimal and leaves every other agent alone', () => {
   const { withSpawnFlags } = require('../src/main/bin-cache.js');
