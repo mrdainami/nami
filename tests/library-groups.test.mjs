@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, MAC_GROUP_KEYS } from '../src/renderer/library-groups.mjs';
+import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, MAC_GROUP_KEYS, isPickerAgent } from '../src/renderer/library-groups.mjs';
 
 const item = (over) => ({ type: 'agent', platform: 'project', scope: 'project', slug: 'x', ...over });
 
@@ -42,4 +42,13 @@ test('a service with a project scope is the project Services shelf', () => {
 test('Mac groups are named so the rail can collapse them by default', () => {
   assert.ok(MAC_GROUP_KEYS.includes('mac-agents'));
   assert.ok(SHELF_GROUPS.some((g) => g.key === 'agents' && !g.mac));
+});
+
+test('⌘K lists a master and an in-folder Claude agent, not a plugin or ~/.claude file', () => {
+  assert.equal(isPickerAgent(item()), true);
+  assert.equal(isPickerAgent(item({ platform: 'claude', scope: 'project' })), true);
+  assert.equal(isPickerAgent(item({ scope: 'plugin', platform: 'claude' })), false);
+  assert.equal(isPickerAgent(item({ scope: 'user', platform: 'claude' })), false);
+  assert.equal(isPickerAgent(item({ type: 'skill', scope: 'project' })), false);
+  assert.equal(isPickerAgent(item({ shadows: 'x' })), false);
 });

@@ -44,3 +44,8 @@ export function serviceShelf(sv) {
 }
 
 export const MAC_GROUP_KEYS = SHELF_GROUPS.filter((g) => g.mac).map((g) => g.key);
+
+// ⌘K launches what this folder owns: masters and hand-made in-project files.
+export function isPickerAgent(item) {
+  return !!item && item.type === 'agent' && item.scope === 'project' && !item.shadows;
+}

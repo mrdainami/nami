@@ -11,7 +11,7 @@ import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
-import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf } from './library-groups.mjs';
+import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent } from './library-groups.mjs';
 import { agentLaunch } from './agent-launch.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
@@ -3897,10 +3897,9 @@ function pickerAgents() {
   // One agent, one row — the rule the drawer has followed since it landed. A
   // file sitting where a master's copy would land is that master shadowed on
   // one tool, not a second agent, and the master's tool list says so as ◐.
-  // The scan decides that by target path, not by name, so a same-named agent in
-  // a folder the master never writes to keeps its own row.
+  // ⌘K is this folder only: masters and hand-made in-project files.
   return (S.library.items || [])
-    .filter((i) => i.type === 'agent' && !i.shadows)
+    .filter(isPickerAgent)
     .sort((a, b) => sortKey(a) - sortKey(b) || String(a.slug).localeCompare(String(b.slug)));
 }
 function toolNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
@@ -4146,12 +4145,7 @@ function toolListHtml(item) {
       Files without Nami's marker are somebody's hand work and are never touched.</div></div>`;
 }
 
-// Calvin's four sections, in ownership order — the closer to you, the higher:
-// masters this folder shares, this folder's per-CLI files, the agents that
-// follow you between folders, and the read-only ones that came with packs.
-// Plugins is the one section that is third-party AND numerous, so it alone
-// collapses; a live search opens it, because a hidden match reads as a bug.
-const PICKER_SECTIONS = ['IN THIS FOLDER', 'PER MODEL', 'FROM YOUR CLIS', 'PLUGINS'];
+const PICKER_SECTIONS = ['Project agents', 'In this project'];
 
 function renderAgentPickerSheet() {
   const o = S.overlay; const agents = pickerAgents();
@@ -4162,12 +4156,12 @@ function renderAgentPickerSheet() {
     <div class="picker-list" id="ap-list"></div>
     <div class="picker-foot"><span>click a row → a session as that agent</span>
       <span><b>›</b> → run it on another tool</span></div>`, { top: true });
-  // Sections first, so the keyboard and the clicks walk the same visible list:
-  // a collapsed Plugins section keeps its rows out of arrow-reach too.
-  const plugOpen = !!o.plugOpen || !!query;
-  const groups = [[], [], [], []];
-  filtered.forEach((a) => groups[sortKey(a)].push(a));
-  const visible = groups[0].concat(groups[1], groups[2], plugOpen ? groups[3] : []);
+  const groups = [[], []];
+  filtered.forEach((a) => {
+    const k = sortKey(a);
+    if (k === 0 || k === 1) groups[k].push(a);
+  });
+  const visible = groups[0].concat(groups[1]);
   if (o.hi > visible.length - 1) o.hi = Math.max(0, visible.length - 1);
   const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.query = input.value; o.hi = 0; o.open = null; renderOverlay(); };
@@ -4175,8 +4169,6 @@ function renderAgentPickerSheet() {
     if (e.key === 'Enter') {
       const a = visible[o.hi]; const t = a && rowTool(a);
       if (a && t) launchAgent(a, t);
-      // A key that does nothing reads as a broken key. The click path already
-      // says why on a dead row; this says the same thing out loud.
       else if (a) toast(`Nothing installed can run ${a.slug}.`);
     }
     if (e.key === 'ArrowDown') { o.hi = Math.min(visible.length - 1, o.hi + 1); renderOverlay(); }
@@ -4187,9 +4179,8 @@ function renderAgentPickerSheet() {
     list.innerHTML = agents.length
       ? '<div class="rail-empty" style="padding:14px">No match.</div>'
       : `<div class="rail-empty" style="padding:16px 14px"><b>No agents in this folder yet.</b><br>
-        A master lives in <b>agents/&lt;name&gt;.md</b> and runs on any tool Nami can see. Make one with
-        ＋ in the Library tab, or drop a file in that folder yourself.<br><br>
-        Agents you keep in <b>~/.claude/agents</b> would show up here too, in every folder.</div>`;
+        A project agent lives in <b>agents/&lt;name&gt;.md</b>. Make one with
+        ＋ in the Library tab, or drop a file in that folder yourself.</div>`;
     return;
   }
   let vi = 0;
@@ -4197,15 +4188,8 @@ function renderAgentPickerSheet() {
     if (!g.length) return;
     const head = document.createElement('div');
     head.className = 'picker-sec';
-    if (gi === 3) {
-      head.classList.add('picker-sec--toggle');
-      head.setAttribute('role', 'button'); head.tabIndex = 0;
-      head.innerHTML = `<span class="sec-arr">${plugOpen ? '▾' : '▸'}</span>${PICKER_SECTIONS[3]} · ${g.length}`;
-      head.onclick = () => { o.plugOpen = !o.plugOpen; renderOverlay(); };
-      head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); head.click(); } };
-    } else head.textContent = PICKER_SECTIONS[gi];
+    head.textContent = PICKER_SECTIONS[gi];
     list.appendChild(head);
-    if (gi === 3 && !plugOpen) return;
     g.forEach((a) => {
       const i = vi++;
       const tool = rowTool(a);
