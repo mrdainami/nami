@@ -60,11 +60,12 @@ class AcpAdapter {
     this.lastUsage = null;
     this.turnStarted = 0;
     this.stderrBuf = '';
-    // Chunks coalesce: one growing row per burst; a tool call or a change of
-    // channel (message ↔ thought) starts the next burst.
+    // Chunks coalesce: one growing row per kind per segment. Interleaved
+    // thought/message chunks each keep growing their own row (opencode
+    // alternates them token-by-token — kind flips must not mint new rows);
+    // only a tool call or a new prompt starts fresh segments.
     this.burst = 0;
-    this.burstKind = null;
-    this.burstText = '';
+    this.kindBursts = {};   // kind -> { n, text }
   }
 
   emit(kind, payload) {
@@ -408,14 +409,15 @@ class AcpAdapter {
   chunk(kind, update) {
     const text = update && update.content && update.content.type === 'text' ? String(update.content.text || '') : '';
     if (!text) return;
-    if (this.burstKind !== kind) { this.burst++; this.burstKind = kind; this.burstText = ''; }
-    this.burstText += text;
+    let b = this.kindBursts[kind];
+    if (!b) b = this.kindBursts[kind] = { n: ++this.burst, text: '' };
+    b.text += text;
     // The id is stable across the burst, so the renderer grows one row.
     if (this.closed) return;
-    const e = safeEvent({ kind, id: `${this.id}:b${this.burst}`, at: null, text: this.burstText });
+    const e = safeEvent({ kind, id: `${this.id}:b${b.n}`, at: null, text: b.text });
     if (e) this.onEvent(e);
   }
-  breakBurst() { this.burstKind = null; }
+  breakBurst() { this.kindBursts = {}; }
 
   emitTool(toolCallId, call) {
     if (this.closed) return;
@@ -470,7 +472,7 @@ class AcpAdapter {
       .then((result) => {
         // Failure is not prose: a provider error that arrived as the whole
         // answer becomes an error row, so the turn reads as what it was.
-        const failure = classifyFailure(this.burstKind === 'assistant' ? this.burstText : '');
+        const failure = classifyFailure((this.kindBursts.assistant && this.kindBursts.assistant.text) || '');
         if (failure) this.emit('error', { message: failure });
         this.settlePending();
         const usage = this.lastUsage;
