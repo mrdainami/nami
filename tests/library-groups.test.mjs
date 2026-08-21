@@ -33,7 +33,7 @@ test('gemini folder maps to antigravity; a master has no cli key', () => {
   assert.equal(cliKey(item()), '');
 });
 
-test('a service with a project scope is the project Services shelf', () => {
+test('a service with a project scope is the project MCP shelf', () => {
   assert.equal(serviceShelf({ scopes: ['project'] }), 'services');
   assert.equal(serviceShelf({ scopes: ['user'] }), 'mac-services');
   assert.equal(serviceShelf({ scopes: ['project', 'user'] }), 'services');

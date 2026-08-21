@@ -4,10 +4,10 @@
 export const SHELF_GROUPS = [
   { key: 'agents', label: 'Agents' },
   { key: 'skills', label: 'Skills' },
-  { key: 'services', label: 'Services' },
+  { key: 'services', label: 'MCP' },
   { key: 'mac-agents', label: 'Agents on this Mac', mac: true },
   { key: 'mac-skills', label: 'Skills on this Mac', mac: true },
-  { key: 'mac-services', label: 'Services on this Mac', mac: true },
+  { key: 'mac-services', label: 'MCP on this Mac', mac: true },
   { key: 'mac-commands', label: 'Commands on this Mac', mac: true },
 ];
 
