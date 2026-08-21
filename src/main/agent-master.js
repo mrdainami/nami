@@ -115,6 +115,11 @@ function copyTargets(projectPath, slug, homeDir) {
     // agy discovers user scope only; a project copy is a copy it never reads
     antigravity: { kind: 'copy', file: path.join(home, `.gemini/agents/${slug}.md`) },
     kimi: { kind: 'copy', file: p(`.kimi-code/agents/${slug}.md`) },
+    // grok reads .grok/agents/ (project) and ~/.grok/agents/ (user) as .md
+    // with YAML frontmatter — the same four fields the claude dialect writes.
+    // Verified live: a master delivered here showed up in `grok inspect` as
+    // "probe-tester  project".
+    grok: { kind: 'copy', file: p(`.grok/agents/${slug}.md`) },
     codex: { kind: 'copy', file: p(`.codex/agents/${slug}.toml`) },
     cursor: { kind: 'via', via: 'claude' }, // reads .claude/agents natively
     hermes: { kind: 'none', reason: 'Hermes has no custom agents' },

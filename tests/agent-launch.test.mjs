@@ -79,3 +79,14 @@ test('no flag tool claims a seed and no seeded tool claims a flag', () => {
     assert.ok(l.seed.length > 0);
   }
 });
+
+// grok's TUI ignores --agent, exactly as kimi's does. Both probed the same
+// way and both landed on a seed; see specs/2026-08-21-grok.md Appendix A for
+// the transcript (headless honours the flag, the TUI answers as plain Grok).
+test('grok is seeded, because its TUI ignores --agent', () => {
+  const l = agentLaunch('grok', 'release-scribe');
+  assert.equal(l.kind, 'seed');
+  assert.equal(l.status, 'seeded');
+  assert.deepEqual(l.argv, []);
+  assert.match(l.seed, /\.grok\/agents\/release-scribe\.md/);
+});
