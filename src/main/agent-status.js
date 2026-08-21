@@ -125,17 +125,32 @@ function parseCodex(payload) {
 // create_time is the one the CLI is using. Everything interesting sits beside
 // two things that must never leave this function: `key` (a JWT) and
 // `refresh_token`.
+//
+// XAI_API_KEY never lands in that file. Callers pass `hasApiKey` as a boolean
+// so this parser never sees the secret. Grok itself prefers a session token
+// over the env key; we report the same way: account in auth.json wins, and
+// `hasApiKey` stays true so the sheet can offer a switch.
+function grokApiKeyStatus() {
+  return {
+    signedIn: true,
+    via: 'api_key',
+    hasApiKey: true,
+    label: 'signed in with an API key',
+    rows: [{ k: 'Signed in', v: 'with an API key' }],
+  };
+}
 function parseGrok(payload) {
+  const hasApiKey = !!(payload && payload.hasApiKey);
   const j = readJson(onlyFile(payload));
-  if (!j || typeof j !== "object") return UNKNOWN();
+  if (!j || typeof j !== "object") return hasApiKey ? grokApiKeyStatus() : UNKNOWN();
   const entries = Object.values(j).filter((v) => v && typeof v === "object");
-  if (!entries.length) return SIGNED_OUT();
+  if (!entries.length) return hasApiKey ? grokApiKeyStatus() : SIGNED_OUT();
   // newest sign-in wins; an entry with no timestamp sorts last, never first
   const a = entries.slice().sort((x, y) =>
     (Date.parse(y.create_time) || 0) - (Date.parse(x.create_time) || 0))[0];
   const email = typeof a.email === "string" ? a.email.trim() : "";
   const byKey = a.auth_mode === "api_key";
-  if (!email && !byKey && !a.auth_mode) return SIGNED_OUT();
+  if (!email && !byKey && !a.auth_mode) return hasApiKey ? grokApiKeyStatus() : SIGNED_OUT();
   const rows = [];
   if (email) rows.push({ k: "Account", v: email });
   if (typeof a.first_name === "string" && a.first_name.trim() && email) {
@@ -144,6 +159,8 @@ function parseGrok(payload) {
   rows.push({ k: "Signed in", v: byKey ? "with an API key" : "through your xAI account" });
   return {
     signedIn: true,
+    via: byKey ? 'api_key' : 'account',
+    hasApiKey: hasApiKey || byKey,
     label: email || (byKey ? "signed in with an API key" : "signed in"),
     rows,
   };

@@ -202,3 +202,45 @@ test('grok: no token, key or refresh token ever reaches a row', () => {
     assert.ok(!blob.includes(secret), `grok status leaked ${secret}`);
   }
 });
+
+// XAI_API_KEY is env-only — Grok never writes it to auth.json. Nami passes a
+// boolean, never the secret. Same precedence Grok itself uses: a session
+// token in auth.json beats the key.
+test('grok: a stored API key with no auth file is signed in', () => {
+  const s = parseAgentStatus('grok', { files: {}, hasApiKey: true });
+  assert.equal(s.signedIn, true);
+  assert.equal(s.via, 'api_key');
+  assert.equal(s.hasApiKey, true);
+  assert.equal(s.label, 'signed in with an API key');
+  assert.deepEqual(s.rows.find((r) => r.k === 'Signed in'), { k: 'Signed in', v: 'with an API key' });
+});
+
+test('grok: a stored API key with an empty auth file is signed in with an API key', () => {
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': '{}' }, hasApiKey: true });
+  assert.equal(s.signedIn, true);
+  assert.equal(s.via, 'api_key');
+  assert.equal(s.label, 'signed in with an API key');
+});
+
+test('grok: account in auth.json wins over a stored API key', () => {
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': GROK_IN }, hasApiKey: true });
+  assert.equal(s.signedIn, true);
+  assert.equal(s.via, 'account');
+  assert.equal(s.hasApiKey, true, 'the unused key is still noted, so the sheet can switch to it');
+  assert.equal(s.label, 'dev@example.com');
+  assert.deepEqual(s.rows.find((r) => r.k === 'Signed in'), { k: 'Signed in', v: 'through your xAI account' });
+});
+
+test('grok: an auth.json API-key entry reports via api_key', () => {
+  const raw = JSON.stringify({ 'https://auth.x.ai::c1': { auth_mode: 'api_key', key: 'SECRET' } });
+  const s = parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': raw } });
+  assert.equal(s.via, 'api_key');
+  assert.equal(s.hasApiKey, true);
+});
+
+test('grok: hasApiKey is a boolean — no secret rides along', () => {
+  const s = parseAgentStatus('grok', { files: {}, hasApiKey: true });
+  const blob = JSON.stringify(s);
+  assert.ok(!blob.includes('xai-'));
+  assert.equal(typeof s.hasApiKey, 'boolean');
+});
