@@ -12,6 +12,7 @@ import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
+import { receiversOf, knowsCopy } from './receivers.mjs';
 import { agentLaunch } from './agent-launch.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
@@ -1437,12 +1438,12 @@ function libItemTag(i) {
 }
 function serviceCovLine(sv) {
   const cov = S.services.coverage && S.services.coverage[sv.id];
-  const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
-  if (!cov) return `<span class="ok">●</span> ${esc((sv.platforms || []).map(agentNameOf).join(' · ') || 'connected')}`;
+  const writable = new Set(receiversOf('mcp', installedAgentIds()));
+  const missing = cov ? cov.missing.filter((id) => writable.has(id)) : [];
+  const have = cov ? (cov.have || []).filter((id) => writable.has(id)) : (sv.platforms || []);
   if (missing.length) {
-    return `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(', '))} can’t see it`;
+    return `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(' · '))} missing`;
   }
-  const have = (cov.have || []).filter((id) => id !== 'hermes');
   return `<span class="ok">●</span> ${esc(have.map(agentNameOf).join(' · ') || 'connected')}`;
 }
 
@@ -1562,7 +1563,8 @@ function appendLibItem(sect, i) {
 function appendServiceRow(sect, sv) {
   const cat = S.services.catalog.find((s) => s.id === sv.id);
   const cov = S.services.coverage && S.services.coverage[sv.id];
-  const missing = cov ? cov.missing.filter((id) => id !== 'hermes') : [];
+  const writable = new Set(receiversOf('mcp', installedAgentIds()));
+  const missing = cov ? cov.missing.filter((id) => writable.has(id)) : [];
   const row = document.createElement('div'); row.className = 'agent-row';
   row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
     <span class="col"><span class="name">${esc(sv.name)}</span>
@@ -3982,7 +3984,7 @@ async function copyToMaster(item) {
     : await api.importAgent({ ...args, filePath: item.filePath });
   if (!res || !res.ok) { toast((res && res.error) || 'Could not copy it.'); return; }
   await loadLibrary(true); // force — the scan must see the new master
-  toast(`${item.slug} runs anywhere now — it lives in agents/${item.slug}.md.`);
+  toast(`${item.slug} lives in agents/${item.slug}.md now.`);
   if (S.overlay && S.overlay.type === 'agents') {
     // Reopen as the master it just became, so the delivery dots light up in
     // place — openToolList toggles, so the slot must be cleared first.
@@ -4288,27 +4290,20 @@ function createHeadHtml(o) {
     <span class="ni-step">one screen</span></div>`;
 }
 function renderCreateSheet() { return renderCreateStep3(S.overlay); }
-// Who ends up knowing about a new skill or agent. Every installed agent,
-// always — there is no good reason to leave one out, and a checklist whose
-// boxes are all ticked by default is a decision with an obvious answer, which
-// is a tax. Opting one out is a property of the project, not of each item.
-// Skills are announced (AGENTS.md); agents are delivered as copies — and
-// Hermes, which runs no custom agents, is named rather than implied.
+// Who ends up knowing about a new skill or agent: only the CLIs we actually
+// write to (receivers.mjs). Skills are announced in AGENTS.md; agents are
+// copies. Hermes is named for agents only because it cannot receive one.
 function knowsLine(kind) {
-  const canUse = (a) => a.found && (kind !== 'agent' || a.id !== 'hermes');
-  const names = (S.agents || []).filter(canUse).map((a) => a.name);
-  if (!names.length) return '';
-  const list = names.length === 1 ? names[0]
-    : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-  if (kind === 'agent') {
-    const hermes = (S.agents || []).some((a) => a.found && a.id === 'hermes');
-    return `${esc(list)} will all know — Nami keeps each one's copy fresh${hermes ? ' · Hermes doesn’t run agents' : ''}`;
-  }
-  return `${esc(list)} will all know — it goes in <b>AGENTS.md</b>${stubCount() ? ` + ${stubCount()} stub${stubCount() > 1 ? 's' : ''}` : ''}`;
+  const text = knowsCopy({
+    kind,
+    installed: installedAgentIds(),
+    nameOf: agentNameOf,
+    stubCount: stubCount(),
+  });
+  return text ? esc(text) : '';
 }
 function stubCount() {
-  const found = new Set((S.agents || []).filter((a) => a.found).map((a) => a.id));
-  return ['claude', 'gemini'].filter((id) => found.has(id)).length;
+  return (S.agents || []).filter((a) => a.found && a.contextFile && a.contextFile !== 'AGENTS.md').length;
 }
 function renderCreateStep3(o) {
   const worker = chosenAgent(o);
@@ -4975,7 +4970,7 @@ function renderConnectCatalog() {
   clickOnEnter(q('#svc-own', modal));
 }
 // The "already have it" door: an address, a command line, or a .mcpb bundle.
-// All three end as one master entry, delivered everywhere — same as the catalog.
+// All three end as one master entry, then copied into each CLI notebook we can write.
 function openConnectOwn() {
   S.overlay = { type: 'connect-own', name: '', address: '', scope: 'project', values: {}, bundle: null };
   renderOverlay(); if (!S.agents) refreshAgents();
@@ -4997,7 +4992,7 @@ function renderConnectOwn() {
     ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
     <div class="chip-row" id="own-scope" style="margin:8px 0">
       <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
-      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">everywhere on this Mac</span></div>
+      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">this Mac</span></div>
     <div class="setup-actions">
       <button class="btn btn--go" id="own-go">Connect</button>
       ${b ? '<button class="btn" id="own-clear">Different bundle</button>' : '<button class="btn" id="own-bundle">Choose a bundle…</button>'}</div>`);
@@ -5039,16 +5034,11 @@ function renderConnectOwn() {
   };
 }
 function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', values: {} }; renderOverlay(); }
-// Who ends up seeing a new connection: every installed agent, always — the same
-// no-checklist reasoning as knowsLine() for skills. Hermes is the honest
-// exception; its config is hand-owned, so it is named rather than implied.
+// Who ends up seeing a new connection: the CLIs we can write a notebook for.
+// Hermes is named, not implied — its list is `hermes mcp`.
 function svcKnowsLine() {
-  const names = (S.agents || []).filter((a) => a.found && a.id !== 'hermes').map((a) => a.name);
-  if (!names.length) return '';
-  const list = names.length === 1 ? names[0]
-    : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-  const hermes = (S.agents || []).some((a) => a.found && a.id === 'hermes');
-  return esc(list) + ' will all be able to use it' + (hermes ? ' — Hermes keeps its own list (`hermes mcp`)' : '');
+  const text = knowsCopy({ kind: 'mcp', installed: installedAgentIds(), nameOf: agentNameOf });
+  return text ? esc(text) : '';
 }
 function renderConnectForm() {
   const o = S.overlay, svc = o.svc;
@@ -5073,7 +5063,7 @@ function renderConnectForm() {
         <div class="sv-lab">works in</div>
         <div class="chip-row" id="sv-scope">
           <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
-          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">everywhere on this Mac</span></div>
+          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">this Mac</span></div>
       </div></details>
     <div class="setup-actions">
       <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>

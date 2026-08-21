@@ -97,7 +97,7 @@ const NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', antigrav
 const nameOf = (id) => NAMES[id] || id;
 
 test('every row says where it came from', () => {
-  assert.match(originLine(master(), nameOf), /runs anywhere/);
+  assert.match(originLine(master(), nameOf), /this folder/);
   assert.match(originLine(pinned('opencode'), nameOf), /OpenCode only/);
   assert.match(originLine(pinned('claude', { scope: 'user' }), nameOf), /every folder/);
   assert.match(originLine(pinned('claude', { scope: 'plugin' }), nameOf), /plugin/);
