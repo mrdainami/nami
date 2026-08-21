@@ -162,7 +162,7 @@ const GROK_IN = JSON.stringify({
     first_name: 'Dev',
     principal_type: 'User',
     team_id: 'ee0e550b-b5d9-4a97-aab5-ae0cb4c6e474',
-    refresh_token: 'SECRET-REFRESH-TOKEN',
+    refresh_token: 'SECRET-RT',   // short on purpose: repo-shape.test.mjs scans for credential shapes
     expires_at: '2026-08-21T09:53:40.441473Z',
     oidc_issuer: 'https://auth.x.ai',
   },

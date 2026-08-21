@@ -66,4 +66,43 @@ function resolveRunCommand(command) {
   return head + (m[2] || '');
 }
 
-module.exports = { rememberBins, knownBin, forgetBins, resolveRunCommand };
+// ---- spawn flags -----------------------------------------------------------
+// Flags Nami always adds when it spawns a given agent, as opposed to anything
+// the user or the resume path asked for.
+//
+// grok is the only entry and --minimal is the reason the table exists: without
+// it grok paints a full-screen TUI over the Nami theme instead of printing
+// into the tile's own scrollback the way claude does. It is session-scoped,
+// so nothing is written to the user's ~/.grok/config.toml.
+//
+// Why here and not on the panel: two identity checks — agentForCommand
+// (agent-resume.js) and cardAgentFor (app.js) — match a tile's `command`
+// against BARE binary names, and they gate resume, session discovery and the
+// Term/Cards switch. Relaxing them to compare only the first word looks free
+// and is not: moveToSurface already assigns resume lines as commands
+// (`codex resume <id>`, `opencode -s <id>`, `hermes --resume <id>`,
+// `agy --conversation <id>`), so first-word matching would start matching all
+// four where it does not today. Keeping `command` exactly 'grok' and adding
+// the flag here, at the moment of spawn, leaves every one of those untouched.
+//
+// --minimal is marked Experimental in `grok --help` (1.0.5). If a release
+// drops it grok falls back to its full-screen TUI: uglier against the theme,
+// never broken.
+const SPAWN_FLAGS = { grok: ['--minimal'] };
+
+// Applied to the BARE command, before resolveRunCommand swaps in a scanned
+// absolute path — at this point the head is still the binary's name, which is
+// what the table is keyed by. Flags land ahead of the agent's own arguments so
+// a resume line stays minimal too.
+function withSpawnFlags(command) {
+  const s = String(command || '');
+  const m = /^([A-Za-z][\w.-]*)(\s[\s\S]*)?$/.exec(s);
+  if (!m) return s;
+  const flags = SPAWN_FLAGS[m[1]];
+  if (!flags || !flags.length) return s;
+  const tail = m[2] || '';
+  const missing = flags.filter((fl) => !new RegExp(`(^|\\s)${fl}(\\s|$)`).test(tail));
+  return missing.length ? m[1] + ' ' + missing.join(' ') + tail : s;
+}
+
+module.exports = { rememberBins, knownBin, forgetBins, resolveRunCommand, withSpawnFlags, SPAWN_FLAGS };
