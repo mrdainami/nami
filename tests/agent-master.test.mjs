@@ -304,3 +304,27 @@ test('importToMaster refuses a missing project rather than resolving paths again
   const res = importToMaster({ filePath: '/home/u/.codex/agents/x.toml', projectPath: '', io: memIo() });
   assert.equal(res.ok, false);
 });
+
+// grok discovers .grok/agents/ (project) and ~/.grok/agents/ (user) as .md
+// with YAML frontmatter — the same dialect claude, gemini and kimi read, so
+// the existing markdown renderer covers it. Verified live: `grok inspect`
+// listed a master delivered there as "probe-tester  project".
+test('a master reaches grok as project markdown', () => {
+  const io = memIo({});
+  io.write('/p/agents/scribe.md', '---\nname: scribe\ndescription: writes notes\n---\n\nBody.\n');
+  deliverAgents({ projectPath: '/p', agentIds: ['grok'], io });
+  const copy = io.read('/p/.grok/agents/scribe.md');
+  assert.match(copy, /made by Nami from agents\/scribe\.md/);
+  assert.match(copy, /^---\n/);
+  assert.match(copy, /description: writes notes/);
+  assert.match(copy, /Body\./);
+});
+
+test('deleting a master sweeps its grok copy too', () => {
+  const io = memIo({});
+  io.write('/p/agents/scribe.md', '---\nname: scribe\n---\n\nBody.\n');
+  deliverAgents({ projectPath: '/p', agentIds: ['grok'], io });
+  assert.ok(io.exists('/p/.grok/agents/scribe.md'));
+  const { removed } = sweepCopies({ projectPath: '/p', slug: 'scribe', io });
+  assert.ok(removed.includes('/p/.grok/agents/scribe.md'));
+});
