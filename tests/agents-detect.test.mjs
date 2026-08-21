@@ -209,14 +209,14 @@ test('agentStatus: grok with no auth file but a stored XAI_API_KEY is signed in'
     exec: async () => { throw new Error('must not exec'); },
     readFile: async () => null,
     home: '/h',
-    envKeys: { XAI_API_KEY: 'xai-SECRET-should-never-leak' },
+    envKeys: { XAI_API_KEY: 'xai-noleak' },
     env: {},
   });
   assert.equal(s.signedIn, true);
   assert.equal(s.via, 'api_key');
   assert.equal(s.hasApiKey, true);
   const blob = JSON.stringify(s);
-  assert.ok(!blob.includes('xai-SECRET-should-never-leak'), 'stored key leaked into status');
+  assert.ok(!blob.includes('xai-noleak'), 'stored key leaked into status');
 });
 
 test('agentStatus: grok also sees XAI_API_KEY on process env when Keys is empty', async () => {
@@ -225,12 +225,12 @@ test('agentStatus: grok also sees XAI_API_KEY on process env when Keys is empty'
     readFile: async () => null,
     home: '/h',
     envKeys: {},
-    env: { XAI_API_KEY: 'xai-FROM-ENV' },
+    env: { XAI_API_KEY: 'xai-env' },
   });
   assert.equal(s.signedIn, true);
   assert.equal(s.via, 'api_key');
   const blob = JSON.stringify(s);
-  assert.ok(!blob.includes('xai-FROM-ENV'), 'env key leaked into status');
+  assert.ok(!blob.includes('xai-env'), 'env key leaked into status');
 });
 
 test('agentStatus: grok account file still wins over a stored key', async () => {
@@ -241,7 +241,7 @@ test('agentStatus: grok account file still wins over a stored key', async () => 
     exec: async () => { throw new Error('must not exec'); },
     readFile: async (p) => (p.endsWith('auth.json') ? auth : null),
     home: '/h',
-    envKeys: { XAI_API_KEY: 'xai-ignored' },
+    envKeys: { XAI_API_KEY: 'xai-skip' },
     env: {},
   });
   assert.equal(s.via, 'account');

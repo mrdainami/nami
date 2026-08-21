@@ -41,3 +41,8 @@ test('term session-id discovery is paired across preload and main', () => {
   assert.match(preloadSrc, /onTermSessionId:.*ipcRenderer\.on\('term:session-id'/);
   assert.match(mainSrc, /'term:session-id'/);
 });
+
+test('agents:status hands stored Keys to grok so an API key counts as signed in', () => {
+  assert.match(mainSrc, /ipcMain.handle\('agents:status'/);
+  assert.match(mainSrc, /agentStatus\(id,\s*\{\s*envKeys:\s*storedEnvKeys\(\)\s*\}/);
+});

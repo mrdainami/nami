@@ -189,8 +189,13 @@ test('grok: an empty auth file is signed out, not unknown', () => {
   assert.equal(s.label, 'signed out');
 });
 
-test('grok: a missing or unreadable auth file is unknown, never a crash', () => {
-  assert.equal(parseAgentStatus('grok', { files: {} }).signedIn, null);
+test('grok: a missing auth file is signed out, not unknown', () => {
+  assert.equal(parseAgentStatus('grok', { files: {} }).signedIn, false);
+  assert.equal(parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': null } }).signedIn, false);
+  assert.equal(parseAgentStatus('grok', { files: {} }).label, 'signed out');
+});
+
+test('grok: an unreadable auth file is unknown, never a crash', () => {
   assert.equal(parseAgentStatus('grok', { files: { '/home/u/.grok/auth.json': 'not json' } }).signedIn, null);
 });
 
