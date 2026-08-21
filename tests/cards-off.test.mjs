@@ -1,21 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-// Phase A of the cards removal: the surface is unreachable, the code still
-// exists. These read app.js the way ipc-wiring reads main.js — the functions
-// are not exported, and a green suite that still paints a Cards button is how
-// this would ship broken.
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const src = readFileSync(path.join(root, 'src/renderer/app.js'), 'utf8');
 
-const src = readFileSync(new URL('../src/renderer/app.js', import.meta.url), 'utf8');
-
-test('canShowCards is a hard off — no tile chip, no mount, no enter', () => {
-  assert.match(src, /function canShowCards\([^)]*\) \{\s*return false;?\s*\}/);
+test('the card renderer modules are gone', () => {
+  for (const f of ['cards-dom.mjs', 'session-cards.mjs', 'agent-commands.mjs']) {
+    assert.equal(existsSync(path.join(root, 'src/renderer', f)), false, f);
+  }
+  assert.doesNotMatch(src, /cards-dom|session-cards|agent-commands/);
 });
 
 test('the launcher has no Cards / Terminal birth pair and does not remember a surface', () => {
   assert.doesNotMatch(src, /way--cards/);
   assert.doesNotMatch(src, /nami\.surface\./);
+  assert.doesNotMatch(src, /canShowCards|cardAgentFor|enterCards|mountCards/);
 });
 
 test('panelSnapshot does not persist view, so no new cards tiles are written', () => {

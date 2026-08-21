@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { rememberBins, knownBin, forgetBins } = require('../src/main/bin-cache.js');
+const { rememberBins, knownBin, forgetBins, resolveClaudeExecutable } = require('../src/main/bin-cache.js');
 
 // Detection already answers "where does this agent live" properly — it asks the
 // user's interactive login shell and walks the documented install folders. The
@@ -102,10 +102,8 @@ test('a scanned path with awkward characters is quoted for the shell', () => {
 // grok paints a full-screen TUI by default, which sits on top of the Nami
 // theme instead of inside it; --minimal makes it print into the tile's own
 // scrollback. The flag deliberately does NOT live on the panel's `command`:
-// two identity checks (agentForCommand, cardAgentFor) match p.command against
-// bare binary names, and relaxing them to "first word" would start matching
-// the resume lines moveToSurface already assigns (`codex resume <id>`,
-// `opencode -s <id>`) — changing four agents this has no business touching.
+// agentForCommand matches p.command against bare binary names, so the flag
+// is added at spawn rather than stored on the panel.
 
 test('withSpawnFlags gives grok --minimal and leaves every other agent alone', () => {
   const { withSpawnFlags } = require('../src/main/bin-cache.js');
@@ -151,4 +149,50 @@ test('spawn flags compose with the scanned-path swap, in that order', () => {
     '/Users/x/.local/bin/grok --minimal --resume s1',
   );
   forgetBins();
+});
+
+// ---- where the user's claude actually lives --------------------------------
+// Term spawn uses this. The scan goes first; the hardcoded list is the floor.
+const NVM = '/Users/x/.nvm/versions/node/v22.22.0/bin/claude';
+const only = (...ok) => (p) => ok.includes(p);
+
+test('a claude the scan found beats the hardcoded list', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(NVM, '/Users/x/.local/bin/claude') });
+  assert.equal(exe, NVM);
+});
+
+test('nvm, volta, bun and mise installs stop reading as missing', () => {
+  for (const p of [
+    NVM,
+    '/Users/x/.volta/bin/claude',
+    '/Users/x/.bun/bin/claude',
+    '/Users/x/.local/share/mise/installs/node/22/bin/claude',
+  ]) {
+    forgetBins();
+    rememberBins([{ id: 'claude', found: true, path: p }]);
+    assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(p) }), p);
+  }
+});
+
+test('an explicit CLAUDE_CODE_EXECUTABLE still beats everything', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  const env = { CLAUDE_CODE_EXECUTABLE: '/opt/mine/claude' };
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env, exists: only('/opt/mine/claude', NVM) }), '/opt/mine/claude');
+});
+
+test('with nothing scanned it behaves exactly as it did before', () => {
+  forgetBins();
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/Users/x/.local/bin/claude') }), '/Users/x/.local/bin/claude');
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') }), '/opt/homebrew/bin/claude');
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: () => false }), null);
+});
+
+test('a remembered path that no longer exists falls through', () => {
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: NVM }]);
+  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') });
+  assert.equal(exe, '/opt/homebrew/bin/claude');
 });

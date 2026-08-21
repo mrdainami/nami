@@ -102,8 +102,6 @@ body[data-theme="graphite"] {
     linear-gradient(165deg, #2d2e34 0%, #242529 55%, #27282e 100%);
 }
 body[data-theme="graphite"] a { color: #6f9dff; }
-body[data-theme="graphite"] .t-surface.cards { color: #fff; }
-
 /* the shared system paints white-outlined ink cursors + coral pointer already;
    graphite only needs the few spots where a light literal reads wrong */
 body[data-theme="graphite"] .nami-mascot { filter: drop-shadow(0 2px 6px rgba(239, 100, 97, 0.45)); }

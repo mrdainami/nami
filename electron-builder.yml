@@ -38,13 +38,6 @@ files:
   - '!**/*.map'
 
   # --- weight, in descending order of how much it saves -------------------
-  # 265 MB: the agent SDK vendors a whole copy of Claude Code as a fallback for
-  # machines that don't have it. Nami never wants that copy — it runs sessions on
-  # the user's own logged-in `claude` (claude-driver.js resolveClaudeExecutable),
-  # and a bundled binary with no login couldn't authenticate anyway. Without a
-  # `claude` on the machine, claude-driver now says so and points at ⌘N.
-  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
-
   # 170 MB: the ORT tarball carries every platform. win32 + linux is DirectML and
   # CUDA that a Mac build can never load.
   - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
