@@ -79,6 +79,9 @@ const KNOWN_AGENTS = [
       logout: 'grok logout',
       health: 'grok doctor',
       configPath: '~/.grok/config.toml',
+      // Env-only path: Grok reads XAI_API_KEY when no session token is in
+      // auth.json. Named here so the sheet can offer it without a hard-coded id.
+      apiKeyEnv: 'XAI_API_KEY',
       // No uninstall path: ~/.grok holds the user's own sessions, skills and
       // memory, same reasoning as claude above.
       removePaths: [],
@@ -224,7 +227,17 @@ async function readIfPresent(p) {
   try { return await fsp.readFile(p, 'utf8'); } catch (_) { return null; }
 }
 
-async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home = os.homedir() } = {}) {
+function nonemptyEnv(bag, name) {
+  return !!(bag && typeof bag[name] === 'string' && bag[name].trim());
+}
+// Presence only — the value never leaves this function. Grok also accepts the
+// older GROK_CODE_XAI_API_KEY name; either counts.
+function grokApiKeyPresent(envKeys, env) {
+  return nonemptyEnv(envKeys, 'XAI_API_KEY') || nonemptyEnv(envKeys, 'GROK_CODE_XAI_API_KEY')
+    || nonemptyEnv(env, 'XAI_API_KEY') || nonemptyEnv(env, 'GROK_CODE_XAI_API_KEY');
+}
+
+async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home = os.homedir(), envKeys = {}, env = process.env } = {}) {
   const blank = { id, signedIn: null, label: '', rows: [], source: '' };
   const agent = agentById(id);
   const lc = agent && agent.lifecycle;
@@ -243,6 +256,7 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
     } else {
       return blank;
     }
+    if (id === 'grok') payload.hasApiKey = grokApiKeyPresent(envKeys, env);
     return { id, source: lc.source || '', ...parseAgentStatus(id, payload) };
   } catch (_) {
     return blank;

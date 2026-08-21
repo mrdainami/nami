@@ -690,7 +690,9 @@ ipcMain.handle('agents:detect', async () => {
 });
 // Who is signed in to one of them. Lazy and per-agent — a CLI that hangs must
 // never stall the launcher, so every failure lands on signedIn: null.
-ipcMain.handle('agents:status', (_e, { id } = {}) => agentStatus(id));
+// storedEnvKeys so a pasted XAI_API_KEY counts as signed in for grok — the
+// parser only receives a boolean, never the secret (agent-status.js).
+ipcMain.handle('agents:status', (_e, { id } = {}) => agentStatus(id, { envKeys: storedEnvKeys() }));
 // Removal is planned before it is done, so the confirm can name real paths.
 ipcMain.handle('agents:removalPlan', (_e, { id, binPath } = {}) =>
   planRemoval({ id, binPath, home: os.homedir() }));
