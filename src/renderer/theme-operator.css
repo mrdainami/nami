@@ -246,17 +246,6 @@ body[data-theme="operator"] .desk-slot { border-color: var(--op-accent); }
 body[data-theme="operator"] .tile.file-hint { outline-color: var(--op-accent); box-shadow: 0 0 0 3px rgba(239, 100, 97, 0.25); }
 body[data-theme="operator"] .tile-head { border-bottom: 1px solid var(--dash); background: var(--paper-2); border-radius: 8px 8px 0 0; }
 body[data-theme="operator"] .t-btn { border-radius: 5px; }
-/* the card view, in the ops console: same rows, softened corners like every
-   other control here, and the coral accent the theme uses for anything primary */
-body[data-theme="operator"] .t-view { border-radius: 5px; overflow: hidden; }
-/* operator is dark too: --faint dies on the panel, and the turn meter is now
-   the only turn boundary — same lift the glass family got */
-body[data-theme="operator"] .cd-turn_end { color: var(--muted); }
-body[data-theme="operator"] .cd-menu-i .mi-h { color: var(--muted); }
-body[data-theme="operator"] .cd-line { border-radius: 4px; }
-body[data-theme="operator"] .cd-row.open .cd-line { border-radius: 4px 4px 0 0; }
-body[data-theme="operator"] .cd-body { border-radius: 0 0 4px 4px; }
-body[data-theme="operator"] .cd-send { border-radius: 4px; }
 body[data-theme="operator"] .cmd-strip { background: var(--paper-2); }
 body[data-theme="operator"] .step .box { border-color: rgba(74, 158, 99, 0.5); border-radius: 4px; }
 body[data-theme="operator"] .step.done .box { background: rgba(74, 158, 99, 0.15); border-color: rgba(74, 158, 99, 0.5); }
