@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('dainami', {
   boot: () => ipcRenderer.invoke('boot'),
+  // The renderer styles window chrome per OS (traffic-light deck on mac,
+  // titleBarOverlay clearance on windows); a string beats an IPC round-trip.
+  platform: process.platform,
+  onFullScreen: (cb) => { const h = (_e, on) => cb(on); ipcRenderer.on('window:fullscreen', h); return () => ipcRenderer.removeListener('window:fullscreen', h); },
   droppedFilePath: (file) => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } },
 
   pickFolder: () => ipcRenderer.invoke('folder:pick'),
