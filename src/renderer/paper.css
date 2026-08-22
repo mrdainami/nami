@@ -1881,6 +1881,12 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 @media (max-width: 720px) {
   #btn-help { display: none; }
 }
+/* the dot alone still says "something is live"; the words are the first thing
+   the badge can spare when even the drop ladder has run out of buttons */
+@media (max-width: 620px) {
+  #live-label { display: none; }
+  .live-badge { gap: 0; }
+}
 
 /* Below here the window is narrower than half a laptop screen — a side-by-side
    pane, not a desk. The same priority order applies inside a tile: the status
