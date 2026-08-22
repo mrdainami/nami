@@ -171,12 +171,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
     linear-gradient(170deg, var(--sheet-hi) 0%, var(--sheet-lo) 100%);
 }
 /* macOS reserves a slim deck for the traffic lights (positioned by
-   trafficLightPosition in platform.js to sit centred in these 30px); the
+   trafficLightPosition in platform.js to sit centred in these 22px); the
    lockup below it never moves. Native fullscreen hides the lights, so the
    deck collapses with them. Other platforms have no lights: no deck. */
 .lights-deck { display: none; }
 body[data-platform="darwin"] .lights-deck {
-  display: block; flex: none; height: 30px;
+  display: block; flex: none; height: 22px;
   -webkit-app-region: drag;
 }
 body[data-platform="darwin"].is-fullscreen .lights-deck { height: 0; }
@@ -186,7 +186,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 /* ---- header ------------------------------------------------------------- */
 
 .topbar {
-  height: 76px; flex: none;
+  height: 58px; flex: none;
   display: flex; align-items: center; gap: 16px;
   /* The lights deck above floats the header clear of the macOS traffic
      lights, so it needs no gutter for them — the lockup hugs the sheet's
@@ -349,7 +349,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
     repeating-linear-gradient(90deg, rgba(120, 95, 60, 0.05) 0 1px, transparent 1px 22px),
     var(--rail);
 }
-.rail-tabs { display: flex; gap: 6px; padding: 14px 16px 10px; }
+.rail-tabs { display: flex; gap: 6px; padding: 8px 16px 8px; }
 .rail-tab {
   /* 0.05em + 2px side padding: WORKSPACE has to fit a ~79px track without
      kissing the border — check there before widening either value */
@@ -1012,7 +1012,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    arithmetic and tests/desk-grid.test.mjs for the proof at every pixel. */
 .grid {
   --cols: 2;
-  flex: 1; min-height: 0; display: grid; gap: 20px; padding: 22px 26px 24px;
+  flex: 1; min-height: 0; display: grid; gap: 20px; padding: 12px 26px 24px;
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   grid-auto-rows: 210px;   /* 210·2 + 20 gap = the 440px a tile used to be */
   align-content: start; overflow-y: auto; overflow-x: hidden;
