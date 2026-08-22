@@ -377,6 +377,10 @@ function createWindow(folder, bounds) {
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   w.on('resize', snapshotWindows);
   w.on('move', snapshotWindows);
+  // Native fullscreen hides the traffic lights, so the renderer collapses the
+  // deck it reserves for them; it needs to hear both edges of the transition.
+  w.on('enter-full-screen', () => w.webContents.send('window:fullscreen', true));
+  w.on('leave-full-screen', () => w.webContents.send('window:fullscreen', false));
   w.on('closed', () => {
     wins.delete(w);
     winFolders.delete(wcId);
