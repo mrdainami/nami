@@ -259,6 +259,10 @@ function dropPathOnPanel(p, path, isDir) {
 //  Boot
 // ===========================================================================
 (async function boot() {
+  // Before buildShell paints: the lights deck and the windows overlay gutter
+  // are per-OS CSS, keyed off this attribute.
+  document.body.dataset.platform = api.platform || '';
+  api.onFullScreen((on) => document.body.classList.toggle('is-fullscreen', !!on));
   buildShell();
   const b = await api.boot();
   S.winId = b.winId || 0;
@@ -588,6 +592,7 @@ function activeFilePanel() {
 function buildShell() {
   document.getElementById('root').innerHTML = `
     <div class="desk"><div class="sheet">
+      <div class="lights-deck" aria-hidden="true"></div>
       <div class="topbar">
         <div class="brand">
           <span class="brand-mark">
