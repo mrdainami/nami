@@ -46,6 +46,11 @@
   --line: #cdbfa2;
   --dash: #d4c7ab;
   --dash-dark: #c9b98f;
+  /* a field well: one visible step off the sheet, with an edge stronger than
+     --dash-dark — a box whose fill matches the sheet only exists as its border,
+     which is the faintness the create sheet was corrected for */
+  --field: #f8f1df;
+  --field-line: #b9a67a;
   --rail: #f1e7d1;
   --hover: #f3ead4;
   /* anything that floats over card content fills with this, never bare
@@ -714,6 +719,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .code[data-brand="mcp"]       { --brand-bg: var(--tint-scrape); --brand-ink: var(--ink); border-color: transparent; }
 
 .picker-box { width: 560px; background: var(--paper); border: 1px solid var(--dash-dark); box-shadow: 10px 12px 0 rgba(60, 45, 25, 0.25); animation: rise 0.18s ease both; }
+/* the create sheet only: the description is a writing box, and 560px was the
+   width that kept it a slot. Capped to the window so a narrow one squeezes
+   the sheet instead of clipping it. */
+.picker-box.create { width: min(640px, calc(100vw - 40px)); }
 
 /* ---- quick start (the ? panel) ------------------------------------------
    Ruled paper only works if the words sit ON the rules, so everything inside
@@ -1652,6 +1661,34 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .lib-new-grid .add-card .code { width: 22px; height: 22px; }
 .lib-new-grid .ac-name { font-size: 11.5px; }
 .lib-new-grid .ac-desc { font-size: 9.5px; line-height: 1.35; }
+
+/* ---- the create sheet's stacked fields ----
+   Label above, field the full sheet width. NOT .ni-row — the settings pane
+   reuses that layout and must keep it. The description is the one field that
+   earns a box: its floor is its own example text (field-sizing sizes an empty
+   textarea to the placeholder), it grows with typing, and only scrolls past
+   the cap. */
+.ni-field { display: flex; flex-direction: column; gap: 5px; padding: 12px 18px 0; }
+.ni-field .lbl { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.ni-field .lbl .opt { font-weight: 400; text-transform: none; letter-spacing: 0.02em; color: var(--muted-2); }
+.ni-field input, .ni-field textarea { width: 100%; padding: 10px 12px; border: 1px dashed var(--field-line);
+  background: var(--field); font-family: 'Courier Prime', monospace; font-size: 13.5px; line-height: 22px;
+  color: var(--ink); outline: none; }
+/* one token up from the global --muted-3: this sheet is mostly placeholder
+   text at rest, so its quiet is everyone's first impression of it */
+.ni-field input::placeholder, .ni-field textarea::placeholder { color: var(--muted); }
+/* dashed rest, solid focus — and the well brightens back to the sheet, so the
+   active field lifts instead of only changing its edge */
+.ni-field input:focus, .ni-field textarea:focus { border-style: solid; border-color: var(--ink); background: var(--paper); }
+.ni-field textarea { display: block; resize: none; field-sizing: content; min-height: 118px; max-height: 40vh; overflow-y: auto;
+  background-image: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120, 145, 180, 0.10) 21px 22px);
+  background-attachment: local; }
+/* the example is the pitch for writing more, so it is never cut: while the
+   placeholder shows, the cap yields; the moment there is real text, 40vh
+   holds and everything past it scrolls */
+.ni-field textarea:placeholder-shown { max-height: none; }
+.picker-box.create .ni-where { font-size: 12px; }
+.picker-box.create .ni-agent { font-size: 12px; }
 
 .ni-step { margin-left: auto; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .ni-ask { padding: 13px 18px 0; font-size: 12.5px; font-weight: 700; color: var(--ink); }

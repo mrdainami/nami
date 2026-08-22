@@ -4309,12 +4309,17 @@ function renderCreateStep3(o) {
   // the path already says which platform and whose it is — repeating them just wraps the line
   const dir = shortHome(targetDirFor({ type: o.kind, platform: o.platform, scope: o.scope, projectPath: S.project && S.project.path }));
   const skill = o.kind === 'skill';
-  const modal = overlay('picker-box', `${createHeadHtml(o)}
+  // The description placeholder is two paragraphs: a worked example, then the
+  // reason the box is big. &#10; keeps the break inside the attribute.
+  const descPh = 'e.g. keeps the README honest after a batch of features lands: reads the merged'
+    + ' diffs, rewrites the affected doc sections, and flags anything it isn’t sure about.'
+    + '&#10;&#10;The more you write here, the better the first draft.';
+  const modal = overlay('picker-box create', `${createHeadHtml(o)}
     <div class="ni-ask">What is it?</div>
-    <div class="ni-row"><span class="lbl">Name</span>
-      <input id="ni-name" placeholder="leave it blank and your agent names it" value="${esc(o.name)}" /></div>
-    <div class="ni-row"><span class="lbl">What</span>
-      <input id="ni-desc" placeholder="e.g. keeps the README honest after a batch of features lands" value="${esc(o.desc)}" /></div>
+    <div class="ni-field"><span class="lbl">Name <span class="opt">(leave it blank and your agent names it)</span></span>
+      <input id="ni-name" placeholder="release-scribe" value="${esc(o.name)}" /></div>
+    <div class="ni-field"><span class="lbl">What should it do?</span>
+      <textarea id="ni-desc" placeholder="${descPh}">${esc(o.desc)}</textarea></div>
     <div class="ni-where">it lands in <b>${esc(dir)}</b></div>
     ${knowsLine(o.kind) ? `<div class="ni-where ni-knows">${knowsLine(o.kind)}</div>` : ''}
     <div class="ni-agent" style="margin:10px 18px 0">${worker
@@ -4369,8 +4374,18 @@ function renderCreateStep3(o) {
     S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
     openCard(res.item);
   };
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); descInput.focus(); } });
-  descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); q('#ni-create', modal).onclick(); } });
+  // The description is a writing box now, so Enter belongs to it: a newline,
+  // never a submit — Enter-submits was the reason it could never grow. Build
+  // is ⌘/Ctrl+Enter from either field; a bare Enter on the name still just
+  // moves you into the description.
+  const submitKey = (e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey);
+  nameInput.addEventListener('keydown', (e) => {
+    if (submitKey(e)) { e.preventDefault(); q('#ni-create', modal).onclick(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); descInput.focus(); }
+  });
+  descInput.addEventListener('keydown', (e) => {
+    if (submitKey(e)) { e.preventDefault(); q('#ni-create', modal).onclick(); }
+  });
 }
 
 // ---- improve an existing library item with the user's own agent ------------

@@ -33,6 +33,8 @@ body[data-theme="glass"] {
   --line: rgba(29, 29, 34, 0.16);
   --dash: rgba(29, 29, 34, 0.1);
   --dash-dark: rgba(29, 29, 34, 0.2);
+  --field: #edeff4;                       /* a grey step the frosted sheet can't wash out */
+  --field-line: rgba(29, 29, 34, 0.34);
   --rail: rgba(255, 255, 255, 0.18);
   --hover: rgba(255, 255, 255, 0.55);
   /* menus float over live card text: near-opaque, or the rows ghost through */
@@ -504,6 +506,13 @@ body[data-glass] .card-in, body[data-glass] .lib-search, body[data-glass] .ni-ro
   border-radius: 12px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim);
 }
 body[data-glass] .card-in:focus, body[data-glass] .lib-search:focus, body[data-glass] .agent-pick:focus-visible { border-color: var(--gl-accent); }
+/* create-sheet wells: the family's soft radius and solid rims, on the
+   --field tokens rather than --gl-pane-dim — the dim rim is the faintness
+   this sheet was corrected for. The ruled lines are a paper literal; glass
+   separates by fill. */
+body[data-glass] .ni-field input, body[data-glass] .ni-field textarea { border-radius: 12px; border-style: solid; }
+body[data-glass] .ni-field textarea { background-image: none; }
+body[data-glass] .ni-field input:focus, body[data-glass] .ni-field textarea:focus { border-color: var(--gl-accent); }
 
 /* reading content stays a text face — markdown headings in SF Pro, not dots */
 body[data-glass] .md-read h1, body[data-glass] .md-read h2, body[data-glass] .md-read h3,
