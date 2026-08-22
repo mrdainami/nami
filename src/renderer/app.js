@@ -4321,8 +4321,8 @@ function renderCreateStep3(o) {
     + '&#10;&#10;The more you write here, the better the first draft.';
   const modal = overlay('picker-box create', `${createHeadHtml(o)}
     <div class="ni-ask">What is it?</div>
-    <div class="ni-field"><span class="lbl">Name <span class="opt">(leave it blank and your agent names it)</span></span>
-      <input id="ni-name" placeholder="release-scribe" value="${esc(o.name)}" /></div>
+    <div class="ni-field">
+      <input id="ni-name" placeholder="Name your ${skill ? 'skill' : 'agent'}" value="${esc(o.name)}" /></div>
     <div class="ni-field"><span class="lbl">What should it do?</span>
       <textarea id="ni-desc" placeholder="${descPh}">${esc(o.desc)}</textarea></div>
     <div class="ni-where">it lands in <b>${esc(dir)}</b></div>
