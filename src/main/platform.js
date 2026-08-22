@@ -117,7 +117,9 @@ function windowChrome(platform = process.platform) {
   if (platform === WIN) {
     return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#fffdf6', symbolColor: '#2f2b26', height: 38 } };
   }
-  return { titleBarStyle: 'hiddenInset' };
+  // The sheet is edge-to-edge, so the renderer reserves a 30px lights deck at
+  // the top; y centers the 12px buttons in it (see .lights-deck in paper.css).
+  return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 9 } };
 }
 
 module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs };
