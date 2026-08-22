@@ -1683,6 +1683,10 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
 .ni-field textarea { display: block; resize: none; field-sizing: content; min-height: 118px; max-height: 40vh; overflow-y: auto;
   background-image: repeating-linear-gradient(0deg, transparent 0 21px, rgba(120, 145, 180, 0.10) 21px 22px);
   background-attachment: local; }
+/* the example is the pitch for writing more, so it is never cut: while the
+   placeholder shows, the cap yields; the moment there is real text, 40vh
+   holds and everything past it scrolls */
+.ni-field textarea:placeholder-shown { max-height: none; }
 .picker-box.create .ni-where { font-size: 12px; }
 .picker-box.create .ni-agent { font-size: 12px; }
 
