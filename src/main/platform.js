@@ -118,8 +118,10 @@ function windowChrome(platform = process.platform) {
     return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#fffdf6', symbolColor: '#2f2b26', height: 38 } };
   }
   // The sheet is edge-to-edge, so the renderer reserves a 22px lights deck at
-  // the top; y centers the 12px buttons in it (see .lights-deck in paper.css).
-  return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 5 } };
+  // the top (see .lights-deck in paper.css). y gives the 12px buttons 11px of
+  // air above, Chrome-style; they overhang the deck's foot by 1px, which still
+  // clears the topbar's centred content by ~11px.
+  return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 11 } };
 }
 
 module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs };

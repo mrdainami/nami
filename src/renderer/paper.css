@@ -171,9 +171,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-3); }
     linear-gradient(170deg, var(--sheet-hi) 0%, var(--sheet-lo) 100%);
 }
 /* macOS reserves a slim deck for the traffic lights (positioned by
-   trafficLightPosition in platform.js to sit centred in these 22px); the
-   lockup below it never moves. Native fullscreen hides the lights, so the
-   deck collapses with them. Other platforms have no lights: no deck. */
+   trafficLightPosition in platform.js — 9px of air above the 12px buttons,
+   Chrome-style); the lockup below it never moves. Native fullscreen hides the
+   lights, so the deck collapses with them. Other platforms: no lights, no deck. */
 .lights-deck { display: none; }
 body[data-platform="darwin"] .lights-deck {
   display: block; flex: none; height: 22px;

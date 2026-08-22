@@ -127,10 +127,10 @@ test('binSearchDirs survives being called with nothing', () => {
   assert.doesNotThrow(() => binSearchDirs());
 });
 
-test('mac centres the traffic lights in the 22px lights deck', () => {
+test('mac gives the traffic lights Chrome-style air over the 22px deck', () => {
   assert.deepEqual(windowChrome('darwin'), {
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 5 },
+    trafficLightPosition: { x: 16, y: 11 },
   });
 });
 
