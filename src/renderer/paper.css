@@ -230,6 +230,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;
+  /* min-width 0 so the chip shrinks with the centre track instead of wrapping
+     its name and spilling over the LIVE badge at compact widths */
+  min-width: 0; max-width: 100%;
   padding: 7px 14px;
   background: var(--paper); border: 1px solid var(--line);
   box-shadow: 2px 2px 0 rgba(90, 72, 44, 0.18);
@@ -238,8 +241,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .project-chip:hover { box-shadow: 3px 3px 0 rgba(90, 72, 44, 0.28); }
 /* the same hand-cut folder the workspace tree wears, sized up for the chrome */
 .folder-glyph { display: flex; color: var(--tree-ink); }
+.project-chip .folder-glyph, .project-chip .caret { flex: none; }
 .project-chip .folder-glyph svg { width: 17px; height: 15px; }
-.project-chip .name { font-size: 13px; font-weight: 700; }
+.project-chip .name { font-size: 13px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chip .path { font-size: 11.5px; color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chip .caret { font-size: 10px; color: var(--muted-3); }
 
