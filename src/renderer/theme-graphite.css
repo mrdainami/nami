@@ -18,6 +18,8 @@ body[data-theme="graphite"] {
   --line: rgba(255, 255, 255, 0.24);
   --dash: rgba(255, 255, 255, 0.17);
   --dash-dark: rgba(255, 255, 255, 0.2);
+  --field: rgba(13, 14, 19, 0.38);        /* wells sink darker; a light wash would flatten into the sheet */
+  --field-line: rgba(255, 255, 255, 0.34);
   --rail: rgba(30, 31, 38, 0.3);
   --hover: rgba(255, 255, 255, 0.08);
   /* menus float over live card text: near-solid, darker than the pane —
