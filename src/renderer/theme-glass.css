@@ -664,3 +664,15 @@ body[data-glass] .qs-box {
   backdrop-filter: blur(16px) saturate(1.5);
   border: 1px solid var(--gl-rim);
 }
+
+/* The topbar's drop ladder (foot of paper.css) hides ? and the cog on narrow
+   windows, but the icon-button restyle above sets display: grid at
+   body[data-glass] #id specificity, which outguns the media queries' plain
+   .btn-set / #btn-help selectors. Restate the hides here at the same
+   specificity, later in the cascade, so the ladder wins in glass too. */
+@media (max-width: 820px) {
+  body[data-glass] #btn-settings { display: none; }
+}
+@media (max-width: 720px) {
+  body[data-glass] #btn-help { display: none; }
+}
