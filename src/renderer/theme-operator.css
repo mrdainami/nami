@@ -26,6 +26,8 @@ body[data-theme="operator"] {
   --line: #424242;
   --dash: #3a3a3a;
   --dash-dark: #4f4f4f;
+  --field: #151515;          /* wells sink below the panel; operator steps surfaces, never glows */
+  --field-line: #5f5f5f;
   --rail: #161616;
   --hover: #2c2c2c;
   --menu-sheet: #1f1f1f; /* opaque paper — menus need no extra fill here */
@@ -291,6 +293,8 @@ body[data-theme="operator"] .link-chip { border-radius: 4px; }
 body[data-theme="operator"] .link-chip:hover { box-shadow: none; border-color: var(--op-accent); color: var(--op-accent-hi); }
 body[data-theme="operator"] .card-in, body[data-theme="operator"] .lib-search,
 body[data-theme="operator"] .ni-row input { border-radius: 5px; }
+body[data-theme="operator"] .ni-field input, body[data-theme="operator"] .ni-field textarea { border-radius: 5px; }
+body[data-theme="operator"] .ni-field input:focus, body[data-theme="operator"] .ni-field textarea:focus { border-color: var(--op-accent); }
 body[data-theme="operator"] .card-in:focus, body[data-theme="operator"] .lib-search:focus { border-color: var(--op-accent); }
 
 /* viewers */
