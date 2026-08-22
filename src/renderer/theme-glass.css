@@ -128,8 +128,9 @@ body[data-glass] {
   --gl-dot: 'Doto', 'SF Mono', ui-monospace, monospace;
   --gl-pop: cubic-bezier(0.22, 1.28, 0.36, 1);
   /* the sheet's corner, named once: the overlay scrim has to trace the same
-     curve or it reads as a square dropped on a rounded workbench */
-  --gl-sheet-r: 26px;
+     curve or it reads as a square dropped on a rounded workbench. 0 since the
+     sheet went edge-to-edge — the scrim's calc(0 - 1px) clamps back to 0. */
+  --gl-sheet-r: 0px;
   font-family: var(--gl-sans);
   letter-spacing: -0.01em;
   /* pixel cursor — ink arrow at rest */
@@ -159,9 +160,9 @@ body[data-glass] .sheet {
   background: var(--sheet-hi);
   -webkit-backdrop-filter: blur(8px) saturate(1.25);
   backdrop-filter: blur(8px) saturate(1.25);
-  border: 1px solid var(--gl-rim-dim);
   border-radius: var(--gl-sheet-r);
-  box-shadow: inset 0 1.5px 0 var(--gl-lip), inset 0 -18px 44px rgb(var(--gl-sh) / 0.08), 0 40px 100px rgb(var(--gl-sh) / 0.22);
+  /* edge-to-edge: no rim, no outer throw — only the inner lip survives */
+  box-shadow: inset 0 1.5px 0 var(--gl-lip), inset 0 -18px 44px rgb(var(--gl-sh) / 0.08);
 }
 
 /* ---- type: identity in dots, reading in SF Pro ----------------------------- */
