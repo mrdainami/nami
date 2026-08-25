@@ -196,6 +196,7 @@ export function mountChatPane(p, rec, hooks) {
     },
     getState: () => state,
     refresh: syncChips,
+    openTerminal: () => { if (hooks.terminal) hooks.terminal(p); },
   });
 
   // ---- transport over the preload bridge -----------------------------------

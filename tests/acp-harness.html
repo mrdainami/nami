@@ -13,6 +13,8 @@
 <div id="stage"></div>
 <script src="harness-data.js"></script>
 <script type="module">
+window.onerror = (m, src, line) => { document.getElementById('results').textContent = 'JSERR: ' + m + ' @ ' + (src||'').split('/').pop() + ':' + line; };
+window.addEventListener('unhandledrejection', (e) => { document.getElementById('results').textContent = 'REJ: ' + e.reason; });
 import { normalizeUpdate } from '../src/renderer/acp-client.mjs';
 import { createTranscript } from '../src/renderer/acp-render.mjs';
 import { createComposer } from '../src/renderer/acp-composer.mjs';
@@ -183,7 +185,7 @@ rbox.className = 'fixture'; rbox.style.height = '380px';
 rbox.innerHTML = '<h2>router</h2><div style="height:240px"></div><div class="rhost"></div>';
 stage.appendChild(rbox);
 const rcomp = createComposer(rbox.querySelector('.rhost'), {});
-const fakeTranscript = { note: (t) => rcalls.notes.push(t), error: () => {} };
+const fakeTranscript = { note: (t) => rcalls.notes.push(t), error: () => {}, action: (t, label) => rcalls.notes.push(t + ' [' + label + ']') };
 const route = createCommandRouter({
   transcript: fakeTranscript,
   composer: rcomp,
@@ -206,8 +208,8 @@ rpop.hidden = true;
 route('compact');
 ok('router: advertised command sends as a turn', rcalls.prompts.length === 1 && rcalls.prompts[0] === '/compact');
 route('doesnotexist');
-ok('router: unlisted command notes then still sends',
-  rcalls.prompts[1] === '/doesnotexist' && rcalls.notes.some((n) => n.includes('anyway')));
+ok('router: unlisted command offers the terminal, never auto-sends',
+  rcalls.prompts.length === 1 && rcalls.notes.some((n) => n.includes('[Open terminal]')));
 
 const fails = out.filter((l) => l.startsWith('FAIL')).length;
 document.getElementById('results').textContent =

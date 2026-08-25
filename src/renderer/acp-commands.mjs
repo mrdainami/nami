@@ -60,11 +60,13 @@ export function createCommandRouter(ctx) {
     if (name === 'config' || name === 'settings') { openSettings(); return; }
     if (name === 'resume' && ctx.resume) { ctx.resume(); return; }
     const known = (st.commands || []).some((c) => c.name === name);
-    if (['model', 'mode', 'effort'].includes(name) && !co) {
-      ctx.transcript.note('This agent doesn’t expose ' + name + ' switching here yet — sending /' + name + ' as a command instead.');
-    } else if (!known) {
-      ctx.transcript.note('/' + name + ' isn’t one of this agent’s commands — sending it anyway.');
-    }
-    ctx.sendPrompt('/' + name);
+    if (known) { ctx.sendPrompt('/' + name); return; }
+    // not on this agent's wire — never pretend, never dead-end
+    ctx.transcript.action(
+      ['model', 'mode', 'effort'].includes(name)
+        ? 'This agent doesn’t support ' + name + ' switching in chat yet.'
+        : '/' + name + ' isn’t available in chat for this agent.',
+      'Open terminal',
+      () => { if (ctx.openTerminal) ctx.openTerminal(); });
   };
 }

@@ -2075,6 +2075,15 @@ function bumpDocFont(dir, p) {
   toast('This file · ' + Math.round(next * 100) + '%');
 }
 
+function spawnTerminalTwin(p) {
+  const a = (S.agents || []).find((x) => x.id === p.agentId);
+  if (p.agentId === 'claude' || (a && a.kind === 'claude')) {
+    startPanel({ kind: 'claude', title: 'Claude session', code: 'CC', cwd: p.cwd });
+    return;
+  }
+  if (!a || !a.bin) { toast('Open it from ⌘N — new session, pick the agent.'); return; }
+  startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin, cwd: p.cwd });
+}
 function adoptChatTitle(p, title) {
   if (p.titleSource === 'user') return;
   p.title = shorten(String(title), 60);
@@ -2156,7 +2165,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead }); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {

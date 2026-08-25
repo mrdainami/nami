@@ -13,12 +13,12 @@ export function createComposer(host, o) {
   host.innerHTML = `
     <div class="cw-att" hidden></div>
     <div class="cw-inrow">
+      <button class="cw-plus" title="Files, commands and skills">＋</button>
       <textarea class="cw-in" rows="1" spellcheck="false" placeholder="Write a message…"></textarea>
       <button class="cw-send" title="Send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       <button class="cw-stopbtn" hidden title="Stop">■</button>
     </div>
     <div class="cw-tools">
-      <button class="cw-plus" title="Files, commands and skills">＋</button>
       <button class="cw-tool cw-mode" hidden title="Mode — ⇧⇥ cycles"><span>◈</span> <b></b></button>
       <button class="cw-tool cw-model" hidden title="Model"><span>☰</span> <b></b></button>
       <span class="cw-ctx" hidden title="Context used">ctx <b></b></span>

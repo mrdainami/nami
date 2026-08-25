@@ -225,6 +225,12 @@ export function createTranscript(container, opts) {
       block(`<div class="cw-u">${mdBlocks(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
     },
     note(text) { block(`<div class="cw-hint">${mdInline(text)}</div>`); },
+    action(text, label, cb) {
+      const el = block(`<div class="cw-hint cw-action">${mdInline(text)} <button class="cw-act-btn"></button></div>`);
+      const b = el.querySelector('.cw-act-btn');
+      b.textContent = label;
+      b.onclick = (e) => { e.stopPropagation(); cb(); };
+    },
     error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
     permission(params, answer, onRetire) {
       closeStreams();
