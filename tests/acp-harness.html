@@ -16,6 +16,7 @@
 import { normalizeUpdate } from '../src/renderer/acp-client.mjs';
 import { createTranscript } from '../src/renderer/acp-render.mjs';
 import { createComposer } from '../src/renderer/acp-composer.mjs';
+import { createCommandRouter } from '../src/renderer/acp-commands.mjs';
 
 const out = [];
 const ok = (name, cond) => out.push((cond ? 'PASS' : 'FAIL') + ' · ' + name);
@@ -160,6 +161,44 @@ ok('composer: busy shows stop, hides send', !cbox.querySelector('.cw-stopbtn').h
 cbox.querySelector('.cw-stopbtn').click();
 ok('composer: stop routes', ccalls.stop === 1);
 comp.setBusy(false);
+
+// ---- command router assertions ----------------------------------------------
+const sessionResult = (() => {
+  for (const e of window.FIXTURES.chat) {
+    if (e.dir === 'recv' && e.msg.id === 2 && e.msg.result) return e.msg.result;
+  }
+})();
+const rcalls = { prompts: [], sets: [], notes: [] };
+const rbox = document.createElement('div');
+rbox.className = 'fixture'; rbox.style.height = '380px';
+rbox.innerHTML = '<h2>router</h2><div style="height:240px"></div><div class="rhost"></div>';
+stage.appendChild(rbox);
+const rcomp = createComposer(rbox.querySelector('.rhost'), {});
+const fakeTranscript = { note: (t) => rcalls.notes.push(t), error: () => {} };
+const route = createCommandRouter({
+  transcript: fakeTranscript,
+  composer: rcomp,
+  sendPrompt: (t) => rcalls.prompts.push(t),
+  setConfigOption: async (id, v) => { rcalls.sets.push([id, v]); },
+  getState: () => ({ commands: [{ name: 'compact' }, { name: 'cost' }], configOptions: sessionResult.configOptions, modes: sessionResult.modes }),
+});
+const rpop = rbox.querySelector('.cw-pop');
+route('model');
+ok('router: /model opens native picker from real session data',
+  !rpop.hidden && rpop.querySelectorAll('.sel').length >= 4 && rpop.textContent.includes('Sonnet'));
+ok('router: current model marked', !!rpop.querySelector('.sel.on'));
+[...rpop.querySelectorAll('.sel')].find((r) => r.textContent.includes('Sonnet')).click();
+await new Promise((r) => setTimeout(r, 10));
+ok('router: picking applies the typed setting, not a chat turn',
+  rcalls.sets.length === 1 && rcalls.sets[0][0] === 'model' && rcalls.prompts.length === 0);
+route('config');
+ok('router: /config opens the settings list', !rpop.hidden && rpop.textContent.includes('Model') && rpop.textContent.includes('Mode'));
+rpop.hidden = true;
+route('compact');
+ok('router: advertised command sends as a turn', rcalls.prompts.length === 1 && rcalls.prompts[0] === '/compact');
+route('doesnotexist');
+ok('router: unlisted command notes then still sends',
+  rcalls.prompts[1] === '/doesnotexist' && rcalls.notes.some((n) => n.includes('anyway')));
 
 const fails = out.filter((l) => l.startsWith('FAIL')).length;
 document.getElementById('results').textContent =

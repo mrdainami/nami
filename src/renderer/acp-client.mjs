@@ -65,6 +65,7 @@ export function createAcpClient(transport, handlers) {
       return call('session/prompt', { sessionId, prompt: [{ type: 'text', text }] });
     },
     setMode(modeId) { return call('session/set_mode', { sessionId, modeId }); },
+    setConfigOption(configId, value) { return call('session/set_config_option', { sessionId, configId, value }); },
     cancel() { transport.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); },
     kill() { transport.kill(); },
     get sessionId() { return sessionId; },

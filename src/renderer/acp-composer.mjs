@@ -131,8 +131,19 @@ export function createComposer(host, o) {
   });
   document.addEventListener('click', closeMenu);
 
+  function openSelect(title, rows, cb) {
+    popEl.innerHTML = '<div class="hd">' + esc(title) + '</div>' +
+      rows.map((r, i) => '<button class="r sel' + (r.current ? ' on' : '') + '" data-i="' + i + '"><b>' + esc(r.name) + '</b><span>' + esc((r.description || '').slice(0, 48)) + '</span></button>').join('');
+    popEl.style.maxHeight = menuHeight() + 'px';
+    popEl.hidden = false;
+    popEl.querySelectorAll('.sel').forEach((r) => {
+      r.onclick = (e) => { e.stopPropagation(); popEl.hidden = true; cb(rows[+r.dataset.i]); };
+    });
+  }
+
   return {
     input,
+    openSelect,
     attach,
     focus: () => input.focus(),
     setCommands: (list) => { commands = list || []; },
