@@ -3821,10 +3821,13 @@ function renderLauncher() {
       if (demoAcp) {
         if (e.target.closest('.lc-alt')) { launch(); return; }
         closeOverlay();
-        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name + ' \u2014 cowork', cwd: (S.project && S.project.path) || '~', status: 'live', started: true, attention: true };
+        // claude goes LIVE \u2014 real ACP through the official adapter
+        const live = a.id === 'claude';
+        const liveCwd = decodeURIComponent(new URL('../../demo-assets/', location.href).pathname).replace(/\/$/, '');
+        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name + (live ? ' \u2014 LIVE acp' : ' \u2014 cowork'), cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: !live, acpLive: live };
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();
-        toast(a.name + ' started in cowork view (prototype)');
+        toast(live ? 'Claude Code connecting over ACP \u2014 real session' : a.name + ' started in cowork view (prototype)');
         return;
       }
       launch();

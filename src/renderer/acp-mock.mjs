@@ -50,6 +50,7 @@ const CAPS = {
 };
 
 export function mountAcpMock(p, rec, hooks) {
+  if (p.acpLive) return mountAcpLive(p, rec, hooks);
   const A = DEMO_ASSETS;
   const body = rec.body;
   body.classList.add('cw-body');
@@ -370,4 +371,292 @@ export function mountAcpMock(p, rec, hooks) {
   userTurn('refactor the auth module, keep the API stable');
   thought('Three public exports. Refactor passkey.ts first, keep signatures; visual check after.');
   say('On it — plan first, then the passkey flow. Try anything from the card above while I work.');
+}
+
+
+// ============================================================================
+//  LIVE — real Claude Code over ACP (official adapter). The renderer IS the
+//  ACP client: JSON-RPC over the main-process stdio bridge. Nothing canned.
+// ============================================================================
+const ADAPTER_BIN = decodeURIComponent(new URL('../../acp-tools/node_modules/.bin/claude-agent-acp', location.href).pathname);
+
+export function mountAcpLive(p, rec, hooks) {
+  const api = window.dainami;
+  const body = rec.body;
+  body.classList.add('cw-body');
+  body.innerHTML = `
+    <div class="cw-scroll"></div>
+    <div class="cw-comp">
+      <div class="cw-att" hidden></div>
+      <div class="cw-inrow">
+        <textarea class="cw-in" rows="1" spellcheck="false" placeholder="Write a message…"></textarea>
+        <button class="cw-send" title="Send">↑</button>
+      </div>
+      <div class="cw-tools">
+        <button class="cw-plus" title="commands — or type /">＋</button>
+        <button class="cw-tool cw-mode" hidden title="permission mode — ⇧⇥ cycles">◈ <b></b></button>
+        <button class="cw-tool cw-stop" hidden title="interrupt">■ stop</button>
+        <span class="cw-live-st">connecting…</span>
+        <span class="cw-drop">⇣ live session — real Claude Code over ACP</span>
+      </div>
+      <div class="cw-pop" hidden></div>
+    </div>`;
+
+  const scroll = body.querySelector('.cw-scroll');
+  const input = body.querySelector('.cw-in');
+  const popEl = body.querySelector('.cw-pop');
+  const modeWrap = body.querySelector('.cw-mode');
+  const modeBtn = modeWrap.querySelector('b');
+  const stopBtn = body.querySelector('.cw-stop');
+  const statEl = body.querySelector('.cw-live-st');
+  rec.aiInput = input;
+
+  const toBottom = () => requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
+  function block(html, cls) {
+    const el = document.createElement('div');
+    el.className = 'cw-blk' + (cls ? ' ' + cls : '');
+    el.innerHTML = html;
+    scroll.appendChild(el); toBottom();
+    return el;
+  }
+  function mdText(text) {
+    return esc(text)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  }
+  function hint(t) { block(`<div class="cw-hint">${mdText(t)}</div>`); }
+
+  // ---- streaming assembly: chunks append to the open block ------------------
+  let openMsg = null, openThought = null;
+  function closeStreams() { openMsg = null; openThought = null; }
+  function msgChunk(text) {
+    openThought = null;
+    if (!openMsg) { openMsg = block('<div class="cw-a"></div>').querySelector('.cw-a'); openMsg._raw = ''; }
+    openMsg._raw += text;
+    openMsg.innerHTML = mdText(openMsg._raw);
+    toBottom();
+  }
+  function thoughtChunk(text) {
+    openMsg = null;
+    if (!openThought) {
+      const el = block(`<button class="cw-think"><span class="tw">▾ thinking…</span></button><div class="cw-think-body"></div>`);
+      const btn = el.querySelector('.cw-think'), bd = el.querySelector('.cw-think-body');
+      btn.onclick = (e) => { e.stopPropagation(); bd.hidden = !bd.hidden; };
+      openThought = bd; openThought._raw = ''; openThought._btn = btn;
+    }
+    openThought._raw += text;
+    openThought.innerHTML = mdText(openThought._raw);
+    toBottom();
+  }
+
+  // ---- tool calls -----------------------------------------------------------
+  const tools = new Map();
+  function toolBlock(u) {
+    closeStreams();
+    const kind = (u.kind || 'tool').toUpperCase();
+    const el = block(`<div class="cw-card"><div class="cw-card-hd"><span class="k">${esc(kind)}</span> <span class="f">${esc(u.title || '')}</span><span class="cw-run">running…</span></div><div class="cw-tool-body"></div></div>`);
+    el.querySelector('.cw-card-hd').addEventListener('click', () => {
+      const b = el.querySelector('.cw-tool-body'); b.hidden = !b.hidden;
+    });
+    tools.set(u.toolCallId, el);
+    toolContent(el, u);
+    toolStatus(el, u.status);
+  }
+  function toolStatus(el, status) {
+    if (!status) return;
+    const run = el.querySelector('.cw-run');
+    if (status === 'completed') { run.textContent = '✓ done'; run.classList.add('ok'); }
+    else if (status === 'failed') { run.textContent = '✗ failed'; run.classList.add('bad'); }
+    else run.textContent = status + '…';
+  }
+  function toolContent(el, u) {
+    if (!u.content) return;
+    const bd = el.querySelector('.cw-tool-body');
+    for (const c of u.content) {
+      if (c.type === 'diff') {
+        const oldLines = (c.oldText || '').split('\n').slice(0, 30);
+        const newLines = (c.newText || '').split('\n').slice(0, 30);
+        bd.insertAdjacentHTML('beforeend',
+          `<div class="cw-diff-path">${esc(c.path || '')}</div><pre class="cw-diff">` +
+          oldLines.map((l) => `<span class="d">- ${esc(l)}</span>`).join('') +
+          newLines.map((l) => `<span class="a">+ ${esc(l)}</span>`).join('') + '</pre>');
+      } else if (c.type === 'content' && c.content && c.content.type === 'text') {
+        bd.insertAdjacentHTML('beforeend', `<pre class="cw-bash">${esc(c.content.text.slice(0, 4000))}</pre>`);
+      } else if (c.type === 'terminal') {
+        bd.insertAdjacentHTML('beforeend', `<pre class="cw-bash">[terminal output]</pre>`);
+      }
+    }
+    toBottom();
+  }
+
+  // ---- plan -----------------------------------------------------------------
+  let planEl = null;
+  function renderPlan(entries) {
+    closeStreams();
+    const done = entries.filter((x) => x.status === 'completed').length;
+    const html = `<div class="cw-card cw-plan"><div class="cw-card-hd"><span class="k">PLAN</span><span class="f">${done}/${entries.length}</span></div>
+      <ul>${entries.map((x) => `<li class="${x.status === 'completed' ? 'don' : 'tod'}${x.status === 'in_progress' ? ' cur' : ''}">${esc(x.content)}</li>`).join('')}</ul></div>`;
+    if (planEl) { planEl.innerHTML = html; } else { planEl = block(html); }
+    toBottom();
+  }
+
+  // ---- JSON-RPC client ------------------------------------------------------
+  let nextId = 1; const pending = new Map();
+  let sessionId = null; let commands = []; let modes = null;
+  let running = false;
+  function rpc(method, params) {
+    const id = nextId++;
+    api.acpSend({ id: p.id, payload: { jsonrpc: '2.0', id, method, params } });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  }
+  function respond(id, result) { api.acpSend({ id: p.id, payload: { jsonrpc: '2.0', id, result } }); }
+  function respondErr(id, code, message) { api.acpSend({ id: p.id, payload: { jsonrpc: '2.0', id, error: { code, message } } }); }
+
+  const offMsg = api.onAcpMsg(({ id, msg }) => {
+    if (id !== p.id) return;
+    // responses to our calls
+    if (msg.id !== undefined && !msg.method) {
+      const pd = pending.get(msg.id);
+      if (pd) { pending.delete(msg.id); msg.error ? pd.reject(msg.error) : pd.resolve(msg.result); }
+      return;
+    }
+    // requests + notifications from the agent
+    if (msg.method === 'session/update') { onUpdate(msg.params.update || msg.params); return; }
+    if (msg.method === 'session/request_permission') { onPermission(msg); return; }
+    if (msg.method === 'fs/read_text_file' || msg.method === 'fs/write_text_file') { respondErr(msg.id, -32601, 'fs not granted'); return; }
+    if (msg.id !== undefined) respondErr(msg.id, -32601, 'not supported by this prototype');
+  });
+  api.onAcpErr(({ id, text }) => { if (id === p.id && text.trim()) console.warn('[acp]', text.trim()); });
+  api.onAcpExit(({ id, code }) => {
+    if (id !== p.id) return;
+    statEl.textContent = 'agent exited (' + code + ')';
+    hint('**agent process exited** — code ' + code + '. Restart the pane to reconnect.');
+  });
+
+  function onUpdate(u) {
+    switch (u.sessionUpdate) {
+      case 'agent_message_chunk': if (u.content && u.content.type === 'text') msgChunk(u.content.text); break;
+      case 'agent_thought_chunk': if (u.content && u.content.type === 'text') thoughtChunk(u.content.text); break;
+      case 'user_message_chunk': break;
+      case 'tool_call': toolBlock(u); break;
+      case 'tool_call_update': {
+        const el = tools.get(u.toolCallId);
+        if (el) { toolStatus(el, u.status); toolContent(el, u); }
+        break;
+      }
+      case 'plan': renderPlan(u.entries || []); break;
+      case 'available_commands_update':
+        commands = (u.availableCommands || []).map((c) => [ '/' + c.name, c.description || '' ]);
+        statEl.textContent = commands.length + ' commands live';
+        break;
+      case 'current_mode_update':
+        if (modes) { modes.currentModeId = u.currentModeId; syncMode(); }
+        break;
+      default: break;
+    }
+  }
+  function onPermission(msg) {
+    closeStreams();
+    if (hooks.wake) hooks.wake(p);
+    const prm = msg.params;
+    const title = (prm.toolCall && prm.toolCall.title) || 'permission';
+    const opts = prm.options || [];
+    const el = block(`<div class="cw-perm"><div class="q">CLAUDE WANTS TO</div><code>${esc(title)}</code>
+      <div class="row">${opts.map((o, i) => `<button class="cw-btn ${o.kind && o.kind.startsWith('allow') ? 'ap' : 'no'}" data-i="${i}">${esc(o.name)}</button>`).join('')}</div></div>`);
+    el.querySelectorAll('.cw-btn').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        const o = opts[+b.dataset.i];
+        respond(msg.id, { outcome: { outcome: 'selected', optionId: o.optionId } });
+        el.querySelector('.cw-perm').outerHTML = `<div class="cw-settle ${o.kind && o.kind.startsWith('allow') ? 'ok' : ''}">${esc(title)} — ${esc(o.name)}</div>`;
+        if (hooks.settled) hooks.settled(p);
+      };
+    });
+  }
+  function syncMode() {
+    if (!modes || !modes.availableModes || !modes.availableModes.length) { modeWrap.hidden = true; return; }
+    modeWrap.hidden = false;
+    const cur = modes.availableModes.find((m) => m.id === modes.currentModeId);
+    modeBtn.textContent = cur ? cur.name : modes.currentModeId;
+  }
+
+  // ---- boot -----------------------------------------------------------------
+  (async () => {
+    const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: ADAPTER_BIN, args: [] });
+    if (!started.ok) { statEl.textContent = 'spawn failed'; hint('**could not start the adapter** — ' + esc(started.error || '')); return; }
+    try {
+      statEl.textContent = 'initializing…';
+      await rpc('initialize', {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      });
+      statEl.textContent = 'new session…';
+      const r = await rpc('session/new', { cwd: p.cwd, mcpServers: [] });
+      sessionId = r.sessionId;
+      if (r.modes) { modes = r.modes; syncMode(); }
+      statEl.textContent = 'ready';
+      hint('**live** — real Claude Code over ACP in `' + esc(p.cwd) + '`. Type anything; / lists the commands the agent just advertised.');
+    } catch (err) {
+      statEl.textContent = 'error';
+      hint('**' + esc((err && err.message) || 'connect failed') + '** — if this is auth, run `claude` once in a terminal and sign in, then restart the pane.');
+    }
+  })();
+
+  async function send() {
+    const v = input.value.trim();
+    if (!v || !sessionId || running) return;
+    input.value = ''; input.style.height = 'auto'; popEl.hidden = true;
+    closeStreams();
+    block(`<div class="cw-u">${esc(v)}</div>`);
+    running = true; stopBtn.hidden = false; statEl.textContent = 'working…';
+    try {
+      const r = await rpc('session/prompt', { sessionId, prompt: [{ type: 'text', text: v }] });
+      statEl.textContent = 'ready · ' + ((r && r.stopReason) || 'end');
+    } catch (err) {
+      hint('**prompt failed** — ' + esc((err && err.message) || ''));
+      statEl.textContent = 'ready';
+    }
+    running = false; stopBtn.hidden = true; closeStreams();
+  }
+  stopBtn.onclick = (e) => { e.stopPropagation(); if (sessionId) api.acpSend({ id: p.id, payload: { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } } }); };
+
+  function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
+  function openCmdMenu(filter) {
+    const rows = commands.filter(([n]) => !filter || n.startsWith(filter));
+    if (!rows.length) { popEl.hidden = true; return; }
+    popEl.innerHTML = '<div class="hd">COMMANDS · advertised live by claude</div>' +
+      rows.map(([n, t]) => `<button class="r" data-n="${esc(n)}"><b>${esc(n)}</b><span>${esc(t.slice(0, 46))}</span></button>`).join('') +
+      '<div class="ft">picked straight off available_commands_update — nothing hardcoded</div>';
+    popEl.style.maxHeight = Math.max(140, Math.min(340, scroll.clientHeight - 36)) + 'px';
+    popEl.hidden = false;
+    popEl.querySelectorAll('.r').forEach((r) => {
+      r.onclick = (e) => { e.stopPropagation(); popEl.hidden = true; input.value = r.dataset.n + ' '; input.focus(); };
+    });
+  }
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) { e.preventDefault(); send(); return; }
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      if (modes && modes.availableModes && modes.availableModes.length) {
+        const ms = modes.availableModes;
+        const i = ms.findIndex((m) => m.id === modes.currentModeId);
+        const nextMode = ms[(i + 1) % ms.length];
+        rpc('session/set_mode', { sessionId, modeId: nextMode.id }).then(() => { modes.currentModeId = nextMode.id; syncMode(); }).catch(() => {});
+      }
+    }
+    if (e.key === 'Escape') popEl.hidden = true;
+  });
+  input.addEventListener('input', () => {
+    grow();
+    const v = input.value;
+    if (v.startsWith('/') && !v.includes(' ') && !v.includes('\n')) openCmdMenu(v);
+    else popEl.hidden = true;
+  });
+  body.querySelector('.cw-send').onclick = (e) => { e.stopPropagation(); send(); };
+  body.querySelector('.cw-plus').onclick = (e) => { e.stopPropagation(); popEl.hidden ? openCmdMenu() : (popEl.hidden = true); };
+  document.addEventListener('click', () => { popEl.hidden = true; });
+
+  rec.disposeRo = () => { offMsg && offMsg(); api.acpKill({ id: p.id }); };
 }

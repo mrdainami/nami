@@ -2153,3 +2153,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-card-hd { cursor: pointer; user-select: none; }
 .cw-wiretog { display: none; }
 .cw-in { resize: none; overflow-y: auto; max-height: 120px; line-height: 1.5; font-family: inherit; }
+.cw-live-st { font-size: 10.5px; color: var(--green-ok); border: 1px dashed var(--dash); border-radius: 7px; padding: 3px 8px; }
+.cw-stop { color: var(--red-ink); border-color: var(--red-line); }
+.cw-diff-path { font-size: 10.5px; color: var(--muted); padding: 5px 12px 0; }
+.cw-tool-body { min-width: 0; }

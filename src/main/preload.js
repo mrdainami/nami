@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('dainami', {
   sttPrepare: () => ipcRenderer.invoke('stt:prepare'),
   onSttProgress: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('stt:progress', h); return () => ipcRenderer.removeListener('stt:progress', h); },
 
+  acpStart: (args) => ipcRenderer.invoke('acp:start', args),
+  acpSend: (args) => ipcRenderer.invoke('acp:send', args),
+  acpKill: (args) => ipcRenderer.invoke('acp:kill', args),
+  onAcpMsg: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('acp:msg', h); return () => ipcRenderer.removeListener('acp:msg', h); },
+  onAcpErr: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('acp:err', h); return () => ipcRenderer.removeListener('acp:err', h); },
+  onAcpExit: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('acp:exit', h); return () => ipcRenderer.removeListener('acp:exit', h); },
   savePanels: (args) => ipcRenderer.invoke('panels:save', args),
   loadPanels: (folder) => ipcRenderer.invoke('panels:load', folder),
   recentsPin: (path, pinned) => ipcRenderer.invoke('recents:pin', { path, pinned }),

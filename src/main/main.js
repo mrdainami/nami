@@ -9,6 +9,7 @@ const fs = require('fs');
 const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { wireAcpLive } = require('./acp-live');
 const { agentForCommand, resumeCommand, sessionExists, startDiscovery } = require('./agent-resume.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
@@ -522,6 +523,8 @@ app.on('quit', () => {
 // reload while the renderer's counter restarts, so a reloaded window would
 // collide with the sessions it just left behind.
 let bootSeq = 0;
+
+wireAcpLive(ipcMain);
 
 ipcMain.handle('boot', (e) => {
   // each window boots with its own folder; fresh windows fall back to the last-used one
