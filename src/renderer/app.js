@@ -2013,6 +2013,7 @@ function bumpTermFont(dir, p) {
   p.fontSize = next;
   savePanels();
   if (rec && rec.term) { rec.term.options.fontSize = next; markFit(rec); }
+  else if (p.kind === 'acp' && rec) rec.body.style.zoom = String(next / defaultTermFont());
   toast('This session · ' + next + 'px');
 }
 // ---- document text size ------------------------------------------------------
@@ -3431,6 +3432,13 @@ async function pasteDictation(p) {
 function injectToSession(p, text) {
   if (!text) return;
   focusPanel(p.id, false);
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id); if (!t || !t.aiInput) return;
+    t.aiInput.value += (t.aiInput.value && !t.aiInput.value.endsWith(' ') ? ' ' : '') + text;
+    t.aiInput.dispatchEvent(new Event('input'));
+    t.aiInput.focus();
+    return;
+  }
   if (p.kind === 'editor') {
     const t = tileEls.get(p.id); if (!t || !t.ta) return;
     // Same reason as the Tab key: assigning ta.value costs the undo stack, and

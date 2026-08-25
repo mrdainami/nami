@@ -330,7 +330,7 @@ export function mountAcpMock(p, rec, hooks) {
       '<div class="hd">SKILLS \u00b7 from your Library</div>' +
       CAPS.skills.map(([n, t]) => '<button class="r" data-sk="' + n + '"><b>\u2726 ' + n + '</b><span>' + t + '</span></button>').join('') +
       '<div class="ft">greyed rows are TUI-only \u2014 the real pane never shows them, so no dead ends</div>';
-    popEl.style.maxHeight = Math.max(140, Math.min(340, scroll.clientHeight + 4)) + 'px';
+    popEl.style.maxHeight = Math.max(140, Math.min(340, scroll.clientHeight - 36)) + 'px';
     popEl.hidden = false;
     popEl.querySelector('.files').onclick = (e) => { e.stopPropagation(); popEl.hidden = true; fileInput.click(); };
     popEl.querySelectorAll('.r[data-n]').forEach((r) => {
