@@ -17,6 +17,8 @@ const AGENT_LAUNCH = {
   kimi: { command: 'kimi', args: ['acp'] },
   codex: { command: 'npx', args: ['-y', '@zed-industries/codex-acp'] },
   opencode: { command: 'opencode', args: ['acp'] },
+  grok: { command: 'grok', args: ['agent', 'stdio'] },
+  hermes: { command: 'hermes', args: ['acp'] },
 };
 export const CHAT_READY = Object.keys(AGENT_LAUNCH);
 

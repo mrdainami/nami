@@ -3832,13 +3832,12 @@ function renderLauncher() {
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
-      tail.innerHTML = '<span class="lc-badge">CHAT</span><span class="lc-alt">as terminal \u21a9</span>';
+      tail.innerHTML = '<button class="lc-chat">Open as Chat</button>';
       row.appendChild(tail);
     }
     row.onclick = async (e) => {
       if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
-      if (demoAcp) {
-        if (e.target.closest('.lc-alt')) { launch(); return; }
+      if (demoAcp && e.target.closest('.lc-chat')) {
         closeOverlay();
         // claude goes LIVE \u2014 real ACP through the official adapter
         const live = CHAT_READY.includes(a.id);

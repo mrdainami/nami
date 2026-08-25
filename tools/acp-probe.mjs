@@ -13,11 +13,10 @@ const CWD = path.join(ROOT, 'demo-assets');
 const AGENTS = [
   { id: 'claude', cmd: path.join(ROOT, 'acp-tools/node_modules/.bin/claude-agent-acp'), args: [] },
   { id: 'kimi', cmd: 'kimi', args: ['acp'] },
-  { id: 'kimi --acp', cmd: 'kimi', args: ['--acp'] },
   { id: 'codex', cmd: 'npx', args: ['-y', '@zed-industries/codex-acp'] },
   { id: 'opencode', cmd: 'opencode', args: ['acp'] },
-  { id: 'grok acp', cmd: 'grok', args: ['acp'] },
-  { id: 'grok --acp', cmd: 'grok', args: ['--acp'] },
+  { id: 'grok', cmd: 'grok', args: ['agent', 'stdio'] },
+  { id: 'hermes', cmd: 'hermes', args: ['acp'] },
 ];
 
 function transportFor(cmd, args) {
