@@ -2131,3 +2131,13 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-mode b, .cw-model b { font-weight: 700; }
 .cw-ctx { font-size: 10.5px; color: var(--muted); border: 1px dashed var(--dash); border-radius: 7px; padding: 3px 8px; }
 .cw-pop .r.on b::after { content: " ✓"; color: var(--green-ok); }
+/* + menu, wire toggle, greyed rows */
+.cw-plus { font-family: inherit; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper-2); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; flex: none; display: grid; place-items: center; }
+.cw-plus:hover { color: var(--ink); border-color: var(--field-line); background: var(--hover); }
+.cw-pop { max-height: 360px; overflow-y: auto; width: 330px; }
+.cw-pop .r.dis b, .cw-pop .r.dis span { color: var(--faint); }
+.cw-pop .r.files { border-bottom: 1px dashed var(--dash); padding-top: 10px; padding-bottom: 10px; }
+.cw-wiretog { font-size: 10px; letter-spacing: 0.05em; color: var(--faint); }
+.cw-wire, .cw-wire-inline { display: none; }
+.cw-body.show-wire .cw-wire { display: inline; }
+.cw-body.show-wire .cw-wire-inline { display: inline; }

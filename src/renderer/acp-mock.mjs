@@ -12,15 +12,41 @@ export const DEMO_ASSETS = decodeURIComponent(new URL('../../demo-assets/', loca
 
 // What this fake agent "advertises" at connect — the lists our pickers render.
 const CAPS = {
+  // Claude Code's command set. acp:true = advertised over the protocol
+  // (live rows); acp:false = TUI-only (greyed — the guard, made visible).
   commands: [
-    ['/model', 'switch model — native picker'],
-    ['/compact', 'compress context'],
-    ['/test', 'run the auth suite'],
-    ['/fail', 'see how errors render'],
-    ['/help', 'reshow the testbed card'],
+    ['/add-dir', 'add a working directory', true],
+    ['/agents', 'list and manage agents', true],
+    ['/clear', 'clear conversation history', true],
+    ['/compact', 'compact the conversation', true],
+    ['/cost', 'token + cost for this session', true],
+    ['/init', 'write CLAUDE.md for this repo', true],
+    ['/memory', 'edit memory files', true],
+    ['/model', 'switch model — native picker', true],
+    ['/output-style', 'set the output style', true],
+    ['/permissions', 'view or change permissions', true],
+    ['/pr-comments', 'fetch PR comments', true],
+    ['/resume', 'resume a past session — session/load', true],
+    ['/review', 'review the current diff', true],
+    ['/security-review', 'security-review the diff', true],
+    ['/status', 'session status', true],
+    ['/todos', 'show the todo list', true],
+    ['/help', 'reshow the testbed card', true],
+    ['/test', 'testbed: bash run', true],
+    ['/fail', 'testbed: error rendering', true],
+    ['/vim', 'vim keybindings', false],
+    ['/terminal-setup', 'configure terminal keys', false],
+    ['/ide', 'connect to an IDE', false],
+    ['/doctor', 'diagnose the install', false],
+    ['/bug', 'report a bug to Anthropic', false],
+    ['/hooks', 'edit hook config', false],
+    ['/statusline', 'set the status line', false],
+    ['/export', 'export transcript to clipboard', false],
   ],
+  skills: [['collector', 'pulls structured data'], ['engineer', 'edits, tests, PR'], ['ship', 'release pre-flight']],
   models: ['sonnet-5', 'opus-5', 'haiku-4.5'],
-  modes: ['Code', 'Plan', 'Ask', 'Bypass'],
+  // whatever THIS session advertises — claude's real permission modes
+  modes: ['default', 'accept edits', 'plan', 'bypass'],
 };
 
 export function mountAcpMock(p, rec, hooks) {
@@ -32,17 +58,18 @@ export function mountAcpMock(p, rec, hooks) {
     <div class="cw-comp">
       <div class="cw-att" hidden></div>
       <div class="cw-inrow">
-        <input class="cw-in" type="text" spellcheck="false"
-          placeholder="type here — / for commands · ⇧⇥ cycles mode · ⏎ send">
+        <input class="cw-in" type="text" spellcheck="false" placeholder="Write a message…">
         <button class="cw-send" title="Send">↑</button>
       </div>
       <div class="cw-tools">
-        <button class="cw-tool" data-act="menu">／ Commands · Skills</button>
-        <button class="cw-tool cw-mode" title="⇧⇥ cycles">◇ <b>Code</b></button>
+        <button class="cw-plus" data-act="menu" title="files, commands, skills — or type /">＋</button>
+        <button class="cw-tool cw-mode" title="permission mode — ⇧⇥ cycles what this session advertises">◈ <b>default</b></button>
         <button class="cw-tool cw-model" title="/model opens the picker">☰ <b>sonnet-5</b></button>
         <span class="cw-ctx" title="context">ctx <b>42%</b></span>
+        <button class="cw-tool cw-wiretog" title="show the protocol events behind each block">{ }</button>
         <span class="cw-drop">⇣ drop files — path goes to the agent</span>
       </div>
+      <input class="cw-fileinput" type="file" multiple hidden>
       <div class="cw-pop" hidden></div>
     </div>`;
 
@@ -190,7 +217,7 @@ export function mountAcpMock(p, rec, hooks) {
   function cycleMode() {
     const next = CAPS.modes[(CAPS.modes.indexOf(modeBtn.textContent) + 1) % CAPS.modes.length];
     modeBtn.textContent = next;
-    hint(`\`session/set_mode → ${next.toLowerCase()}\` · ok — ⇧⇥ cycles whatever modes this agent advertised`);
+    hint(`\`session/set_mode → ${next}\` · ok — these four are what claude's session advertises; another agent's list would differ and ⇧⇥ cycles that instead`);
   }
 
   // ---- the input router: each test input → its scripted event flow ---------
@@ -226,7 +253,14 @@ export function mountAcpMock(p, rec, hooks) {
         return;
       }
       if (cmd === '/help') { testbedCard(); return; }
-      hint(`\`${esc(cmd)}\` is **not in available_commands** for this agent — in the real pane it wouldn't autocomplete, so this dead-end can't happen. Try ／ Commands.`);
+      if (cmd === '/clear') { scroll.innerHTML = ''; hint('history cleared — `' + cmd + '` sent over the wire'); return; }
+      if (cmd === '/cost') { userTurn(v); hint('session so far: **$0.48** \u00b7 84k tokens \u00b7 6 turns \u2014 streamed back as data, rendered natively'); return; }
+      if (cmd === '/status') { userTurn(v); hint('claude \u00b7 sonnet-5 \u00b7 mode ' + modeBtn.textContent + ' \u00b7 ctx ' + ctx + '% \u00b7 4 tool calls \u00b7 all green'); return; }
+      if (cmd === '/resume') { userTurn(v); hint('`session/load` \u2014 Nami lists your saved sessions natively (the acpSid snapshots the app already keeps) and reloads the one you pick, full transcript replayed.'); return; }
+      const known = CAPS.commands.find(([n]) => n === cmd);
+      if (known && known[2]) { userTurn(v); say('`' + cmd + '` sent over the wire \u2014 in the real pane the agent streams its response here. (canned demo has no flow for it)'); return; }
+      if (known) { hint('`' + esc(cmd) + '` is **TUI-only** \u2014 not advertised over ACP; the real pane never shows it. Flip to terminal for it.'); return; }
+      hint(`\`${esc(cmd)}\` is **not in available_commands** for this agent — it wouldn't autocomplete, so this dead-end can't happen.`);
       return;
     }
     userTurn(v);
@@ -268,23 +302,40 @@ export function mountAcpMock(p, rec, hooks) {
     e.stopPropagation();
     if (e.key === 'Enter') { e.preventDefault(); send(); }
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
+    if (e.key === '/' && !input.value) { setTimeout(() => openMenu('/'), 0); }
     if (e.key === 'Escape') closePop();
   });
   body.querySelector('.cw-send').onclick = (e) => { e.stopPropagation(); send(); };
-  body.querySelectorAll('.cw-tool[data-act]').forEach((b) => {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      if (!popEl.hidden) { closePop(); return; }
-      const rows = CAPS.commands.concat([['\u2014', '', false]], [['\u2726 collector', 'pulls structured data'], ['\u2726 engineer', 'edits, tests, PR'], ['\u2726 ship', 'release pre-flight']]);
-      openPop(rows, 'COMMANDS \u00b7 from the agent \u2014 SKILLS \u00b7 from your Library',
-        'one door: typing / in the composer opens this too, like the terminal',
-        (n) => {
-          if (n === '\u2014') return;
-          if (n.startsWith('\u2726')) attach(n);
-          else { input.value = n + ' '; input.focus(); if (n === '/model') route('/model'); }
-        });
-    };
-  });
+  const fileInput = body.querySelector('.cw-fileinput');
+  fileInput.onchange = () => {
+    Array.from(fileInput.files).forEach((f) => attach('\u{1F4CE} ' + f.name));
+    fileInput.value = '';
+  };
+  function openMenu(filter) {
+    const cmds = CAPS.commands.filter(([n]) => !filter || n.startsWith(filter));
+    popEl.innerHTML =
+      '<button class="r files"><b>\u{1F4CE} Add files and folders</b><span>picker \u00b7 or drop from Finder</span></button>' +
+      '<div class="hd">COMMANDS \u00b7 advertised by the agent this session</div>' +
+      cmds.map(([n, t, acp]) => '<button class="r' + (acp ? '' : ' dis') + '" data-n="' + n + '"><b>' + n + '</b><span>' + t + (acp ? '' : ' \u00b7 terminal-only') + '</span></button>').join('') +
+      '<div class="hd">SKILLS \u00b7 from your Library</div>' +
+      CAPS.skills.map(([n, t]) => '<button class="r" data-sk="' + n + '"><b>\u2726 ' + n + '</b><span>' + t + '</span></button>').join('') +
+      '<div class="ft">greyed rows are TUI-only \u2014 the real pane never shows them, so no dead ends</div>';
+    popEl.hidden = false;
+    popEl.querySelector('.files').onclick = (e) => { e.stopPropagation(); popEl.hidden = true; fileInput.click(); };
+    popEl.querySelectorAll('.r[data-n]').forEach((r) => {
+      r.onclick = (e) => {
+        e.stopPropagation(); popEl.hidden = true;
+        if (r.classList.contains('dis')) { hint('`' + r.dataset.n + '` is **TUI-only** \u2014 not advertised over ACP, so in the real pane this row would not exist. Flip the pane to terminal for it.'); return; }
+        input.value = r.dataset.n + ' '; input.focus();
+        route(r.dataset.n); input.value = '';
+      };
+    });
+    popEl.querySelectorAll('.r[data-sk]').forEach((r) => {
+      r.onclick = (e) => { e.stopPropagation(); popEl.hidden = true; attach('\u2726 ' + r.dataset.sk); };
+    });
+  }
+  body.querySelector('.cw-plus').onclick = (e) => { e.stopPropagation(); popEl.hidden ? openMenu() : closePop(); };
+  body.querySelector('.cw-wiretog').onclick = (e) => { e.stopPropagation(); body.classList.toggle('show-wire'); };
   body.querySelector('.cw-mode').onclick = (e) => { e.stopPropagation(); cycleMode(); };
   body.querySelector('.cw-model').onclick = (e) => { e.stopPropagation(); modelPicker(); };
 
