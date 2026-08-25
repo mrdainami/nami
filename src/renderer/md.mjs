@@ -174,8 +174,11 @@ function tableAt(lines, i, inl) {
   if (!sep || !/^[\s|:-]+$/.test(sep) || !sep.includes('-') || !sep.includes('|')) return null;
   const cells = (row) => row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
   const aligns = cells(sep).map((c) => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : ''));
+  // <br> is the one line break GFM allows in a cell (a newline would end the
+  // row) — render it as a real break, each segment through the inline pass
+  const cell = (c) => c.split(/<br\s*\/?>/i).map(inl).join('<br>');
   const tr = (row, tag) => '<tr>' + cells(row).map((c, k) =>
-    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${inl(c)}</${tag}>`).join('') + '</tr>';
+    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${cell(c)}</${tag}>`).join('') + '</tr>';
   let html = `<table><thead>${tr(lines[i], 'th')}</thead><tbody>`;
   let j = i + 2;
   while (j < lines.length && /\|/.test(lines[j]) && lines[j].trim()) { html += tr(lines[j], 'td'); j++; }
@@ -194,7 +197,20 @@ function blockPass(lines, opts, startIdx) {
   let fenceLang = '';
   let fenceBuf = [];
   let para = [];
-  const closePara = (end) => { if (para.length) { push(`<p>${inl(para.join(' '))}</p>`, end); para = []; } };
+  // Two things the plain join lost: a line of only <br /> tags is the block
+  // editor's way of keeping a deliberate empty line (render it as one), and a
+  // line ending in two spaces is markdown's own hard break.
+  const closePara = (end) => {
+    if (!para.length) return;
+    let html = '';
+    para.forEach((line, k) => {
+      const brOnly = /^(?:\s*<br\s*\/?>)+\s*$/i.test(line);
+      if (k) html += brOnly || /  $/.test(para[k - 1]) || /^(?:\s*<br\s*\/?>)+\s*$/i.test(para[k - 1]) ? '<br>' : ' ';
+      html += brOnly ? '<br>'.repeat(Math.max(0, (line.match(/<br/gi) || []).length - (k ? 1 : 0))) : inl(line.replace(/\s+$/, ''));
+    });
+    push(`<p>${html}</p>`, end);
+    para = [];
+  };
 
   let i = startIdx;
   // Frontmatter — only at the very top of a whole document, rendered as one
@@ -268,7 +284,7 @@ function blockPass(lines, opts, startIdx) {
       continue;
     }
 
-    para.push(line.trim());
+    para.push(line.replace(/^\s+/, ''));   // keep the tail: two trailing spaces are a hard break
   }
   if (fence) push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${code(fenceLang, fenceBuf.join('\n'))}</code></pre>`, lines.length);
   closePara(lines.length);

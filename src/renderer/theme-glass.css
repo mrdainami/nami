@@ -516,7 +516,13 @@ body[data-glass] .ni-field input, body[data-glass] .ni-field textarea { border-r
 body[data-glass] .ni-field textarea { background-image: none; }
 body[data-glass] .ni-field input:focus, body[data-glass] .ni-field textarea:focus { border-color: var(--gl-accent); }
 
-/* reading content stays a text face — markdown headings in SF Pro, not dots */
+/* reading content stays a text face — markdown headings in SF Pro, not dots.
+   The Edit pane speaks the same face as Read. */
+body[data-glass] .md-read { font-family: var(--gl-sans); }
+body[data-glass] .ed-rich {
+  --crepe-font-default: var(--gl-sans);
+  --crepe-font-title: var(--gl-sans);
+}
 body[data-glass] .md-read h1, body[data-glass] .md-read h2, body[data-glass] .md-read h3,
 body[data-glass] .md-read h4, body[data-glass] .md-read h5, body[data-glass] .md-read h6 {
   font-family: var(--gl-sans); letter-spacing: -0.015em; text-transform: none;

@@ -2700,6 +2700,28 @@ async function openDocLink(href, p, read) {
   else api.revealFile(st.abs);
 }
 
+// Mirror the Edit tab's dragged column widths into a rendered Read pane.
+// Widths are keyed by table order and never serialized — GFM has nowhere to
+// put them — so this is session state following the reader across tabs.
+function applyDocColWidths(read, colWidths) {
+  if (!colWidths) return;
+  const tables = read.querySelectorAll('.md-tablewrap > table');
+  tables.forEach((table, index) => {
+    const widths = colWidths[index];
+    const row = table.rows[0];
+    if (!Array.isArray(widths) || !row || row.cells.length !== widths.length) return;
+    const colgroup = document.createElement('colgroup');
+    widths.forEach((w) => {
+      const col = document.createElement('col');
+      if (w) col.style.width = w + 'px';
+      colgroup.appendChild(col);
+    });
+    table.insertBefore(colgroup, table.firstChild);
+    table.style.tableLayout = 'fixed';
+    table.style.width = widths.reduce((sum, w) => sum + (w || 0), 0) + 'px';
+  });
+}
+
 function browserPanelFor(filePath) {
   const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
   if (peek && peek.filePath === filePath) return peek;
@@ -2775,27 +2797,42 @@ function mountEditor(p, rec) {
     p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
   };
   const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
+  // Frontmatter never enters the block editor: Milkdown reads `---` as a
+  // horizontal rule and rewrites the YAML as prose, which silently destroys
+  // `type:`/`tags:` on the first save. It is held here and every change from
+  // the editor is reassembled under it. Read and Markdown show it as always.
+  let richFm = '';
+  const richBody = () => {
+    const m = String(p.text || '').match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
+    richFm = m ? m[0] : '';
+    return String(p.text || '').slice(richFm.length);
+  };
   const ensureRichEditor = async () => {
     if (!rich || disposed) return null;
     if (richEditor) {
-      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return richEditor;
     }
     if (richLoading) return richLoading;
     richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
-    richLoading = mountMarkdownEditor(richRoot, p.text || '', {
+    richLoading = mountMarkdownEditor(richRoot, richBody(), {
       resolveImage,
+      // Session-only: GFM cannot store a column width, so dragged widths live
+      // on the card and follow the document into the Read pane, nothing more.
+      columnWidths: p.mdColWidths || (p.mdColWidths = {}),
+      onColumnWidths: (index, widths) => { p.mdColWidths[index] = widths; },
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
       onChange: (next) => {
-        if (disposed || next === p.text) return;
-        p.text = next; ta.value = next; markDirty(); sync();
+        const whole = richFm + next;
+        if (disposed || whole === p.text) return;
+        p.text = whole; ta.value = whole; markDirty(); sync();
       },
     }).then((editor) => {
       if (disposed) { editor.destroy(); return null; }
       richEditor = editor; richLoading = null;
       const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
-      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return editor;
     }).catch((error) => {
       richLoading = null;
@@ -2869,6 +2906,7 @@ function mountEditor(p, rec) {
         read.innerHTML = renderMarkdown(p.text || '', {
           resolveImage: (src) => markdownImageUrl(p.filePath, src),
         });
+        applyDocColWidths(read, p.mdColWidths);
       }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));

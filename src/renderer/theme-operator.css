@@ -263,7 +263,13 @@ body[data-theme="operator"] .editor--md .ed-area::selection { background: rgba(2
 body[data-theme="operator"] .ed-hl .hl-code, body[data-theme="operator"] .ed-hl .hl-fence { color: #e8b45a; }
 body[data-theme="operator"] .ed-hl .hl-link { color: #6ea8ff; }
 
-/* rendered markdown: cursive headings → mono uppercase, like every other title */
+/* rendered markdown: operator's whole voice is mono — the base sheet's clean
+   text face for documents does not apply here, in Read or in Edit */
+body[data-theme="operator"] .md-read { font-family: 'Courier Prime', 'Courier New', monospace; }
+body[data-theme="operator"] .ed-rich {
+  --crepe-font-default: 'Courier Prime', 'Courier New', monospace;
+  --crepe-font-title: 'Courier Prime', 'Courier New', monospace;
+}
 body[data-theme="operator"] .md-read h1, body[data-theme="operator"] .md-read h2,
 body[data-theme="operator"] .md-read h3, body[data-theme="operator"] .md-read h4,
 body[data-theme="operator"] .md-read h5, body[data-theme="operator"] .md-read h6 {

@@ -104,6 +104,9 @@
   --shadow-soft: rgba(90, 72, 44, 0.16);
   --shadow-mid: rgba(90, 72, 44, 0.2);
   --shadow-hard: rgba(90, 72, 44, 0.25);
+  /* markdown documents read and edit in a plain text face — notes are for
+     reading fast; the cursive stays on the app chrome (themes may override) */
+  --doc-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -1301,8 +1304,8 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    own, so paper/operator/glass/graphite change this surface exactly once. */
 .ed-rich {
   flex: 1; min-height: 0; overflow: auto; position: relative; color: var(--ink);
-  --crepe-font-default: 'Courier Prime', monospace;
-  --crepe-font-title: 'Caveat', cursive;
+  --crepe-font-default: var(--doc-sans);
+  --crepe-font-title: var(--doc-sans);
   --crepe-font-code: 'Courier Prime', monospace;
   --crepe-base-font-size: calc(13px * var(--doc-scale, 1));
   --crepe-color-background: transparent;
@@ -1327,15 +1330,43 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
      same class. Reset the card's absolute flex layout here or the document is
      positioned like a second full card, leaving a large empty band above it. */
   position: relative; inset: auto; display: block; flex: none;
-  min-height: 100%; max-width: calc(76ch + 108px); margin: 0 auto;
-  padding: 18px 54px 60px; line-height: 1.72; caret-color: var(--ink);
+  /* Left-aligned like Read — Edit and Read are the same page now, not two
+     apps. The extra left padding is the gutter Crepe's block handle needs. */
+  min-height: 100%; max-width: calc(76ch + 66px); margin: 0;
+  padding: 16px 22px 60px 44px; line-height: 1.72; caret-color: var(--ink);
 }
+/* Headings sized for the clean text face, mirroring .md-read exactly —
+   Crepe's own scale (2.625em h1) was tuned for a display font. */
 .ed-rich .milkdown .ProseMirror h1, .ed-rich .milkdown .ProseMirror h2,
 .ed-rich .milkdown .ProseMirror h3, .ed-rich .milkdown .ProseMirror h4,
-.ed-rich .milkdown .ProseMirror h5, .ed-rich .milkdown .ProseMirror h6 { font-weight: 700; }
-.ed-rich .milkdown .ProseMirror table { color: var(--ink); background: transparent; }
-.ed-rich .milkdown .milkdown-table-block th { color: var(--ink); background: var(--paper-2); }
-.ed-rich .milkdown .milkdown-table-block td { color: var(--ink); background: var(--paper); }
+.ed-rich .milkdown .ProseMirror h5, .ed-rich .milkdown .ProseMirror h6 {
+  font-weight: 700; letter-spacing: -0.015em; line-height: 1.25; margin-top: 20px;
+}
+.ed-rich .milkdown .ProseMirror h1 { font-size: 1.846em; }   /* 24/13 */
+.ed-rich .milkdown .ProseMirror h2 { font-size: 1.462em; }   /* 19/13 */
+.ed-rich .milkdown .ProseMirror h3 { font-size: 1.154em; }   /* 15/13 */
+.ed-rich .milkdown .ProseMirror h4, .ed-rich .milkdown .ProseMirror h5,
+.ed-rich .milkdown .ProseMirror h6 { font-size: 1em; color: var(--muted); }
+/* The edit table wears the read table's clothes: dashed cell rules, paper
+   header, content-hugging width — not Crepe's solid full-width stretch. */
+.ed-rich .milkdown .ProseMirror table {
+  color: var(--ink); background: transparent;
+  table-layout: auto; width: max-content; max-width: 100%; font-size: 0.962em;
+}
+.ed-rich .milkdown .milkdown-table-block th, .ed-rich .milkdown .milkdown-table-block td {
+  border: 1px dashed var(--dash); padding: 4px 10px; text-align: left; vertical-align: top;
+}
+.ed-rich .milkdown .milkdown-table-block th { color: var(--ink); background: var(--paper-2); font-weight: 700; }
+.ed-rich .milkdown .milkdown-table-block td { color: var(--ink); background: transparent; }
+/* session column widths (drag a header edge; app.js mirrors them into Read) */
+.ed-rich .nami-col-resize {
+  position: absolute; width: 9px; cursor: col-resize; z-index: 30; touch-action: none;
+}
+.ed-rich .nami-col-resize::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3.5px; width: 2px;
+  background: var(--green); opacity: 0; transition: opacity 0.12s;
+}
+.ed-rich .nami-col-resize:hover::after, .ed-rich .nami-col-resize.live::after { opacity: 1; }
 .ed-rich .milkdown .milkdown-block-handle { margin-left: -18px; }
 .ed-rich .milkdown .milkdown-toolbar { max-width: calc(100% - 12px); overflow-x: auto; }
 .ed-rich .milkdown .milkdown-block-handle[data-show="false"],
@@ -1405,6 +1436,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   padding: 16px 22px 24px; font-size: calc(13px * var(--doc-scale, 1));
   line-height: 1.72; color: var(--ink); user-select: text;
+  font-family: var(--doc-sans);
 }
 .md-read > * { max-width: 76ch; }
 /* An html file's Read tab is the page itself: no prose padding or measure, the
@@ -1417,12 +1449,12 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .md-read > .md-pre { max-width: 100%; }
 .md-read > :first-child { margin-top: 0; }
 .md-read h1, .md-read h2, .md-read h3, .md-read h4, .md-read h5, .md-read h6 {
-  font-family: 'Caveat', cursive; font-weight: 700; line-height: 1.15; margin: 22px 0 6px;
+  font-weight: 700; letter-spacing: -0.015em; line-height: 1.25; margin: 20px 0 6px;
 }
-.md-read h1 { font-size: 2.308em; }   /* 30/13 */
-.md-read h2 { font-size: 1.923em; }   /* 25/13 */
-.md-read h3 { font-size: 1.615em; }   /* 21/13 */
-.md-read h4, .md-read h5, .md-read h6 { font-size: 1.385em; color: var(--muted); }  /* 18/13 */
+.md-read h1 { font-size: 1.846em; }   /* 24/13 */
+.md-read h2 { font-size: 1.462em; }   /* 19/13 */
+.md-read h3 { font-size: 1.154em; }   /* 15/13 */
+.md-read h4, .md-read h5, .md-read h6 { font-size: 1em; color: var(--muted); }
 .md-read p { margin: 0 0 11px; overflow-wrap: break-word; }
 .md-read ul, .md-read ol { margin: 0 0 11px; padding-left: 22px; }
 .md-read li { margin-bottom: 3px; }
