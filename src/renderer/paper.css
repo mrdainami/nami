@@ -2101,15 +2101,15 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-pop .ft { font-size: 9.5px; color: var(--faint); padding: 6px 12px 9px; border-top: 1px dashed var(--dash); }
 /* launcher badge (demo only) */
 .lc-acp { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
-.lc-badge { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; color: var(--paper); background: var(--green); border: 1px solid var(--green-dark); border-radius: 999px; padding: 2px 9px; }
-.lc-alt { font-size: 10.5px; color: var(--muted); text-decoration: underline; cursor: pointer; }
-.lc-alt:hover { color: var(--ink); }
+
+
+
 /* testbed additions */
 .cw-blk { position: relative; max-width: 100%; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 .cw-blk:has(.cw-u) { align-self: flex-end; align-items: flex-end; }
-.cw-wire { font-size: 9px; letter-spacing: 0.06em; color: var(--faint); }
-.cw-wire-inline { font-size: 10px; color: var(--faint); font-weight: 400; }
-.cw-a code, .cw-hint code, .cw-guide code { background: var(--paper-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; font-size: 12px; }
+
+
+.cw-a code, .cw-hint code, 
 .cw-a a { color: var(--mode-plan); text-decoration: none; border-bottom: 1px solid var(--mode-plan); cursor: pointer; }
 .cw-think { font-family: inherit; background: transparent; border: 0; cursor: pointer; padding: 0; font-size: 11.5px; color: var(--muted); font-style: italic; }
 .cw-think:hover { color: var(--ink); }
@@ -2120,9 +2120,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-bash { margin: 0; padding: 7px 12px; font-size: 11.5px; line-height: 1.55; color: var(--muted); overflow-x: auto; white-space: pre; }
 .cw-err { border: 1px solid var(--red-line); background: var(--red-bg); color: var(--red-ink); border-radius: 9px; padding: 8px 12px; font-size: 12px; max-width: 64ch; }
 .cw-hint { font-size: 11.5px; color: var(--muted); border-left: 2px solid var(--dash); padding-left: 10px; max-width: 70ch; }
-.cw-guide { border: 1px dashed var(--dash-dark); background: var(--paper-2); border-radius: 10px; padding: 10px 13px; font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 100%; }
-.cw-guide b { color: var(--ink); font-size: 11px; letter-spacing: 0.08em; }
-.cw-guide i { font-style: italic; color: var(--ink); }
+
+
+
 .cw-plan ul { list-style: none; margin: 0; padding: 7px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 .cw-plan .don { color: var(--muted); text-decoration: line-through; }
 .cw-plan .don::before { content: "✓ "; color: var(--green-ok); }
@@ -2137,12 +2137,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-pop { max-height: 360px; overflow-y: auto; width: 330px; }
 .cw-pop .r.dis b, .cw-pop .r.dis span { color: var(--faint); }
 .cw-pop .r.files { border-bottom: 1px dashed var(--dash); padding-top: 10px; padding-bottom: 10px; }
-.cw-wiretog { font-size: 10px; letter-spacing: 0.05em; color: var(--faint); }
-.cw-wire, .cw-wire-inline { display: none; }
-.cw-body.show-wire .cw-wire { display: inline; }
-.cw-body.show-wire .cw-wire-inline { display: inline; }
-/* composer survives narrow tiles — same discipline as the topbar drop rules */
-.cw-comp { container-type: inline-size; }
+
+
+
 .cw-tools { flex-wrap: nowrap; min-width: 0; }
 .cw-tool { white-space: nowrap; flex: none; }
 .cw-drop { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
@@ -2151,7 +2148,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 @container (max-width: 390px) { .cw-mode b, .cw-model b { display: none; } }
 .cw-pop { width: min(330px, calc(100% - 16px)); max-height: min(340px, 48vh); }
 .cw-card-hd { cursor: pointer; user-select: none; }
-.cw-wiretog { display: none; }
+
 .cw-in { resize: none; overflow-y: auto; max-height: 120px; line-height: 1.5; font-family: inherit; }
 .cw-live-st { font-size: 10.5px; color: var(--green-ok); border: 1px dashed var(--dash); border-radius: 7px; padding: 3px 8px; }
 .cw-stop { color: var(--red-ink); border-color: var(--red-line); }
@@ -2231,7 +2228,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-u-file:hover { border-color: var(--mode-plan); color: var(--mode-plan); }
 .lc-chat { font-family: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--green-dark); background: transparent; border: 1px solid var(--green-ok); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
 .lc-chat:hover { background: var(--green-ok); color: #fdfbf3; }
-.lc-badge { display: none; }
+
 .cw-inrow .cw-plus { align-self: center; }
 .cw-act-btn { font-family: inherit; font-size: 11px; font-weight: 700; color: var(--green-dark); background: transparent; border: 1px solid var(--green-ok); border-radius: 7px; padding: 2px 10px; cursor: pointer; margin-left: 6px; }
 .cw-act-btn:hover { background: var(--green-ok); color: #fdfbf3; }
