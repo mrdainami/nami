@@ -7,7 +7,17 @@ import { createTranscript } from './acp-render.mjs';
 import { createComposer } from './acp-composer.mjs';
 import { createCommandRouter } from './acp-commands.mjs';
 
-const ADAPTER_BIN = decodeURIComponent(new URL('../../acp-tools/node_modules/.bin/claude-agent-acp', location.href).pathname);
+const CLAUDE_ADAPTER = decodeURIComponent(new URL('../../acp-tools/node_modules/.bin/claude-agent-acp', location.href).pathname);
+// One launch line per agent — probed on this machine (tools/acp-probe.mjs)
+// before its row earns the Chat badge. Everything else about the pane is
+// agent-agnostic: same renderer, same composer, same router.
+const AGENT_LAUNCH = {
+  claude: { command: CLAUDE_ADAPTER, args: [] },
+  kimi: { command: 'kimi', args: ['acp'] },
+  codex: { command: 'npx', args: ['-y', '@zed-industries/codex-acp'] },
+  opencode: { command: 'opencode', args: ['acp'] },
+};
+export const CHAT_READY = Object.keys(AGENT_LAUNCH);
 
 export function mountChatPane(p, rec, hooks) {
   const api = window.dainami;
@@ -68,7 +78,7 @@ export function mountChatPane(p, rec, hooks) {
     state.busy = true; composer.setBusy(true);
     try {
       const r = await client.prompt(text);
-      if (r && r.stopReason === 'refusal') transcript.note('Claude declined that request.');
+      if (r && r.stopReason === 'refusal') transcript.note('The agent declined that request.');
     } catch (err) {
       transcript.error((err && err.message) || 'That didn’t go through — try again.');
     }
@@ -118,7 +128,7 @@ export function mountChatPane(p, rec, hooks) {
   const offExit = api.onAcpExit(({ id, code }) => {
     if (id !== p.id) return;
     state.connected = false;
-    transcript.error('Claude Code stopped (exit ' + code + '). Close this pane and start a new session.');
+    transcript.error('The agent stopped (exit ' + code + '). Close this pane and start a new session.');
   });
   const transport = {
     send: (o) => api.acpSend({ id: p.id, payload: o }),
@@ -140,8 +150,9 @@ export function mountChatPane(p, rec, hooks) {
   });
 
   (async () => {
-    const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: ADAPTER_BIN, args: [] });
-    if (!started.ok) { transcript.error('Claude Code could not start' + (started.error ? ' — ' + started.error : '')); return; }
+    const launch = AGENT_LAUNCH[p.agentId] || AGENT_LAUNCH.claude;
+    const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: launch.command, args: launch.args });
+    if (!started.ok) { transcript.error((p.title || 'The agent') + ' could not start' + (started.error ? ' — ' + started.error : '')); return; }
     try {
       const { session } = await client.connect(p.cwd);
       state.connected = true;
@@ -150,7 +161,7 @@ export function mountChatPane(p, rec, hooks) {
       syncChips();
       composer.focus();
     } catch (err) {
-      transcript.error('Couldn’t connect' + ((err && err.message) ? ' — ' + err.message : '') + '. If you haven’t signed in to Claude Code yet, run it once in a terminal.');
+      transcript.error('Couldn’t connect' + ((err && err.message) ? ' — ' + err.message : '') + '. If this agent isn’t signed in yet, run it once in a terminal.');
     }
   })();
 

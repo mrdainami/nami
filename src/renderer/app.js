@@ -14,7 +14,7 @@ import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-rea
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { receiversOf, knowsCopy } from './receivers.mjs';
 import { agentLaunch } from './agent-launch.mjs';
-import { mountChatPane } from './acp-pane.mjs';
+import { mountChatPane, CHAT_READY } from './acp-pane.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
@@ -379,7 +379,7 @@ function showScene(name) {
   // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
   if (what === 'chat-live') {
     const liveCwd = decodeURIComponent(new URL('../../demo-assets/', location.href).pathname).replace(/\/$/, '');
-    const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: 'Claude Code', cwd: liveCwd, status: 'live', started: true };
+    const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: step || 'Claude Code', agentId: step || 'claude', cwd: liveCwd, status: 'live', started: true };
     S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
     renderGrid(); renderRail(); renderHeader();
     return;
@@ -3821,8 +3821,8 @@ function renderLauncher() {
     };
     // Prototype (demo only): agents with an ACP mode default to the cowork
     // surface; "as terminal" keeps today's launch one click away.
-    // Chat is Claude-only until each agent's bridge passes its probe.
-    const demoAcp = S.demo && a.id === 'claude';
+    // Chat lights up per agent as its bridge passes the probe (acp-probe.mjs).
+    const demoAcp = S.demo && CHAT_READY.includes(a.id);
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
@@ -3835,9 +3835,9 @@ function renderLauncher() {
         if (e.target.closest('.lc-alt')) { launch(); return; }
         closeOverlay();
         // claude goes LIVE \u2014 real ACP through the official adapter
-        const live = a.id === 'claude';
+        const live = CHAT_READY.includes(a.id);
         const liveCwd = decodeURIComponent(new URL('../../demo-assets/', location.href).pathname).replace(/\/$/, '');
-        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
+        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();
         toast(a.name + ' \u2014 new chat session');
