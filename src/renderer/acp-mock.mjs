@@ -37,8 +37,7 @@ export function mountAcpMock(p, rec, hooks) {
         <button class="cw-send" title="Send">↑</button>
       </div>
       <div class="cw-tools">
-        <button class="cw-tool" data-act="cmds">／ Commands</button>
-        <button class="cw-tool" data-act="skills">✦ Skills</button>
+        <button class="cw-tool" data-act="menu">／ Commands · Skills</button>
         <button class="cw-tool cw-mode" title="⇧⇥ cycles">◇ <b>Code</b></button>
         <button class="cw-tool cw-model" title="/model opens the picker">☰ <b>sonnet-5</b></button>
         <span class="cw-ctx" title="context">ctx <b>42%</b></span>
@@ -276,8 +275,14 @@ export function mountAcpMock(p, rec, hooks) {
     b.onclick = (e) => {
       e.stopPropagation();
       if (!popEl.hidden) { closePop(); return; }
-      if (b.dataset.act === 'cmds') openPop(CAPS.commands, 'COMMANDS · advertised by the agent', 'a CLI update that adds a command just adds a row here', (n) => { input.value = n + ' '; input.focus(); if (n === '/model') route('/model'); });
-      else openPop([['collector', 'pulls structured data'], ['engineer', 'edits, tests, PR'], ['ship', 'release pre-flight']], 'SKILLS · from your Library', 'lands as a chip; sent with your next prompt', (n) => attach('✦ ' + n));
+      const rows = CAPS.commands.concat([['\u2014', '', false]], [['\u2726 collector', 'pulls structured data'], ['\u2726 engineer', 'edits, tests, PR'], ['\u2726 ship', 'release pre-flight']]);
+      openPop(rows, 'COMMANDS \u00b7 from the agent \u2014 SKILLS \u00b7 from your Library',
+        'one door: typing / in the composer opens this too, like the terminal',
+        (n) => {
+          if (n === '\u2014') return;
+          if (n.startsWith('\u2726')) attach(n);
+          else { input.value = n + ' '; input.focus(); if (n === '/model') route('/model'); }
+        });
     };
   });
   body.querySelector('.cw-mode').onclick = (e) => { e.stopPropagation(); cycleMode(); };
