@@ -1295,9 +1295,92 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .editor--rich[data-mode="edit"] .ed-pane { display: none; }
 .editor--rich[data-mode="markdown"] .ed-read, .editor--rich[data-mode="markdown"] .ed-rich,
 .editor--rich[data-mode="markdown"] .ed-rich-tools { display: none; }
-.ed-rich, .ed-rich-tools { display: none; }
+.ed-rich, .ed-rich-tools, .ed-fm { display: none; }
 .editor--rich[data-mode="edit"] .ed-rich { display: block; }
+.editor--rich[data-mode="edit"] .ed-fm { display: block; }
 .editor--rich[data-mode="edit"] .ed-rich-tools { display: flex; }
+
+/* ---- the properties strip ---------------------------------------------------
+   Frontmatter as a form above the document — Obsidian's Properties, in paper.
+   Token-driven throughout so all four themes follow. */
+.ed-fm { flex: none; max-height: 42%; overflow-y: auto; padding: 10px 22px 0 44px; }
+.fmp { max-width: 76ch; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
+.fmp-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;
+  font-family: 'Courier Prime', monospace; font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.fmp-arr { display: inline-block; transition: transform 0.15s; }
+.fmp[data-open="false"] .fmp-arr { transform: rotate(-90deg); }
+.fmp[data-open="false"] .fmp-body { display: none; }
+.fmp-count { margin-left: auto; color: var(--faint); text-transform: none; letter-spacing: 0; }
+.fmp-body { padding: 2px 12px 10px; }
+.fmp-row { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; border-top: 1px dotted var(--dash); position: relative; }
+.fmp-row:first-child { border-top: none; }
+.fmp-key {
+  flex: none; width: 110px; font-family: 'Courier Prime', monospace; font-size: 11.5px; color: var(--muted);
+  padding-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fmp-val { flex: 1; min-width: 0; font-family: var(--doc-sans); font-size: calc(12.5px * var(--doc-scale, 1)); }
+.fmp-val input[type="text"], .fmp-val input[type="date"], .fmp-val input[type="number"] {
+  width: 100%; font-family: var(--doc-sans); font-size: inherit; color: var(--ink);
+  background: var(--field); border: 1px solid transparent; border-radius: 2px; padding: 3px 7px; outline: none;
+}
+.fmp-val input:hover { border-color: var(--dash-dark); }
+.fmp-val input:focus { border-color: var(--field-line); background: var(--paper); }
+.fmp-val input::placeholder { color: var(--faint); }
+.fmp-val input[type="number"] { width: 90px; }
+.fmp-val input[type="date"] { width: 170px; }
+.fmp-check { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+.fmp-check input { accent-color: var(--green); width: 14px; height: 14px; cursor: pointer; }
+.fmp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fmp-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; font-size: 0.92em;
+  background: var(--paper); border: 1px dashed var(--dash-dark); border-radius: 10px;
+}
+.fmp-chip button { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 12px; padding: 0; line-height: 1; }
+.fmp-chip button:hover { color: var(--red-ink); }
+.fmp-chips > input {
+  font-family: var(--doc-sans); font-size: 0.92em; border: none; background: none; outline: none;
+  min-width: 90px; padding: 3px 2px; color: var(--ink);
+}
+.fmp-chips > input::placeholder { color: var(--faint); }
+.fmp-locked {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-family: 'Courier Prime', monospace; font-size: 11.5px; color: var(--muted); padding-top: 4px; cursor: not-allowed;
+}
+.fmp-pad {
+  background: var(--paper); border: 1px dashed var(--dash); padding: 1px 8px; border-radius: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fmp-rm {
+  flex: none; border: 0; background: none; color: var(--faint); cursor: pointer;
+  font-size: 12px; padding: 4px 2px 0; opacity: 0; transition: opacity 0.12s;
+}
+.fmp-row:hover .fmp-rm { opacity: 1; }
+.fmp-rm:hover { color: var(--red-ink); }
+.fmp-add, .fmp-ghost {
+  display: block; width: 100%; padding: 5px 0; text-align: center; cursor: pointer;
+  font-family: 'Courier Prime', monospace; font-size: 11px; letter-spacing: 0.05em; color: var(--muted);
+  background: none; border: 1px dashed var(--dash-dark); opacity: 0.65; transition: opacity 0.12s;
+}
+.fmp-add { margin-top: 8px; }
+.fmp-ghost { max-width: 76ch; padding: 8px 0; opacity: 0.55; border-color: var(--dash); }
+.fmp-add:hover, .fmp-ghost:hover { opacity: 1; background: var(--hover); color: var(--ink); }
+.fmp-draft { background: var(--amber-bg); outline: 1px dashed var(--amber-line); outline-offset: 2px; margin: 6px 0; padding: 5px 4px; }
+.fmp-draft .fmp-key input, .fmp-draft .fmp-val input {
+  width: 100%; font-size: inherit; color: var(--ink); background: var(--paper);
+  border: 1px dashed var(--amber-line); border-radius: 2px; padding: 3px 6px; outline: none;
+}
+.fmp-draft .fmp-key input { font-family: 'Courier Prime', monospace; font-size: 11.5px; }
+.fmp-draft .fmp-key input:focus, .fmp-draft .fmp-val input:focus { border-style: solid; border-color: var(--field-line); }
+.fmp-hint { flex: none; font-family: 'Courier Prime', monospace; font-size: 9.5px; color: var(--amber-ink); padding-top: 7px; white-space: nowrap; }
+.fmp-flash { animation: fmp-flash 1.2s ease-out; }
+@keyframes fmp-flash { 0%, 60% { background: var(--amber-bg); } 100% { background: transparent; } }
+.fmp-broken {
+  max-width: 76ch; padding: 7px 12px; border: 1px dashed var(--amber-line); background: var(--amber-bg);
+  color: var(--amber-ink); font-family: 'Courier Prime', monospace; font-size: 11.5px;
+}
 
 /* Rich Markdown is loaded only after Edit opens. The editor library gets
    Nami's existing paper variables rather than carrying a fifth theme of its
