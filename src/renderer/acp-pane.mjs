@@ -6,6 +6,7 @@ import { createAcpClient, normalizeUpdate } from './acp-client.mjs';
 import { createTranscript } from './acp-render.mjs';
 import { createComposer } from './acp-composer.mjs';
 import { createCommandRouter } from './acp-commands.mjs';
+import { chipHtml, iconKeyFor } from './icons.mjs';
 
 const CLAUDE_ADAPTER = decodeURIComponent(new URL('../../acp-tools/node_modules/.bin/claude-agent-acp', location.href).pathname);
 // One launch line per agent — probed on this machine (tools/acp-probe.mjs)
@@ -29,7 +30,10 @@ export function mountChatPane(p, rec, hooks) {
 
   const empty = document.createElement('div');
   empty.className = 'cw-empty';
-  empty.textContent = 'Write a message to start — / shows commands';
+  empty.innerHTML = '<div class="cw-empty-chip">' + chipHtml({ key: iconKeyFor(p.agentId || p.title || ''), code: p.code || 'AI', kind: 'agent' }) + '</div>'
+    + '<div class="cw-empty-name"></div>'
+    + '<div class="cw-empty-hint">Write a message to start — / shows commands</div>';
+  empty.querySelector('.cw-empty-name').textContent = p.title || 'New session';
   scrollHost.appendChild(empty);
   new MutationObserver(() => {
     if (scrollHost.children.length > 1 && empty.parentElement) empty.remove();
@@ -38,6 +42,8 @@ export function mountChatPane(p, rec, hooks) {
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
 
   const transcript = createTranscript(scrollHost, {
+    cwd: p.cwd,
+    home: (p.cwd.match(/^\/(Users|home)\/[^/]+/) || [''])[0],
     onLink: (url) => { if (/^https?:/.test(url)) api.openLink(url); else hooks.open(url); },
     onCopy: (text) => { api.copyText(text); hooks.toast('Copied'); },
     onOpenFile: (path) => hooks.open(path),
@@ -107,13 +113,24 @@ export function mountChatPane(p, rec, hooks) {
       const paths = (attachments || []).filter((a) => a && a.path).map((a) => a.path);
       const skills = (attachments || []).filter((a) => a && a.skill).map((a) => a.skill);
       if (skills.length) full += '\n\nUse the ' + skills.join(', ') + ' skill' + (skills.length > 1 ? 's' : '') + ' for this.';
-      if (paths.length) full += '\n\nFiles: ' + paths.join(' ');
+      if (paths.length) full += '\n\nFiles: ' + paths.map((x) => '"' + x + '"').join(' ');
       sendPrompt(full);
     },
     onCommand: (name) => route(name),
     onStop: () => { if (state.connected) client.cancel(); },
     onModeCycle: cycleMode,
     onModelPick: () => route('model'),
+    onPickFiles: () => {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.multiple = true;
+      inp.onchange = () => {
+        [...inp.files].forEach((f) => {
+          const real = api.droppedFilePath(f) || f.name;
+          composer.attach('\u{1F4CE} ' + f.name, { path: real });
+        });
+      };
+      inp.click();
+    },
   });
   rec.aiInput = composer.input;
   rec.acpAttach = (label, meta) => composer.attach(label, meta);
@@ -123,10 +140,36 @@ export function mountChatPane(p, rec, hooks) {
     { name: 'researcher', description: 'reads the web and writes a brief' },
   ]);
 
+  async function resumePicker() {
+    try {
+      const r = await client.listSessions(p.cwd);
+      const rows = (r.sessions || []).slice(0, 20).map((x) => ({
+        name: (x.title || 'Untitled').slice(0, 52),
+        description: new Date(x.updatedAt || Date.now()).toLocaleString(),
+        value: x.sessionId,
+      }));
+      if (!rows.length) { transcript.note('No past sessions here yet.'); return; }
+      composer.openSelect('Past sessions', rows, async (row) => {
+        try {
+          transcript.clear();
+          transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
+          await client.loadSession(row.value, p.cwd);
+          p.acpSid = row.value;
+          if (hooks.rename) hooks.rename(p, row.name);
+        } catch (err) {
+          transcript.error('Couldn\u2019t pick that session up \u2014 ' + ((err && err.message) || 'try another.'));
+        }
+      });
+    } catch (err) {
+      transcript.note('This agent can\u2019t list past sessions' + ((err && err.message) ? ' \u2014 ' + err.message : '') + '.');
+    }
+  }
+
   const route = createCommandRouter({
     transcript,
     composer,
     sendPrompt,
+    resume: resumePicker,
     setConfigOption: async (id, value) => {
       const r = await client.setConfigOption(id, value);
       if (r && r.configOptions) mergeConfig(r.configOptions);

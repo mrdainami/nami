@@ -66,6 +66,12 @@ export function createAcpClient(transport, handlers) {
     },
     setMode(modeId) { return call('session/set_mode', { sessionId, modeId }); },
     setConfigOption(configId, value) { return call('session/set_config_option', { sessionId, configId, value }); },
+    listSessions(cwd) { return call('session/list', { cwd }); },
+    async loadSession(sid, cwd) {
+      const r = await call('session/load', { sessionId: sid, cwd, mcpServers: [] });
+      sessionId = sid;
+      return r;
+    },
     cancel() { transport.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); },
     kill() { transport.kill(); },
     get sessionId() { return sessionId; },
@@ -83,7 +89,7 @@ export function normalizeUpdate(u) {
     case 'agent_thought_chunk':
       return u.content && u.content.type === 'text' ? { type: 'thought', text: u.content.text } : { type: 'ignore' };
     case 'user_message_chunk':
-      return { type: 'ignore' };
+      return u.content && u.content.type === 'text' ? { type: 'user', text: u.content.text } : { type: 'ignore' };
     case 'tool_call':
       return { type: 'tool', id: u.toolCallId, title: u.title || '', kind: u.kind || 'other', status: u.status || 'pending', content: u.content || [], locations: u.locations || [] };
     case 'tool_call_update':

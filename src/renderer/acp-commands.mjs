@@ -58,7 +58,7 @@ export function createCommandRouter(ctx) {
     const co = configById(name);
     if (co && co.type === 'select') { openConfigPicker(co); return; }
     if (name === 'config' || name === 'settings') { openSettings(); return; }
-    if (name === 'resume') { ctx.transcript.note('Picking up past sessions from here is coming — for now, start fresh or use the terminal.'); return; }
+    if (name === 'resume' && ctx.resume) { ctx.resume(); return; }
     const known = (st.commands || []).some((c) => c.name === name);
     if (!known) ctx.transcript.note('/' + name + ' isn’t one of this agent’s commands — sending it anyway.');
     ctx.sendPrompt('/' + name);

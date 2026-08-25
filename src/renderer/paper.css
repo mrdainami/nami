@@ -2193,3 +2193,17 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-u code { background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; font-size: 12px; }
 .cw-u .cw-code { background: var(--paper); }
 @media (prefers-reduced-motion: reduce) { .cw-busy i { animation: none; } }
+/* review round 2 */
+.cw-perm .col { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.cw-btn.row { background: var(--paper); border-color: var(--line); color: var(--ink); text-align: left; font-weight: 500; }
+.cw-btn.row:hover { border-color: var(--field-line); background: var(--hover); }
+.cw-btn { white-space: normal; line-height: 1.35; }
+.cw-u code { white-space: nowrap; }
+.cw-u { overflow-x: auto; max-width: 92%; }
+.cw-pathlink { cursor: pointer; color: var(--mode-plan); border-color: var(--mode-plan) !important; }
+.cw-pathlink:hover { background: var(--hover); }
+.cw-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.cw-empty-chip .code { width: 44px; height: 44px; font-size: 15px; display: grid; place-items: center; }
+.cw-empty-chip .code svg { width: 24px; height: 24px; }
+.cw-empty-name { font-size: 14px; font-weight: 700; color: var(--muted); }
+.cw-empty-hint { font-size: 11.5px; color: var(--faint); }

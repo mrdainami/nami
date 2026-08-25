@@ -36,7 +36,7 @@ const KIND_LABEL = {
 export function createTranscript(container, opts) {
   const o = opts || {};
   container.classList.add('cw-scroll');
-  let openMsg = null, openThought = null, planEl = null;
+  let openMsg = null, openThought = null, openUser = null, planEl = null;
   const tools = new Map();
   let unknownCount = 0;
 
@@ -50,7 +50,23 @@ export function createTranscript(container, opts) {
     toBottom();
     return el;
   }
+  const PATHISH = /^(~\/|\.{0,2}\/)?[\w .@-]*(\/[\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
   function wire(root) {
+    root.querySelectorAll('code:not([data-wired])').forEach((c) => {
+      c.dataset.wired = '1';
+      const t = c.textContent.trim();
+      if (t.startsWith('/') ? /\.[a-z0-9]{1,5}$/i.test(t) : PATHISH.test(t)) {
+        c.classList.add('cw-pathlink');
+        c.onclick = (e) => {
+          e.stopPropagation();
+          if (!o.onOpenFile) return;
+          let path = t;
+          if (path.startsWith('~/')) path = (o.home || '') + path.slice(1);
+          else if (!path.startsWith('/')) path = (o.cwd ? o.cwd + '/' : '') + path.replace(/^\.\//, '');
+          o.onOpenFile(path);
+        };
+      }
+    });
     root.querySelectorAll('a[data-link]').forEach((a) => {
       a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (o.onLink) o.onLink(a.getAttribute('href')); };
     });
@@ -67,7 +83,7 @@ export function createTranscript(container, opts) {
       el.addEventListener('click', (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(el.dataset.open); });
     });
   }
-  function closeStreams() { openMsg = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; } }
+  function closeStreams() { openMsg = null; openUser = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; } }
 
   // ---- event renderers ------------------------------------------------------
   function message(text) {
@@ -80,6 +96,13 @@ export function createTranscript(container, opts) {
     openMsg.innerHTML = mdBlocks(openMsg._raw);
     wire(openMsg);
     toBottom();
+  }
+  function userChunk(text) {
+    openMsg = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; }
+    if (!openUser) { const el = block('<div class="cw-u"></div>'); openUser = el.querySelector('.cw-u'); openUser._raw = ''; }
+    openUser._raw += text;
+    openUser.innerHTML = mdBlocks(openUser._raw);
+    wire(openUser); toBottom();
   }
   function thought(text) {
     openMsg = null;
@@ -159,6 +182,7 @@ export function createTranscript(container, opts) {
     apply(ev) {
       switch (ev.type) {
         case 'message': message(ev.text); break;
+        case 'user': userChunk(ev.text); break;
         case 'thought': thought(ev.text); break;
         case 'tool': toolCard(ev); break;
         case 'tool_update': toolUpdate(ev); break;
@@ -180,10 +204,14 @@ export function createTranscript(container, opts) {
     error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
     permission(params, answer) {
       closeStreams();
+      // the tool card above holds what's being decided — open it, don't repeat it
+      const tcId = params.toolCall && params.toolCall.toolCallId;
+      const owned = tcId && tools.get(tcId);
+      if (owned) { const b = owned.el.querySelector('.cw-tool-body'); if (b) b.hidden = false; }
       const title = (params.toolCall && params.toolCall.title) || 'Approve this?';
       const opts = params.options || [];
-      const el = block(`<div class="cw-perm"><div class="q">Claude wants to</div><code>${esc(title)}</code>
-        <div class="row">${opts.map((op, i) => `<button class="cw-btn ${op.kind && op.kind.startsWith('allow') ? 'ap' : 'no'}" data-i="${i}">${esc(op.name)}</button>`).join('')}</div></div>`);
+      const el = block(`<div class="cw-perm"><div class="q">Waiting on you</div>${owned ? '' : `<code>${esc(title)}</code>`}
+        <div class="col">${(() => { const primary = opts.findIndex((x) => x.kind === 'allow_once'); return opts.map((op, i) => `<button class="cw-btn ${i === primary ? 'ap' : 'row'}" data-i="${i}">${esc(op.name)}</button>`).join(''); })()}</div></div>`);
       el.querySelectorAll('.cw-btn').forEach((b) => {
         b.onclick = (e) => {
           e.stopPropagation();
@@ -195,6 +223,12 @@ export function createTranscript(container, opts) {
       });
       return el;
     },
+    dropTool(id) {
+      const rec = tools.get(id);
+      if (rec && rec.el && rec.el.parentElement) rec.el.remove();
+      tools.delete(id);
+    },
+    clear() { container.querySelectorAll('.cw-blk, .cw-busy').forEach((el) => el.remove()); tools.clear(); planEl = null; closeStreams(); },
     turnEnd() { closeStreams(); },
     setBusy(b) {
       let el = container.querySelector('.cw-busy');
