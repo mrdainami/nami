@@ -52,6 +52,44 @@ export function setField(doc, key, value) {
   return doc;
 }
 
+// ---- the properties strip's verbs -------------------------------------------
+// Same contract as setField: one entry's own lines may change, every other
+// byte survives. A malformed document is never touched.
+
+// A block list (`key:` over `  - item` lines) as an array; null for scalars,
+// nested maps, or anything else the strip must show locked instead.
+export function listItems(doc, key) {
+  const e = doc.entries.find((x) => x.key === key);
+  if (!e || !e.complex || e.value.trim() !== '') return null;
+  const items = [];
+  for (const line of e.lines.slice(1)) {
+    if (line.trim() === '') continue;
+    const m = line.match(/^\s+-\s+(.*)$/) || line.match(/^\s+-$/);
+    if (!m) return null;                    // continuation that is not a list item
+    items.push(unquote(m[1] || ''));
+  }
+  return items;
+}
+
+export function setListField(doc, key, items) {
+  if (!doc.hasFrontmatter) {
+    if (doc.malformed) return doc;
+    doc.hasFrontmatter = true; doc.entries = [];
+  }
+  const lines = [`${key}:`, ...items.map((v) => `  - ${quote(String(v))}`)];
+  const e = doc.entries.find((x) => x.key === key);
+  if (e) { e.value = ''; e.lines = lines; e.complex = lines.length > 1; }
+  else doc.entries.push({ key, value: '', complex: lines.length > 1, lines });
+  return doc;
+}
+
+export function removeField(doc, key) {
+  if (doc.malformed) return doc;
+  const at = doc.entries.findIndex((x) => x.key === key);
+  if (at >= 0) doc.entries.splice(at, 1);
+  return doc;
+}
+
 function quote(v) {
   v = String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim();
   if (v === '') return '""';

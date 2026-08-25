@@ -123,3 +123,67 @@ test('setField fabricates frontmatter on a fenceless file — which is why TOML 
   assert.equal(editsAsFrontmatter('/p/.codex/agents/toml-critic.toml'), false,
     'which is exactly what the guard prevents');
 });
+
+// ---- the properties strip's three verbs -------------------------------------
+// listItems reads a block list, setListField rewrites exactly one entry as a
+// block list, removeField drops one entry — everything else survives
+// byte-for-byte, which is the same guarantee setField already keeps.
+
+import { listItems, setListField, removeField } from '../src/renderer/frontmatter.mjs';
+
+const VIDEO = `---
+type: video
+tags:
+  - content
+  - youtube
+title: "T"
+crew:
+  camera: Jess
+---
+# Body
+`;
+
+test('listItems reads a block list and refuses everything else', () => {
+  const doc = parseDoc(VIDEO);
+  assert.deepEqual(listItems(doc, 'tags'), ['content', 'youtube']);
+  assert.equal(listItems(doc, 'type'), null, 'a scalar is not a list');
+  assert.equal(listItems(doc, 'crew'), null, 'a nested map is not a list');
+  assert.equal(listItems(doc, 'missing'), null);
+});
+
+test('setListField rewrites one list and nothing else', () => {
+  const doc = parseDoc(VIDEO);
+  setListField(doc, 'tags', ['content', 'shorts']);
+  const out = serializeDoc(doc);
+  assert.match(out, /tags:\n {2}- content\n {2}- shorts\n/);
+  assert.match(out, /crew:\n {2}camera: Jess\n/, 'the nested map is untouched');
+  assert.match(out, /title: "T"/, 'quoting elsewhere is untouched');
+  assert.match(out, /# Body/, 'body intact');
+});
+
+test('setListField creates the entry when missing, and an empty list keeps a bare key', () => {
+  const doc = parseDoc('---\ntype: video\n---\nb\n');
+  setListField(doc, 'tags', ['a']);
+  assert.match(serializeDoc(doc), /tags:\n {2}- a\n/);
+  setListField(doc, 'tags', []);
+  assert.match(serializeDoc(doc), /tags:\n---/, 'empty list leaves the key with no items');
+});
+
+test('removeField drops exactly one entry', () => {
+  const doc = parseDoc(VIDEO);
+  removeField(doc, 'title');
+  const out = serializeDoc(doc);
+  assert.doesNotMatch(out, /title:/);
+  assert.match(out, /type: video/);
+  assert.match(out, /tags:\n {2}- content/);
+  assert.equal(removeField(doc, 'missing'), doc, 'removing a missing key is a no-op');
+});
+
+test('the strip verbs never touch a malformed document', () => {
+  const doc = parseDoc('---\nnever closed\n');
+  assert.equal(doc.malformed, true);
+  assert.equal(listItems(doc, 'tags'), null);
+  setListField(doc, 'tags', ['x']);
+  removeField(doc, 'anything');
+  assert.equal(serializeDoc(doc), '---\nnever closed\n', 'byte-identical');
+});

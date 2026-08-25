@@ -6,7 +6,7 @@
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file-kinds.mjs';
-import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter } from './frontmatter.mjs';
+import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter, listItems, setListField, removeField } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
 import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
@@ -2773,7 +2773,7 @@ function mountEditor(p, rec) {
     : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
   wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
-    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
+    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-fm"></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
@@ -2799,14 +2799,140 @@ function mountEditor(p, rec) {
   const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
   // Frontmatter never enters the block editor: Milkdown reads `---` as a
   // horizontal rule and rewrites the YAML as prose, which silently destroys
-  // `type:`/`tags:` on the first save. It is held here and every change from
-  // the editor is reassembled under it. Read and Markdown show it as always.
-  let richFm = '';
-  const richBody = () => {
+  // `type:`/`tags:` on the first save. The properties strip edits it in
+  // place, so the fence is read fresh on every use — a captured copy would
+  // let a body edit resurrect a value the strip had already changed.
+  const currentFm = () => {
     const m = String(p.text || '').match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
-    richFm = m ? m[0] : '';
-    return String(p.text || '').slice(richFm.length);
+    return m ? m[0] : '';
   };
+  const richBody = () => String(p.text || '').slice(currentFm().length);
+
+  // ---- the properties strip -------------------------------------------------
+  // Obsidian-style frontmatter editing above the document. Field types are
+  // inferred from the value, never configured; anything the form cannot
+  // represent shows locked and is written back byte-for-byte (frontmatter.mjs
+  // keeps that contract). Every edit rewrites only its own lines in p.text.
+  const fmRoot = q('.ed-fm', wrap);
+  let fmDraft = null;                 // {key, val} while a property is being born
+  if (p.fmOpen == null) p.fmOpen = true;
+  const fmWrite = (mutate) => {
+    const doc = parseDoc(p.text || '');
+    if (doc.malformed) return;
+    mutate(doc);
+    const next = serializeDoc(doc);
+    if (next !== p.text) { p.text = next; ta.value = next; markDirty(); sync(); }
+    renderFmStrip();
+  };
+  const fmKind = (doc, e) => {
+    if (!e.key) return { kind: 'opaque' };
+    if (e.complex) {
+      const items = listItems(doc, e.key);
+      return items ? { kind: 'tags', items } : { kind: 'locked' };
+    }
+    const v = getField(doc, e.key);
+    if (v === 'true' || v === 'false') return { kind: 'check', v };
+    if (/^-?\d+(\.\d+)?$/.test(v)) return { kind: 'number', v };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { kind: 'date', v };
+    return { kind: 'text', v };
+  };
+  function renderFmStrip() {
+    if (!fmRoot || !editsAsFrontmatter(p.filePath)) return;
+    const doc = parseDoc(p.text || '');
+    if (doc.malformed) {
+      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div>`;
+      return;
+    }
+    if (!doc.hasFrontmatter && !fmDraft) {
+      fmRoot.innerHTML = `<button class="fmp-ghost">+ properties</button>`;
+      q('.fmp-ghost', fmRoot).onclick = () => { fmDraft = { key: '', val: '' }; renderFmStrip(); q('.fmp-dk', fmRoot)?.focus(); };
+      return;
+    }
+    const rows = doc.entries.map((e, i) => {
+      const t = fmKind(doc, e);
+      let control = '';
+      if (t.kind === 'opaque' || t.kind === 'locked') {
+        const preview = t.kind === 'opaque' ? e.lines.join(' ') : e.lines.slice(1).map((l) => l.trim()).join(' · ');
+        return `<div class="fmp-row fmp-lockrow"><span class="fmp-key">${esc(e.key || '')}</span>
+          <span class="fmp-locked" title="Kept exactly as written — edit in the Markdown tab">🔒 <span class="fmp-pad">${esc(preview)}</span></span></div>`;
+      }
+      if (t.kind === 'tags') {
+        control = `<span class="fmp-chips" data-key="${esc(e.key)}">` + t.items.map((item, k) =>
+          `<span class="fmp-chip">${esc(item)}<button data-k="${k}" title="Remove">×</button></span>`).join('') +
+          `<input placeholder="+ tag, Enter"></span>`;
+      } else if (t.kind === 'check') {
+        control = `<label class="fmp-check"><input type="checkbox" data-key="${esc(e.key)}"${t.v === 'true' ? ' checked' : ''}> ${t.v === 'true' ? 'yes' : 'no'}</label>`;
+      } else {
+        const type = t.kind === 'number' ? 'number' : t.kind === 'date' ? 'date' : 'text';
+        control = `<input type="${type}" data-key="${esc(e.key)}" value="${esc(t.v)}" placeholder="empty — click to fill">`;
+      }
+      return `<div class="fmp-row" data-row="${esc(e.key)}"><span class="fmp-key">${esc(e.key)}</span>
+        <span class="fmp-val">${control}</span><button class="fmp-rm" data-key="${esc(e.key)}" title="Remove property">✕</button></div>`;
+    }).join('');
+    const draft = fmDraft ? `<div class="fmp-row fmp-draft">
+        <span class="fmp-key"><input class="fmp-dk" placeholder="name" value="${esc(fmDraft.key)}"></span>
+        <span class="fmp-val"><input class="fmp-dv" placeholder="value (can be empty)" value="${esc(fmDraft.val)}"></span>
+        <span class="fmp-hint">Enter saves · Esc cancels</span></div>` : '';
+    fmRoot.innerHTML = `<div class="fmp" data-open="${!!p.fmOpen}">
+      <div class="fmp-head"><span class="fmp-arr">▾</span> Properties<span class="fmp-count">${doc.entries.length} field${doc.entries.length === 1 ? '' : 's'}</span></div>
+      <div class="fmp-body">${rows}${draft}${fmDraft ? '' : '<button class="fmp-add">+ add property</button>'}</div></div>`;
+
+    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = !p.fmOpen; renderFmStrip(); };
+    fmRoot.querySelectorAll('input[data-key]:not([type="checkbox"])').forEach((el) => {
+      el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.value.trim())));
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.blur(); });
+    });
+    fmRoot.querySelectorAll('.fmp-check input').forEach((el) => {
+      el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.checked ? 'true' : 'false')));
+    });
+    fmRoot.querySelectorAll('.fmp-chips').forEach((chips) => {
+      const key = chips.dataset.key;
+      chips.querySelectorAll('.fmp-chip button').forEach((btn) => {
+        btn.addEventListener('click', () => fmWrite((doc2) => {
+          const items = listItems(doc2, key) || [];
+          items.splice(Number(btn.dataset.k), 1);
+          setListField(doc2, key, items);
+        }));
+      });
+      const inp = chips.querySelector(':scope > input');
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' || !inp.value.trim()) return;
+        const item = inp.value.trim();
+        fmWrite((doc2) => setListField(doc2, key, [...(listItems(doc2, key) || []), item]));
+      });
+    });
+    fmRoot.querySelectorAll('.fmp-rm').forEach((btn) => {
+      btn.addEventListener('click', () => fmWrite((doc2) => removeField(doc2, btn.dataset.key)));
+    });
+    const add = q('.fmp-add', fmRoot);
+    if (add) add.onclick = () => { fmDraft = { key: '', val: '' }; renderFmStrip(); q('.fmp-dk', fmRoot)?.focus(); };
+    const dk = q('.fmp-dk', fmRoot), dv = q('.fmp-dv', fmRoot);
+    if (dk && dv) {
+      const save = () => {
+        // repair the key rather than reject it: spaces become _, the rest drops
+        const key = dk.value.trim().replace(/\s+/g, '_').replace(/[^\w-]/g, '');
+        if (!key) { toast('Give it a name first — e.g. freebie_url'); dk.focus(); return; }
+        const doc2 = parseDoc(p.text || '');
+        if (doc2.entries.some((x) => x.key === key)) {
+          fmDraft = null; renderFmStrip();
+          const row = fmRoot.querySelector(`[data-row="${CSS.escape(key)}"]`);
+          if (row) { row.classList.add('fmp-flash'); row.querySelector('input,select')?.focus(); }
+          toast(key + ' already exists — jumped you to it');
+          return;
+        }
+        const value = dv.value.trim();
+        fmDraft = null;
+        fmWrite((doc3) => setField(doc3, key, value));
+      };
+      [dk, dv].forEach((el) => {
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); fmDraft = null; renderFmStrip(); }
+        });
+        el.addEventListener('input', () => { fmDraft = { key: dk.value, val: dv.value }; });
+      });
+    }
+  }
   const ensureRichEditor = async () => {
     if (!rich || disposed) return null;
     if (richEditor) {
@@ -2824,7 +2950,7 @@ function mountEditor(p, rec) {
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
       onChange: (next) => {
-        const whole = richFm + next;
+        const whole = currentFm() + next;
         if (disposed || whole === p.text) return;
         p.text = whole; ta.value = whole; markDirty(); sync();
       },
@@ -2910,9 +3036,12 @@ function mountEditor(p, rec) {
       }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
-    if (p.edMode === 'edit' && rich) void ensureRichEditor().then((editor) => {
-      if (editor && p.edMode === 'edit') editor.focus();
-    });
+    if (p.edMode === 'edit' && rich) {
+      renderFmStrip();   // markdown-tab edits to the YAML land here on re-entry
+      void ensureRichEditor().then((editor) => {
+        if (editor && p.edMode === 'edit') editor.focus();
+      });
+    }
     if ((p.edMode === 'edit' && !rich) || p.edMode === 'markdown') sync();
   };
 
