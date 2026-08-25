@@ -36,14 +36,30 @@ const safeColour = (value) => {
   return Object.values(COLOURS).includes(raw) || /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/.test(raw) ? raw : '';
 };
 
+// A <br> is how GFM spells a line break inside a table cell. It cannot reach
+// the remark tree as html — the preset's preserve-empty-line plugin deletes
+// every <br> html node before user plugins run — so table lines swap it for a
+// private-use sentinel before parse, and the transform below turns the
+// sentinel back into a real break node.
+const CELL_BREAK = '\uE000';   // private-use: can never appear in a real document
+function encodeCellBreaks(markdown) {
+  return String(markdown || '').split('\n')
+    .map((line) => /^\s*\|/.test(line) ? line.replace(/<br\s*\/?>/gi, CELL_BREAK) : line)
+    .join('\n');
+}
+
 function splitHighlights(node) {
   if (!node || !Array.isArray(node.children)) return;
   for (const child of node.children) splitHighlights(child);
-  // A <br> is how GFM spells a line break inside a table cell; the editor
-  // works in real break nodes, so the html token becomes one on the way in.
-  node.children = node.children.map((child) =>
-    child.type === 'html' && /^<br\s*\/?>$/i.test(String(child.value || '').trim())
-      ? { type: 'break' } : child);
+  const rebuilt = [];
+  for (const child of node.children) {
+    if (child.type !== 'text' || !String(child.value || '').includes(CELL_BREAK)) { rebuilt.push(child); continue; }
+    String(child.value).split(CELL_BREAK).forEach((part, i) => {
+      if (i > 0) rebuilt.push({ type: 'break' });
+      if (part) rebuilt.push({ type: 'text', value: part });
+    });
+  }
+  node.children = rebuilt;
   const expanded = [];
   for (const child of node.children) {
     if (child.type !== 'text' || !String(child.value || '').includes('==')) { expanded.push(child); continue; }
@@ -156,7 +172,12 @@ function setupColumnResize(root, options) {
   let raf = 0;
 
   const blocks = () => Array.from(root.querySelectorAll('.milkdown-table-block'));
-  const tableOf = (block) => block.querySelector('table');
+  // the block also holds a hidden drag-preview table; only the one whose tbody
+  // is ProseMirror's contentDOM is the real document table
+  const tableOf = (block) => {
+    const body = block.querySelector('tbody[data-content-dom]');
+    return body ? body.closest('table') : null;
+  };
 
   function writeStyles() {
     let css = '';
@@ -212,7 +233,7 @@ function setupColumnResize(root, options) {
     const startX = event.clientX;
     const startW = cols[col];
     handle.classList.add('live');
-    handle.setPointerCapture(event.pointerId);
+    try { handle.setPointerCapture(event.pointerId); } catch (_) { /* synthetic pointers have no id to capture */ }
     const move = (ev) => {
       cols[col] = Math.max(48, Math.round(startW + (ev.clientX - startX)));
       writeStyles();
@@ -252,7 +273,7 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
     if (options.onImageFile) return options.onImageFile(file);
     return URL.createObjectURL(file);
   };
-  const builder = new CrepeBuilder({ root, defaultValue: markdown || '' })
+  const builder = new CrepeBuilder({ root, defaultValue: encodeCellBreaks(markdown) })
     .addFeature(cursor, { color: false, virtual: true })
     .addFeature(listItem)
     .addFeature(linkTooltip, {
@@ -338,8 +359,8 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
   const teardownResize = setupColumnResize(root, options);
 
   return {
-    getMarkdown: () => builder.getMarkdown(),
-    setMarkdown: (value) => builder.editor.action(replaceAll(value || '')),
+    getMarkdown: () => builder.getMarkdown().replaceAll(CELL_BREAK, ''),
+    setMarkdown: (value) => builder.editor.action(replaceAll(encodeCellBreaks(value))),
     setReadonly: (value) => builder.setReadonly(!!value),
     focus: () => root.querySelector('.ProseMirror')?.focus({ preventScroll: true }),
     destroy: () => { teardownResize(); builder.destroy(); },

@@ -174,8 +174,11 @@ function tableAt(lines, i, inl) {
   if (!sep || !/^[\s|:-]+$/.test(sep) || !sep.includes('-') || !sep.includes('|')) return null;
   const cells = (row) => row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
   const aligns = cells(sep).map((c) => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : ''));
+  // <br> is the one line break GFM allows in a cell (a newline would end the
+  // row) — render it as a real break, each segment through the inline pass
+  const cell = (c) => c.split(/<br\s*\/?>/i).map(inl).join('<br>');
   const tr = (row, tag) => '<tr>' + cells(row).map((c, k) =>
-    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${inl(c)}</${tag}>`).join('') + '</tr>';
+    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${cell(c)}</${tag}>`).join('') + '</tr>';
   let html = `<table><thead>${tr(lines[i], 'th')}</thead><tbody>`;
   let j = i + 2;
   while (j < lines.length && /\|/.test(lines[j]) && lines[j].trim()) { html += tr(lines[j], 'td'); j++; }
