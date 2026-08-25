@@ -3816,7 +3816,8 @@ function renderLauncher() {
   // The one just added sorts to the top. Anything else and the user is handed
   // back a list and asked to find their own new thing in it.
   const ready = (S.agents || []).filter((a) => a.found)
-    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded));
+    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded)
+      || (S.demo ? (CHAT_READY.includes(y.id) - CHAT_READY.includes(x.id)) : 0));
   const missing = (S.agents || []).filter((a) => !a.found);
 
   if (!S.agents) {
@@ -3852,7 +3853,7 @@ function renderLauncher() {
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
-      tail.innerHTML = '<button class="lc-chat">Open as Chat</button>';
+      tail.innerHTML = '<button class="lc-chat">Open as Chat<span class="lc-beta">beta</span></button>';
       row.appendChild(tail);
     }
     row.onclick = async (e) => {
