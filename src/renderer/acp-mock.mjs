@@ -58,7 +58,7 @@ export function mountAcpMock(p, rec, hooks) {
     <div class="cw-comp">
       <div class="cw-att" hidden></div>
       <div class="cw-inrow">
-        <input class="cw-in" type="text" spellcheck="false" placeholder="Write a message…">
+        <textarea class="cw-in" rows="1" spellcheck="false" placeholder="Write a message…"></textarea>
         <button class="cw-send" title="Send">↑</button>
       </div>
       <div class="cw-tools">
@@ -298,17 +298,22 @@ export function mountAcpMock(p, rec, hooks) {
   }
 
   // ---- composer wiring ------------------------------------------------------
-  function send() { const v = input.value.trim(); if (!v) return; input.value = ''; closePop(); route(v); }
+  function send() { const v = input.value.trim(); if (!v) return; input.value = ''; input.style.height = 'auto'; closePop(); route(v); }
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
-    if (e.key === 'Enter') { e.preventDefault(); send(); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) { e.preventDefault(); send(); return; }
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
     if (e.key === 'Escape') closePop();
   });
+  function grow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  }
   body.querySelector('.cw-send').onclick = (e) => { e.stopPropagation(); send(); };
   input.addEventListener('input', () => {
+    grow();
     const v = input.value;
-    if (v.startsWith('/') && !v.includes(' ')) openMenu(v);
+    if (v.startsWith('/') && !v.includes(' ') && !v.includes('\n')) openMenu(v);
     else closePop();
   });
   const fileInput = body.querySelector('.cw-fileinput');
@@ -325,6 +330,7 @@ export function mountAcpMock(p, rec, hooks) {
       '<div class="hd">SKILLS \u00b7 from your Library</div>' +
       CAPS.skills.map(([n, t]) => '<button class="r" data-sk="' + n + '"><b>\u2726 ' + n + '</b><span>' + t + '</span></button>').join('') +
       '<div class="ft">greyed rows are TUI-only \u2014 the real pane never shows them, so no dead ends</div>';
+    popEl.style.maxHeight = Math.max(140, Math.min(340, scroll.clientHeight + 4)) + 'px';
     popEl.hidden = false;
     popEl.querySelector('.files').onclick = (e) => { e.stopPropagation(); popEl.hidden = true; fileInput.click(); };
     popEl.querySelectorAll('.r[data-n]').forEach((r) => {

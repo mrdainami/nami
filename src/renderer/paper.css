@@ -2152,3 +2152,4 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-pop { width: min(330px, calc(100% - 16px)); max-height: min(340px, 48vh); }
 .cw-card-hd { cursor: pointer; user-select: none; }
 .cw-wiretog { display: none; }
+.cw-in { resize: none; overflow-y: auto; max-height: 120px; line-height: 1.5; font-family: inherit; }
