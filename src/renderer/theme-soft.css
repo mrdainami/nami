@@ -192,15 +192,12 @@ body[data-soft] #btn-help:hover { box-shadow: var(--sf-press-sm); }
 
 /* ---- rail ------------------------------------------------------------------ */
 body[data-soft] .rail { border-right: 0; }
-body[data-soft] .rail-tabs {
-  gap: 0; padding: 4px; margin: 6px 16px 8px; border-radius: 999px;
-  background: var(--paper); box-shadow: var(--sf-press);
-}
+body[data-soft] .rail-tabs { gap: 6px; }
 body[data-soft] .rail-tab {
-  border: 0; border-radius: 999px; background: transparent; box-shadow: none;
+  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
 }
 body[data-soft] .rail-tab.active {
-  color: var(--ink); background: var(--paper); box-shadow: var(--sf-raise-sm);
+  color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
 }
 body[data-soft] .rail-collapse, body[data-soft] .rail-strip {
   border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
@@ -274,6 +271,10 @@ body[data-soft] .tile-body {
   box-shadow: var(--sf-press);
 }
 body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
+body[data-soft] .ed-bar { border-top: 0; background: var(--paper); }
+body[data-soft] .term-wrap {
+  background: var(--paper); border: 0; border-radius: 14px; box-shadow: var(--sf-press);
+}
 body[data-soft] .cmd-strip {
   background: var(--paper); border: 0; border-radius: var(--sf-r-sm);
   box-shadow: var(--sf-press-sm);
@@ -328,6 +329,7 @@ body[data-soft] .sheet-cmd, body[data-soft] .scan-box {
 body[data-soft] .key-row, body[data-soft] .key-note, body[data-soft] .set-opt {
   border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm);
 }
+body[data-soft] .set-nav .rail-tab.active { box-shadow: var(--sf-press); }
 body[data-soft] .theme-opt { border: 0; border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm); }
 body[data-soft] .theme-opt:hover { box-shadow: var(--sf-press-sm); }
 body[data-soft] .theme-opt.picked { box-shadow: var(--sf-press); background: var(--paper); }
