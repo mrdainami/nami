@@ -15,6 +15,7 @@
 <script type="module">
 import { normalizeUpdate } from '../src/renderer/acp-client.mjs';
 import { createTranscript } from '../src/renderer/acp-render.mjs';
+import { createComposer } from '../src/renderer/acp-composer.mjs';
 
 const out = [];
 const ok = (name, cond) => out.push((cond ? 'PASS' : 'FAIL') + ' · ' + name);
@@ -107,6 +108,58 @@ const authored = [...stage.querySelectorAll('.cw-run, .cw-perm .q, .cw-think .tw
 const banned = ['session/', 'advertised', 'ACP', 'sessionUpdate', 'agent_message', 'protocol', 'cowork'];
 const hits = banned.filter((b) => authored.includes(b));
 ok('no protocol vocabulary in authored copy' + (hits.length ? ' [' + hits.join(',') + ']' : ''), hits.length === 0);
+
+// ---- composer assertions ----------------------------------------------------
+const cbox = document.createElement('div');
+cbox.className = 'fixture';
+cbox.style.height = '420px';
+cbox.innerHTML = '<h2>composer</h2><div style="height:280px"></div><div class="chost"></div>';
+stage.appendChild(cbox);
+const ccalls = { send: [], cmd: [], stop: 0, mode: 0, files: 0 };
+const comp = createComposer(cbox.querySelector('.chost'), {
+  onSend: (t, a) => ccalls.send.push([t, a]),
+  onCommand: (n) => ccalls.cmd.push(n),
+  onStop: () => ccalls.stop++,
+  onModeCycle: () => ccalls.mode++,
+  onPickFiles: () => ccalls.files++,
+});
+comp.setCommands([{ name: 'compact', description: 'compact the conversation' }, { name: 'cost', description: 'usage for this session' }, { name: 'model', description: 'switch model' }]);
+comp.setSkills([{ name: 'collector', description: 'pulls structured data' }]);
+comp.setMode('Default'); comp.setModel('sonnet-5'); comp.setUsage(34000, 1000000);
+
+const cin = comp.input;
+const cpop = cbox.querySelector('.cw-pop');
+cbox.querySelector('.cw-plus').click();
+ok('composer: + menu opens with files row + commands + skills',
+  !cpop.hidden && cpop.querySelector('.files') && cpop.querySelectorAll('[data-cmd]').length === 3 && cpop.querySelectorAll('[data-skill]').length === 1);
+ok('composer: menu fits its host', cpop.getBoundingClientRect().height <= cbox.getBoundingClientRect().height);
+cpop.querySelector('.files').click();
+ok('composer: files row routes to picker', ccalls.files === 1);
+
+cin.value = '/co'; cin.dispatchEvent(new Event('input'));
+ok('composer: slash typing filters live', !cpop.hidden && cpop.querySelectorAll('[data-cmd]').length === 2);
+cpop.querySelector('[data-cmd]').click();
+ok('composer: picking a command routes to interceptor', ccalls.cmd.length === 1 && ccalls.cmd[0] === 'compact');
+ok('composer: menu closed after pick', cpop.hidden);
+
+cin.value = '/cost'; cin.dispatchEvent(new Event('input'));
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok('composer: bare slash send routes to interceptor', ccalls.cmd.length === 2 && ccalls.cmd[1] === 'cost');
+
+comp.attach('✦ collector', { skill: 'collector' });
+cin.value = 'hello there'; cin.dispatchEvent(new Event('input'));
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok('composer: send carries text + attachments then clears', ccalls.send.length === 1 && ccalls.send[0][0] === 'hello there' && ccalls.send[0][1].length === 1 && cin.value === '');
+
+cin.value = 'line one\nline two\nline three\nline four'; cin.dispatchEvent(new Event('input'));
+ok('composer: box grows with lines', cin.offsetHeight > 40);
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+ok('composer: shift-tab cycles mode', ccalls.mode >= 1);
+comp.setBusy(true);
+ok('composer: busy shows stop, hides send', !cbox.querySelector('.cw-stopbtn').hidden && cbox.querySelector('.cw-send').hidden);
+cbox.querySelector('.cw-stopbtn').click();
+ok('composer: stop routes', ccalls.stop === 1);
+comp.setBusy(false);
 
 const fails = out.filter((l) => l.startsWith('FAIL')).length;
 document.getElementById('results').textContent =
