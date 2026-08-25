@@ -84,8 +84,8 @@ test('creates the parent directory on first write', () => {
 // theme:set and the window backgroundColor both go through these, so a stale or
 // hand-edited settings.json can never produce an unknown theme or background.
 
-test('normalizeTheme accepts all four shipped themes', () => {
-  for (const t of ['paper', 'operator', 'glass', 'graphite']) assert.equal(normalizeTheme(t), t);
+test('normalizeTheme accepts all shipped themes', () => {
+  for (const t of ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk']) assert.equal(normalizeTheme(t), t);
 });
 
 test('normalizeTheme falls back to the default for anything else', () => {
@@ -104,6 +104,8 @@ test('themeBackground maps every theme to its first-paint color', () => {
   assert.equal(themeBackground('operator'), '#121212');
   assert.equal(themeBackground('glass'), '#e8e9ee');
   assert.equal(themeBackground('graphite'), '#26272c');
+  assert.equal(themeBackground('soft'), '#e5e5e5');
+  assert.equal(themeBackground('dusk'), '#262a31');
   // unknown themes paint the default, matching normalizeTheme
   assert.equal(themeBackground('neon'), themeBackground(DEFAULT_THEME));
 });
