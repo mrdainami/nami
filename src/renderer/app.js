@@ -3817,7 +3817,7 @@ function renderLauncher() {
   // back a list and asked to find their own new thing in it.
   const ready = (S.agents || []).filter((a) => a.found)
     .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded)
-      || (S.demo ? (CHAT_READY.includes(y.id) - CHAT_READY.includes(x.id)) : 0));
+      || (CHAT_READY.includes(y.id) - CHAT_READY.includes(x.id)));
   const missing = (S.agents || []).filter((a) => !a.found);
 
   if (!S.agents) {
@@ -3849,7 +3849,7 @@ function renderLauncher() {
     // Prototype (demo only): agents with an ACP mode default to the cowork
     // surface; "as terminal" keeps today's launch one click away.
     // Chat lights up per agent as its bridge passes the probe (acp-probe.mjs).
-    const demoAcp = S.demo && CHAT_READY.includes(a.id);
+    const demoAcp = CHAT_READY.includes(a.id);
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
