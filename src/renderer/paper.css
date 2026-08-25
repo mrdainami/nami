@@ -2157,3 +2157,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-stop { color: var(--red-ink); border-color: var(--red-line); }
 .cw-diff-path { font-size: 10.5px; color: var(--muted); padding: 5px 12px 0; }
 .cw-tool-body { min-width: 0; }
+/* live-pane readability: real output keeps its line breaks and is copyable */
+.cw-scroll { user-select: text; cursor: auto; }
+.cw-scroll button, .cw-comp { user-select: none; }
+.cw-a, .cw-hint, .cw-u, .cw-think-body { white-space: pre-wrap; overflow-wrap: break-word; }
+.cw-a { max-width: 100%; }
+.cw-bash, .cw-diff { user-select: text; }

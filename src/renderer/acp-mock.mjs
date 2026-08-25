@@ -219,7 +219,7 @@ export function mountAcpMock(p, rec, hooks) {
   function cycleMode() {
     const next = CAPS.modes[(CAPS.modes.indexOf(modeBtn.textContent) + 1) % CAPS.modes.length];
     modeBtn.textContent = next;
-    hint(`\`session/set_mode → ${next}\` · ok — these four are what claude's session advertises; another agent's list would differ and ⇧⇥ cycles that instead`);
+    if (hooks.toast) hooks.toast('mode → ' + next);
   }
 
   // ---- the input router: each test input → its scripted event flow ---------
@@ -596,7 +596,7 @@ export function mountAcpLive(p, rec, hooks) {
       sessionId = r.sessionId;
       if (r.modes) { modes = r.modes; syncMode(); }
       statEl.textContent = 'ready';
-      hint('**live** — real Claude Code over ACP in `' + esc(p.cwd) + '`. Type anything; / lists the commands the agent just advertised.');
+      hint('Connected. This is real Claude Code — ask it anything about this folder. Type / to see its commands.');
     } catch (err) {
       statEl.textContent = 'error';
       hint('**' + esc((err && err.message) || 'connect failed') + '** — if this is auth, run `claude` once in a terminal and sign in, then restart the pane.');
@@ -620,11 +620,24 @@ export function mountAcpLive(p, rec, hooks) {
     running = false; stopBtn.hidden = true; closeStreams();
   }
   stopBtn.onclick = (e) => { e.stopPropagation(); if (sessionId) api.acpSend({ id: p.id, payload: { jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } } }); };
+  function cycleLiveMode() {
+    if (!modes || !modes.availableModes || !modes.availableModes.length || !sessionId) return;
+    const ms = modes.availableModes;
+    const i = ms.findIndex((m) => m.id === modes.currentModeId);
+    const nextMode = ms[(i + 1) % ms.length];
+    rpc('session/set_mode', { sessionId, modeId: nextMode.id }).then(() => { modes.currentModeId = nextMode.id; syncMode(); }).catch(() => {});
+  }
+  modeWrap.onclick = (e) => { e.stopPropagation(); cycleLiveMode(); };
 
   function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
   function openCmdMenu(filter) {
     const rows = commands.filter(([n]) => !filter || n.startsWith(filter));
-    if (!rows.length) { popEl.hidden = true; return; }
+    if (!rows.length) {
+      popEl.innerHTML = '<div class="hd">COMMANDS</div><div class="ft">' + (commands.length ? 'no match' : 'waiting for the agent to advertise its list\u2026') + '</div>';
+      popEl.style.maxHeight = '80px';
+      popEl.hidden = false;
+      return;
+    }
     popEl.innerHTML = '<div class="hd">COMMANDS · advertised live by claude</div>' +
       rows.map(([n, t]) => `<button class="r" data-n="${esc(n)}"><b>${esc(n)}</b><span>${esc(t.slice(0, 46))}</span></button>`).join('') +
       '<div class="ft">picked straight off available_commands_update — nothing hardcoded</div>';
@@ -637,15 +650,7 @@ export function mountAcpLive(p, rec, hooks) {
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey) { e.preventDefault(); send(); return; }
-    if (e.key === 'Tab' && e.shiftKey) {
-      e.preventDefault();
-      if (modes && modes.availableModes && modes.availableModes.length) {
-        const ms = modes.availableModes;
-        const i = ms.findIndex((m) => m.id === modes.currentModeId);
-        const nextMode = ms[(i + 1) % ms.length];
-        rpc('session/set_mode', { sessionId, modeId: nextMode.id }).then(() => { modes.currentModeId = nextMode.id; syncMode(); }).catch(() => {});
-      }
-    }
+    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleLiveMode(); }
     if (e.key === 'Escape') popEl.hidden = true;
   });
   input.addEventListener('input', () => {
