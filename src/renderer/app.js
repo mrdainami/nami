@@ -2137,7 +2137,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountAcpMock(p, rec, { settled: clearAttention, open: (f) => openFile(f) }); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountAcpMock(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
