@@ -14,6 +14,7 @@ import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-rea
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { receiversOf, knowsCopy } from './receivers.mjs';
 import { agentLaunch } from './agent-launch.mjs';
+import { mountChatPane, CHAT_READY } from './acp-pane.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
@@ -235,6 +236,12 @@ function droppedPaths(e) {
 }
 function dropFilesOnPanel(p, paths) {
   if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach((f) => openFile(f, { pin: true })); return; }
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id);
+    if (t && t.acpAttach) paths.forEach((f) => t.acpAttach('\u{1F4CE} ' + baseNameOf(f), { path: f }));
+    toast('Attached ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' \u2014 path goes to the agent');
+    return;
+  }
   injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
   toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
 }
@@ -369,6 +376,14 @@ function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
+  if (what === 'chat-live') {
+    const liveCwd = decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
+    const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: step || 'Claude Code', agentId: step || 'claude', cwd: liveCwd, status: 'live', started: true };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    return;
+  }
   // open:<abs path> — pin any file as a tile, which is how a new viewer kind
   // gets screenshotted without a folder open and a tree to click through.
   if (what === 'open' && step) return openFile(step, { pin: true });
@@ -1689,6 +1704,12 @@ function statusMeta(p) {
   if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? c.warn : c.mut };
   if (p.kind === 'viewer') return { label: p.sub, color: c.mut };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? c.warn : c.mut };
+  if (p.kind === 'acp') {
+    if (p.exited) return { label: 'closed', color: c.mut };
+    if (p.attention) return { label: 'needs you', color: c.warn };
+    if (p.working) return { label: 'working', color: c.warn };
+    return { label: 'live', color: c.ok };
+  }
   if (p.exited) return { label: 'closed', color: c.mut };
   // A one-shot says how its command went, not just that a shell is alive: the
   // whole reason the tile exists is the command, and "live" while sitting at a
@@ -1709,6 +1730,7 @@ function kindLabel(p) {
   if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
   if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
+  if (p.kind === 'acp') return 'chat \u00b7 ' + shortHome(p.cwd);
   if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
   if (p.kind === 'shell') return 'terminal · ' + shortHome(p.cwd);
   if (p.kind === 'harness') return (p.program ? baseNameOf(p.program) : 'harness') + ' · ' + shortHome(p.cwd);
@@ -2003,6 +2025,7 @@ function bumpTermFont(dir, p) {
   p.fontSize = next;
   savePanels();
   if (rec && rec.term) { rec.term.options.fontSize = next; markFit(rec); }
+  else if (p.kind === 'acp' && rec) rec.body.style.zoom = String(next / defaultTermFont());
   toast('This session · ' + next + 'px');
 }
 // ---- document text size ------------------------------------------------------
@@ -2052,6 +2075,29 @@ function bumpDocFont(dir, p) {
   toast('This file · ' + Math.round(next * 100) + '%');
 }
 
+function spawnTerminalTwin(p, draft) {
+  // Same agent, same folder, same session where the CLI can resume it —
+  // and the half-typed message rides along as the seed. The chat pane
+  // closes; the conversation continues in the terminal.
+  const a = (S.agents || []).find((x) => x.id === p.agentId);
+  const seed = draft || undefined;
+  let spawned = null;
+  if (p.agentId === 'claude' || (a && a.kind === 'claude')) {
+    spawned = startPanel({ kind: 'claude', title: p.title || 'Claude session', code: 'CC', cwd: p.cwd, sid: p.acpSid, cont: !!p.acpSid, seed });
+  } else if (a && a.bin) {
+    spawned = startPanel({ kind: 'run', title: p.title || a.name, code: code2(a.name), command: a.bin, cwd: p.cwd, acpSid: p.acpSid, cont: !!p.acpSid, seed });
+  } else {
+    toast('Open it from ⌘N — new session, pick the agent.');
+    return;
+  }
+  if (spawned) closePanel(p.id);
+}
+function adoptChatTitle(p, title) {
+  if (p.titleSource === 'user') return;
+  p.title = shorten(String(title), 60);
+  p.titleSource = 'ai';
+  refreshTileHead(p); renderRail();
+}
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
   root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
@@ -2127,7 +2173,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -3421,6 +3467,13 @@ async function pasteDictation(p) {
 function injectToSession(p, text) {
   if (!text) return;
   focusPanel(p.id, false);
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id); if (!t || !t.aiInput) return;
+    t.aiInput.value += (t.aiInput.value && !t.aiInput.value.endsWith(' ') ? ' ' : '') + text;
+    t.aiInput.dispatchEvent(new Event('input'));
+    t.aiInput.focus();
+    return;
+  }
   if (p.kind === 'editor') {
     const t = tileEls.get(p.id); if (!t || !t.ta) return;
     // Same reason as the Tab key: assigning ta.value costs the undo stack, and
@@ -3753,14 +3806,18 @@ function statusLineFor(a) {
 }
 function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
 function renderLauncher() {
+  const prevList = q('#lc-list');
+  const prevScroll = prevList ? prevList.scrollTop : 0;
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
     <div class="picker-list" id="lc-list"></div>`, { top: true });
   const list = q('#lc-list', modal);
+  if (prevScroll) requestAnimationFrame(() => { list.scrollTop = prevScroll; });
   // The one just added sorts to the top. Anything else and the user is handed
   // back a list and asked to find their own new thing in it.
   const ready = (S.agents || []).filter((a) => a.found)
-    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded));
+    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded)
+      || (S.demo ? (CHAT_READY.includes(y.id) - CHAT_READY.includes(x.id)) : 0));
   const missing = (S.agents || []).filter((a) => !a.found);
 
   if (!S.agents) {
@@ -3789,8 +3846,31 @@ function renderLauncher() {
         startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin });
       }, a.name);
     };
+    // Prototype (demo only): agents with an ACP mode default to the cowork
+    // surface; "as terminal" keeps today's launch one click away.
+    // Chat lights up per agent as its bridge passes the probe (acp-probe.mjs).
+    const demoAcp = S.demo && CHAT_READY.includes(a.id);
+    if (demoAcp) {
+      const tail = document.createElement('span');
+      tail.className = 'lc-acp';
+      tail.innerHTML = '<button class="lc-chat">Chat<span class="lc-beta">beta</span></button>';
+      row.appendChild(tail);
+    }
     row.onclick = async (e) => {
       if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
+      if (demoAcp && e.target.closest('.lc-chat')) {
+        closeOverlay();
+        // claude goes LIVE \u2014 real ACP through the official adapter
+        const live = CHAT_READY.includes(a.id);
+        // a chat session stands where your other sessions stand — the project
+        const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
+          : decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
+        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
+        S.panels.unshift(np); S.activeId = np.id;
+        renderGrid(); renderRail(); renderHeader();
+        toast(a.name + ' \u2014 new chat session');
+        return;
+      }
       launch();
     };
     list.appendChild(row);
@@ -5811,10 +5891,10 @@ function seedDemo() {
   ], skills: [] };
   S.recents = [{ path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas' }];
   // A claude tile + an editor tile so the paper grid reads clearly.
-  const c = { id: uid('p_'), kind: 'shell', chipKind: 'agent', code: 'CC', title: 'Claude session', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, attention: true, _demoText: true };
+  const ct = { id: uid('p_'), kind: 'shell', chipKind: 'agent', code: 'CC', title: 'Claude session', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, _demoText: true };
   const e = { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'passkey.ts', filePath: '/Users/calvin/work/atlas/src/auth/passkey.ts', dirty: true, status: 'live',
     text: `import { verifyRegistration } from './webauthn'\n\nexport async function register(user: User) {\n  const options = await createOptions(user)\n  const cred = await navigator.credentials.create({ publicKey: options })\n  return verifyRegistration(cred)\n}\n` };
-  S.panels = [c, e]; S.activeId = c.id;
+  S.panels = [ct, e]; S.activeId = ct.id;
   // paint a paper "claude" banner into the demo terminal after mount
-  setTimeout(() => { const t = tileEls.get(c.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
+  setTimeout(() => { const t = tileEls.get(ct.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
 }

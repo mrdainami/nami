@@ -9,6 +9,7 @@ const fs = require('fs');
 const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
+const { wireAcpLive } = require('./acp-live');
 const { agentForCommand, resumeCommand, sessionExists, startDiscovery } = require('./agent-resume.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
@@ -395,7 +396,7 @@ function createWindow(folder, bounds) {
       // a --scene= shot has to wait out the library scan before the surface is real
       const zi = process.argv.indexOf('--zoom');
       if (zi >= 0) w.webContents.setZoomFactor(Number(process.argv[zi + 1]));
-      await new Promise((r) => setTimeout(r, SCENE ? 2600 : (DEMO ? 1400 : 700)));
+      await new Promise((r) => setTimeout(r, (SCENE ? 2600 : (DEMO ? 1400 : 700)) + Number(process.env.SHOT_WAIT || 0)));
       // capturePage can grab a stale (blank) compositor frame; force a repaint
       // and give it a beat, or roughly one shot in three comes back empty
       w.webContents.invalidate();
@@ -522,6 +523,12 @@ app.on('quit', () => {
 // reload while the renderer's counter restarts, so a reloaded window would
 // collide with the sessions it just left behind.
 let bootSeq = 0;
+
+wireAcpLive(ipcMain);
+ipcMain.handle('link:open', (_e, url) => {
+  if (/^https?:\/\//.test(String(url))) shell.openExternal(String(url));
+  return { ok: true };
+});
 
 ipcMain.handle('boot', (e) => {
   // each window boots with its own folder; fresh windows fall back to the last-used one

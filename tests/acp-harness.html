@@ -1,0 +1,218 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>acp harness</title>
+<link rel="stylesheet" href="../src/renderer/paper.css">
+<style>
+  body { padding: 20px; display: block; overflow: auto; }
+  .fixture { border: 1px solid var(--line); margin-bottom: 24px; }
+  .fixture > h2 { font: 700 13px/1.4 'Courier Prime', monospace; padding: 6px 12px; border-bottom: 1px solid var(--line); margin: 0; }
+  .fixture .cw-scroll { max-height: 480px; }
+  #results { font: 13px/1.7 'Courier Prime', monospace; white-space: pre-wrap; border: 2px solid var(--ink); padding: 12px 16px; margin-bottom: 24px; }
+</style>
+<div id="results">running…</div>
+<div id="stage"></div>
+<script src="harness-data.js"></script>
+<script type="module">
+window.onerror = (m, src, line) => { document.getElementById('results').textContent = 'JSERR: ' + m + ' @ ' + (src||'').split('/').pop() + ':' + line; };
+window.addEventListener('unhandledrejection', (e) => { document.getElementById('results').textContent = 'REJ: ' + e.reason; });
+import { normalizeUpdate } from '../src/renderer/acp-client.mjs';
+import { createTranscript } from '../src/renderer/acp-render.mjs';
+import { createComposer } from '../src/renderer/acp-composer.mjs';
+import { createCommandRouter } from '../src/renderer/acp-commands.mjs';
+
+const out = [];
+const ok = (name, cond) => out.push((cond ? 'PASS' : 'FAIL') + ' · ' + name);
+const stage = document.getElementById('stage');
+
+const calls = { link: 0, copy: 0, open: 0, commands: 0, usage: 0, info: 0 };
+let totalUnknown = 0;
+
+for (const [name, tape] of Object.entries(window.FIXTURES)) {
+  const box = document.createElement('div');
+  box.className = 'fixture';
+  box.innerHTML = '<h2>' + name + '</h2><div class="scrollhost"></div>';
+  stage.appendChild(box);
+  const t = createTranscript(box.querySelector('.scrollhost'), {
+    noScroll: true,
+    onLink: () => calls.link++,
+    onCopy: () => calls.copy++,
+    onOpenFile: () => calls.open++,
+    onCommands: () => calls.commands++,
+    onUsage: () => calls.usage++,
+    onInfo: () => calls.info++,
+  });
+  box._t = t;
+  for (const e of tape) {
+    const m = e.msg;
+    if (e.dir === 'recv' && m.method === 'session/update') {
+      t.apply(normalizeUpdate((m.params && (m.params.update || m.params)) || {}));
+    } else if (e.dir === 'recv' && m.method === 'session/request_permission') {
+      t.permission(m.params, () => {});
+    } else if (e.dir === 'send' && m.method === 'session/prompt') {
+      t.userTurn(m.params.prompt.map((b) => b.text || '').join(''));
+    }
+  }
+  t.turnEnd();
+  totalUnknown += t.stats().unknownCount;
+}
+
+// ---- assertions -------------------------------------------------------------
+ok('no unknown events across all fixtures', totalUnknown === 0);
+ok('messages rendered', document.querySelectorAll('.cw-a').length >= 5);
+ok('tool cards rendered', document.querySelectorAll('.cw-card:not(.cw-plan)').length >= 4);
+ok('diff rendered with add lines', document.querySelectorAll('.cw-diff .a').length >= 3);
+ok('plan card rendered', document.querySelectorAll('.cw-plan').length >= 1);
+ok('agent-resolved permission auto-retires to a quiet line', (() => {
+  return [...document.querySelectorAll('.cw-settle')].some((x) => /approved automatically/.test(x.textContent));
+})());
+ok('usage callback fired', calls.usage > 0);
+ok('info (session title) callback fired', calls.info > 0);
+ok('commands callback fired', calls.commands > 0);
+
+// thought fold: starts hidden, click opens
+const think = document.querySelector('.cw-think');
+const thinkBody = document.querySelector('.cw-think-body');
+ok('thought folded by default', think && thinkBody && thinkBody.hidden);
+if (think) think.click();
+ok('thought opens on click', thinkBody && !thinkBody.hidden);
+ok('thought label settled to plain word', think && /^Thought/.test(think.textContent.trim()));
+
+// tool cards start collapsed; header click opens then closes
+const hd = document.querySelector('.cw-card:not(.cw-plan) .cw-card-hd');
+const tb = hd && hd.parentElement.querySelector('.cw-tool-body');
+ok('tool card collapsed by default', tb && tb.hidden);
+if (hd) hd.click();
+ok('tool card opens on header click', tb && !tb.hidden);
+if (hd) hd.click();
+ok('tool card closes again', tb && tb.hidden);
+ok('user turns render markdown (inline code)', !!document.querySelector('.cw-u code'));
+ok('tool text wrapped and sized', !!document.querySelector('.cw-tool-text'));
+
+// permission click answers and settles
+const permBtn = document.querySelector('.cw-perm .cw-btn.ap');
+if (permBtn) permBtn.click();
+ok('permission click settles the card', document.querySelectorAll('.cw-settle').length >= 1);
+
+// links + copy affordances
+const link = document.querySelector('.cw-a a[data-link]');
+if (link) link.click();
+ok('link click routes to handler', calls.link >= 1);
+const copyBtn = document.querySelector('[data-copy]');
+if (copyBtn) copyBtn.click();
+ok('code copy button routes to handler', calls.copy >= 1);
+ok('code block rendered from fences', document.querySelectorAll('.cw-code').length >= 1);
+
+// selection allowed on transcript text
+const a = document.querySelector('.cw-a');
+ok('transcript text selectable', a && getComputedStyle(a).userSelect !== 'none');
+
+// humanizer: banned strings must not appear in copy WE author (chrome labels,
+// statuses, hints) — the agent's own words are its own business.
+const authored = [...stage.querySelectorAll('.cw-run, .cw-perm .q, .cw-think .tw, .cw-card-hd .k, .cw-copy, .cw-hint')]
+  .map((el) => el.textContent).join(' | ');
+const banned = ['session/', 'advertised', 'ACP', 'sessionUpdate', 'agent_message', 'protocol', 'cowork'];
+const hits = banned.filter((b) => authored.includes(b));
+ok('no protocol vocabulary in authored copy' + (hits.length ? ' [' + hits.join(',') + ']' : ''), hits.length === 0);
+
+// ---- composer assertions ----------------------------------------------------
+const cbox = document.createElement('div');
+cbox.className = 'fixture';
+cbox.style.height = '420px';
+cbox.innerHTML = '<h2>composer</h2><div style="height:280px"></div><div class="chost"></div>';
+stage.appendChild(cbox);
+const ccalls = { send: [], cmd: [], stop: 0, mode: 0, files: 0 };
+const comp = createComposer(cbox.querySelector('.chost'), {
+  onSend: (t, a) => ccalls.send.push([t, a]),
+  onCommand: (n) => ccalls.cmd.push(n),
+  onStop: () => ccalls.stop++,
+  onModeCycle: () => ccalls.mode++,
+  onPickFiles: () => ccalls.files++,
+  isPicker: (n) => n === 'model',
+  getBuiltins: () => [{ name: 'model', description: 'Model — picker' }, { name: 'resume', description: 'Past sessions' }],
+});
+comp.setCommands([{ name: 'compact', description: 'compact the conversation' }, { name: 'cost', description: 'usage for this session' }, { name: 'model', description: 'switch model' }]);
+comp.setSkills([{ name: 'collector', description: 'pulls structured data' }]);
+comp.setMode('Default'); comp.setModel('sonnet-5'); comp.setUsage(34000, 1000000);
+
+const cin = comp.input;
+const cpop = cbox.querySelector('.cw-pop');
+cbox.querySelector('.cw-plus').click();
+ok('composer: + menu opens with files row + session + commands + skills',
+  !cpop.hidden && cpop.querySelector('.files') && cpop.querySelectorAll('[data-cmd]').length === 5 && cpop.querySelectorAll('[data-skill]').length === 1);
+ok('composer: menu fits its host', cpop.getBoundingClientRect().height <= cbox.getBoundingClientRect().height);
+cpop.querySelector('.files').click();
+ok('composer: files row routes to picker', ccalls.files === 1);
+
+cin.value = '/co'; cin.dispatchEvent(new Event('input'));
+ok('composer: slash typing filters live', !cpop.hidden && cpop.querySelectorAll('[data-cmd]').length === 2);
+cpop.querySelector('[data-cmd="compact"]').click();
+ok('composer: picking a command inserts it, does not run', ccalls.cmd.length === 0 && cin.value === '/compact ');
+ok('composer: menu closed after pick', cpop.hidden);
+
+cin.value = ''; cbox.querySelector('.cw-plus').click();
+ok('composer: Session section lists builtins', [...cpop.querySelectorAll('[data-cmd]')].some((r) => r.dataset.cmd === 'model'));
+cpop.querySelector('[data-cmd="model"]').click();
+ok('composer: picker commands open directly', ccalls.cmd.length === 1 && ccalls.cmd[0] === 'model');
+
+cin.value = '/cost'; cin.dispatchEvent(new Event('input'));
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok('composer: typed slash + Enter runs', ccalls.cmd.length === 2 && ccalls.cmd[1] === 'cost');
+
+comp.attach('✦ collector', { skill: 'collector' });
+cin.value = 'hello there'; cin.dispatchEvent(new Event('input'));
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok('composer: send carries text + attachments then clears', ccalls.send.length === 1 && ccalls.send[0][0] === 'hello there' && ccalls.send[0][1].length === 1 && cin.value === '');
+
+cin.value = 'line one\nline two\nline three\nline four'; cin.dispatchEvent(new Event('input'));
+ok('composer: box grows with lines', cin.offsetHeight > 40);
+cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+ok('composer: shift-tab cycles mode', ccalls.mode >= 1);
+comp.setBusy(true);
+ok('composer: busy shows stop, hides send', !cbox.querySelector('.cw-stopbtn').hidden && cbox.querySelector('.cw-send').hidden);
+cbox.querySelector('.cw-stopbtn').click();
+ok('composer: stop routes', ccalls.stop === 1);
+comp.setBusy(false);
+
+// ---- command router assertions ----------------------------------------------
+const sessionResult = (() => {
+  for (const e of window.FIXTURES.chat) {
+    if (e.dir === 'recv' && e.msg.id === 2 && e.msg.result) return e.msg.result;
+  }
+})();
+const rcalls = { prompts: [], sets: [], notes: [] };
+const rbox = document.createElement('div');
+rbox.className = 'fixture'; rbox.style.height = '380px';
+rbox.innerHTML = '<h2>router</h2><div style="height:240px"></div><div class="rhost"></div>';
+stage.appendChild(rbox);
+const rcomp = createComposer(rbox.querySelector('.rhost'), {});
+const fakeTranscript = { note: (t) => rcalls.notes.push(t), error: () => {}, action: (t, label) => rcalls.notes.push(t + ' [' + label + ']') };
+const route = createCommandRouter({
+  transcript: fakeTranscript,
+  composer: rcomp,
+  sendPrompt: (t) => rcalls.prompts.push(t),
+  setConfigOption: async (id, v) => { rcalls.sets.push([id, v]); },
+  getState: () => ({ commands: [{ name: 'compact' }, { name: 'cost' }], configOptions: sessionResult.configOptions, modes: sessionResult.modes }),
+});
+const rpop = rbox.querySelector('.cw-pop');
+route('model');
+ok('router: /model opens native picker from real session data',
+  !rpop.hidden && rpop.querySelectorAll('.sel').length >= 4 && rpop.textContent.includes('Sonnet'));
+ok('router: current model marked', !!rpop.querySelector('.sel.on'));
+[...rpop.querySelectorAll('.sel')].find((r) => r.textContent.includes('Sonnet')).click();
+await new Promise((r) => setTimeout(r, 10));
+ok('router: picking applies the typed setting, not a chat turn',
+  rcalls.sets.length === 1 && rcalls.sets[0][0] === 'model' && rcalls.prompts.length === 0);
+route('config');
+ok('router: /config opens the settings list', !rpop.hidden && rpop.textContent.includes('Model') && rpop.textContent.includes('Mode'));
+rpop.hidden = true;
+route('compact');
+ok('router: advertised command sends as a turn', rcalls.prompts.length === 1 && rcalls.prompts[0] === '/compact');
+route('doesnotexist');
+ok('router: unlisted command offers the terminal, never auto-sends',
+  rcalls.prompts.length === 1 && rcalls.notes.some((n) => n.includes('[Open terminal]')));
+
+const fails = out.filter((l) => l.startsWith('FAIL')).length;
+document.getElementById('results').textContent =
+  (fails ? 'RESULT: FAIL (' + fails + ')' : 'RESULT: ALL PASS (' + out.length + ')') + '\n' + out.join('\n');
+document.title = fails ? 'HARNESS-FAIL' : 'HARNESS-PASS';
+</script>
