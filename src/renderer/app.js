@@ -3853,7 +3853,7 @@ function renderLauncher() {
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
-      tail.innerHTML = '<button class="lc-chat">Open as Chat<span class="lc-beta">beta</span></button>';
+      tail.innerHTML = '<button class="lc-chat">Chat<span class="lc-beta">beta</span></button>';
       row.appendChild(tail);
     }
     row.onclick = async (e) => {

@@ -2238,3 +2238,11 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .lc-chat { display: inline-flex; align-items: center; gap: 6px; font-size: 9.5px; padding: 3px 9px; }
 .lc-beta { font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber-ink); background: var(--amber-bg); border: 1px solid var(--amber-line); border-radius: 999px; padding: 0px 5px; }
 .lc-chat:hover .lc-beta { background: var(--amber-bg); color: var(--amber-ink); }
+/* quiet theme-native Chat pill with a tiny beta sticker */
+.lc-chat { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 2px 9px; gap: 3px;
+  color: var(--muted); background: var(--paper); border: 1px solid var(--line); }
+.lc-chat:hover { color: var(--ink); background: var(--hover); border-color: var(--field-line); }
+.lc-chat:hover .lc-beta { color: var(--muted); }
+.lc-beta { font-size: 7px; font-weight: 700; letter-spacing: 0.06em; color: var(--faint);
+  background: transparent; border: 1px solid var(--dash); border-radius: 4px; padding: 0 3px;
+  align-self: flex-start; margin-top: 1px; }
