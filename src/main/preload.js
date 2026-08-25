@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('dainami', {
   sttPrepare: () => ipcRenderer.invoke('stt:prepare'),
   onSttProgress: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('stt:progress', h); return () => ipcRenderer.removeListener('stt:progress', h); },
 
+  openLink: (url) => ipcRenderer.invoke('link:open', url),
   acpStart: (args) => ipcRenderer.invoke('acp:start', args),
   acpSend: (args) => ipcRenderer.invoke('acp:send', args),
   acpKill: (args) => ipcRenderer.invoke('acp:kill', args),

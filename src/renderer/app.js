@@ -1704,6 +1704,12 @@ function statusMeta(p) {
   if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? c.warn : c.mut };
   if (p.kind === 'viewer') return { label: p.sub, color: c.mut };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? c.warn : c.mut };
+  if (p.kind === 'acp') {
+    if (p.exited) return { label: 'closed', color: c.mut };
+    if (p.attention) return { label: 'needs you', color: c.warn };
+    if (p.working) return { label: 'working', color: c.warn };
+    return { label: 'live', color: c.ok };
+  }
   if (p.exited) return { label: 'closed', color: c.mut };
   // A one-shot says how its command went, not just that a shell is alive: the
   // whole reason the tile exists is the command, and "live" while sitting at a
@@ -2150,7 +2156,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle }); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {

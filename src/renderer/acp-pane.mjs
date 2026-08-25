@@ -38,16 +38,28 @@ export function mountChatPane(p, rec, hooks) {
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
 
   const transcript = createTranscript(scrollHost, {
-    onLink: (url) => { if (/^https?:/.test(url)) api.openFileInBrowser ? window.open(url) : window.open(url); else hooks.open(url); },
+    onLink: (url) => { if (/^https?:/.test(url)) api.openLink(url); else hooks.open(url); },
     onCopy: (text) => { api.copyText(text); hooks.toast('Copied'); },
     onOpenFile: (path) => hooks.open(path),
     onCommands: (list) => { state.commands = list; composer.setCommands(list); },
     onUsage: (used, size) => composer.setUsage(used, size),
     onInfo: (title) => { if (title && hooks.rename) hooks.rename(p, title); },
     onMode: (modeId) => { if (state.modes) { state.modes.currentModeId = modeId; syncChips(); } },
+    onConfig: (configOptions) => mergeConfig(configOptions),
   });
 
   function currentCfg(id) { return state.configOptions.find((c) => c.id === id); }
+  // A refresh may carry options-less entries; keep the fuller option lists we
+  // already have so pickers never lose their rows.
+  function mergeConfig(next) {
+    if (!next) return;
+    state.configOptions = next.map((co) => {
+      const prev = state.configOptions.find((c) => c.id === co.id);
+      return (!co.options || !co.options.length) && prev && prev.options && prev.options.length
+        ? { ...co, options: prev.options } : co;
+    });
+    syncChips();
+  }
   function syncChips() {
     if (state.modes && state.modes.availableModes) {
       const cur = state.modes.availableModes.find((m) => m.id === state.modes.currentModeId);
@@ -75,14 +87,16 @@ export function mountChatPane(p, rec, hooks) {
   async function sendPrompt(text) {
     if (!state.connected || state.busy) return;
     transcript.userTurn(text);
-    state.busy = true; composer.setBusy(true);
+    state.busy = true; composer.setBusy(true); transcript.setBusy(true);
+    p.working = true; if (hooks.status) hooks.status(p);
     try {
       const r = await client.prompt(text);
       if (r && r.stopReason === 'refusal') transcript.note('The agent declined that request.');
     } catch (err) {
       transcript.error((err && err.message) || 'That didn’t go through — try again.');
     }
-    state.busy = false; composer.setBusy(false);
+    state.busy = false; composer.setBusy(false); transcript.setBusy(false);
+    p.working = false; if (hooks.status) hooks.status(p);
     transcript.turnEnd();
     if (hooks.settled) hooks.settled(p);
   }
@@ -115,7 +129,7 @@ export function mountChatPane(p, rec, hooks) {
     sendPrompt,
     setConfigOption: async (id, value) => {
       const r = await client.setConfigOption(id, value);
-      if (r && r.configOptions) { state.configOptions = r.configOptions; syncChips(); }
+      if (r && r.configOptions) mergeConfig(r.configOptions);
     },
     getState: () => state,
     refresh: syncChips,

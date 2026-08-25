@@ -76,13 +76,16 @@ if (think) think.click();
 ok('thought opens on click', thinkBody && !thinkBody.hidden);
 ok('thought label settled to plain word', think && /^Thought/.test(think.textContent.trim()));
 
-// tool card collapse on header click
+// tool cards start collapsed; header click opens then closes
 const hd = document.querySelector('.cw-card:not(.cw-plan) .cw-card-hd');
 const tb = hd && hd.parentElement.querySelector('.cw-tool-body');
+ok('tool card collapsed by default', tb && tb.hidden);
 if (hd) hd.click();
-ok('tool card collapses on header click', tb && tb.hidden);
+ok('tool card opens on header click', tb && !tb.hidden);
 if (hd) hd.click();
-ok('tool card reopens', tb && !tb.hidden);
+ok('tool card closes again', tb && tb.hidden);
+ok('user turns render markdown (inline code)', !!document.querySelector('.cw-u code'));
+ok('tool text wrapped and sized', !!document.querySelector('.cw-tool-text'));
 
 // permission click answers and settles
 const permBtn = document.querySelector('.cw-perm .cw-btn.ap');

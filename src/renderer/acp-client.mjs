@@ -98,6 +98,10 @@ export function normalizeUpdate(u) {
       return { type: 'usage', used: u.used, size: u.size };
     case 'session_info_update':
       return { type: 'info', title: u.title };
+    case 'config_options_update':
+    case 'current_config_update':
+    case 'session_config_update':
+      return { type: 'config', configOptions: u.configOptions || null };
     default:
       return { type: 'unknown', raw: u };
   }

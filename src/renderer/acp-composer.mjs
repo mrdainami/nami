@@ -14,7 +14,7 @@ export function createComposer(host, o) {
     <div class="cw-att" hidden></div>
     <div class="cw-inrow">
       <textarea class="cw-in" rows="1" spellcheck="false" placeholder="Write a message…"></textarea>
-      <button class="cw-send" title="Send">↑</button>
+      <button class="cw-send" title="Send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       <button class="cw-stopbtn" hidden title="Stop">■</button>
     </div>
     <div class="cw-tools">
@@ -72,7 +72,7 @@ export function createComposer(host, o) {
     let html = '';
     if (!filter) html += '<button class="r files"><b>📎 Add files and folders</b><span>or drop from Finder</span></button>';
     if (cmdRows.length) html += '<div class="hd">Commands</div>' +
-      cmdRows.slice(0, 60).map((c) => `<button class="r" data-cmd="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
+      cmdRows.map((c) => `<button class="r" data-cmd="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
     if (skRows.length) html += '<div class="hd">Skills</div>' +
       skRows.map((c) => `<button class="r" data-skill="${esc(c.name)}"><b>✦ ${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
     if (!cmdRows.length && filter) html += '<div class="ft">No matching command — Enter sends it as written</div>';

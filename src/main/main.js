@@ -525,6 +525,10 @@ app.on('quit', () => {
 let bootSeq = 0;
 
 wireAcpLive(ipcMain);
+ipcMain.handle('link:open', (_e, url) => {
+  if (/^https?:\/\//.test(String(url))) shell.openExternal(String(url));
+  return { ok: true };
+});
 
 ipcMain.handle('boot', (e) => {
   // each window boots with its own folder; fresh windows fall back to the last-used one

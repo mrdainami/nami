@@ -97,7 +97,7 @@ export function createTranscript(container, opts) {
   function toolCard(ev) {
     closeStreams();
     const label = KIND_LABEL[ev.kind] || KIND_LABEL.other;
-    const el = block(`<div class="cw-card"><div class="cw-card-hd"><span class="k">${esc(label)}</span> <span class="f"></span><span class="cw-run">running</span></div><div class="cw-tool-body"></div></div>`);
+    const el = block(`<div class="cw-card"><div class="cw-card-hd"><span class="k">${esc(label)}</span> <span class="f"></span><span class="cw-run">running</span></div><div class="cw-tool-body" hidden></div></div>`);
     el.querySelector('.f').textContent = ev.title || '';
     el.querySelector('.cw-card-hd').addEventListener('click', () => {
       const b = el.querySelector('.cw-tool-body'); b.hidden = !b.hidden;
@@ -117,7 +117,7 @@ export function createTranscript(container, opts) {
     if (ev.status) {
       const run = el.querySelector('.cw-run');
       if (ev.status === 'completed') { run.textContent = '✓'; run.classList.add('ok'); }
-      else if (ev.status === 'failed') { run.textContent = '✗ failed'; run.classList.add('bad'); }
+      else if (ev.status === 'failed') { run.textContent = '✗ failed'; run.classList.add('bad'); el.querySelector('.cw-tool-body').hidden = false; }
       else run.textContent = ev.status.replace('_', ' ');
     }
     const bd = el.querySelector('.cw-tool-body');
@@ -135,10 +135,12 @@ export function createTranscript(container, opts) {
           newLines.slice(0, 40).map((l) => `<span class="a">+ ${esc(l)}</span>`).join('') +
           `</pre>`);
       } else if (c.type === 'content' && c.content && c.content.type === 'text') {
-        bd.insertAdjacentHTML('beforeend', mdBlocks(c.content.text).replace(/^/, ''));
+        bd.insertAdjacentHTML('beforeend', `<div class="cw-tool-text">${mdBlocks(c.content.text)}</div>`);
       } else if (c.type === 'content' && c.content && c.content.type === 'image') {
-        const src = c.content.uri || ('data:' + (c.content.mimeType || 'image/png') + ';base64,' + (c.content.data || ''));
-        bd.insertAdjacentHTML('beforeend', `<img class="cw-imgout" src="${esc(src)}" alt="">`);
+        const uri = c.content.uri || '';
+        const src = uri || ('data:' + (c.content.mimeType || 'image/png') + ';base64,' + (c.content.data || ''));
+        const openAttr = uri && (uri.startsWith('/') || uri.startsWith('file:')) ? ` data-open="${esc(uri.replace('file://', ''))}"` : '';
+        bd.insertAdjacentHTML('beforeend', `<img class="cw-imgout"${openAttr} src="${esc(src.startsWith('/') ? 'file://' + src : src)}" alt="">`);
       }
     }
     wire(bd);
@@ -166,12 +168,14 @@ export function createTranscript(container, opts) {
         case 'usage': if (o.onUsage) o.onUsage(ev.used, ev.size); break;
         case 'info': if (o.onInfo) o.onInfo(ev.title); break;
         case 'ignore': break;
+        case 'config': if (o.onConfig) o.onConfig(ev.configOptions); break;
         default:
           unknownCount++;
-          block(`<div class="cw-hint">Something arrived this view can't draw yet — it's in the session log.</div>`);
+          if (o.onUnknown) o.onUnknown(ev);
+          console.warn('[chat] unhandled event', ev.raw && ev.raw.sessionUpdate, ev.raw);
       }
     },
-    userTurn(text) { closeStreams(); block(`<div class="cw-u">${esc(text)}</div>`); },
+    userTurn(text) { closeStreams(); block(`<div class="cw-u">${mdBlocks(text)}</div>`); },
     note(text) { block(`<div class="cw-hint">${mdInline(text)}</div>`); },
     error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
     permission(params, answer) {
@@ -192,6 +196,11 @@ export function createTranscript(container, opts) {
       return el;
     },
     turnEnd() { closeStreams(); },
+    setBusy(b) {
+      let el = container.querySelector('.cw-busy');
+      if (b && !el) { el = document.createElement('div'); el.className = 'cw-busy'; el.innerHTML = '<i></i><i></i><i></i>'; container.appendChild(el); toBottom(); }
+      if (!b && el) el.remove();
+    },
     stats() { return { unknownCount, toolCount: tools.size }; },
   };
 }
