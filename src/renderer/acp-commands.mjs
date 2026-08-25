@@ -60,7 +60,11 @@ export function createCommandRouter(ctx) {
     if (name === 'config' || name === 'settings') { openSettings(); return; }
     if (name === 'resume' && ctx.resume) { ctx.resume(); return; }
     const known = (st.commands || []).some((c) => c.name === name);
-    if (!known) ctx.transcript.note('/' + name + ' isn’t one of this agent’s commands — sending it anyway.');
+    if (['model', 'mode', 'effort'].includes(name) && !co) {
+      ctx.transcript.note('This agent doesn’t expose ' + name + ' switching here yet — sending /' + name + ' as a command instead.');
+    } else if (!known) {
+      ctx.transcript.note('/' + name + ' isn’t one of this agent’s commands — sending it anyway.');
+    }
     ctx.sendPrompt('/' + name);
   };
 }

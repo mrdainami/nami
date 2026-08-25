@@ -216,7 +216,12 @@ export function mountChatPane(p, rec, hooks) {
   };
 
   const client = createAcpClient(transport, {
-    onUpdate: (u) => transcript.apply(normalizeUpdate(u)),
+    onUpdate: (u) => {
+      const ev = normalizeUpdate(u);
+      // some agents echo your prompt back mid-turn; we already drew it
+      if (ev.type === 'user' && state.busy) return;
+      transcript.apply(ev);
+    },
     onPermission: (params, reply) => {
       if (hooks.wake) hooks.wake(p);
       transcript.permission(params, (optionId) => {

@@ -3789,10 +3789,13 @@ function statusLineFor(a) {
 }
 function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
 function renderLauncher() {
+  const prevList = q('#lc-list');
+  const prevScroll = prevList ? prevList.scrollTop : 0;
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
     <div class="picker-list" id="lc-list"></div>`, { top: true });
   const list = q('#lc-list', modal);
+  if (prevScroll) requestAnimationFrame(() => { list.scrollTop = prevScroll; });
   // The one just added sorts to the top. Anything else and the user is handed
   // back a list and asked to find their own new thing in it.
   const ready = (S.agents || []).filter((a) => a.found)
