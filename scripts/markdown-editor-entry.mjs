@@ -7,8 +7,11 @@ import { listItem } from '@milkdown/crepe/feature/list-item';
 import { placeholder } from '@milkdown/crepe/feature/placeholder';
 import { table } from '@milkdown/crepe/feature/table';
 import { toolbar } from '@milkdown/crepe/feature/toolbar';
-import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
+import { editorViewCtx, editorViewOptionsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
+import { hardbreakFilterNodes } from '@milkdown/kit/preset/commonmark';
 import { toggleMark } from '@milkdown/kit/prose/commands';
+import { Selection } from '@milkdown/kit/prose/state';
+import { addRowAfter, isInTable, selectedRect } from '@milkdown/kit/prose/tables';
 import { $markSchema, $remark, replaceAll } from '@milkdown/kit/utils';
 
 import '@milkdown/crepe/theme/common/prosemirror.css';
@@ -36,6 +39,11 @@ const safeColour = (value) => {
 function splitHighlights(node) {
   if (!node || !Array.isArray(node.children)) return;
   for (const child of node.children) splitHighlights(child);
+  // A <br> is how GFM spells a line break inside a table cell; the editor
+  // works in real break nodes, so the html token becomes one on the way in.
+  node.children = node.children.map((child) =>
+    child.type === 'html' && /^<br\s*\/?>$/i.test(String(child.value || '').trim())
+      ? { type: 'break' } : child);
   const expanded = [];
   for (const child of node.children) {
     if (child.type !== 'text' || !String(child.value || '').includes('==')) { expanded.push(child); continue; }
@@ -115,6 +123,130 @@ const toggle = (ctx, markType, attrs) => {
 const highlightIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16h14v3H5zm3-2 4-10 4 10h-2l-.7-2h-2.6L10 14zm3.3-4h1.4L12 7.8z"/></svg>';
 const colourIcon = (colour) => `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" style="fill:${colour}"/><path d="M8 18h8v2H8z"/></svg>`;
 
+// Enter in a cell moves to the cell below, same column — the way a notes app
+// walks a table. On the last row it grows the table by one row first.
+function enterWalksDown(view) {
+  let rect;
+  try { rect = selectedRect(view.state); } catch (_) { return false; }
+  if (rect.top + 1 >= rect.map.height) addRowAfter(view.state, view.dispatch);
+  const state = view.state;
+  let next;
+  try { next = selectedRect(state); } catch (_) { return true; }
+  const row = Math.min(next.top + 1, next.map.height - 1);
+  const cellPos = next.tableStart + next.map.map[row * next.map.width + next.left];
+  const tr = state.tr.setSelection(Selection.near(state.doc.resolve(cellPos + 1))).scrollIntoView();
+  view.dispatch(tr);
+  return true;
+}
+
+// ---- session column widths --------------------------------------------------
+// GFM cannot store a column width, so widths never touch the document: they
+// live in a style tag keyed by table order, applied from outside ProseMirror's
+// managed DOM (a colgroup inside it would be fought over and re-parsed).
+// app.js keeps the map per card and mirrors it into the Read pane.
+function setupColumnResize(root, options) {
+  const widths = new Map();
+  for (const [key, value] of Object.entries(options.columnWidths || {})) {
+    if (Array.isArray(value)) widths.set(Number(key), value.slice());
+  }
+  const styleTag = document.createElement('style');
+  root.appendChild(styleTag);
+  const layer = document.createElement('div');
+  layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:6;';
+  let raf = 0;
+
+  const blocks = () => Array.from(root.querySelectorAll('.milkdown-table-block'));
+  const tableOf = (block) => block.querySelector('table');
+
+  function writeStyles() {
+    let css = '';
+    for (const [index, cols] of widths) {
+      const total = cols.reduce((sum, w) => sum + (w || 0), 0);
+      if (!total) continue;
+      const scope = `.milkdown-table-block[data-nami-table="${index}"] table`;
+      css += `${scope}{table-layout:fixed;width:${total}px;}`;
+      cols.forEach((w, i) => {
+        if (w) css += `${scope} tr>*:nth-child(${i + 1}){width:${w}px;}`;
+      });
+    }
+    styleTag.textContent = css;
+  }
+
+  function refresh() {
+    raf = 0;
+    const milkdown = root.querySelector('.milkdown');
+    if (!milkdown) return;
+    if (layer.parentNode !== milkdown) milkdown.appendChild(layer);
+    layer.textContent = '';
+    const layerBox = milkdown.getBoundingClientRect();
+    blocks().forEach((block, index) => {
+      if (block.dataset.namiTable !== String(index)) block.dataset.namiTable = String(index);
+      const tbl = tableOf(block);
+      const row = tbl && tbl.rows[0];
+      if (!row) return;
+      const tableBox = tbl.getBoundingClientRect();
+      Array.from(row.cells).forEach((cell, col) => {
+        const box = cell.getBoundingClientRect();
+        const handle = document.createElement('div');
+        handle.className = 'nami-col-resize';
+        handle.style.cssText += `pointer-events:auto;left:${box.right - layerBox.left - 4.5}px;` +
+          `top:${tableBox.top - layerBox.top}px;height:${tableBox.height}px;`;
+        handle.addEventListener('pointerdown', (event) => startDrag(event, handle, index, col));
+        layer.appendChild(handle);
+      });
+    });
+    writeStyles();
+  }
+  const queueRefresh = () => { if (!raf) raf = requestAnimationFrame(refresh); };
+
+  function startDrag(event, handle, index, col) {
+    event.preventDefault();
+    event.stopPropagation();
+    const block = root.querySelector(`.milkdown-table-block[data-nami-table="${index}"]`);
+    const row = block && tableOf(block) && tableOf(block).rows[0];
+    if (!row) return;
+    if (!widths.has(index) || widths.get(index).length !== row.cells.length) {
+      widths.set(index, Array.from(row.cells, (cell) => Math.round(cell.getBoundingClientRect().width)));
+    }
+    const cols = widths.get(index);
+    const startX = event.clientX;
+    const startW = cols[col];
+    handle.classList.add('live');
+    handle.setPointerCapture(event.pointerId);
+    const move = (ev) => {
+      cols[col] = Math.max(48, Math.round(startW + (ev.clientX - startX)));
+      writeStyles();
+    };
+    const up = () => {
+      handle.classList.remove('live');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      queueRefresh();
+      if (options.onColumnWidths) options.onColumnWidths(index, cols.slice());
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+  }
+
+  const observer = new MutationObserver((records) => {
+    // our own layer and style writes must not re-trigger the pass
+    if (records.every((r) => layer.contains(r.target) || r.target === styleTag)) return;
+    queueRefresh();
+  });
+  observer.observe(root, { childList: true, subtree: true, characterData: true });
+  const sizer = new ResizeObserver(queueRefresh);
+  sizer.observe(root);
+  queueRefresh();
+
+  return () => {
+    observer.disconnect();
+    sizer.disconnect();
+    if (raf) cancelAnimationFrame(raf);
+    layer.remove();
+    styleTag.remove();
+  };
+}
+
 export async function createNamiMarkdownEditor(root, markdown, options = {}) {
   const imagePath = async (file) => {
     if (options.onImageFile) return options.onImageFile(file);
@@ -167,10 +299,24 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
     .addFeature(table);
 
   builder.editor
+    // Milkdown ships with hardbreaks banned inside tables; lifting the ban is
+    // the whole Shift+Enter-in-a-cell feature — serialization is <br>.
+    .config((ctx) => ctx.set(hardbreakFilterNodes.key, ['code_block']))
+    .config((ctx) => ctx.update(editorViewOptionsCtx, (viewOptions) => ({
+      ...viewOptions,
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+        if (!isInTable(view.state)) return false;
+        return enterWalksDown(view);
+      },
+    })))
     .config((ctx) => ctx.update(remarkStringifyOptionsCtx, (options) => ({
       ...options,
       handlers: {
         ...options.handlers,
+        // In a table cell the stock handler degrades a break to a space (a
+        // raw newline would end the row); <br> is the form GFM accepts.
+        break: (_node, _parent, state) => state.stack.includes('tableCell') ? '<br>' : '\\\n',
         namiHighlight: (node, _parent, state, info) => `==${state.containerPhrasing(node, { ...info, before: '==', after: '==' })}==`,
         namiColour: (node, _parent, state, info) => {
           const colour = safeColour(node.colour);
@@ -189,12 +335,13 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
     listener.focus(() => options.onFocus && options.onFocus());
   });
   await builder.create();
+  const teardownResize = setupColumnResize(root, options);
 
   return {
     getMarkdown: () => builder.getMarkdown(),
     setMarkdown: (value) => builder.editor.action(replaceAll(value || '')),
     setReadonly: (value) => builder.setReadonly(!!value),
     focus: () => root.querySelector('.ProseMirror')?.focus({ preventScroll: true }),
-    destroy: () => builder.destroy(),
+    destroy: () => { teardownResize(); builder.destroy(); },
   };
 }
