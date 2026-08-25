@@ -1,0 +1,2164 @@
+[
+ {
+  "t": 0,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "initialize",
+   "params": {
+    "protocolVersion": 1,
+    "clientCapabilities": {
+     "fs": {
+      "readTextFile": false,
+      "writeTextFile": false
+     },
+     "terminal": false
+    }
+   }
+  }
+ },
+ {
+  "t": 130,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "result": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+     "_meta": {
+      "claudeCode": {
+       "promptQueueing": true
+      }
+     },
+     "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+     },
+     "mcpCapabilities": {
+      "http": true,
+      "sse": true
+     },
+     "auth": {
+      "logout": {}
+     },
+     "providers": {},
+     "loadSession": true,
+     "sessionCapabilities": {
+      "additionalDirectories": {},
+      "close": {},
+      "delete": {},
+      "fork": {},
+      "list": {},
+      "resume": {}
+     }
+    },
+    "agentInfo": {
+     "name": "@agentclientprotocol/claude-agent-acp",
+     "title": "Claude Agent",
+     "version": "0.70.0"
+    },
+    "authMethods": [],
+    "_meta": {
+     "jetbrains": {
+      "air": {
+       "version": 1,
+       "capabilities": [
+        "sessionFailure",
+        "agentFileChangeReport"
+       ]
+      }
+     },
+     "steering": {
+      "supported": true
+     },
+     "goal": {
+      "version": 1,
+      "controlMethod": "_session/goal",
+      "actions": [
+       "set",
+       "clear"
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "t": 130,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 2,
+   "method": "session/new",
+   "params": {
+    "cwd": "/Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets",
+    "mcpServers": []
+   }
+  }
+ },
+ {
+  "t": 511,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 2,
+   "result": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "modes": {
+     "currentModeId": "default",
+     "availableModes": [
+      {
+       "id": "auto",
+       "name": "Auto",
+       "description": "Use a model classifier to approve/deny permission prompts"
+      },
+      {
+       "id": "default",
+       "name": "Manual",
+       "description": "Standard behavior, prompts for dangerous operations"
+      },
+      {
+       "id": "acceptEdits",
+       "name": "Accept Edits",
+       "description": "Auto-accept file edit operations"
+      },
+      {
+       "id": "plan",
+       "name": "Plan Mode",
+       "description": "Planning mode, no actual tool execution"
+      },
+      {
+       "id": "dontAsk",
+       "name": "Don't Ask",
+       "description": "Don't prompt for permissions, deny if not pre-approved"
+      },
+      {
+       "id": "bypassPermissions",
+       "name": "Bypass Permissions",
+       "description": "Bypass all permission checks"
+      }
+     ]
+    },
+    "configOptions": [
+     {
+      "id": "mode",
+      "name": "Mode",
+      "description": "Session permission mode",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "default",
+      "options": [
+       {
+        "value": "auto",
+        "name": "Auto",
+        "description": "Use a model classifier to approve/deny permission prompts"
+       },
+       {
+        "value": "default",
+        "name": "Manual",
+        "description": "Standard behavior, prompts for dangerous operations"
+       },
+       {
+        "value": "acceptEdits",
+        "name": "Accept Edits",
+        "description": "Auto-accept file edit operations"
+       },
+       {
+        "value": "plan",
+        "name": "Plan Mode",
+        "description": "Planning mode, no actual tool execution"
+       },
+       {
+        "value": "dontAsk",
+        "name": "Don't Ask",
+        "description": "Don't prompt for permissions, deny if not pre-approved"
+       },
+       {
+        "value": "bypassPermissions",
+        "name": "Bypass Permissions",
+        "description": "Bypass all permission checks"
+       }
+      ]
+     },
+     {
+      "id": "model",
+      "name": "Model",
+      "description": "AI model to use",
+      "category": "model",
+      "type": "select",
+      "currentValue": "claude-fable-5[1m]",
+      "options": [
+       {
+        "value": "default",
+        "name": "Default (recommended)",
+        "description": "Opus (1M context)"
+       },
+       {
+        "value": "opus[1m]",
+        "name": "Opus (1M context)",
+        "description": "Opus 5 with 1M context · Best for everyday, complex tasks"
+       },
+       {
+        "value": "claude-fable-5[1m]",
+        "name": "Fable",
+        "description": "Fable 5 · Most capable for your hardest and longest-running tasks"
+       },
+       {
+        "value": "sonnet",
+        "name": "Sonnet",
+        "description": "Sonnet 5 · Efficient for routine tasks"
+       },
+       {
+        "value": "haiku",
+        "name": "Haiku",
+        "description": "Haiku 4.5 · Fastest for quick answers"
+       }
+      ]
+     },
+     {
+      "id": "effort",
+      "name": "Effort",
+      "description": "Available effort levels for this model",
+      "category": "thought_level",
+      "type": "select",
+      "currentValue": "high",
+      "options": [
+       {
+        "value": "default",
+        "name": "Default"
+       },
+       {
+        "value": "low",
+        "name": "Low"
+       },
+       {
+        "value": "medium",
+        "name": "Medium"
+       },
+       {
+        "value": "high",
+        "name": "High"
+       },
+       {
+        "value": "xhigh",
+        "name": "Xhigh"
+       },
+       {
+        "value": "max",
+        "name": "Max"
+       }
+      ]
+     },
+     {
+      "id": "agent",
+      "name": "Agent",
+      "description": "Main-thread agent persona",
+      "type": "select",
+      "currentValue": "default",
+      "options": [
+       {
+        "value": "default",
+        "name": "Default",
+        "description": "Standard Claude Code agent"
+       },
+       {
+        "value": "vercel:ai-architect",
+        "name": "vercel:ai-architect",
+        "description": "Specializes in architecting AI-powered applications on Vercel — choosing between AI SDK patterns, configuring providers, building agents, setting up durable workflows, and integrating MCP servers. Use when designing AI features, building chatbots, or creating agentic applications."
+       },
+       {
+        "value": "vercel:deployment-expert",
+        "name": "vercel:deployment-expert",
+        "description": "Specializes in Vercel deployment strategies, CI/CD pipelines, preview URLs, production promotions, rollbacks, environment variables, and domain configuration. Use when troubleshooting deployments, setting up CI/CD, or optimizing the deploy pipeline."
+       },
+       {
+        "value": "vercel:performance-optimizer",
+        "name": "vercel:performance-optimizer",
+        "description": "Specializes in optimizing Vercel application performance — Core Web Vitals, rendering strategies, caching, image optimization, font loading, edge computing, and bundle size. Use when investigating slow pages, improving Lighthouse scores, or optimizing loading performance."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "t": 511,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 3,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "Run this exact bash command and show me the result: node -e \"console.error('boom'); process.exit(1)\""
+     }
+    ]
+   }
+  }
+ },
+ {
+  "t": 514,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "available_commands_update",
+     "availableCommands": [
+      {
+       "name": "deep-research",
+       "description": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)",
+       "input": null
+      },
+      {
+       "name": "vercel:bootstrap",
+       "description": "(vercel) Bootstrap a repository with Vercel-linked resources by running preflight checks, provisioning integrations, verifying env keys, and then executing db/dev startup commands safely.",
+       "input": null
+      },
+      {
+       "name": "vercel:deploy",
+       "description": "(vercel) Deploy the current project to Vercel. Pass \"prod\" or \"production\" as argument to deploy to production. Default is preview deployment.",
+       "input": null
+      },
+      {
+       "name": "vercel:env",
+       "description": "(vercel) Manage Vercel environment variables. Commands include list, pull, add, remove, and diff. Use to sync environment variables between Vercel and your local development environment.",
+       "input": null
+      },
+      {
+       "name": "vercel:status",
+       "description": "(vercel) Show the status of the current Vercel project — recent deployments, linked project info, and environment overview.",
+       "input": null
+      },
+      {
+       "name": "superpowers:brainstorming",
+       "description": "(superpowers) You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.",
+       "input": null
+      },
+      {
+       "name": "superpowers:dispatching-parallel-agents",
+       "description": "(superpowers) Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies",
+       "input": null
+      },
+      {
+       "name": "superpowers:executing-plans",
+       "description": "(superpowers) Use when you have a written implementation plan to execute in a separate session with review checkpoints",
+       "input": null
+      },
+      {
+       "name": "superpowers:finishing-a-development-branch",
+       "description": "(superpowers) Use when implementation is complete, all tests pass, and you need to decide how to integrate the work",
+       "input": null
+      },
+      {
+       "name": "superpowers:receiving-code-review",
+       "description": "(superpowers) Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation",
+       "input": null
+      },
+      {
+       "name": "superpowers:requesting-code-review",
+       "description": "(superpowers) Use when completing tasks, implementing major features, or before merging to verify work meets requirements",
+       "input": null
+      },
+      {
+       "name": "superpowers:subagent-driven-development",
+       "description": "(superpowers) Use when executing implementation plans with independent tasks in the current session",
+       "input": null
+      },
+      {
+       "name": "superpowers:systematic-debugging",
+       "description": "(superpowers) Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes",
+       "input": null
+      },
+      {
+       "name": "superpowers:test-driven-development",
+       "description": "(superpowers) Use when implementing any feature or bugfix, before writing implementation code",
+       "input": null
+      },
+      {
+       "name": "superpowers:using-git-worktrees",
+       "description": "(superpowers) Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback",
+       "input": null
+      },
+      {
+       "name": "superpowers:using-superpowers",
+       "description": "(superpowers) Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions",
+       "input": null
+      },
+      {
+       "name": "superpowers:verification-before-completion",
+       "description": "(superpowers) Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always",
+       "input": null
+      },
+      {
+       "name": "superpowers:writing-plans",
+       "description": "(superpowers) Use when you have a spec or requirements for a multi-step task, before touching code",
+       "input": null
+      },
+      {
+       "name": "superpowers:writing-skills",
+       "description": "(superpowers) Use when creating new skills, editing existing skills, or verifying skills work before deployment",
+       "input": null
+      },
+      {
+       "name": "frontend-design:frontend-design",
+       "description": "(frontend-design) Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+       "input": null
+      },
+      {
+       "name": "scroll-world:scroll-world",
+       "description": "(scroll-world) Build an immersive scroll-scrubbed \"fly through the world\" landing page for any industry or brand using Higgsfield. As the visitor scrolls, a pre-rendered camera flies from outside each scene into its interior, then flows on to the next scene with NO cuts — one continuous connected flight (Emons-style isometric diorama world, or any art direction you pick). The skill interviews the user for the topic, the story beats/sections, and brand kit, then generates cohesive scenes + seamless camera clips with Higgsfield and wires a portable, framework-agnostic scroll-scrub engine. This fork renders EVERYTHING through KIE.ai by default — the scene stills (GPT-Image-2) and the video chain (Seedance 2.0, first/last-frame conditioning, qualified 2026-08-03) on ONE KIE_API_KEY — with upstream's Monid (per-clip USD) and Higgsfield-credit paths kept as alternate billers (see Step 4). Use when the user wants a \"3D world\" / \"browse-through-the-industry\" hero, a scroll cinematic, a diorama landing, or to turn a business into a scrollable world.",
+       "input": null
+      },
+      {
+       "name": "vercel:ai-gateway",
+       "description": "(vercel) Vercel AI Gateway expert guidance. Use when configuring model routing, provider failover, cost tracking, or managing multiple AI providers through a unified API.",
+       "input": null
+      },
+      {
+       "name": "vercel:ai-sdk",
+       "description": "(vercel) Vercel AI SDK expert guidance. Use when building AI-powered features — chat interfaces, text generation, structured output, tool calling, agents, MCP integration, streaming, embeddings, reranking, image generation, or working with any LLM provider.",
+       "input": null
+      },
+      {
+       "name": "vercel:auth",
+       "description": "(vercel) Authentication integration guidance — Clerk (native Vercel Marketplace), Descope, and Auth0 setup for Next.js applications. Covers middleware auth patterns, sign-in/sign-up flows, and Marketplace provisioning. Use when implementing user authentication.",
+       "input": null
+      },
+      {
+       "name": "vercel:cdn-caching",
+       "description": "(vercel) Debug Vercel CDN caching — cache hit rate, stale content, revalidation behavior, ISR + PPR, per-request cache reasons (cacheReason), and costs.",
+       "input": null
+      },
+      {
+       "name": "vercel:chat-sdk",
+       "description": "(vercel) Vercel Chat SDK expert guidance. Use when building multi-platform chat bots — Slack, Telegram, Microsoft Teams, Discord, Google Chat, GitHub, Linear — with a single codebase. Covers the Chat class, adapters, threads, messages, cards, modals, streaming, state management, and webhook setup.",
+       "input": null
+      },
+      {
+       "name": "vercel:deployments-cicd",
+       "description": "(vercel) Vercel deployment and CI/CD expert guidance. Use when deploying, promoting, rolling back, inspecting deployments, building with --prebuilt, or configuring CI workflow files for Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:env-vars",
+       "description": "(vercel) Vercel environment variable expert guidance. Use when working with .env files, vercel env commands, OIDC tokens, or managing environment-specific configuration.",
+       "input": null
+      },
+      {
+       "name": "vercel:eve",
+       "description": "(vercel) Build durable AI agents and agent-powered applications with the eve framework. Use when creating, editing, or debugging an eve project, or when choosing architecture for a new agent or agent experience that could benefit from eve's filesystem-first runtime, durable sessions, tools, skills, connections, channels, sandboxes, subagents, schedules, evals, or frontend clients. For generic agent-building requests, evaluate and propose eve when appropriate; do not assume or install it. Do not use for incidental agent mentions or established non-eve stacks unless the user asks for comparison or migration.",
+       "input": null
+      },
+      {
+       "name": "vercel:knowledge-update",
+       "description": "(vercel) Corrects outdated LLM knowledge about the Vercel platform and introduces new products. Injected at session start.",
+       "input": null
+      },
+      {
+       "name": "vercel:marketplace",
+       "description": "(vercel) Vercel Marketplace expert guidance — discovering, installing, and managing third-party integrations via the `vercel integration` CLI. Use when building any app that needs an external capability without a dedicated skill — commerce (stores, storefronts, selling products), payments (checkout, subscriptions, billing), observability/monitoring, messaging/email, search, or CMS — or when discovering, installing, or managing integrations.",
+       "input": null
+      },
+      {
+       "name": "vercel:microfrontends",
+       "description": "(vercel) Guide for building, configuring, and deploying microfrontends on Vercel. Use this skill when the user mentions microfrontends, multi-zones, splitting an app across teams, independent deployments, cross-app routing, incremental migration, composing multiple frontends under one domain, microfrontends.json, @vercel/microfrontends, the microfrontends local proxy, or path-based routing between Vercel projects. Also use when the user asks about shared layouts across projects, navigation between microfrontends, fallback environments, asset prefixes, or feature flag controlled routing.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-cache-components",
+       "description": "(vercel) Next.js 16 Cache Components guidance — PPR, use cache directive, cacheLife, cacheTag, updateTag, and migration from unstable_cache. Use when implementing partial prerendering, caching strategies, or migrating from older Next.js cache patterns.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-forge",
+       "description": "(vercel) next-forge expert guidance — production-grade Turborepo monorepo SaaS starter by Vercel. Use when working in a next-forge project, scaffolding with `npx next-forge init`, or editing @repo/* workspace packages.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-upgrade",
+       "description": "(vercel) Upgrade Next.js to the latest version following official migration guides and codemods. Use when upgrading Next.js versions, running codemods, or migrating between major releases.",
+       "input": null
+      },
+      {
+       "name": "vercel:nextjs",
+       "description": "(vercel) Next.js App Router expert guidance. Use when building, debugging, or architecting Next.js applications — routing, Server Components, Server Actions, Cache Components, layouts, middleware/proxy, data fetching, rendering strategies, and deployment on Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:react-best-practices",
+       "description": "(vercel) React best-practices reviewer for TSX files. Triggers after editing multiple TSX components to run a condensed quality checklist covering component structure, hooks usage, accessibility, performance, and TypeScript patterns.",
+       "input": null
+      },
+      {
+       "name": "vercel:routing-middleware",
+       "description": "(vercel) Vercel Routing Middleware guidance — request interception before cache, rewrites, redirects, personalization. Works with any framework. Supports Edge, Node.js, and Bun runtimes. Use when intercepting requests at the platform level.",
+       "input": null
+      },
+      {
+       "name": "vercel:runtime-cache",
+       "description": "(vercel) Vercel Runtime Cache API guidance — ephemeral per-region key-value cache with tag-based invalidation. Shared across Functions, Routing Middleware, and Builds. Use when implementing caching strategies beyond framework-level caching.",
+       "input": null
+      },
+      {
+       "name": "vercel:shadcn",
+       "description": "(vercel) shadcn/ui expert guidance — CLI, component installation, composition patterns, custom registries, theming, Tailwind CSS integration, and high-quality interface design. Use when initializing shadcn, adding components, composing product UI, building custom registries, configuring themes, or troubleshooting component issues.",
+       "input": null
+      },
+      {
+       "name": "vercel:turbopack",
+       "description": "(vercel) Turbopack expert guidance. Use when configuring the Next.js bundler, optimizing HMR, debugging build issues, or understanding the Turbopack vs Webpack differences.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-agent",
+       "description": "(vercel) Vercel Agent guidance — AI-powered code review, incident investigation, and SDK installation. Automates PR analysis and anomaly debugging. Use when configuring or understanding Vercel's AI development tools.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-cli",
+       "description": "(vercel) Vercel CLI expert guidance. Use when deploying, managing environment variables, linking projects, viewing logs, querying metrics, managing domains, or interacting with the Vercel platform from the command line.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-connect",
+       "description": "(vercel) Vercel Connect expert guidance — securely obtain scoped OAuth tokens for third-party services (Slack, GitHub, MCP servers, OAuth, Snowflake) on behalf of apps or users via Vercel OIDC. Use when wiring up third-party API access, connecting to MCP servers, sending Slack messages, accessing GitHub APIs, receiving webhook events from Slack/Linear/GitHub and forwarding them to your agents and apps, or building Eve agent connections.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-firewall",
+       "description": "(vercel) Vercel Firewall expert guidance — automatic DDoS mitigation, the Vercel WAF (custom rules, IP blocking, managed rulesets, rate limiting), Attack Mode, system bypass, bot management, and the `vercel firewall` CLI. Use when configuring platform-level security, responding to attacks, or staging firewall rules.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-functions",
+       "description": "(vercel) Vercel Functions expert guidance — Serverless Functions, Edge Functions, Fluid Compute, streaming, Cron Jobs, and runtime configuration. Use when configuring, debugging, or optimizing server-side code running on Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-sandbox",
+       "description": "(vercel) Vercel Sandbox guidance — ephemeral Firecracker microVMs for running untrusted code safely. Supports AI agents, code generation, and experimentation. Use when executing user-generated or AI-generated code in isolation.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-storage",
+       "description": "(vercel) Vercel storage expert guidance — Blob, Edge Config, and Marketplace storage (Neon Postgres, Upstash Redis). Use when choosing, configuring, or using data storage with Vercel applications.",
+       "input": null
+      },
+      {
+       "name": "vercel:verification",
+       "description": "(vercel) Full-story verification — infers what the user is building, then verifies the complete flow end-to-end: browser → API → data → response. Triggers on dev server start and 'why isn't this working' signals.",
+       "input": null
+      },
+      {
+       "name": "vercel:workflow",
+       "description": "(vercel) Vercel Workflow DevKit (WDK) expert guidance. Use when building durable workflows, long-running tasks, API routes or agents that need pause/resume, retries, step-based execution, or crash-safe orchestration with Vercel Workflow.",
+       "input": null
+      },
+      {
+       "name": "design-sync",
+       "description": "Push a React design system to claude.ai/design. This runs a converter that bundles the real component code (from Storybook or a bare package) and uploads it. Use when the user runs /design-sync or says \"sync my design system to Claude Design\".",
+       "input": {
+        "hint": "[<project hint, e.g. \"Acme DS\">]"
+       }
+      },
+      {
+       "name": "dataviz",
+       "description": "Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: \"chart\", \"graph\", \"plot\", \"data viz\", \"visualization\", \"dashboard\", \"analytics\", \"visualize data\", \"categorical colors\", \"sequential / diverging palette\", \"stat tile\", \"sparkline\", \"heatmap\", \"legend\", \"axis\", \"tooltip\", \"chart colors\", \"color by series\".",
+       "input": null
+      },
+      {
+       "name": "update-config",
+       "description": "Use this skill to configure the Claude Code harness via settings.json. Automated behaviors (\"from now on when X\", \"each time X\", \"whenever X\", \"before/after X\") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions (\"allow X\", \"add permission\", \"move permission to\"), env vars (\"set X=Y\"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: \"allow npm commands\", \"add bq permission to global settings\", \"move permission to user settings\", \"set DEBUG=true\", \"when claude stops show X\". For simple settings like theme/model, suggest the /config command.",
+       "input": null
+      },
+      {
+       "name": "verify",
+       "description": "Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.",
+       "input": null
+      },
+      {
+       "name": "debug",
+       "description": "Enable debug logging for this session and help diagnose issues",
+       "input": {
+        "hint": "[issue description]"
+       }
+      },
+      {
+       "name": "code-review",
+       "description": "Review the current diff, or a PR number/branch/path target, for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud); with no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review. For ultra on a GitHub.com PR target, --post asks to post the finished review’s findings to the PR as a single comment from the user’s GitHub account (not a review; the launch dialog still confirms in interactive sessions, while non-interactive mode posts on the flag alone) and --no-post hides that option.",
+       "input": {
+        "hint": "[low|medium|high|xhigh|max|ultra] [--fix] [--comment] [<pr#>|<branch>|<path>]"
+       }
+      },
+      {
+       "name": "simplify",
+       "description": "Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.",
+       "input": {
+        "hint": "[<target>]"
+       }
+      },
+      {
+       "name": "batch",
+       "description": "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.",
+       "input": {
+        "hint": "<instruction>"
+       }
+      },
+      {
+       "name": "fewer-permission-prompts",
+       "description": "Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.",
+       "input": null
+      },
+      {
+       "name": "doctor",
+       "description": "Health-check the user's Claude Code setup and fix issues: diagnose installation health — what the `claude doctor` terminal diagnostics cover — from local data (duplicate or leftover installs, PATH, unparseable settings files, broken or colliding agent definitions); find unused skills, MCP servers, and plugins versus their context cost and disable dead weight; deduplicate local CLAUDE.md files against checked-in ones; trim checked-in CLAUDE.md files by cutting content a session could derive from the codebase (directory layouts, tech-stack lists, architecture overviews) while keeping gotchas, rationale, and non-standard conventions; migrate always-loaded CLAUDE.md guidance into lazy skills and nested CLAUDE.md files; flag slow hooks and context-heavy extensions; check the installed version is current; make auto mode the default permission mode; and pre-approve frequently denied read-only commands. Use when the user asks for a doctor run, checkup, audit, tune-up, or cleanup of their Claude Code setup or configuration.",
+       "input": null
+      },
+      {
+       "name": "loop",
+       "description": "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace.",
+       "input": {
+        "hint": "[interval] [prompt]"
+       }
+      },
+      {
+       "name": "schedule",
+       "description": "Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule.",
+       "input": null
+      },
+      {
+       "name": "claude-api",
+       "description": "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.\nTRIGGER — read BEFORE opening the target file; don't skip because it \"looks like a one-liner\" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).\nSKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).",
+       "input": null
+      },
+      {
+       "name": "run",
+       "description": "Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).",
+       "input": null
+      },
+      {
+       "name": "run-skill-generator",
+       "description": "Author or improve the run-<unit> skill — a per-project skill that tells agents how to build, launch, and drive this project's app. Use when the user asks to set up the project, get it running, write run instructions, or verify build/run steps work from a clean environment.",
+       "input": null
+      },
+      {
+       "name": "agents",
+       "description": "(removed) Ask Claude to create/manage subagents, or edit .claude/agents/",
+       "input": null
+      },
+      {
+       "name": "auto-mode-setup",
+       "description": "Set up and customise auto mode — environment context, plus optional rule tweaks",
+       "input": {
+        "hint": "[--request-id <uuid>] (--wizard posture=… scope=… depth=… --propose | --expect-sha256 <64-hex> --apply-file <path>)"
+       }
+      },
+      {
+       "name": "autocompact",
+       "description": "Configure the auto-compact window size",
+       "input": {
+        "hint": "[auto|<tokens>]"
+       }
+      },
+      {
+       "name": "color",
+       "description": "Set the prompt bar color for this session",
+       "input": {
+        "hint": "[red|blue|green|yellow|purple|orange|pink|cyan|default]"
+       }
+      },
+      {
+       "name": "compact",
+       "description": "Free up context by summarizing the conversation so far",
+       "input": {
+        "hint": "<optional custom summarization instructions>"
+       }
+      },
+      {
+       "name": "config",
+       "description": "Set a setting by key",
+       "input": {
+        "hint": "key=value"
+       }
+      },
+      {
+       "name": "context",
+       "description": "Show current context usage",
+       "input": null
+      },
+      {
+       "name": "effort",
+       "description": "Set effort level for model usage",
+       "input": {
+        "hint": "<low|medium|high|xhigh|max|ultracode|auto>"
+       }
+      },
+      {
+       "name": "fast",
+       "description": "Toggle fast mode (Opus 5)",
+       "input": {
+        "hint": "[on|off]"
+       }
+      },
+      {
+       "name": "heapdump",
+       "description": "Dump the JS heap to ~/Desktop",
+       "input": null
+      },
+      {
+       "name": "init",
+       "description": "Initialize a new CLAUDE.md file with codebase documentation",
+       "input": null
+      },
+      {
+       "name": "mcp",
+       "description": "Manage MCP servers",
+       "input": {
+        "hint": "[reconnect|enable|disable [<server>|all]]"
+       }
+      },
+      {
+       "name": "import",
+       "description": "Import config from another AI coding agent",
+       "input": null
+      },
+      {
+       "name": "model",
+       "description": "Set the AI model for Claude Code",
+       "input": {
+        "hint": "<model>"
+       }
+      },
+      {
+       "name": "__remote-workflow",
+       "description": "Run the workflow script delivered in this session environment (server-launched sessions only)",
+       "input": null
+      },
+      {
+       "name": "workflow-launch-exec",
+       "description": "Execute a server-launched workflow handoff (workflow_launch event sessions only)",
+       "input": null
+      },
+      {
+       "name": "reload-skills",
+       "description": "Pick up skills added or changed on disk during this session",
+       "input": null
+      },
+      {
+       "name": "rename",
+       "description": "Rename the current conversation",
+       "input": {
+        "hint": "[name]"
+       }
+      },
+      {
+       "name": "ultrareview",
+       "description": "Start a cloud agent that finds and verifies bugs in your branch (~5-10 min, $5-$25 USD) · Runs in Claude Code on the web. See https://code.claude.com/docs/en/claude-code-on-the-web",
+       "input": null
+      },
+      {
+       "name": "security-review",
+       "description": "Complete a security review of the pending changes on the current branch",
+       "input": null
+      },
+      {
+       "name": "usage-credits",
+       "description": "Configure usage credits or request them from your admin when you hit a limit",
+       "input": null
+      },
+      {
+       "name": "extra-usage",
+       "description": "Renamed to /usage-credits",
+       "input": null
+      },
+      {
+       "name": "usage",
+       "description": "Show session cost, plan usage, and what's contributing to your limits",
+       "input": null
+      },
+      {
+       "name": "insights",
+       "description": "Generate a report analyzing your Claude Code sessions",
+       "input": null
+      },
+      {
+       "name": "recap",
+       "description": "Generate a one-line session recap now",
+       "input": null
+      },
+      {
+       "name": "goal",
+       "description": "Set a goal — keep working until the condition is met",
+       "input": null
+      },
+      {
+       "name": "design",
+       "description": "Grant or revoke Claude agent access to your Design projects",
+       "input": {
+        "hint": "consent | revoke"
+       }
+      },
+      {
+       "name": "design-consent",
+       "description": "Grant Claude agent access to your Design projects",
+       "input": null
+      },
+      {
+       "name": "design-revoke",
+       "description": "Revoke Claude agent access to your Design projects",
+       "input": null
+      },
+      {
+       "name": "list-agents",
+       "description": "List subagents and other Claude sessions you can message",
+       "input": null
+      },
+      {
+       "name": "team-onboarding",
+       "description": "Help teammates ramp on Claude Code with a guide from your usage",
+       "input": null
+      },
+      {
+       "name": "mcp:github:AssignCodingAgent",
+       "description": "Assign GitHub Coding Agent to multiple tasks in a GitHub repository.",
+       "input": null
+      },
+      {
+       "name": "mcp:github:issue_to_fix_workflow",
+       "description": "Create an issue for a problem and then generate a pull request to fix it",
+       "input": null
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 2588,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "available_commands_update",
+     "availableCommands": [
+      {
+       "name": "deep-research",
+       "description": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)",
+       "input": null
+      },
+      {
+       "name": "vercel:bootstrap",
+       "description": "(vercel) Bootstrap a repository with Vercel-linked resources by running preflight checks, provisioning integrations, verifying env keys, and then executing db/dev startup commands safely.",
+       "input": null
+      },
+      {
+       "name": "vercel:deploy",
+       "description": "(vercel) Deploy the current project to Vercel. Pass \"prod\" or \"production\" as argument to deploy to production. Default is preview deployment.",
+       "input": null
+      },
+      {
+       "name": "vercel:env",
+       "description": "(vercel) Manage Vercel environment variables. Commands include list, pull, add, remove, and diff. Use to sync environment variables between Vercel and your local development environment.",
+       "input": null
+      },
+      {
+       "name": "vercel:status",
+       "description": "(vercel) Show the status of the current Vercel project — recent deployments, linked project info, and environment overview.",
+       "input": null
+      },
+      {
+       "name": "superpowers:brainstorming",
+       "description": "(superpowers) You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.",
+       "input": null
+      },
+      {
+       "name": "superpowers:dispatching-parallel-agents",
+       "description": "(superpowers) Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies",
+       "input": null
+      },
+      {
+       "name": "superpowers:executing-plans",
+       "description": "(superpowers) Use when you have a written implementation plan to execute in a separate session with review checkpoints",
+       "input": null
+      },
+      {
+       "name": "superpowers:finishing-a-development-branch",
+       "description": "(superpowers) Use when implementation is complete, all tests pass, and you need to decide how to integrate the work",
+       "input": null
+      },
+      {
+       "name": "superpowers:receiving-code-review",
+       "description": "(superpowers) Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation",
+       "input": null
+      },
+      {
+       "name": "superpowers:requesting-code-review",
+       "description": "(superpowers) Use when completing tasks, implementing major features, or before merging to verify work meets requirements",
+       "input": null
+      },
+      {
+       "name": "superpowers:subagent-driven-development",
+       "description": "(superpowers) Use when executing implementation plans with independent tasks in the current session",
+       "input": null
+      },
+      {
+       "name": "superpowers:systematic-debugging",
+       "description": "(superpowers) Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes",
+       "input": null
+      },
+      {
+       "name": "superpowers:test-driven-development",
+       "description": "(superpowers) Use when implementing any feature or bugfix, before writing implementation code",
+       "input": null
+      },
+      {
+       "name": "superpowers:using-git-worktrees",
+       "description": "(superpowers) Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback",
+       "input": null
+      },
+      {
+       "name": "superpowers:using-superpowers",
+       "description": "(superpowers) Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions",
+       "input": null
+      },
+      {
+       "name": "superpowers:verification-before-completion",
+       "description": "(superpowers) Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always",
+       "input": null
+      },
+      {
+       "name": "superpowers:writing-plans",
+       "description": "(superpowers) Use when you have a spec or requirements for a multi-step task, before touching code",
+       "input": null
+      },
+      {
+       "name": "superpowers:writing-skills",
+       "description": "(superpowers) Use when creating new skills, editing existing skills, or verifying skills work before deployment",
+       "input": null
+      },
+      {
+       "name": "frontend-design:frontend-design",
+       "description": "(frontend-design) Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+       "input": null
+      },
+      {
+       "name": "scroll-world:scroll-world",
+       "description": "(scroll-world) Build an immersive scroll-scrubbed \"fly through the world\" landing page for any industry or brand using Higgsfield. As the visitor scrolls, a pre-rendered camera flies from outside each scene into its interior, then flows on to the next scene with NO cuts — one continuous connected flight (Emons-style isometric diorama world, or any art direction you pick). The skill interviews the user for the topic, the story beats/sections, and brand kit, then generates cohesive scenes + seamless camera clips with Higgsfield and wires a portable, framework-agnostic scroll-scrub engine. This fork renders EVERYTHING through KIE.ai by default — the scene stills (GPT-Image-2) and the video chain (Seedance 2.0, first/last-frame conditioning, qualified 2026-08-03) on ONE KIE_API_KEY — with upstream's Monid (per-clip USD) and Higgsfield-credit paths kept as alternate billers (see Step 4). Use when the user wants a \"3D world\" / \"browse-through-the-industry\" hero, a scroll cinematic, a diorama landing, or to turn a business into a scrollable world.",
+       "input": null
+      },
+      {
+       "name": "vercel:ai-gateway",
+       "description": "(vercel) Vercel AI Gateway expert guidance. Use when configuring model routing, provider failover, cost tracking, or managing multiple AI providers through a unified API.",
+       "input": null
+      },
+      {
+       "name": "vercel:ai-sdk",
+       "description": "(vercel) Vercel AI SDK expert guidance. Use when building AI-powered features — chat interfaces, text generation, structured output, tool calling, agents, MCP integration, streaming, embeddings, reranking, image generation, or working with any LLM provider.",
+       "input": null
+      },
+      {
+       "name": "vercel:auth",
+       "description": "(vercel) Authentication integration guidance — Clerk (native Vercel Marketplace), Descope, and Auth0 setup for Next.js applications. Covers middleware auth patterns, sign-in/sign-up flows, and Marketplace provisioning. Use when implementing user authentication.",
+       "input": null
+      },
+      {
+       "name": "vercel:cdn-caching",
+       "description": "(vercel) Debug Vercel CDN caching — cache hit rate, stale content, revalidation behavior, ISR + PPR, per-request cache reasons (cacheReason), and costs.",
+       "input": null
+      },
+      {
+       "name": "vercel:chat-sdk",
+       "description": "(vercel) Vercel Chat SDK expert guidance. Use when building multi-platform chat bots — Slack, Telegram, Microsoft Teams, Discord, Google Chat, GitHub, Linear — with a single codebase. Covers the Chat class, adapters, threads, messages, cards, modals, streaming, state management, and webhook setup.",
+       "input": null
+      },
+      {
+       "name": "vercel:deployments-cicd",
+       "description": "(vercel) Vercel deployment and CI/CD expert guidance. Use when deploying, promoting, rolling back, inspecting deployments, building with --prebuilt, or configuring CI workflow files for Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:env-vars",
+       "description": "(vercel) Vercel environment variable expert guidance. Use when working with .env files, vercel env commands, OIDC tokens, or managing environment-specific configuration.",
+       "input": null
+      },
+      {
+       "name": "vercel:eve",
+       "description": "(vercel) Build durable AI agents and agent-powered applications with the eve framework. Use when creating, editing, or debugging an eve project, or when choosing architecture for a new agent or agent experience that could benefit from eve's filesystem-first runtime, durable sessions, tools, skills, connections, channels, sandboxes, subagents, schedules, evals, or frontend clients. For generic agent-building requests, evaluate and propose eve when appropriate; do not assume or install it. Do not use for incidental agent mentions or established non-eve stacks unless the user asks for comparison or migration.",
+       "input": null
+      },
+      {
+       "name": "vercel:knowledge-update",
+       "description": "(vercel) Corrects outdated LLM knowledge about the Vercel platform and introduces new products. Injected at session start.",
+       "input": null
+      },
+      {
+       "name": "vercel:marketplace",
+       "description": "(vercel) Vercel Marketplace expert guidance — discovering, installing, and managing third-party integrations via the `vercel integration` CLI. Use when building any app that needs an external capability without a dedicated skill — commerce (stores, storefronts, selling products), payments (checkout, subscriptions, billing), observability/monitoring, messaging/email, search, or CMS — or when discovering, installing, or managing integrations.",
+       "input": null
+      },
+      {
+       "name": "vercel:microfrontends",
+       "description": "(vercel) Guide for building, configuring, and deploying microfrontends on Vercel. Use this skill when the user mentions microfrontends, multi-zones, splitting an app across teams, independent deployments, cross-app routing, incremental migration, composing multiple frontends under one domain, microfrontends.json, @vercel/microfrontends, the microfrontends local proxy, or path-based routing between Vercel projects. Also use when the user asks about shared layouts across projects, navigation between microfrontends, fallback environments, asset prefixes, or feature flag controlled routing.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-cache-components",
+       "description": "(vercel) Next.js 16 Cache Components guidance — PPR, use cache directive, cacheLife, cacheTag, updateTag, and migration from unstable_cache. Use when implementing partial prerendering, caching strategies, or migrating from older Next.js cache patterns.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-forge",
+       "description": "(vercel) next-forge expert guidance — production-grade Turborepo monorepo SaaS starter by Vercel. Use when working in a next-forge project, scaffolding with `npx next-forge init`, or editing @repo/* workspace packages.",
+       "input": null
+      },
+      {
+       "name": "vercel:next-upgrade",
+       "description": "(vercel) Upgrade Next.js to the latest version following official migration guides and codemods. Use when upgrading Next.js versions, running codemods, or migrating between major releases.",
+       "input": null
+      },
+      {
+       "name": "vercel:nextjs",
+       "description": "(vercel) Next.js App Router expert guidance. Use when building, debugging, or architecting Next.js applications — routing, Server Components, Server Actions, Cache Components, layouts, middleware/proxy, data fetching, rendering strategies, and deployment on Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:react-best-practices",
+       "description": "(vercel) React best-practices reviewer for TSX files. Triggers after editing multiple TSX components to run a condensed quality checklist covering component structure, hooks usage, accessibility, performance, and TypeScript patterns.",
+       "input": null
+      },
+      {
+       "name": "vercel:routing-middleware",
+       "description": "(vercel) Vercel Routing Middleware guidance — request interception before cache, rewrites, redirects, personalization. Works with any framework. Supports Edge, Node.js, and Bun runtimes. Use when intercepting requests at the platform level.",
+       "input": null
+      },
+      {
+       "name": "vercel:runtime-cache",
+       "description": "(vercel) Vercel Runtime Cache API guidance — ephemeral per-region key-value cache with tag-based invalidation. Shared across Functions, Routing Middleware, and Builds. Use when implementing caching strategies beyond framework-level caching.",
+       "input": null
+      },
+      {
+       "name": "vercel:shadcn",
+       "description": "(vercel) shadcn/ui expert guidance — CLI, component installation, composition patterns, custom registries, theming, Tailwind CSS integration, and high-quality interface design. Use when initializing shadcn, adding components, composing product UI, building custom registries, configuring themes, or troubleshooting component issues.",
+       "input": null
+      },
+      {
+       "name": "vercel:turbopack",
+       "description": "(vercel) Turbopack expert guidance. Use when configuring the Next.js bundler, optimizing HMR, debugging build issues, or understanding the Turbopack vs Webpack differences.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-agent",
+       "description": "(vercel) Vercel Agent guidance — AI-powered code review, incident investigation, and SDK installation. Automates PR analysis and anomaly debugging. Use when configuring or understanding Vercel's AI development tools.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-cli",
+       "description": "(vercel) Vercel CLI expert guidance. Use when deploying, managing environment variables, linking projects, viewing logs, querying metrics, managing domains, or interacting with the Vercel platform from the command line.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-connect",
+       "description": "(vercel) Vercel Connect expert guidance — securely obtain scoped OAuth tokens for third-party services (Slack, GitHub, MCP servers, OAuth, Snowflake) on behalf of apps or users via Vercel OIDC. Use when wiring up third-party API access, connecting to MCP servers, sending Slack messages, accessing GitHub APIs, receiving webhook events from Slack/Linear/GitHub and forwarding them to your agents and apps, or building Eve agent connections.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-firewall",
+       "description": "(vercel) Vercel Firewall expert guidance — automatic DDoS mitigation, the Vercel WAF (custom rules, IP blocking, managed rulesets, rate limiting), Attack Mode, system bypass, bot management, and the `vercel firewall` CLI. Use when configuring platform-level security, responding to attacks, or staging firewall rules.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-functions",
+       "description": "(vercel) Vercel Functions expert guidance — Serverless Functions, Edge Functions, Fluid Compute, streaming, Cron Jobs, and runtime configuration. Use when configuring, debugging, or optimizing server-side code running on Vercel.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-sandbox",
+       "description": "(vercel) Vercel Sandbox guidance — ephemeral Firecracker microVMs for running untrusted code safely. Supports AI agents, code generation, and experimentation. Use when executing user-generated or AI-generated code in isolation.",
+       "input": null
+      },
+      {
+       "name": "vercel:vercel-storage",
+       "description": "(vercel) Vercel storage expert guidance — Blob, Edge Config, and Marketplace storage (Neon Postgres, Upstash Redis). Use when choosing, configuring, or using data storage with Vercel applications.",
+       "input": null
+      },
+      {
+       "name": "vercel:verification",
+       "description": "(vercel) Full-story verification — infers what the user is building, then verifies the complete flow end-to-end: browser → API → data → response. Triggers on dev server start and 'why isn't this working' signals.",
+       "input": null
+      },
+      {
+       "name": "vercel:workflow",
+       "description": "(vercel) Vercel Workflow DevKit (WDK) expert guidance. Use when building durable workflows, long-running tasks, API routes or agents that need pause/resume, retries, step-based execution, or crash-safe orchestration with Vercel Workflow.",
+       "input": null
+      },
+      {
+       "name": "design-sync",
+       "description": "Push a React design system to claude.ai/design. This runs a converter that bundles the real component code (from Storybook or a bare package) and uploads it. Use when the user runs /design-sync or says \"sync my design system to Claude Design\".",
+       "input": {
+        "hint": "[<project hint, e.g. \"Acme DS\">]"
+       }
+      },
+      {
+       "name": "dataviz",
+       "description": "Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: \"chart\", \"graph\", \"plot\", \"data viz\", \"visualization\", \"dashboard\", \"analytics\", \"visualize data\", \"categorical colors\", \"sequential / diverging palette\", \"stat tile\", \"sparkline\", \"heatmap\", \"legend\", \"axis\", \"tooltip\", \"chart colors\", \"color by series\".",
+       "input": null
+      },
+      {
+       "name": "update-config",
+       "description": "Use this skill to configure the Claude Code harness via settings.json. Automated behaviors (\"from now on when X\", \"each time X\", \"whenever X\", \"before/after X\") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions (\"allow X\", \"add permission\", \"move permission to\"), env vars (\"set X=Y\"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: \"allow npm commands\", \"add bq permission to global settings\", \"move permission to user settings\", \"set DEBUG=true\", \"when claude stops show X\". For simple settings like theme/model, suggest the /config command.",
+       "input": null
+      },
+      {
+       "name": "verify",
+       "description": "Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.",
+       "input": null
+      },
+      {
+       "name": "debug",
+       "description": "Enable debug logging for this session and help diagnose issues",
+       "input": {
+        "hint": "[issue description]"
+       }
+      },
+      {
+       "name": "code-review",
+       "description": "Review the current diff, or a PR number/branch/path target, for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud); with no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review. For ultra on a GitHub.com PR target, --post asks to post the finished review’s findings to the PR as a single comment from the user’s GitHub account (not a review; the launch dialog still confirms in interactive sessions, while non-interactive mode posts on the flag alone) and --no-post hides that option.",
+       "input": {
+        "hint": "[low|medium|high|xhigh|max|ultra] [--fix] [--comment] [<pr#>|<branch>|<path>]"
+       }
+      },
+      {
+       "name": "simplify",
+       "description": "Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.",
+       "input": {
+        "hint": "[<target>]"
+       }
+      },
+      {
+       "name": "batch",
+       "description": "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.",
+       "input": {
+        "hint": "<instruction>"
+       }
+      },
+      {
+       "name": "fewer-permission-prompts",
+       "description": "Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.",
+       "input": null
+      },
+      {
+       "name": "loop",
+       "description": "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace.",
+       "input": {
+        "hint": "[interval] [prompt]"
+       }
+      },
+      {
+       "name": "schedule",
+       "description": "Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule.",
+       "input": null
+      },
+      {
+       "name": "claude-api",
+       "description": "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.\nTRIGGER — read BEFORE opening the target file; don't skip because it \"looks like a one-liner\" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).\nSKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).",
+       "input": null
+      },
+      {
+       "name": "run",
+       "description": "Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).",
+       "input": null
+      },
+      {
+       "name": "run-skill-generator",
+       "description": "Author or improve the run-<unit> skill — a per-project skill that tells agents how to build, launch, and drive this project's app. Use when the user asks to set up the project, get it running, write run instructions, or verify build/run steps work from a clean environment.",
+       "input": null
+      },
+      {
+       "name": "agents",
+       "description": "(removed) Ask Claude to create/manage subagents, or edit .claude/agents/",
+       "input": null
+      },
+      {
+       "name": "auto-mode-setup",
+       "description": "Set up and customise auto mode — environment context, plus optional rule tweaks",
+       "input": {
+        "hint": "[--request-id <uuid>] (--wizard posture=… scope=… depth=… --propose | --expect-sha256 <64-hex> --apply-file <path>)"
+       }
+      },
+      {
+       "name": "autocompact",
+       "description": "Configure the auto-compact window size",
+       "input": {
+        "hint": "[auto|<tokens>]"
+       }
+      },
+      {
+       "name": "compact",
+       "description": "Free up context by summarizing the conversation so far",
+       "input": {
+        "hint": "<optional custom summarization instructions>"
+       }
+      },
+      {
+       "name": "config",
+       "description": "Set a setting by key",
+       "input": {
+        "hint": "key=value"
+       }
+      },
+      {
+       "name": "context",
+       "description": "Show current context usage",
+       "input": null
+      },
+      {
+       "name": "effort",
+       "description": "Set effort level for model usage",
+       "input": {
+        "hint": "<low|medium|high|xhigh|max|ultracode|auto>"
+       }
+      },
+      {
+       "name": "fast",
+       "description": "Toggle fast mode (Opus 5)",
+       "input": {
+        "hint": "[on|off]"
+       }
+      },
+      {
+       "name": "heapdump",
+       "description": "Dump the JS heap to ~/Desktop",
+       "input": null
+      },
+      {
+       "name": "init",
+       "description": "Initialize a new CLAUDE.md file with codebase documentation",
+       "input": null
+      },
+      {
+       "name": "mcp",
+       "description": "Manage MCP servers",
+       "input": {
+        "hint": "[reconnect|enable|disable [<server>|all]]"
+       }
+      },
+      {
+       "name": "import",
+       "description": "Import config from another AI coding agent",
+       "input": null
+      },
+      {
+       "name": "model",
+       "description": "Set the AI model for Claude Code",
+       "input": {
+        "hint": "<model>"
+       }
+      },
+      {
+       "name": "__remote-workflow",
+       "description": "Run the workflow script delivered in this session environment (server-launched sessions only)",
+       "input": null
+      },
+      {
+       "name": "workflow-launch-exec",
+       "description": "Execute a server-launched workflow handoff (workflow_launch event sessions only)",
+       "input": null
+      },
+      {
+       "name": "reload-skills",
+       "description": "Pick up skills added or changed on disk during this session",
+       "input": null
+      },
+      {
+       "name": "rename",
+       "description": "Rename the current conversation",
+       "input": {
+        "hint": "[name]"
+       }
+      },
+      {
+       "name": "ultrareview",
+       "description": "Start a cloud agent that finds and verifies bugs in your branch (~5-10 min, $5-$25 USD) · Runs in Claude Code on the web. See https://code.claude.com/docs/en/claude-code-on-the-web",
+       "input": null
+      },
+      {
+       "name": "security-review",
+       "description": "Complete a security review of the pending changes on the current branch",
+       "input": null
+      },
+      {
+       "name": "usage-credits",
+       "description": "Configure usage credits or request them from your admin when you hit a limit",
+       "input": null
+      },
+      {
+       "name": "extra-usage",
+       "description": "Renamed to /usage-credits",
+       "input": null
+      },
+      {
+       "name": "usage",
+       "description": "Show session cost, plan usage, and what's contributing to your limits",
+       "input": null
+      },
+      {
+       "name": "insights",
+       "description": "Generate a report analyzing your Claude Code sessions",
+       "input": null
+      },
+      {
+       "name": "recap",
+       "description": "Generate a one-line session recap now",
+       "input": null
+      },
+      {
+       "name": "goal",
+       "description": "Set a goal — keep working until the condition is met",
+       "input": null
+      },
+      {
+       "name": "design",
+       "description": "Grant or revoke Claude agent access to your Design projects",
+       "input": {
+        "hint": "consent | revoke"
+       }
+      },
+      {
+       "name": "design-consent",
+       "description": "Grant Claude agent access to your Design projects",
+       "input": null
+      },
+      {
+       "name": "design-revoke",
+       "description": "Revoke Claude agent access to your Design projects",
+       "input": null
+      },
+      {
+       "name": "list-agents",
+       "description": "List subagents and other Claude sessions you can message",
+       "input": null
+      },
+      {
+       "name": "team-onboarding",
+       "description": "Help teammates ramp on Claude Code with a guide from your usage",
+       "input": null
+      },
+      {
+       "name": "mcp:github:AssignCodingAgent",
+       "description": "Assign GitHub Coding Agent to multiple tasks in a GitHub repository.",
+       "input": null
+      },
+      {
+       "name": "mcp:github:issue_to_fix_workflow",
+       "description": "Create an issue for a problem and then generate a pull request to fix it",
+       "input": null
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 4222,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 33809,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 4945,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash"
+      }
+     },
+     "toolCallId": "toolu_01Ecd6evEjN2ThHaGrP9XaVk",
+     "sessionUpdate": "tool_call",
+     "rawInput": {},
+     "status": "pending",
+     "title": "Terminal",
+     "kind": "execute",
+     "content": []
+    }
+   }
+  }
+ },
+ {
+  "t": 5968,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash"
+      }
+     },
+     "toolCallId": "toolu_01Ecd6evEjN2ThHaGrP9XaVk",
+     "sessionUpdate": "tool_call_update",
+     "rawInput": {
+      "command": "node -e \"console.error('boom'); process.exit(1)\""
+     },
+     "title": "node -e \"console.error('boom'); process.exit(1)\"",
+     "kind": "execute"
+    }
+   }
+  }
+ },
+ {
+  "t": 5970,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash",
+       "title": "Run node command that prints boom and exits 1"
+      }
+     },
+     "toolCallId": "toolu_01Ecd6evEjN2ThHaGrP9XaVk",
+     "sessionUpdate": "tool_call_update",
+     "rawInput": {
+      "command": "node -e \"console.error('boom'); process.exit(1)\"",
+      "description": "Run node command that prints boom and exits 1"
+     },
+     "title": "node -e \"console.error('boom'); process.exit(1)\"",
+     "kind": "execute",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Run node command that prints boom and exits 1"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 5985,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 0,
+   "method": "session/request_permission",
+   "params": {
+    "options": [
+     {
+      "kind": "reject_once",
+      "name": "Deny",
+      "optionId": "reject"
+     },
+     {
+      "kind": "allow_once",
+      "name": "Allow Once",
+      "optionId": "allow"
+     },
+     {
+      "kind": "allow_always",
+      "name": "Always Allow",
+      "optionId": "allow_always",
+      "_meta": {
+       "permission": {
+        "version": 1,
+        "changes": [
+         {
+          "type": "policy_rule",
+          "operation": "add",
+          "ruleBehavior": "allow",
+          "description": "Allow Bash calls matching node -e \"console.error('boom'); process.exit(1)\"",
+          "lifetime": {
+           "scope": "persistent",
+           "storage": "project_local"
+          },
+          "targets": [
+           {
+            "type": "tool",
+            "toolName": "Bash",
+            "matcher": {
+             "type": "provider_rule",
+             "provider": "claudeCode",
+             "value": "node -e \"console.error('boom'); process.exit(1)\""
+            }
+           }
+          ]
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "toolCall": {
+     "toolCallId": "toolu_01Ecd6evEjN2ThHaGrP9XaVk",
+     "rawInput": {
+      "command": "node -e \"console.error('boom'); process.exit(1)\"",
+      "description": "Run node command that prints boom and exits 1"
+     },
+     "title": "node -e \"console.error('boom'); process.exit(1)\"",
+     "kind": "execute",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Run node command that prints boom and exits 1"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 5986,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 33934,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 5986,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 33934,
+     "size": 1000000,
+     "_meta": {
+      "_claude/rateLimit": {
+       "status": "allowed",
+       "resetsAt": 1787683800,
+       "rateLimitType": "five_hour",
+       "overageStatus": "rejected",
+       "overageDisabledReason": "org_level_disabled",
+       "isUsingOverage": false
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "t": 6386,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 0,
+   "result": {
+    "outcome": {
+     "outcome": "selected",
+     "optionId": "allow"
+    }
+   }
+  }
+ },
+ {
+  "t": 6876,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash"
+      }
+     },
+     "toolCallId": "toolu_01Ecd6evEjN2ThHaGrP9XaVk",
+     "sessionUpdate": "tool_call_update",
+     "status": "failed",
+     "rawOutput": "Exit code 1\nboom",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "```\nExit code 1\nboom\n```"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 8263,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40421,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 9096,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "The command ran and failed as expected. It printed `boom` to stderr and exited with code 1:\n\n```\nboom\n```"
+     },
+     "messageId": "msg_011CePtAGnSzfA24kpaSni4E"
+    }
+   }
+  }
+ },
+ {
+  "t": 9096,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "\n\nExit code: **1**"
+     },
+     "messageId": "msg_011CePtAGnSzfA24kpaSni4E"
+    }
+   }
+  }
+ },
+ {
+  "t": 9108,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40489,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 9197,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40489,
+     "size": 1000000,
+     "cost": {
+      "amount": 0.547976,
+      "currency": "USD"
+     },
+     "_meta": {
+      "_claude/origin": {
+       "kind": "human"
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "t": 9198,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 3,
+   "result": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 4,
+     "outputTokens": 202,
+     "cachedReadTokens": 49816,
+     "cachedWriteTokens": 24401,
+     "totalTokens": 74423
+    }
+   }
+  }
+ },
+ {
+  "t": 9198,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "Now try to delete waves.txt with rm."
+     }
+    ]
+   }
+  }
+ },
+ {
+  "t": 9202,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "session_info_update",
+     "title": "Run this exact bash command and show me the result: node -e \"console.error('boom'); process.exit(1)\"",
+     "updatedAt": "2026-08-25T17:44:55.028Z"
+    }
+   }
+  }
+ },
+ {
+  "t": 10671,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40508,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 14302,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash"
+      }
+     },
+     "toolCallId": "toolu_017rQoFhimRCmFF3HePd68rw",
+     "sessionUpdate": "tool_call",
+     "rawInput": {},
+     "status": "pending",
+     "title": "Terminal",
+     "kind": "execute",
+     "content": []
+    }
+   }
+  }
+ },
+ {
+  "t": 15422,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash"
+      }
+     },
+     "toolCallId": "toolu_017rQoFhimRCmFF3HePd68rw",
+     "sessionUpdate": "tool_call_update",
+     "rawInput": {
+      "command": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt"
+     },
+     "title": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+     "kind": "execute"
+    }
+   }
+  }
+ },
+ {
+  "t": 15450,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash",
+       "title": "Delete waves.txt from demo-assets"
+      }
+     },
+     "toolCallId": "toolu_017rQoFhimRCmFF3HePd68rw",
+     "sessionUpdate": "tool_call_update",
+     "rawInput": {
+      "command": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+      "description": "Delete waves.txt from demo-assets"
+     },
+     "title": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+     "kind": "execute",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Delete waves.txt from demo-assets"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 15461,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/request_permission",
+   "params": {
+    "options": [
+     {
+      "kind": "reject_once",
+      "name": "Deny",
+      "optionId": "reject"
+     },
+     {
+      "kind": "allow_once",
+      "name": "Allow Once",
+      "optionId": "allow"
+     },
+     {
+      "kind": "allow_always",
+      "name": "Always Allow",
+      "optionId": "allow_always",
+      "_meta": {
+       "permission": {
+        "version": 1,
+        "changes": [
+         {
+          "type": "policy_rule",
+          "operation": "add",
+          "ruleBehavior": "allow",
+          "description": "Allow Bash calls matching rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+          "lifetime": {
+           "scope": "persistent",
+           "storage": "project_local"
+          },
+          "targets": [
+           {
+            "type": "tool",
+            "toolName": "Bash",
+            "matcher": {
+             "type": "provider_rule",
+             "provider": "claudeCode",
+             "value": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt"
+            }
+           }
+          ]
+         },
+         {
+          "type": "policy_rule",
+          "operation": "add",
+          "ruleBehavior": "allow",
+          "description": "Allow filesystem access under /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets",
+          "lifetime": {
+           "scope": "session"
+          },
+          "targets": [
+           {
+            "type": "filesystem",
+            "matcher": {
+             "type": "directory",
+             "path": "/Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets"
+            }
+           }
+          ]
+         },
+         {
+          "type": "permission_mode",
+          "operation": "set",
+          "provider": "claudeCode",
+          "mode": "acceptEdits",
+          "description": "Set Claude Code permission mode to acceptEdits",
+          "lifetime": {
+           "scope": "session"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "toolCall": {
+     "toolCallId": "toolu_017rQoFhimRCmFF3HePd68rw",
+     "rawInput": {
+      "command": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+      "description": "Delete waves.txt from demo-assets"
+     },
+     "title": "rm /Users/calvinhia/Desktop/dainami-cli/worktrees/acp-mock/demo-assets/waves.txt",
+     "kind": "execute",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Delete waves.txt from demo-assets"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 15463,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40888,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 15863,
+  "dir": "send",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "result": {
+    "outcome": {
+     "outcome": "selected",
+     "optionId": "reject"
+    }
+   }
+  }
+ },
+ {
+  "t": 15867,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "_meta": {
+      "claudeCode": {
+       "toolName": "Bash",
+       "nonExecutionKind": "permission-rule"
+      }
+     },
+     "toolCallId": "toolu_017rQoFhimRCmFF3HePd68rw",
+     "sessionUpdate": "tool_call_update",
+     "status": "failed",
+     "rawOutput": "User refused permission to run tool",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "```\nUser refused permission to run tool\n```"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "t": 17516,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40915,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 18828,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "The `rm` was blocked — the permission system refused the command, so `"
+     },
+     "messageId": "msg_011CePtAwdYmkSKH8AJtUBTm"
+    }
+   }
+  }
+ },
+ {
+  "t": 18831,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "waves.txt` is still in place. I won't retry it; if you do want it gone, you can approve the prompt next time or remove it yourself."
+     },
+     "messageId": "msg_011CePtAwdYmkSKH8AJtUBTm"
+    }
+   }
+  }
+ },
+ {
+  "t": 18863,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40997,
+     "size": 1000000
+    }
+   }
+  }
+ },
+ {
+  "t": 18954,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "method": "session/update",
+   "params": {
+    "sessionId": "23fb820b-979a-4b86-8226-39eba8098b21",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 40997,
+     "size": 1000000,
+     "cost": {
+      "amount": 0.662286,
+      "currency": "USD"
+     },
+     "_meta": {
+      "_claude/origin": {
+       "kind": "human"
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "t": 18955,
+  "dir": "recv",
+  "msg": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "result": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 4,
+     "outputTokens": 471,
+     "cachedReadTokens": 80920,
+     "cachedWriteTokens": 490,
+     "totalTokens": 81885
+    }
+   }
+  }
+ }
+]
