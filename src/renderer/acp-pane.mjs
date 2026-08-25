@@ -196,7 +196,7 @@ export function mountChatPane(p, rec, hooks) {
     },
     getState: () => state,
     refresh: syncChips,
-    openTerminal: () => { if (hooks.terminal) hooks.terminal(p); },
+    openTerminal: () => { if (hooks.terminal) hooks.terminal(p, composer.input.value.trim()); },
   });
 
   // ---- transport over the preload bridge -----------------------------------
@@ -246,6 +246,7 @@ export function mountChatPane(p, rec, hooks) {
     try {
       const { session } = await client.connect(p.cwd);
       state.connected = true;
+      p.acpSid = session.sessionId;
       state.modes = session.modes || null;
       state.configOptions = session.configOptions || [];
       syncChips();
