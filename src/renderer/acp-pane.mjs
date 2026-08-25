@@ -101,9 +101,9 @@ export function mountChatPane(p, rec, hooks) {
     } catch (_) { hooks.toast('Could not switch mode'); }
   }
 
-  async function sendPrompt(text) {
+  async function sendPrompt(text, view) {
     if (!state.connected || state.busy) return;
-    transcript.userTurn(text);
+    transcript.userTurn(view && view.display !== undefined ? view.display : text, view && view.files);
     state.busy = true; composer.setBusy(true); transcript.setBusy(true);
     p.working = true; if (hooks.status) hooks.status(p);
     try {
@@ -125,7 +125,7 @@ export function mountChatPane(p, rec, hooks) {
       const skills = (attachments || []).filter((a) => a && a.skill).map((a) => a.skill);
       if (skills.length) full += '\n\nUse the ' + skills.join(', ') + ' skill' + (skills.length > 1 ? 's' : '') + ' for this.';
       if (paths.length) full += '\n\nFiles: ' + paths.map((x) => '"' + x + '"').join(' ');
-      sendPrompt(full);
+      sendPrompt(full, { display: text, files: paths });
     },
     onCommand: (name) => route(name),
     onStop: () => { if (state.connected) client.cancel(); },

@@ -378,7 +378,7 @@ function showScene(name) {
   if (what === 'settings') return openSettings(step || 'voice');
   // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
   if (what === 'chat-live') {
-    const liveCwd = decodeURIComponent(new URL('../../demo-assets/', location.href).pathname).replace(/\/$/, '');
+    const liveCwd = decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
     const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: step || 'Claude Code', agentId: step || 'claude', cwd: liveCwd, status: 'live', started: true };
     S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
     renderGrid(); renderRail(); renderHeader();
@@ -3842,7 +3842,9 @@ function renderLauncher() {
         closeOverlay();
         // claude goes LIVE \u2014 real ACP through the official adapter
         const live = CHAT_READY.includes(a.id);
-        const liveCwd = decodeURIComponent(new URL('../../demo-assets/', location.href).pathname).replace(/\/$/, '');
+        // a chat session stands where your other sessions stand — the project
+        const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
+          : decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
         const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();

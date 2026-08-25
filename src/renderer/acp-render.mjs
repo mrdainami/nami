@@ -24,6 +24,7 @@ function mdBlocks(text) {
 function mdInline(text) {
   return esc(text)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" data-link>$1</a>')
+    .replace(/(^|[\s(])((https?:\/\/)[^\s<)]+)/g, '$1<a href="$2" data-link>$2</a>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 }
@@ -218,7 +219,11 @@ export function createTranscript(container, opts) {
           console.warn('[chat] unhandled event', ev.raw && ev.raw.sessionUpdate, ev.raw);
       }
     },
-    userTurn(text) { closeStreams(); block(`<div class="cw-u">${mdBlocks(text)}</div>`); },
+    userTurn(text, files) {
+      closeStreams();
+      const chips = (files || []).map((f) => `<button class="cw-u-file" data-open="${esc(f)}">📎 ${esc(f.split('/').pop())}</button>`).join('');
+      block(`<div class="cw-u">${mdBlocks(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
+    },
     note(text) { block(`<div class="cw-hint">${mdInline(text)}</div>`); },
     error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
     permission(params, answer, onRetire) {

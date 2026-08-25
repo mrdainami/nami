@@ -2226,3 +2226,6 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-question .cw-btn.row { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 .cw-question .qt { font-weight: 700; }
 .cw-question .qd { font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.cw-u-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.cw-u-file { font-family: inherit; font-size: 11px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; cursor: pointer; }
+.cw-u-file:hover { border-color: var(--mode-plan); color: var(--mode-plan); }
