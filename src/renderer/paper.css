@@ -2207,3 +2207,4 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-empty-chip .code svg { width: 24px; height: 24px; }
 .cw-empty-name { font-size: 14px; font-weight: 700; color: var(--muted); }
 .cw-empty-hint { font-size: 11.5px; color: var(--faint); }
+.cw-empty { align-self: stretch; width: 100%; flex: 1; }
