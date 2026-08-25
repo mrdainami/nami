@@ -2700,6 +2700,28 @@ async function openDocLink(href, p, read) {
   else api.revealFile(st.abs);
 }
 
+// Mirror the Edit tab's dragged column widths into a rendered Read pane.
+// Widths are keyed by table order and never serialized — GFM has nowhere to
+// put them — so this is session state following the reader across tabs.
+function applyDocColWidths(read, colWidths) {
+  if (!colWidths) return;
+  const tables = read.querySelectorAll('.md-tablewrap > table');
+  tables.forEach((table, index) => {
+    const widths = colWidths[index];
+    const row = table.rows[0];
+    if (!Array.isArray(widths) || !row || row.cells.length !== widths.length) return;
+    const colgroup = document.createElement('colgroup');
+    widths.forEach((w) => {
+      const col = document.createElement('col');
+      if (w) col.style.width = w + 'px';
+      colgroup.appendChild(col);
+    });
+    table.insertBefore(colgroup, table.firstChild);
+    table.style.tableLayout = 'fixed';
+    table.style.width = widths.reduce((sum, w) => sum + (w || 0), 0) + 'px';
+  });
+}
+
 function browserPanelFor(filePath) {
   const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
   if (peek && peek.filePath === filePath) return peek;
@@ -2785,6 +2807,10 @@ function mountEditor(p, rec) {
     richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
     richLoading = mountMarkdownEditor(richRoot, p.text || '', {
       resolveImage,
+      // Session-only: GFM cannot store a column width, so dragged widths live
+      // on the card and follow the document into the Read pane, nothing more.
+      columnWidths: p.mdColWidths || (p.mdColWidths = {}),
+      onColumnWidths: (index, widths) => { p.mdColWidths[index] = widths; },
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
       onChange: (next) => {
@@ -2869,6 +2895,7 @@ function mountEditor(p, rec) {
         read.innerHTML = renderMarkdown(p.text || '', {
           resolveImage: (src) => markdownImageUrl(p.filePath, src),
         });
+        applyDocColWidths(read, p.mdColWidths);
       }
     }
     wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
