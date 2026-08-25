@@ -14,6 +14,7 @@ import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-rea
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { receiversOf, knowsCopy } from './receivers.mjs';
 import { agentLaunch } from './agent-launch.mjs';
+import { mountAcpMock } from './acp-mock.mjs';
 import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
 import { shortAge } from './rel-time.mjs';
 import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
@@ -235,6 +236,12 @@ function droppedPaths(e) {
 }
 function dropFilesOnPanel(p, paths) {
   if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach((f) => openFile(f, { pin: true })); return; }
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id);
+    if (t && t.acpAttach) paths.forEach((f) => t.acpAttach(baseNameOf(f)));
+    toast('Attached ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' \u2014 path goes to the agent');
+    return;
+  }
   injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
   toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
 }
@@ -369,6 +376,8 @@ function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // acp-expand: the demo's ACP pane, expanded (prototype shots only)
+  if (what === 'acp-expand') { const a = S.panels.find((x) => x.kind === 'acp'); if (a) { S.expandedId = a.id; renderGrid(); } return; }
   // open:<abs path> — pin any file as a tile, which is how a new viewer kind
   // gets screenshotted without a folder open and a tree to click through.
   if (what === 'open' && step) return openFile(step, { pin: true });
@@ -1709,6 +1718,7 @@ function kindLabel(p) {
   if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
   if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
+  if (p.kind === 'acp') return 'acp · ' + shortHome(p.cwd);
   if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
   if (p.kind === 'shell') return 'terminal · ' + shortHome(p.cwd);
   if (p.kind === 'harness') return (p.program ? baseNameOf(p.program) : 'harness') + ' · ' + shortHome(p.cwd);
@@ -2127,7 +2137,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountAcpMock(p, rec, { settled: clearAttention, open: (f) => openFile(f) }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -3789,8 +3799,26 @@ function renderLauncher() {
         startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin });
       }, a.name);
     };
+    // Prototype (demo only): agents with an ACP mode default to the cowork
+    // surface; "as terminal" keeps today's launch one click away.
+    const demoAcp = S.demo && ['claude', 'kimi', 'codex', 'opencode', 'grok'].includes(a.id);
+    if (demoAcp) {
+      const tail = document.createElement('span');
+      tail.className = 'lc-acp';
+      tail.innerHTML = '<span class="lc-badge">COWORK</span><span class="lc-alt">as terminal \u21a9</span>';
+      row.appendChild(tail);
+    }
     row.onclick = async (e) => {
       if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
+      if (demoAcp) {
+        if (e.target.closest('.lc-alt')) { launch(); return; }
+        closeOverlay();
+        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name + ' \u2014 cowork', cwd: (S.project && S.project.path) || '~', status: 'live', started: true, attention: true };
+        S.panels.unshift(np); S.activeId = np.id;
+        renderGrid(); renderRail(); renderHeader();
+        toast(a.name + ' started in cowork view (prototype)');
+        return;
+      }
       launch();
     };
     list.appendChild(row);
@@ -5811,10 +5839,11 @@ function seedDemo() {
   ], skills: [] };
   S.recents = [{ path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas' }];
   // A claude tile + an editor tile so the paper grid reads clearly.
-  const c = { id: uid('p_'), kind: 'shell', chipKind: 'agent', code: 'CC', title: 'Claude session', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, attention: true, _demoText: true };
+  const c = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: 'Refactor auth \u2014 cowork', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, attention: true };
+  const ct = { id: uid('p_'), kind: 'shell', chipKind: 'agent', code: 'CC', title: 'Refactor auth \u2014 terminal', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, _demoText: true };
   const e = { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'passkey.ts', filePath: '/Users/calvin/work/atlas/src/auth/passkey.ts', dirty: true, status: 'live',
     text: `import { verifyRegistration } from './webauthn'\n\nexport async function register(user: User) {\n  const options = await createOptions(user)\n  const cred = await navigator.credentials.create({ publicKey: options })\n  return verifyRegistration(cred)\n}\n` };
-  S.panels = [c, e]; S.activeId = c.id;
+  S.panels = [c, ct, e]; S.activeId = c.id;
   // paint a paper "claude" banner into the demo terminal after mount
-  setTimeout(() => { const t = tileEls.get(c.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
+  setTimeout(() => { const t = tileEls.get(ct.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
 }
