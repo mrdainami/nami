@@ -2141,3 +2141,14 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-wire, .cw-wire-inline { display: none; }
 .cw-body.show-wire .cw-wire { display: inline; }
 .cw-body.show-wire .cw-wire-inline { display: inline; }
+/* composer survives narrow tiles — same discipline as the topbar drop rules */
+.cw-comp { container-type: inline-size; }
+.cw-tools { flex-wrap: nowrap; min-width: 0; }
+.cw-tool { white-space: nowrap; flex: none; }
+.cw-drop { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+@container (max-width: 640px) { .cw-drop { display: none; } }
+@container (max-width: 480px) { .cw-ctx { display: none; } }
+@container (max-width: 390px) { .cw-mode b, .cw-model b { display: none; } }
+.cw-pop { width: min(330px, calc(100% - 16px)); max-height: min(340px, 48vh); }
+.cw-card-hd { cursor: pointer; user-select: none; }
+.cw-wiretog { display: none; }

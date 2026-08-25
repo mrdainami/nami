@@ -66,7 +66,6 @@ export function mountAcpMock(p, rec, hooks) {
         <button class="cw-tool cw-mode" title="permission mode — ⇧⇥ cycles what this session advertises">◈ <b>default</b></button>
         <button class="cw-tool cw-model" title="/model opens the picker">☰ <b>sonnet-5</b></button>
         <span class="cw-ctx" title="context">ctx <b>42%</b></span>
-        <button class="cw-tool cw-wiretog" title="show the protocol events behind each block">{ }</button>
         <span class="cw-drop">⇣ drop files — path goes to the agent</span>
       </div>
       <input class="cw-fileinput" type="file" multiple hidden>
@@ -131,6 +130,7 @@ export function mountAcpMock(p, rec, hooks) {
         <pre class="cw-diff"></pre></div>`);
     wireOpens(el);
     const pre = el.querySelector('.cw-diff');
+    el.querySelector('.cw-card-hd').addEventListener('click', () => { pre.hidden = !pre.hidden; });
     let i = 0;
     const tick = setInterval(() => {
       if (i >= lines.length) { clearInterval(tick);
@@ -147,6 +147,7 @@ export function mountAcpMock(p, rec, hooks) {
       `<div class="cw-card"><div class="cw-card-hd"><span class="k">BASH</span> <span class="f">${esc(cmd)}</span><span class="cw-run">running…</span></div>
         <pre class="cw-bash"></pre></div>`);
     const pre = el.querySelector('.cw-bash');
+    el.querySelector('.cw-card-hd').addEventListener('click', () => { pre.hidden = !pre.hidden; });
     let i = 0;
     const tick = setInterval(() => {
       if (i >= lines.length) { clearInterval(tick);
@@ -297,15 +298,19 @@ export function mountAcpMock(p, rec, hooks) {
   }
 
   // ---- composer wiring ------------------------------------------------------
-  function send() { const v = input.value.trim(); if (!v) return; input.value = ''; route(v); }
+  function send() { const v = input.value.trim(); if (!v) return; input.value = ''; closePop(); route(v); }
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') { e.preventDefault(); send(); }
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
-    if (e.key === '/' && !input.value) { setTimeout(() => openMenu('/'), 0); }
     if (e.key === 'Escape') closePop();
   });
   body.querySelector('.cw-send').onclick = (e) => { e.stopPropagation(); send(); };
+  input.addEventListener('input', () => {
+    const v = input.value;
+    if (v.startsWith('/') && !v.includes(' ')) openMenu(v);
+    else closePop();
+  });
   const fileInput = body.querySelector('.cw-fileinput');
   fileInput.onchange = () => {
     Array.from(fileInput.files).forEach((f) => attach('\u{1F4CE} ' + f.name));
@@ -335,7 +340,6 @@ export function mountAcpMock(p, rec, hooks) {
     });
   }
   body.querySelector('.cw-plus').onclick = (e) => { e.stopPropagation(); popEl.hidden ? openMenu() : closePop(); };
-  body.querySelector('.cw-wiretog').onclick = (e) => { e.stopPropagation(); body.classList.toggle('show-wire'); };
   body.querySelector('.cw-mode').onclick = (e) => { e.stopPropagation(); cycleMode(); };
   body.querySelector('.cw-model').onclick = (e) => { e.stopPropagation(); modelPicker(); };
 
