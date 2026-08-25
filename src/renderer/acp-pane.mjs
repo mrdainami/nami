@@ -17,6 +17,14 @@ export function mountChatPane(p, rec, hooks) {
   const scrollHost = body.querySelector('.cw-transcript');
   const compHost = body.querySelector('.cw-composer-host');
 
+  const empty = document.createElement('div');
+  empty.className = 'cw-empty';
+  empty.textContent = 'Write a message to start — / shows commands';
+  scrollHost.appendChild(empty);
+  new MutationObserver(() => {
+    if (scrollHost.children.length > 1 && empty.parentElement) empty.remove();
+  }).observe(scrollHost, { childList: true });
+
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
 
   const transcript = createTranscript(scrollHost, {

@@ -3821,7 +3821,8 @@ function renderLauncher() {
     };
     // Prototype (demo only): agents with an ACP mode default to the cowork
     // surface; "as terminal" keeps today's launch one click away.
-    const demoAcp = S.demo && ['claude', 'kimi', 'codex', 'opencode', 'grok'].includes(a.id);
+    // Chat is Claude-only until each agent's bridge passes its probe.
+    const demoAcp = S.demo && a.id === 'claude';
     if (demoAcp) {
       const tail = document.createElement('span');
       tail.className = 'lc-acp';
