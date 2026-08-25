@@ -2797,15 +2797,25 @@ function mountEditor(p, rec) {
     p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
   };
   const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
+  // Frontmatter never enters the block editor: Milkdown reads `---` as a
+  // horizontal rule and rewrites the YAML as prose, which silently destroys
+  // `type:`/`tags:` on the first save. It is held here and every change from
+  // the editor is reassembled under it. Read and Markdown show it as always.
+  let richFm = '';
+  const richBody = () => {
+    const m = String(p.text || '').match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
+    richFm = m ? m[0] : '';
+    return String(p.text || '').slice(richFm.length);
+  };
   const ensureRichEditor = async () => {
     if (!rich || disposed) return null;
     if (richEditor) {
-      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return richEditor;
     }
     if (richLoading) return richLoading;
     richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
-    richLoading = mountMarkdownEditor(richRoot, p.text || '', {
+    richLoading = mountMarkdownEditor(richRoot, richBody(), {
       resolveImage,
       // Session-only: GFM cannot store a column width, so dragged widths live
       // on the card and follow the document into the Read pane, nothing more.
@@ -2814,14 +2824,15 @@ function mountEditor(p, rec) {
       onCopyLink: (link) => api.copyText(link),
       onFocus: () => { S.activeId = p.id; refreshRail(); },
       onChange: (next) => {
-        if (disposed || next === p.text) return;
-        p.text = next; ta.value = next; markDirty(); sync();
+        const whole = richFm + next;
+        if (disposed || whole === p.text) return;
+        p.text = whole; ta.value = whole; markDirty(); sync();
       },
     }).then((editor) => {
       if (disposed) { editor.destroy(); return null; }
       richEditor = editor; richLoading = null;
       const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
-      if (richStale) { richEditor.setMarkdown(p.text || ''); richStale = false; }
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return editor;
     }).catch((error) => {
       richLoading = null;

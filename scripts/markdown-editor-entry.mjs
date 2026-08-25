@@ -268,11 +268,37 @@ function setupColumnResize(root, options) {
   };
 }
 
+// The serializer damages three things a vault cannot afford to lose, so every
+// string leaving the editor passes through here:
+// - Obsidian syntax gets backslash-escaped ([[link]] → \[\[link]], > [!tip]
+//   → > \[!tip]); display was never affected, so unescaping the output is safe.
+// - The image block stores its resize ratio in the alt slot (alt becomes
+//   "1.00"); the original alt, remembered by src, is put back. Alt text wins
+//   over resize persistence — a number in alt corrupts the file everywhere else.
+function restoreSerialized(markdown, altBySrc) {
+  return String(markdown)
+    .replace(/\\\[\\\[/g, '[[')
+    .replace(/(^|\n)(\s*>\s*)\\\[!/g, '$1$2[!')
+    .replace(/!\[\d+\.\d{2}\]\(([^)\s]+)([^)]*)\)/g, (whole, src, rest) => {
+      const alt = altBySrc.get(src);
+      return alt == null ? whole : `![${alt}](${src}${rest})`;
+    })
+    .replaceAll(CELL_BREAK, '');
+}
+function altMapOf(markdown) {
+  const map = new Map();
+  for (const m of String(markdown || '').matchAll(/!\[([^\]]*)\]\(([^)\s]+)/g)) {
+    if (!map.has(m[2])) map.set(m[2], m[1]);
+  }
+  return map;
+}
+
 export async function createNamiMarkdownEditor(root, markdown, options = {}) {
   const imagePath = async (file) => {
     if (options.onImageFile) return options.onImageFile(file);
     return URL.createObjectURL(file);
   };
+  let altBySrc = altMapOf(markdown);
   const builder = new CrepeBuilder({ root, defaultValue: encodeCellBreaks(markdown) })
     .addFeature(cursor, { color: false, virtual: true })
     .addFeature(listItem)
@@ -326,13 +352,27 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
     .config((ctx) => ctx.update(editorViewOptionsCtx, (viewOptions) => ({
       ...viewOptions,
       handleKeyDown: (view, event) => {
-        if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+        if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey) return false;
         if (!isInTable(view.state)) return false;
+        if (event.shiftKey) {
+          // Owned here because the stock command treats Shift+Enter on a line
+          // that already ends with a break as "escape to a new paragraph" —
+          // which a cell cannot hold, so the second press threw you out.
+          const hardbreak = view.state.schema.nodes.hardbreak;
+          if (!hardbreak) return false;
+          view.dispatch(view.state.tr.setMeta('hardbreak', true)
+            .replaceSelectionWith(hardbreak.create()).scrollIntoView());
+          return true;
+        }
         return enterWalksDown(view);
       },
     })))
     .config((ctx) => ctx.update(remarkStringifyOptionsCtx, (options) => ({
       ...options,
+      // A save must not restyle the document: Calvin's files use - bullets
+      // and --- rules, and a whole-file rewrite is noise in git and Dropbox.
+      bullet: '-',
+      rule: '-',
       handlers: {
         ...options.handlers,
         // In a table cell the stock handler degrades a break to a space (a
@@ -351,7 +391,7 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
 
   builder.on((listener) => {
     listener.markdownUpdated((_ctx, next, previous) => {
-      if (next !== previous && options.onChange) options.onChange(next);
+      if (next !== previous && options.onChange) options.onChange(restoreSerialized(next, altBySrc));
     });
     listener.focus(() => options.onFocus && options.onFocus());
   });
@@ -359,8 +399,11 @@ export async function createNamiMarkdownEditor(root, markdown, options = {}) {
   const teardownResize = setupColumnResize(root, options);
 
   return {
-    getMarkdown: () => builder.getMarkdown().replaceAll(CELL_BREAK, ''),
-    setMarkdown: (value) => builder.editor.action(replaceAll(encodeCellBreaks(value))),
+    getMarkdown: () => restoreSerialized(builder.getMarkdown(), altBySrc),
+    setMarkdown: (value) => {
+      altBySrc = altMapOf(value);
+      builder.editor.action(replaceAll(encodeCellBreaks(value)));
+    },
     setReadonly: (value) => builder.setReadonly(!!value),
     focus: () => root.querySelector('.ProseMirror')?.focus({ preventScroll: true }),
     destroy: () => { teardownResize(); builder.destroy(); },

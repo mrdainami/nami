@@ -197,7 +197,20 @@ function blockPass(lines, opts, startIdx) {
   let fenceLang = '';
   let fenceBuf = [];
   let para = [];
-  const closePara = (end) => { if (para.length) { push(`<p>${inl(para.join(' '))}</p>`, end); para = []; } };
+  // Two things the plain join lost: a line of only <br /> tags is the block
+  // editor's way of keeping a deliberate empty line (render it as one), and a
+  // line ending in two spaces is markdown's own hard break.
+  const closePara = (end) => {
+    if (!para.length) return;
+    let html = '';
+    para.forEach((line, k) => {
+      const brOnly = /^(?:\s*<br\s*\/?>)+\s*$/i.test(line);
+      if (k) html += brOnly || /  $/.test(para[k - 1]) || /^(?:\s*<br\s*\/?>)+\s*$/i.test(para[k - 1]) ? '<br>' : ' ';
+      html += brOnly ? '<br>'.repeat(Math.max(0, (line.match(/<br/gi) || []).length - (k ? 1 : 0))) : inl(line.replace(/\s+$/, ''));
+    });
+    push(`<p>${html}</p>`, end);
+    para = [];
+  };
 
   let i = startIdx;
   // Frontmatter — only at the very top of a whole document, rendered as one
@@ -271,7 +284,7 @@ function blockPass(lines, opts, startIdx) {
       continue;
     }
 
-    para.push(line.trim());
+    para.push(line.replace(/^\s+/, ''));   // keep the tail: two trailing spaces are a hard break
   }
   if (fence) push(`<pre class="md-pre">${fenceLang ? `<span class="md-lang">${esc(fenceLang)}</span>` : ''}<code>${code(fenceLang, fenceBuf.join('\n'))}</code></pre>`, lines.length);
   closePara(lines.length);
