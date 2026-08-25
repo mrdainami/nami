@@ -92,15 +92,37 @@ const XTERM_THEME_GRAPHITE = {
   brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
   brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#f0f0f6',
 };
+const XTERM_THEME_SOFT = {
+  background: 'rgba(229,229,229,0)', foreground: '#2c2a33', cursor: '#ef6461', cursorAccent: '#e5e5e5',
+  selectionBackground: 'rgba(239,100,97,0.22)',
+  black: '#3c3d45', red: '#d6423e', green: '#3d7a4a', yellow: '#9a6c14', blue: '#3d6bb3',
+  magenta: '#7a4a8a', cyan: '#1f7f86', white: '#8b8c96',
+  brightBlack: '#6a6b76', brightRed: '#e0524f', brightGreen: '#4f9b5f', brightYellow: '#c98d1a',
+  brightBlue: '#5b82d9', brightMagenta: '#9a64b3', brightCyan: '#2f989f', brightWhite: '#2c2a33',
+};
+const XTERM_THEME_DUSK = {
+  background: 'rgba(38,42,49,0)', foreground: '#e8eaee', cursor: '#ef6461', cursorAccent: '#262a31',
+  selectionBackground: 'rgba(239,100,97,0.3)',
+  black: '#4a4b55', red: '#ff6b67', green: '#5fca8b', yellow: '#e8b33e', blue: '#6f9dff',
+  magenta: '#d580cc', cyan: '#4fc2cc', white: '#a7a8b3',
+  brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
+  brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#e8eaee',
+};
 const STATUS_COLORS = {
   paper: { ok: '#4a7a4a', warn: '#a8792a', mut: '#8d8065' },
   operator: { ok: '#5aa06e', warn: '#ef6461', mut: '#98958e' },
   glass: { ok: '#2e7d4f', warn: '#b07c10', mut: '#8f9094' },
   graphite: { ok: '#63c68a', warn: '#e6c05c', mut: '#9a9ba6' },
+  soft: { ok: '#3d7a4a', warn: '#a8792a', mut: '#8d939e' },
+  dusk: { ok: '#5fca8b', warn: '#e6c05c', mut: '#8d939e' },
 };
-const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite'];
+const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk'];
 const GLASS_FAMILY = new Set(['glass', 'graphite']);
-const XTERM_THEMES = { paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE };
+const SOFT_FAMILY = new Set(['soft', 'dusk']);
+const XTERM_THEMES = {
+  paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE,
+  soft: XTERM_THEME_SOFT, dusk: XTERM_THEME_DUSK,
+};
 // What a new install opens on, and the answer whenever nothing valid has been
 // chosen. Kept in step with DEFAULT_THEME in src/main/settings.js, which paints
 // the window before this file has loaded — the two disagreeing is a visible
@@ -131,6 +153,8 @@ function applyThemeAttrs(name) {
   // data-glass scopes the shared liquid-glass system CSS + the tilt engine
   if (GLASS_FAMILY.has(name)) document.body.setAttribute('data-glass', '');
   else document.body.removeAttribute('data-glass');
+  if (SOFT_FAMILY.has(name)) document.body.setAttribute('data-soft', '');
+  else document.body.removeAttribute('data-soft');
 }
 function setTheme(name, persistIt = true) {
   applyThemeAttrs(name);
@@ -939,6 +963,8 @@ const THEME_OPTIONS = [
   { id: 'operator', name: 'operator', desc: 'dark ops' },
   { id: 'glass', name: 'glass', desc: 'liquid glass' },
   { id: 'graphite', name: 'graphite', desc: 'dark glass' },
+  { id: 'soft', name: 'soft', desc: 'off-white' },
+  { id: 'dusk', name: 'dusk', desc: 'soft dark' },
 ];
 function toggleThemePop() {
   const zone = q('#theme-zone');

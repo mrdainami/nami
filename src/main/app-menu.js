@@ -57,7 +57,7 @@ const COMMANDS = [
   'rail', 'theme', 'agents',
 ];
 
-const THEMES = [['paper', 'Paper'], ['operator', 'Operator'], ['glass', 'Glass'], ['graphite', 'Graphite']];
+const THEMES = [['paper', 'Paper'], ['operator', 'Operator'], ['glass', 'Glass'], ['graphite', 'Graphite'], ['soft', 'Soft'], ['dusk', 'Dusk']];
 
 const SEP = { type: 'separator' };
 

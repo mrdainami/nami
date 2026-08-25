@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { highlightMarkdown } from '../src/renderer/md.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHEETS = ['paper.css', 'theme-glass.css', 'theme-operator.css', 'theme-graphite.css'];
+const SHEETS = ['paper.css', 'theme-glass.css', 'theme-operator.css', 'theme-graphite.css', 'theme-soft.css', 'theme-dusk.css'];
 
 // Anything that changes how wide a glyph is, or where the line box puts it.
 // font-weight, font-style, color, background and text-decoration are absent on

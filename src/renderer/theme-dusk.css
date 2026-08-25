@@ -1,0 +1,85 @@
+/* Nami — "dusk": the soft extrusion system in dark grey.
+   Only a token remap lives here — the structural system comes from the
+   body[data-soft] rules in theme-soft.css. Spec: 2026-08-26-soft-dusk-themes.md */
+
+body[data-theme="dusk"] {
+  --desk: #262a31;
+  --sheet-hi: #262a31;
+  --sheet-lo: #262a31;
+  --paper: #262a31;
+  --paper-2: #262a31;
+  --paper-3: #262a31;
+  --ink: #e8eaee;
+  --muted: #8d939e;
+  --muted-2: #7a808a;
+  --muted-3: #6a707a;
+  --faint: #5c6370;
+  --line: transparent;
+  --dash: transparent;
+  --dash-dark: transparent;
+  --field: #262a31;
+  --field-line: rgba(232, 234, 238, 0.16);
+  --rail: #262a31;
+  --hover: #262a31;
+  --menu-sheet: #262a31;
+  --qs-pane: #262a31;
+  --green: #ef6461;
+  --green-dark: #d95350;
+  --green-ok: #5fca8b;
+  --mode-plan: #8fb2ee;
+  --u-bg: rgba(239, 100, 97, 0.11);
+  --diff-add-bg: rgba(95, 202, 139, 0.14);
+  --diff-add-ink: #8fd3a6;
+  --diff-del-bg: rgba(239, 100, 97, 0.14);
+  --diff-del-ink: #ff9d9a;
+  --amber-bg: rgba(230, 192, 92, 0.14);
+  --amber-line: rgba(230, 192, 92, 0.45);
+  --amber-ink: #e6c05c;
+  --amber-body: #d3b055;
+  --amber-btn: #c98d1a;
+  --amber-btn-line: #e6c05c;
+  --red-bg: rgba(239, 100, 97, 0.16);
+  --red-line: #ef6461;
+  --red-ink: #ff9d9a;
+  --tok-kw: #8fb2ee;
+  --tok-str: #a3cf9b;
+  --tok-num: #e6c05c;
+  --tok-com: #8d939e;
+  --tok-key: #d7bde8;
+  --tok-add-ink: #a3cf9b;  --tok-add-bg: rgba(163, 207, 155, 0.12);
+  --tok-del-ink: #ff9d9a;  --tok-del-bg: rgba(255, 157, 154, 0.12);
+  --sweep: rgba(255, 255, 255, 0.05);
+  --shimmer-hi: #e8eaee;
+  --red-body: #e88f8c;
+  --red-btn: #ef6461;
+  --red-btn-line: #ff8b88;
+  --shadow-soft: transparent;
+  --shadow-mid: transparent;
+  --shadow-hard: transparent;
+  --tree-ink: #a2a3ae;
+  --tree-fill: #262a31;
+  --tree-fill-open: #262a31;
+  --tree-fill-file: #262a31;
+  --nami-fill: #ef6461;
+  --nami-foam: #262a31;
+  --nami-eye: #262a31;
+  --sf-d: rgba(10, 12, 16, 0.50);
+  --sf-l: rgba(58, 64, 74, 0.70);
+  --sf-in-d: rgba(8, 10, 14, 0.45);
+  --sf-in-l: rgba(58, 64, 74, 0.55);
+  --sf-raise: 4px 4px 8px var(--sf-d), -4px -4px 8px var(--sf-l);
+  --sf-raise-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l);
+  --sf-press: inset 4px 4px 8px var(--sf-in-d), inset -3px -3px 6px var(--sf-in-l);
+  --sf-press-sm: inset 3px 3px 6px var(--sf-in-d), inset -2px -2px 5px var(--sf-in-l);
+  --sf-card: 4px 4px 8px var(--sf-d), -4px -4px 8px var(--sf-l),
+             inset 2px 2px 3px var(--sf-in-l), inset -2px -2px 4px var(--sf-in-d);
+  --sf-card-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l),
+             inset 1px 1px 2px var(--sf-in-l), inset -1px -1px 3px var(--sf-in-d);
+  --sf-r: 18px;
+  --sf-r-sm: 12px;
+  --sf-r-chip: 10px;
+}
+body[data-theme="dusk"] { background: #262a31; }
+body[data-theme="dusk"] a { color: #6f9dff; }
+body[data-theme="dusk"] .ed-hl .hl-link { color: #6f9dff; }
+body[data-theme="dusk"] .viewer .vw-stage--dark { background: #000; }
