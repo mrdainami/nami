@@ -37,6 +37,13 @@ export function createAcpClient(transport, handlers) {
       if (h.onUpdate) h.onUpdate(u);
       return;
     }
+    if (msg.method === 'elicitation/create') {
+      const params = msg.params || {};
+      const reply = (result) => respond(msg.id, result);
+      if (h.onQuestion) h.onQuestion(params, reply);
+      else reply({ action: 'cancel' });
+      return;
+    }
     if (msg.method === 'session/request_permission') {
       const params = msg.params || {};
       const reply = (optionId) => respond(msg.id, { outcome: { outcome: 'selected', optionId } });
@@ -55,7 +62,7 @@ export function createAcpClient(transport, handlers) {
     async connect(cwd) {
       const init = await call('initialize', {
         protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} } },
       });
       const sess = await call('session/new', { cwd, mcpServers: [] });
       sessionId = sess.sessionId;

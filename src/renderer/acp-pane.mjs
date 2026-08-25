@@ -41,12 +41,23 @@ export function mountChatPane(p, rec, hooks) {
 
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
 
+  async function openSmart(path) {
+    const tries = [path, path.normalize('NFD'), path.normalize('NFC'),
+      path.replace(/ (AM|PM)\./, '\u202f$1.'), path.replace(/\u202f(AM|PM)\./, ' $1.')];
+    for (const t of tries) {
+      try {
+        const st = await api.statPath({ token: t, cwd: p.cwd, id: p.id });
+        if (st && st.exists) { hooks.open(st.path || t); return; }
+      } catch (_) {}
+    }
+    hooks.open(path);
+  }
   const transcript = createTranscript(scrollHost, {
     cwd: p.cwd,
     home: (p.cwd.match(/^\/(Users|home)\/[^/]+/) || [''])[0],
     onLink: (url) => { if (/^https?:/.test(url)) api.openLink(url); else hooks.open(url); },
     onCopy: (text) => { api.copyText(text); hooks.toast('Copied'); },
-    onOpenFile: (path) => hooks.open(path),
+    onOpenFile: (path) => openSmart(path),
     onCommands: (list) => { state.commands = list; composer.setCommands(list); },
     onUsage: (used, size) => composer.setUsage(used, size),
     onInfo: (title) => { if (title && hooks.rename) hooks.rename(p, title); },
@@ -120,6 +131,13 @@ export function mountChatPane(p, rec, hooks) {
     onStop: () => { if (state.connected) client.cancel(); },
     onModeCycle: cycleMode,
     onModelPick: () => route('model'),
+    getBuiltins: () => {
+      const rows = state.configOptions.map((co) => ({ name: co.id, description: co.name + ' — picker' }));
+      rows.push({ name: 'config', description: 'Session settings' });
+      rows.push({ name: 'resume', description: 'Pick up a past session' });
+      return rows;
+    },
+    isPicker: (name) => ['config', 'settings', 'resume'].includes(name) || state.configOptions.some((co) => co.id === name && co.type === 'select'),
     onPickFiles: () => {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.multiple = true;
@@ -201,6 +219,13 @@ export function mountChatPane(p, rec, hooks) {
       if (hooks.wake) hooks.wake(p);
       transcript.permission(params, (optionId) => {
         reply(optionId);
+        if (hooks.settled) hooks.settled(p);
+      }, () => { if (hooks.settled) hooks.settled(p); });
+    },
+    onQuestion: (params, reply) => {
+      if (hooks.wake) hooks.wake(p);
+      transcript.question(params, (result) => {
+        reply(result);
         if (hooks.settled) hooks.settled(p);
       });
     },

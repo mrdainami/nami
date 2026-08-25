@@ -38,6 +38,7 @@ export function createTranscript(container, opts) {
   container.classList.add('cw-scroll');
   let openMsg = null, openThought = null, openUser = null, planEl = null;
   const tools = new Map();
+  const pendingPerms = new Map();
   let unknownCount = 0;
 
   const toBottom = () => { if (o.noScroll) return; requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; }); };
@@ -57,14 +58,24 @@ export function createTranscript(container, opts) {
       const t = c.textContent.trim();
       if (t.startsWith('/') ? /\.[a-z0-9]{1,5}$/i.test(t) : PATHISH.test(t)) {
         c.classList.add('cw-pathlink');
-        c.onclick = (e) => {
-          e.stopPropagation();
-          if (!o.onOpenFile) return;
+        const resolve = () => {
           let path = t;
           if (path.startsWith('~/')) path = (o.home || '') + path.slice(1);
           else if (!path.startsWith('/')) path = (o.cwd ? o.cwd + '/' : '') + path.replace(/^\.\//, '');
-          o.onOpenFile(path);
+          return path;
         };
+        c.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
+        if (/\.(png|jpe?g|gif|webp|svg)$/i.test(t) && !c.dataset.thumbed) {
+          c.dataset.thumbed = '1';
+          const th = document.createElement('button');
+          th.className = 'cw-inline-thumb';
+          th.innerHTML = '<img alt="">';
+          th.querySelector('img').src = 'file://' + encodeURI(resolve());
+          th.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
+          th.querySelector('img').onerror = () => th.remove();
+          const blk = c.closest('.cw-a, .cw-tool-text');
+          if (blk) blk.insertAdjacentElement('afterend', th);
+        }
       }
     });
     root.querySelectorAll('a[data-link]').forEach((a) => {
@@ -136,6 +147,14 @@ export function createTranscript(container, opts) {
   }
   function toolApply(rec, ev) {
     const { el } = rec;
+    // a permission the agent resolved itself (auto modes) retires quietly
+    const pp = ev.id && pendingPerms.get(ev.id);
+    if (pp && !pp.state.answered && ev.status && ev.status !== 'pending') {
+      pp.state.answered = true;
+      pendingPerms.delete(ev.id);
+      pp.el.querySelector('.cw-perm').outerHTML = `<div class="cw-settle ok"><b>✓</b> ${esc(pp.title)} — approved automatically</div>`;
+      if (pp.onRetire) pp.onRetire();
+    }
     if (ev.title) el.querySelector('.f').textContent = ev.title;
     if (ev.status) {
       const run = el.querySelector('.cw-run');
@@ -202,25 +221,92 @@ export function createTranscript(container, opts) {
     userTurn(text) { closeStreams(); block(`<div class="cw-u">${mdBlocks(text)}</div>`); },
     note(text) { block(`<div class="cw-hint">${mdInline(text)}</div>`); },
     error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
-    permission(params, answer) {
+    permission(params, answer, onRetire) {
       closeStreams();
-      // the tool card above holds what's being decided — open it, don't repeat it
       const tcId = params.toolCall && params.toolCall.toolCallId;
       const owned = tcId && tools.get(tcId);
-      if (owned) { const b = owned.el.querySelector('.cw-tool-body'); if (b) b.hidden = false; }
       const title = (params.toolCall && params.toolCall.title) || 'Approve this?';
       const opts = params.options || [];
       const el = block(`<div class="cw-perm"><div class="q">Waiting on you</div>${owned ? '' : `<code>${esc(title)}</code>`}
         <div class="col">${(() => { const primary = opts.findIndex((x) => x.kind === 'allow_once'); return opts.map((op, i) => `<button class="cw-btn ${i === primary ? 'ap' : 'row'}" data-i="${i}">${esc(op.name)}</button>`).join(''); })()}</div></div>`);
+      const state2 = { answered: false };
       el.querySelectorAll('.cw-btn').forEach((b) => {
         b.onclick = (e) => {
           e.stopPropagation();
+          if (state2.answered) return;
+          state2.answered = true;
+          pendingPerms.delete(tcId);
           const op = opts[+b.dataset.i];
           el.querySelector('.cw-perm').outerHTML =
-            `<div class="cw-settle ${op.kind && op.kind.startsWith('allow') ? 'ok' : ''}">${esc(title)} — ${esc(op.name)}</div>`;
+            `<div class="cw-settle ${op.kind && op.kind.startsWith('allow') ? 'ok' : ''}"><b>${op.kind && op.kind.startsWith('allow') ? '✓' : '✗'}</b> ${esc(title)} — ${esc(op.name)}</div>`;
           answer(op.optionId);
         };
       });
+      // only a genuinely blocking request opens the tool's detail
+      setTimeout(() => {
+        if (!state2.answered && owned) { const b = owned.el.querySelector('.cw-tool-body'); if (b) b.hidden = false; toBottom(); }
+      }, 600);
+      if (tcId) pendingPerms.set(tcId, { el, state: state2, title, onRetire });
+      return el;
+    },
+    question(params, reply) {
+      closeStreams();
+      const schema = params.requestedSchema || params.schema || {};
+      const props = schema.properties || {};
+      const keys = Object.keys(props);
+      const choiceKeys = keys.filter((k) => props[k].oneOf || props[k].enum);
+      const textKeys = keys.filter((k) => !props[k].oneOf && !props[k].enum);
+      let inner = '';
+      for (const k of choiceKeys) {
+        const pr = props[k];
+        const options = pr.oneOf
+          ? pr.oneOf.map((op) => ({ v: op.const, t: op.title || String(op.const), d: op.description || '' }))
+          : pr.enum.map((v, i) => ({ v, t: String((pr.enumNames && pr.enumNames[i]) || v), d: '' }));
+        if (choiceKeys.length > 1 && pr.title) inner += `<div class="cw-q-label">${esc(pr.title)}</div>`;
+        inner += `<div class="col" data-k="${esc(k)}">` + options.map((op) =>
+          `<button class="cw-btn row" data-v="${esc(String(op.v))}"><span class="qt">${esc(op.t)}</span>${op.d ? `<span class="qd">${esc(op.d)}</span>` : ''}</button>`).join('') + '</div>';
+      }
+      for (const k of textKeys) {
+        const pr = props[k];
+        inner += `<input class="cw-q-in" data-k="${esc(k)}" type="text" placeholder="${esc(pr.title || pr.description || 'Type an answer')}">`;
+      }
+      if (!keys.length) inner = '<input class="cw-q-in" data-k="answer" type="text" placeholder="Type an answer">';
+      const el = block(`<div class="cw-perm cw-question"><div class="q">Question</div><div class="cw-q-msg">${esc(params.message || '')}</div>${inner}
+        <div class="row">${textKeys.length || !keys.length ? '<button class="cw-btn ap cw-q-send">Send</button>' : ''}<button class="cw-btn row cw-q-skip">Skip</button></div></div>`);
+      let done = false;
+      const settle = (text) => {
+        done = true;
+        el.querySelector('.cw-perm').outerHTML = `<div class="cw-settle ok"><b>✓</b> ${esc(params.message || 'Question')} — ${esc(text)}</div>`;
+      };
+      const sendContent = (content, label) => {
+        if (done) return;
+        reply({ action: 'accept', content });
+        settle(label);
+      };
+      el.querySelectorAll('.col[data-k] .cw-btn').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const content = {};
+          content[b.parentElement.dataset.k] = b.dataset.v;
+          sendContent(content, b.querySelector('.qt').textContent);
+        };
+      });
+      const sendTexts = () => {
+        const content = {};
+        el.querySelectorAll('.cw-q-in').forEach((inp) => { if (inp.value.trim()) content[inp.dataset.k] = inp.value.trim(); });
+        if (!Object.keys(content).length) return;
+        sendContent(content, Object.values(content).join(', '));
+      };
+      const sendBtn = el.querySelector('.cw-q-send');
+      if (sendBtn) sendBtn.onclick = (e) => { e.stopPropagation(); sendTexts(); };
+      el.querySelectorAll('.cw-q-in').forEach((inp) => inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') sendTexts(); }));
+      el.querySelector('.cw-q-skip').onclick = (e) => {
+        e.stopPropagation();
+        if (done) return;
+        done = true;
+        reply({ action: 'decline' });
+        el.querySelector('.cw-perm').outerHTML = '<div class="cw-settle">Question skipped</div>';
+      };
       return el;
     },
     dropTool(id) {

@@ -67,10 +67,13 @@ export function createComposer(host, o) {
   }
   function openMenu(filter) {
     const q = (filter || '').replace(/^\//, '').toLowerCase();
+    const builtins = (o.getBuiltins ? o.getBuiltins() : []).filter((c) => !q || c.name.toLowerCase().startsWith(q));
     const cmdRows = commands.filter((c) => !q || c.name.toLowerCase().startsWith(q));
     const skRows = q ? [] : skills;
     let html = '';
     if (!filter) html += '<button class="r files"><b>📎 Add files and folders</b><span>or drop from Finder</span></button>';
+    if (builtins.length) html += '<div class="hd">Session</div>' +
+      builtins.map((c) => `<button class="r" data-cmd="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
     if (cmdRows.length) html += '<div class="hd">Commands</div>' +
       cmdRows.map((c) => `<button class="r" data-cmd="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
     if (skRows.length) html += '<div class="hd">Skills</div>' +
@@ -86,9 +89,11 @@ export function createComposer(host, o) {
       r.onclick = (e) => {
         e.stopPropagation(); popEl.hidden = true;
         const name = r.dataset.cmd;
-        input.value = '';
-        grow();
-        if (o.onCommand) o.onCommand(name);
+        // pickers open their surface right away; everything else lands in the
+        // box so you see what you're about to send
+        if (o.isPicker && o.isPicker(name)) { input.value = ''; grow(); if (o.onCommand) o.onCommand(name); return; }
+        input.value = '/' + name + ' ';
+        grow(); input.focus();
       };
     });
     popEl.querySelectorAll('[data-skill]').forEach((r) => {

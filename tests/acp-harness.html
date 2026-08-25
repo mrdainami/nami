@@ -60,9 +60,8 @@ ok('messages rendered', document.querySelectorAll('.cw-a').length >= 5);
 ok('tool cards rendered', document.querySelectorAll('.cw-card:not(.cw-plan)').length >= 4);
 ok('diff rendered with add lines', document.querySelectorAll('.cw-diff .a').length >= 3);
 ok('plan card rendered', document.querySelectorAll('.cw-plan').length >= 1);
-ok('permission card rendered with 3 options', (() => {
-  const p = document.querySelector('.cw-perm');
-  return p && p.querySelectorAll('.cw-btn').length >= 3;
+ok('agent-resolved permission auto-retires to a quiet line', (() => {
+  return [...document.querySelectorAll('.cw-settle')].some((x) => /approved automatically/.test(x.textContent));
 })());
 ok('usage callback fired', calls.usage > 0);
 ok('info (session title) callback fired', calls.info > 0);
@@ -126,6 +125,8 @@ const comp = createComposer(cbox.querySelector('.chost'), {
   onStop: () => ccalls.stop++,
   onModeCycle: () => ccalls.mode++,
   onPickFiles: () => ccalls.files++,
+  isPicker: (n) => n === 'model',
+  getBuiltins: () => [{ name: 'model', description: 'Model — picker' }, { name: 'resume', description: 'Past sessions' }],
 });
 comp.setCommands([{ name: 'compact', description: 'compact the conversation' }, { name: 'cost', description: 'usage for this session' }, { name: 'model', description: 'switch model' }]);
 comp.setSkills([{ name: 'collector', description: 'pulls structured data' }]);
@@ -134,21 +135,26 @@ comp.setMode('Default'); comp.setModel('sonnet-5'); comp.setUsage(34000, 1000000
 const cin = comp.input;
 const cpop = cbox.querySelector('.cw-pop');
 cbox.querySelector('.cw-plus').click();
-ok('composer: + menu opens with files row + commands + skills',
-  !cpop.hidden && cpop.querySelector('.files') && cpop.querySelectorAll('[data-cmd]').length === 3 && cpop.querySelectorAll('[data-skill]').length === 1);
+ok('composer: + menu opens with files row + session + commands + skills',
+  !cpop.hidden && cpop.querySelector('.files') && cpop.querySelectorAll('[data-cmd]').length === 5 && cpop.querySelectorAll('[data-skill]').length === 1);
 ok('composer: menu fits its host', cpop.getBoundingClientRect().height <= cbox.getBoundingClientRect().height);
 cpop.querySelector('.files').click();
 ok('composer: files row routes to picker', ccalls.files === 1);
 
 cin.value = '/co'; cin.dispatchEvent(new Event('input'));
 ok('composer: slash typing filters live', !cpop.hidden && cpop.querySelectorAll('[data-cmd]').length === 2);
-cpop.querySelector('[data-cmd]').click();
-ok('composer: picking a command routes to interceptor', ccalls.cmd.length === 1 && ccalls.cmd[0] === 'compact');
+cpop.querySelector('[data-cmd="compact"]').click();
+ok('composer: picking a command inserts it, does not run', ccalls.cmd.length === 0 && cin.value === '/compact ');
 ok('composer: menu closed after pick', cpop.hidden);
+
+cin.value = ''; cbox.querySelector('.cw-plus').click();
+ok('composer: Session section lists builtins', [...cpop.querySelectorAll('[data-cmd]')].some((r) => r.dataset.cmd === 'model'));
+cpop.querySelector('[data-cmd="model"]').click();
+ok('composer: picker commands open directly', ccalls.cmd.length === 1 && ccalls.cmd[0] === 'model');
 
 cin.value = '/cost'; cin.dispatchEvent(new Event('input'));
 cin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-ok('composer: bare slash send routes to interceptor', ccalls.cmd.length === 2 && ccalls.cmd[1] === 'cost');
+ok('composer: typed slash + Enter runs', ccalls.cmd.length === 2 && ccalls.cmd[1] === 'cost');
 
 comp.attach('✦ collector', { skill: 'collector' });
 cin.value = 'hello there'; cin.dispatchEvent(new Event('input'));
