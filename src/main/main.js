@@ -396,7 +396,7 @@ function createWindow(folder, bounds) {
       // a --scene= shot has to wait out the library scan before the surface is real
       const zi = process.argv.indexOf('--zoom');
       if (zi >= 0) w.webContents.setZoomFactor(Number(process.argv[zi + 1]));
-      await new Promise((r) => setTimeout(r, SCENE ? 2600 : (DEMO ? 1400 : 700)));
+      await new Promise((r) => setTimeout(r, (SCENE ? 2600 : (DEMO ? 1400 : 700)) + Number(process.env.SHOT_WAIT || 0)));
       // capturePage can grab a stale (blank) compositor frame; force a repaint
       // and give it a beat, or roughly one shot in three comes back empty
       w.webContents.invalidate();

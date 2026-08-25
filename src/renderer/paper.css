@@ -2163,3 +2163,14 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-a, .cw-hint, .cw-u, .cw-think-body { white-space: pre-wrap; overflow-wrap: break-word; }
 .cw-a { max-width: 100%; }
 .cw-bash, .cw-diff { user-select: text; }
+/* chat pane layout */
+.cw-transcript { flex: 1; min-height: 0; }
+.cw-composer-host { flex: none; }
+.cw-stopbtn { font-family: inherit; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--red-line); background: var(--paper); color: var(--red-ink); font-size: 12px; cursor: pointer; flex: none; }
+.cw-pop .r.sel.on b::after { content: " ✓"; color: var(--green-ok); }
+.cw-imgout { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); margin: 6px 0; }
+.cw-filelink { font-family: inherit; font-size: 11px; color: var(--mode-plan); background: transparent; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.cw-codewrap { position: relative; max-width: 100%; }
+.cw-code { background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 12px; line-height: 1.55; overflow-x: auto; margin: 6px 0; }
+.cw-copy { position: absolute; top: 8px; right: 8px; font-family: inherit; font-size: 10px; color: var(--muted); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; cursor: pointer; }
+.cw-copy:hover { color: var(--ink); }
