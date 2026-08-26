@@ -59,6 +59,16 @@ export function createTranscript(container, opts) {
         }
       }
     });
+    root.querySelectorAll('img[data-imgsrc]').forEach((img) => {
+      // markdown images arrive src-less from the emitter (it is DOM- and
+      // cwd-free); only here do we know where the session lives on disk
+      let path = img.dataset.imgsrc;
+      if (path.startsWith('~/')) path = (o.home || '') + path.slice(1);
+      else if (!path.startsWith('/')) path = (o.cwd ? o.cwd + '/' : '') + path.replace(/^\.\//, '');
+      img.src = 'file://' + encodeURI(path);
+      img.onerror = () => img.remove();
+      img.removeAttribute('data-imgsrc');
+    });
     root.querySelectorAll('a[data-link]').forEach((a) => {
       a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (o.onLink) o.onLink(a.getAttribute('href')); };
     });
