@@ -411,6 +411,18 @@ function showScene(name) {
     S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
     renderGrid(); renderRail(); renderHeader();
     const rec = tileEls.get(np.id);
+    // chat:md — one fixed markdown-heavy reply through the real renderer, so
+    // the six themes can be shot against identical pixels.
+    if (step === 'md' && rec && rec.cwFeed) {
+      rec.cwFeed({ type: 'user', text: 'compare the agents we support and what is left to test' });
+      rec.cwFeed({ type: 'message', text: '## Agent roster\n\nAll six connect over the same channel — **one renderer, zero per-agent code**.\n\n'
+        + '| Agent | Commands | Modes | Chat |\n|---|---|---|---|\n| claude | 96 | 6 | yes |\n| kimi | 35 | 4 | yes |\n| codex | 6 | 3 | yes |\n| grok | 97 | — | yes |\n\n'
+        + '### Still to verify\n\n- long replies with *mixed* formatting\n  - nested points like this one\n  - links inside bold — **[works now](https://dainami.ai)**\n- [x] tables render clean\n- [ ] half-streamed table mid-reply\n\n'
+        + '> Note: raw HTML in a reply stays escaped — it can never run.\n\n'
+        + 'Run the probe again after any CLI update: `tools/acp-probe.mjs`\n\n'
+        + '```sh\nfor a in claude kimi codex grok; do\n  probe "$a" && echo "$a ok"\ndone\n```\n\n~~hermes pending~~ — verified 26 Aug.' });
+      return;
+    }
     const host = rec && rec.body && rec.body.querySelector('.cw-scroll');
     if (host) {
       const empty = host.querySelector('.cw-empty');
