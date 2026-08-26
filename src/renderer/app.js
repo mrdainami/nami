@@ -232,7 +232,7 @@ function q(sel, root) { return (root || document).querySelector(sel); }
 // A panel's chip: brand glyph when the session maps to a known brand, else its code.
 function panelChip(p) {
   const key = p.kind === 'claude' ? 'claude'
-    : iconKeyFor(p.title);
+    : iconKeyFor(p.agentId) || iconKeyFor(p.title);
   return chipHtml({ key, code: p.code, kind: chipKindOf(p) });
 }
 
