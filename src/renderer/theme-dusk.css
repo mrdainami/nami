@@ -14,9 +14,9 @@ body[data-theme="dusk"] {
   --muted-2: #7a808a;
   --muted-3: #6a707a;
   --faint: #5c6370;
-  --line: transparent;
-  --dash: transparent;
-  --dash-dark: transparent;
+  --line: rgba(232, 234, 238, 0.16);
+  --dash: rgba(232, 234, 238, 0.12);
+  --dash-dark: rgba(232, 234, 238, 0.22);
   --field: #262a31;
   --field-line: rgba(232, 234, 238, 0.16);
   --rail: #262a31;

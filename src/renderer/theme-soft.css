@@ -23,9 +23,9 @@ body[data-theme="soft"] {
   --muted-2: #6a6f78;
   --muted-3: #7a7f88;
   --faint: #7a7f88;
-  --line: transparent;
-  --dash: transparent;
-  --dash-dark: transparent;
+  --line: rgba(44, 42, 51, 0.16);
+  --dash: rgba(44, 42, 51, 0.12);
+  --dash-dark: rgba(44, 42, 51, 0.22);
   --field: #e5e5e5;
   --field-line: rgba(44, 42, 51, 0.16);
   --rail: #e5e5e5;
