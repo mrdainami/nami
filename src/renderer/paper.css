@@ -2264,7 +2264,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-md blockquote > :last-child { margin-bottom: 0; }
 .cw-md hr { border: 0; border-top: 1px dashed var(--dash); margin: 12px 0; }
 .cw-md del { color: var(--muted); }
-.cw-md .cw-tablewrap { max-width: 100%; overflow-x: auto; margin: 6px 0 10px; }
+.cw-md .cw-tablewrap { width: max-content; max-width: 100%; overflow-x: auto; margin: 6px 0 10px; }
 .cw-md table { border-collapse: collapse; font-size: 12.5px; line-height: 1.5; }
 .cw-md th, .cw-md td { border: 1px solid var(--line); padding: 5px 11px; text-align: left; white-space: nowrap; }
 .cw-md th { background: var(--paper-2); font-size: 11px; letter-spacing: 0.06em; }

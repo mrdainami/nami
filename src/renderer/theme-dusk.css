@@ -86,3 +86,19 @@ body[data-theme="dusk"] { background: #262a31; }
 body[data-theme="dusk"] a { color: #6f9dff; }
 body[data-theme="dusk"] .ed-hl .hl-link { color: #6f9dff; }
 body[data-theme="dusk"] .viewer .vw-stage--dark { background: #000; }
+
+/* chat markdown on the same-fill desk: the paper themes draw tables and
+   quotes with --line, which is transparent here — swap hairlines for the
+   family's extrusion language so dense data still reads in rows. */
+body[data-dusk] .cw-md .cw-tablewrap {
+  background: var(--paper); border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-card-sm); padding: 4px 12px;
+}
+body[data-dusk] .cw-md th, body[data-dusk] .cw-md td { border: 0; border-bottom: 1px solid var(--sf-in-d); }
+body[data-dusk] .cw-md tr:last-child td { border-bottom: 0; }
+body[data-dusk] .cw-md th, body[data-dusk] .cw-md tr:nth-child(even) td { background: transparent; }
+body[data-dusk] .cw-md blockquote {
+  border-left: 0; background: var(--paper); border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-press-sm); padding: 8px 12px;
+}
+body[data-dusk] .cw-md hr { border: 0; height: 4px; border-radius: 2px; box-shadow: var(--sf-press-sm); }
