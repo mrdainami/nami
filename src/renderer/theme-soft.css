@@ -196,6 +196,9 @@ body[data-soft] .rail-tabs { gap: 6px; }
 body[data-soft] .rail-tab {
   border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
 }
+body[data-soft] .rail-tabs .rail-tab {
+  font-size: 10px; letter-spacing: 0; padding: 7px 5px;
+}
 body[data-soft] .rail-tab.active {
   color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
 }
@@ -360,6 +363,20 @@ body[data-soft] .board-node {
 }
 
 /* ---- ACP composer ---------------------------------------------------------- */
+body[data-soft] .lc-chat {
+  border: 0; border-radius: 999px; background: var(--paper); color: #ef6461;
+  box-shadow: var(--sf-card-sm); font-size: 10px; padding: 4px 10px; gap: 5px;
+}
+body[data-soft] .lc-chat:hover {
+  color: #d95350; background: var(--paper); border-color: transparent;
+  box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .lc-beta {
+  font-size: 10px; letter-spacing: 0.06em; color: #ef6461;
+  background: var(--paper); border: 0; box-shadow: var(--sf-raise-sm);
+  padding: 1px 5px; align-self: center; margin-top: 0;
+}
+body[data-soft] .lc-chat:hover .lc-beta { color: #d95350; box-shadow: var(--sf-press-sm); }
 body[data-soft] .cw-comp { border-top: 0; }
 body[data-soft] .cw-send, body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn, body[data-soft] .cw-tool {
   border: 0; box-shadow: var(--sf-raise-sm);
