@@ -5,7 +5,11 @@
    - body[data-theme="dusk"]  → dark token remap (theme-dusk.css)
    - body[data-soft]          → every structural rule, written ONCE for both
    paper.css stays byte-identical. Geometry (padding, type sizes, lockup) stays;
-   only fill, shadow, radius, and the Caveat → system-sans override change. */
+   only fill, shadow, radius, and the Caveat → system-sans override change.
+
+   Same-fill means a border token cannot draw a box. Family defaults below
+   extrude every button / *-chip / *-mini / *-card so a future surface that
+   uses those names does not vanish. More specific rules after them win. */
 
 body[data-theme="soft"] {
   --desk: #e5e5e5;
@@ -129,6 +133,42 @@ body[data-soft] ::-webkit-scrollbar-thumb {
 }
 body[data-soft] ::-webkit-scrollbar-thumb:hover { background: #ef6461; border-color: #ef6461; }
 body[data-soft] ::-webkit-scrollbar-track { background: var(--paper); box-shadow: var(--sf-press-sm); }
+
+/* ---- family defaults ------------------------------------------------------- */
+body[data-soft] button {
+  border-color: transparent;
+  background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  border-radius: var(--sf-r-chip);
+}
+body[data-soft] [class$="-chip"],
+body[data-soft] [class$="-mini"] {
+  border: 0;
+  background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  border-radius: 999px;
+}
+body[data-soft] [class$="-card"] {
+  border: 0;
+  background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+  border-radius: var(--sf-r-sm);
+}
+body[data-soft] input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not(.tree-rename),
+body[data-soft] textarea:not(.ed-area):not(.card-body):not(.raw-area) {
+  border: 0;
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--sf-press);
+}
+body[data-soft] .lane-tour,
+body[data-soft] .qs-link,
+body[data-soft] .cw-filelink,
+body[data-soft] .action {
+  box-shadow: none;
+  background: none;
+  border-radius: 0;
+}
 
 /* ---- lockup ---------------------------------------------------------------- */
 body[data-soft] .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
@@ -338,6 +378,23 @@ body[data-soft] .qs-body {
 body[data-soft] .qs-foot {
   background: var(--paper); border-top: 0; flex: none;
   margin: 8px; border-radius: var(--sf-r-sm); box-shadow: var(--sf-press);
+}
+body[data-soft] .qs-row {
+  border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  padding: 10px 12px; margin: 0 0 10px;
+}
+body[data-soft] .qs-row:last-child { padding-bottom: 10px; margin-bottom: 0; }
+body[data-soft] .qs-n,
+body[data-soft] .qs-t,
+body[data-soft] .qs-s { line-height: 1.45; }
+body[data-soft] .qs-acts { height: auto; margin-top: 8px; gap: 8px; }
+body[data-soft] .qs-mini { height: auto; padding: 5px 10px; }
+body[data-soft] .qs-mini--go {
+  background: #ef6461; color: #fff; box-shadow: var(--sf-go);
+}
+body[data-soft] .qs-mini--play {
+  border: 0; background: var(--amber-bg); color: var(--amber-ink);
 }
 body[data-soft] .picker-input { box-shadow: var(--sf-press); border-radius: 14px; margin: 8px 8px 0; }
 body[data-soft] .modal-x, body[data-soft] .ov-x {
