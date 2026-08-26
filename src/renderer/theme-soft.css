@@ -192,12 +192,12 @@ body[data-soft] #btn-help:hover { box-shadow: var(--sf-press-sm); }
 
 /* ---- rail ------------------------------------------------------------------ */
 body[data-soft] .rail { border-right: 0; }
-body[data-soft] .rail-tabs { gap: 8px; }
+body[data-soft] .rail-tabs { gap: 6px; padding: 8px 10px; }
 body[data-soft] .rail-tab {
-  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+  border: 0; border-radius: 8px; background: var(--paper); box-shadow: var(--sf-raise-sm);
 }
 body[data-soft] .rail-tabs .rail-tab {
-  font-size: 10px; letter-spacing: 0; padding: 7px 4px;
+  font-size: 10px; letter-spacing: 0; padding: 7px 2px;
 }
 body[data-soft] .rail-tab.active {
   color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
