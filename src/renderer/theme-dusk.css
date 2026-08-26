@@ -75,6 +75,9 @@ body[data-theme="dusk"] {
              inset 2px 2px 3px var(--sf-in-l), inset -2px -2px 4px var(--sf-in-d);
   --sf-card-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l),
              inset 1px 1px 2px var(--sf-in-l), inset -1px -1px 3px var(--sf-in-d);
+  --sf-go: 4px 4px 8px rgba(8, 10, 14, 0.55), -3px -3px 6px rgba(255, 140, 136, 0.22),
+           inset 2px 2px 3px rgba(255, 190, 186, 0.35), inset -2px -2px 5px rgba(20, 8, 8, 0.45);
+  --sf-go-press: inset 4px 4px 8px rgba(8, 10, 14, 0.5), inset -2px -2px 5px rgba(255, 160, 156, 0.22);
   --sf-r: 18px;
   --sf-r-sm: 12px;
   --sf-r-chip: 10px;

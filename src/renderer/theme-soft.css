@@ -80,6 +80,9 @@ body[data-theme="soft"] {
              inset 2px 2px 3px var(--sf-in-l), inset -2px -2px 4px var(--sf-in-d);
   --sf-card-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l),
              inset 1px 1px 2px var(--sf-in-l), inset -1px -1px 3px var(--sf-in-d);
+  --sf-go: 4px 4px 8px rgba(140, 40, 38, 0.38), -3px -3px 6px rgba(255, 220, 216, 0.7),
+           inset 2px 2px 3px rgba(255, 255, 255, 0.42), inset -2px -2px 5px rgba(120, 28, 26, 0.38);
+  --sf-go-press: inset 4px 4px 8px rgba(120, 28, 26, 0.42), inset -2px -2px 5px rgba(255, 200, 196, 0.28);
   --sf-r: 18px;
   --sf-r-sm: 12px;
   --sf-r-chip: 10px;
@@ -151,15 +154,16 @@ body[data-soft] .projects-pop {
   box-shadow: var(--sf-card); padding: 10px;
 }
 body[data-soft] .project-row {
-  border-bottom: 0; border-radius: var(--sf-r-sm);
-  box-shadow: var(--sf-card-sm); margin: 4px 0;
+  border: 0; border-bottom: 0; border-radius: var(--sf-r-sm);
+  background: var(--paper); box-shadow: var(--sf-raise-sm); margin: 5px 0;
 }
 body[data-soft] .project-row:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
 body[data-soft] .project-open-other {
   border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
-  box-shadow: var(--sf-card-sm);
+  box-shadow: var(--sf-raise-sm);
 }
 body[data-soft] .project-open-other:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .project-open-other .plus { color: var(--muted); }
 
 body[data-soft] .live-badge {
   border: 0; border-radius: 999px; background: var(--paper); color: var(--green-dark);
@@ -177,9 +181,9 @@ body[data-soft] .btn:hover { box-shadow: var(--sf-press-sm); transform: none; }
 body[data-soft] .btn:disabled, body[data-soft] .btn:disabled:hover { box-shadow: none; }
 body[data-soft] .btn--go {
   background: #ef6461; color: #fff; border: 0;
-  box-shadow: 4px 4px 8px rgba(239, 100, 97, 0.28), -3px -3px 6px var(--sf-l);
+  box-shadow: var(--sf-go);
 }
-body[data-soft] .btn--go:hover { background: #d95350; transform: none; }
+body[data-soft] .btn--go:hover { background: #d95350; box-shadow: var(--sf-go-press); transform: none; }
 body[data-soft] .btn--quiet { box-shadow: var(--sf-raise-sm); }
 body[data-soft] .btn--quiet:hover { box-shadow: var(--sf-press-sm); }
 body[data-soft] .btn--amber, body[data-soft] .btn--red { box-shadow: var(--sf-raise-sm); border: 0; border-radius: 999px; }
@@ -290,6 +294,19 @@ body[data-soft] .card-tab.active {
 }
 body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
 body[data-soft] .ed-bar { border-top: 0; background: var(--paper); }
+body[data-soft] .ed-gutter { color: var(--faint); background: none; }
+body[data-soft] .ed-stack,
+body[data-soft] .ql-lines,
+body[data-soft] .card-body,
+body[data-soft] .card-raw .raw-area,
+body[data-soft] .viewer .vw-stage { background: none; }
+body[data-soft] .ni-field textarea { background-image: none; }
+body[data-soft] .md-read .md-pre {
+  background: var(--paper); border: 0; border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .picker-row .desc,
+body[data-soft] .modal-head .sub { color: var(--muted); }
 body[data-soft] .term-wrap {
   background: var(--paper); border: 0; border-radius: 14px; box-shadow: var(--sf-press);
 }
@@ -408,9 +425,13 @@ body[data-soft] .lc-beta {
 }
 body[data-soft] .lc-chat:hover .lc-beta { color: var(--muted); box-shadow: none; }
 body[data-soft] .cw-comp { border-top: 0; }
-body[data-soft] .cw-send, body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn, body[data-soft] .cw-tool {
+body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn, body[data-soft] .cw-tool {
   border: 0; box-shadow: var(--sf-raise-sm);
 }
+body[data-soft] .cw-send {
+  border: 0; background: #ef6461; color: #fff; box-shadow: var(--sf-go);
+}
+body[data-soft] .cw-send:hover { box-shadow: var(--sf-go-press); }
 body[data-soft] .cw-pop { border: 0; box-shadow: var(--sf-card); }
 body[data-soft] .cw-ctx, body[data-soft] .cw-live-st { border: 0; box-shadow: var(--sf-press-sm); }
 
@@ -456,8 +477,9 @@ body[data-soft] .cw-btn {
 }
 body[data-soft] .cw-btn.ap {
   background: #ef6461; color: #fff; border: 0;
-  box-shadow: 4px 4px 8px rgba(239, 100, 97, 0.28), -3px -3px 6px var(--sf-l);
+  box-shadow: var(--sf-go);
 }
+body[data-soft] .cw-btn.ap:hover { box-shadow: var(--sf-go-press); }
 body[data-soft] .cw-perm code {
   border: 0; background: var(--paper); box-shadow: var(--sf-press-sm);
 }
