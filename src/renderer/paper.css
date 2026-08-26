@@ -2243,3 +2243,30 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .lc-beta { font-size: 7px; font-weight: 700; letter-spacing: 0.06em; color: var(--faint);
   background: transparent; border: 1px solid var(--dash); border-radius: 4px; padding: 0 3px;
   align-self: flex-start; margin-top: 1px; }
+
+/* chat markdown: real block elements from acp-markdown.mjs. The parser owns
+   line breaks now, so cw-md leaves pre-wrap behind; every color is a token so
+   all six themes inherit the same shapes. */
+.cw-md { white-space: normal; }
+.cw-md p { margin: 0 0 10px; }
+.cw-md > :last-child { margin-bottom: 0; }
+.cw-md h1, .cw-md h2, .cw-md h3, .cw-md h4 { font-size: 13.5px; margin: 14px 0 6px; letter-spacing: 0.03em; }
+.cw-md > h1:first-child, .cw-md > h2:first-child, .cw-md > h3:first-child { margin-top: 0; }
+.cw-md h1 { font-size: 15px; }
+.cw-md h2 { border-bottom: 1px dashed var(--dash); padding-bottom: 3px; }
+.cw-md h4 { font-size: 12.5px; color: var(--muted); }
+.cw-md ul, .cw-md ol { margin: 0 0 10px; padding-left: 22px; }
+.cw-md li ul, .cw-md li ol { margin-bottom: 0; }
+.cw-md li { margin: 2px 0; }
+.cw-md li.task { list-style: none; margin-left: -18px; }
+.cw-md li.task input { accent-color: var(--green-ok); margin: 0 5px 0 0; vertical-align: -1px; pointer-events: none; }
+.cw-md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.cw-md blockquote > :last-child { margin-bottom: 0; }
+.cw-md hr { border: 0; border-top: 1px dashed var(--dash); margin: 12px 0; }
+.cw-md del { color: var(--muted); }
+.cw-md .cw-tablewrap { width: max-content; max-width: 100%; overflow-x: auto; margin: 6px 0 10px; }
+.cw-md table { border-collapse: collapse; font-size: 12.5px; line-height: 1.5; }
+.cw-md th, .cw-md td { border: 1px solid var(--line); padding: 5px 11px; text-align: left; white-space: nowrap; }
+.cw-md th { background: var(--paper-2); font-size: 11px; letter-spacing: 0.06em; }
+.cw-md tr:nth-child(even) td { background: var(--paper-2); }
+.cw-u.cw-md th, .cw-u.cw-md tr:nth-child(even) td { background: var(--paper); }

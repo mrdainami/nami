@@ -69,6 +69,38 @@ ok('usage callback fired', calls.usage > 0);
 ok('info (session title) callback fired', calls.info > 0);
 ok('commands callback fired', calls.commands > 0);
 
+// ---- markdown rendering: one streamed reply with every construct ----------
+{
+  const box = document.createElement('div');
+  box.className = 'fixture';
+  box.innerHTML = '<h2>markdown</h2><div class="scrollhost"></div>';
+  stage.appendChild(box);
+  const mdCalls = { link: 0, open: 0, copy: 0 };
+  const mt = createTranscript(box.querySelector('.scrollhost'), {
+    noScroll: true, cwd: '/tmp', home: '/tmp',
+    onLink: () => mdCalls.link++, onOpenFile: () => mdCalls.open++, onCopy: () => mdCalls.copy++,
+  });
+  const mdText = '## Roster\n\n| Agent | Cmds |\n|---|---|\n| claude | 96 |\n| kimi | 35 |\n\n'
+    + '- top\n  - nested\n- [x] done\n- [ ] open\n\n> a quiet note\n\n'
+    + 'see **[docs](https://dainami.ai)** and `src/renderer/app.js` — ~~old~~ *new*\n\n'
+    + '<script>window.PWNED=1<\/script> <img src=x onerror="window.PWNED=1">\n\n'
+    + '```sh\necho hi\n```';
+  // stream it in two chunks like a live agent, mid-table split included
+  mt.apply({ type: 'message', text: mdText.slice(0, 60) });
+  mt.apply({ type: 'message', text: mdText.slice(60) });
+  mt.turnEnd();
+  const md = box.querySelector('.cw-a.cw-md');
+  ok('md: table is a real table in a scrolling wrap', !!md.querySelector('.cw-tablewrap > table') && md.querySelectorAll('td').length === 4 && !/\|/.test(md.textContent));
+  ok('md: heading and blockquote are elements', !!md.querySelector('h2') && !!md.querySelector('blockquote'));
+  ok('md: lists nest, tasks are ticked boxes', !!md.querySelector('ul ul') && md.querySelectorAll('li.task input[disabled]').length === 2 && md.querySelectorAll('li.task input:checked').length === 1);
+  ok('md: em, del, link-inside-bold survive', !!md.querySelector('i') && !!md.querySelector('del') && !!md.querySelector('b > a[data-link]'));
+  ok('md: agent HTML stays text, never runs', !md.querySelector('script') && !md.querySelector('img[onerror]') && !window.PWNED && /<script>/.test(md.textContent));
+  ok('md: fence keeps copy button, inline path linkifies', !!md.querySelector('.cw-codewrap [data-copy]') && !!md.querySelector('code.cw-pathlink'));
+  md.querySelector('b > a[data-link]').click();
+  md.querySelector('code.cw-pathlink').click();
+  ok('md: link and path clicks still route', mdCalls.link === 1 && mdCalls.open === 1);
+}
+
 // thought fold: starts hidden, click opens
 const think = document.querySelector('.cw-think');
 const thinkBody = document.querySelector('.cw-think-body');

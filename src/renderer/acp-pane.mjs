@@ -240,6 +240,7 @@ export function mountChatPane(p, rec, hooks) {
   });
 
   rec.disposeRo = () => { offMsg && offMsg(); offErr && offErr(); offExit && offExit(); api.acpKill({ id: p.id }); };
+  rec.cwFeed = (ev) => transcript.apply(ev); // scenes/screenshots replay events without an agent
   if (p.sceneStatic) return;
 
   (async () => {
