@@ -15,10 +15,10 @@ body[data-theme="soft"] {
   --paper-2: #e5e5e5;
   --paper-3: #e5e5e5;
   --ink: #2c2a33;
-  --muted: #7a7f88;
-  --muted-2: #8a8f98;
-  --muted-3: #9aa0a8;
-  --faint: #a4a8b0;
+  --muted: #5e636c;
+  --muted-2: #6a6f78;
+  --muted-3: #7a7f88;
+  --faint: #7a7f88;
   --line: transparent;
   --dash: transparent;
   --dash-dark: transparent;
@@ -192,12 +192,12 @@ body[data-soft] #btn-help:hover { box-shadow: var(--sf-press-sm); }
 
 /* ---- rail ------------------------------------------------------------------ */
 body[data-soft] .rail { border-right: 0; }
-body[data-soft] .rail-tabs { gap: 6px; }
+body[data-soft] .rail-tabs { gap: 8px; }
 body[data-soft] .rail-tab {
   border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
 }
 body[data-soft] .rail-tabs .rail-tab {
-  font-size: 10px; letter-spacing: 0; padding: 7px 5px;
+  font-size: 10px; letter-spacing: 0; padding: 7px 4px;
 }
 body[data-soft] .rail-tab.active {
   color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
@@ -273,6 +273,13 @@ body[data-soft] .tile-body {
   margin: 0 8px 8px; border-radius: 14px; background: var(--paper);
   box-shadow: var(--sf-press);
 }
+body[data-soft] .card-tabs { border-bottom: 0; }
+body[data-soft] .card-tab {
+  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .card-tab.active {
+  color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
+}
 body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
 body[data-soft] .ed-bar { border-top: 0; background: var(--paper); }
 body[data-soft] .term-wrap {
@@ -313,6 +320,10 @@ body[data-soft] .picker-row .code {
 }
 body[data-soft] .tool-list { border: 0; border-radius: var(--sf-r-sm); margin: 0 0 4px 42px; box-shadow: var(--sf-press); }
 body[data-soft] .tool-row { border: 0; border-radius: 9px; }
+body[data-soft] .ni-where {
+  border: 0; border-radius: 10px; background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .ni-where.ni-knows { box-shadow: var(--sf-press-sm); }
 body[data-soft] .text-input, body[data-soft] .ni-field input, body[data-soft] .ni-field textarea,
 body[data-soft] .ni-row input, body[data-soft] .fs-row input, body[data-soft] .k-input, body[data-soft] .cw-in {
   border: 0; border-radius: 14px; background: var(--paper); box-shadow: var(--sf-press);
@@ -372,11 +383,11 @@ body[data-soft] .lc-chat:hover {
   box-shadow: var(--sf-press-sm);
 }
 body[data-soft] .lc-beta {
-  font-size: 10px; letter-spacing: 0.06em; color: #ef6461;
-  background: var(--paper); border: 0; box-shadow: var(--sf-raise-sm);
-  padding: 1px 5px; align-self: center; margin-top: 0;
+  font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
+  background: transparent; border: 0; box-shadow: none;
+  padding: 0 2px; align-self: center; margin-top: 0;
 }
-body[data-soft] .lc-chat:hover .lc-beta { color: #d95350; box-shadow: var(--sf-press-sm); }
+body[data-soft] .lc-chat:hover .lc-beta { color: var(--muted); box-shadow: none; }
 body[data-soft] .cw-comp { border-top: 0; }
 body[data-soft] .cw-send, body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn, body[data-soft] .cw-tool {
   border: 0; box-shadow: var(--sf-raise-sm);
