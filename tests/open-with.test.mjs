@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { handles, chooseTarget, OPEN_EXT } = require('../src/main/open-with.js');
@@ -69,4 +70,18 @@ test('a stale focusedId falls back to the last window rather than spawning', () 
 test('with no windows at all, one is made for the parent folder', () => {
   const r = pick({ windows: [], focusedId: null });
   assert.deepEqual(r, { action: 'new-window', id: null, folder: '/proj/docs' });
+});
+
+// The two lists have to agree or the app advertises a type it then refuses to
+// route: Finder offers Nami for the file, macOS launches it, and open-with.js
+// drops the path on the floor because the extension is not in OPEN_EXT.
+test('electron-builder declares exactly the extensions open-with routes', () => {
+  const yml = readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8');
+  const block = yml.split(/^\s*fileAssociations:\s*$/m)[1];
+  assert.ok(block, 'no fileAssociations block in electron-builder.yml');
+  // Stop at the next key at the same indent — the block is a list under `mac:`.
+  const body = block.split(/\n(?=  \w)/)[0];
+  const declared = [...body.matchAll(/ext:\s*\[([^\]]+)\]/g)]
+    .flatMap((m) => m[1].split(',').map((e) => e.trim()));
+  assert.deepEqual([...declared].sort(), [...OPEN_EXT].sort());
 });
