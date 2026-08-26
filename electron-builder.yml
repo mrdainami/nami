@@ -100,6 +100,29 @@ mac:
     # Nobody clicks this file; it exists for latest-mac.yml to point at.
     - target: zip
       arch: [arm64, x64]
+  # What Nami offers to open. Declaring a type only puts Nami in Finder's
+  # "Open With" — it never takes a default; the person still picks one.
+  #
+  # The list is short on purpose. These are documents Nami renders as a tile
+  # today and that a workbench plausibly owns. Images, video, audio and PDF
+  # belong to Preview, and .json / .yml belong to an editor: appearing in
+  # everything's Open With menu is noise, not a feature. Keep this in step with
+  # OPEN_EXT in src/main/open-with.js, which decides where the file lands.
+  #
+  # rank Alternate, not electron-builder's default of Default: a workbench does
+  # not own markdown. Alternate keeps Nami in the Open With list without ever
+  # winning the type on its own, so installing Nami never silently changes what
+  # a double-click does. Setting it as the default stays a deliberate act —
+  # Get Info → Open With → Change All.
+  fileAssociations:
+    - ext: [md, markdown, mdx]
+      name: Markdown document
+      role: Editor
+      rank: Alternate
+    - ext: [txt, text]
+      name: Plain text document
+      role: Editor
+      rank: Alternate
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist

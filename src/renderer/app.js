@@ -31,6 +31,13 @@ import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEF
 
 const api = window.dainami;
 
+// Finder can send a file the instant the page finishes loading, which is well
+// before boot() has a desk to put it on. The listener goes up here, at module
+// scope, so nothing is dropped in that gap; boot drains what arrived early.
+const earlyOpens = [];
+let deliverOpen = (ev) => earlyOpens.push(ev);
+api.onOpenFile((ev) => deliverOpen(ev));
+
 // ---- palette ---------------------------------------------------------------
 // Colour answers exactly one question: what kind of thing is this? It is never
 // derived from an id, so every service looks like a service and you only have
@@ -188,6 +195,7 @@ const S = {
   project: null, recents: [], demo: false,
   panels: [], activeId: null, expandedId: null,
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
+  pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
   agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
   justAdded: null,                      // agent installed this run — flagged in the launcher
@@ -389,8 +397,13 @@ function dropPathOnPanel(p, path, isDir) {
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
   // Nothing auto-starts: an empty desk lands on the session page, where the
   // agent and the surface are chosen. Scenes keep the desk to themselves.
-  else if (!S.demo && !b.scene && S.project) openLauncher();
+  // A file already on its way from Finder means the desk is about to have
+  // something on it, and the launcher would open straight over the top of it.
+  else if (!S.demo && !b.scene && S.project && !earlyOpens.length) openLauncher();
   if (b.scene) showScene(b.scene);
+  // The desk exists now, so anything Finder sent during boot can land.
+  deliverOpen = receiveOpenFile;
+  while (earlyOpens.length) receiveOpenFile(earlyOpens.shift());
   armStarAsk();
 })();
 
@@ -5698,6 +5711,35 @@ function overlay(cls, inner, opts) {
 }
 
 // ---- folders ---------------------------------------------------------------
+// A file opened with Nami from Finder. Either it already lives on this desk —
+// then it is just a tile — or the desk has to change folders first. That switch
+// is the one the user is allowed to refuse, so the file waits in S.pendingOpen
+// until the answer is known rather than being forced onto a foreign desk.
+// See src/main/open-with.js for how the window and folder were chosen.
+async function receiveOpenFile(ev) {
+  if (!ev || !ev.filePath) return;
+  // The launcher is what an empty desk shows. A file answers the question it
+  // was asking, so it gets out of the way rather than covering the tile.
+  if (S.overlay && S.overlay.type === 'launcher') closeOverlay();
+  if (!ev.adopt) return openFile(ev.filePath, { pin: true });
+  S.pendingOpen = ev.filePath;
+  const info = await api.openFolder(ev.folder, false);
+  if (!info || info.missing) {
+    S.pendingOpen = null;
+    toast('Could not open ' + tailPath(ev.folder) + '.');
+    return;
+  }
+  await switchToFolder(info);
+}
+
+// Called from every path that ends with the desk standing on the right folder.
+async function drainPendingOpen() {
+  const file = S.pendingOpen;
+  if (!file) return;
+  S.pendingOpen = null;
+  await openFile(file, { pin: true });
+}
+
 async function openFolderDialog() { const info = await api.pickFolder(); if (info) await switchToFolder(info); }
 async function openFolder(path) {
   // Read it, don't adopt it — switchToFolder may still route this folder to a
@@ -5717,9 +5759,9 @@ function adoptFolder(info) { return api.openFolder(info.path); }
 // over the incoming folder's remembered desk.
 async function switchToFolder(info) {
   if (!info) return;
-  if (S.project && S.project.path === info.path) { await adoptFolder(info); applyProject(info); return; }
+  if (S.project && S.project.path === info.path) { await adoptFolder(info); applyProject(info); await drainPendingOpen(); return; }
   // Nothing on the desk yet — nothing to preserve, so this is just an open.
-  if (!S.project && !S.panels.length) { await adoptFolder(info); applyProject(info); await restoreDeskFor(info.path); return; }
+  if (!S.project && !S.panels.length) { await adoptFolder(info); applyProject(info); await restoreDeskFor(info.path); await drainPendingOpen(); return; }
   // Live work is never torn down to make room. Offer it a window of its own
   // instead — the same ⧉ the popover already has, just asked for at the right
   // moment.
@@ -5740,6 +5782,7 @@ async function swapDesk(info) {
   await adoptFolder(info);
   applyProject(info);
   await restoreDeskFor(info.path);
+  await drainPendingOpen();
 }
 
 // Tear the desk down without the confirm prompts closePanel() runs — the caller
@@ -5777,8 +5820,14 @@ function renderSwitchChoice() {
       <button class="btn" id="sw-stay">Stay here</button>
     </div>
     <div class="sw-hint">${esc(info.name)} opens with its own desk. Nothing here is touched.</div>`);
-  q('#sw-win', modal).onclick = () => { closeOverlay(); api.newWindow(info.path); };
-  q('#sw-stay', modal).onclick = closeOverlay;
+  // The file follows the folder: it was opened for that folder, not this desk.
+  q('#sw-win', modal).onclick = () => { const file = S.pendingOpen; S.pendingOpen = null; closeOverlay(); api.newWindow(info.path, file); };
+  q('#sw-stay', modal).onclick = () => {
+    // Staying means the file is not opened. Say so — a Finder double-click that
+    // visibly does nothing reads as a broken app.
+    if (S.pendingOpen) { toast(baseNameOf(S.pendingOpen) + ' stayed closed — this desk has work running.'); S.pendingOpen = null; }
+    closeOverlay();
+  };
   q('#sw-win', modal).focus();
 }
 

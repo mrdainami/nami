@@ -44,7 +44,13 @@ contextBridge.exposeInMainWorld('dainami', {
   recentsPin: (path, pinned) => ipcRenderer.invoke('recents:pin', { path, pinned }),
   recentsRemove: (path) => ipcRenderer.invoke('recents:remove', path),
   onRecentsChanged: (cb) => { const h = (_e, rows) => cb(rows); ipcRenderer.on('recents:changed', h); return () => ipcRenderer.removeListener('recents:changed', h); },
-  newWindow: (folder) => ipcRenderer.invoke('window:new', { folder }),
+  // openFile is only set by the switch sheet: the desk declined to change
+  // folders, so the file rides along to the window being made instead.
+  newWindow: (folder, openFile) => ipcRenderer.invoke('window:new', { folder, openFile: openFile || null }),
+
+  // Finder opened a file with Nami. adopt says the folder has to change first;
+  // without it the file already lives on this desk. See src/main/open-with.js.
+  onOpenFile: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('open:file', h); return () => ipcRenderer.removeListener('open:file', h); },
 
   // One channel for the whole menu bar. Every Nami item in it is a string this
   // window turns into the same call the keyboard already made, so the menu adds
