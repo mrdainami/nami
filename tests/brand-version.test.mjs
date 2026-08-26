@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
-const SHEETS = ['paper.css', 'theme-glass.css', 'theme-operator.css', 'theme-graphite.css'];
+const SHEETS = ['paper.css', 'theme-glass.css', 'theme-operator.css', 'theme-graphite.css', 'theme-soft.css', 'theme-dusk.css'];
 
 // Innermost { } pairs only — the pattern cannot cross a brace, so a rule nested
 // in @media is found and its wrapper ignored. (Same reader as editor-underlay.)
@@ -118,6 +118,6 @@ test('every theme that restyles the wordmark also places the caption', () => {
   }
   assert.deepEqual(missing, [], missing.length
     ? `${missing.join(', ')} restyle(s) .brand-name but never places .brand-ver.\n`
-      + 'graphite is exempt only because it inherits the glass rules via body[data-glass].'
+      + 'graphite is exempt only because it inherits the glass rules via body[data-glass]; dusk inherits soft via body[data-soft].'
     : '');
 });

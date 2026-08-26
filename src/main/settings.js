@@ -44,10 +44,10 @@ function writeSettings({ file, patch, io = fsIo }) {
   }
 }
 
-// The four themes the app ships; anything else falls back to the default, so a
+// The themes the app ships; anything else falls back to the default, so a
 // stale or hand-edited settings.json can never paint the window an unknown
 // color.
-const THEMES = ['paper', 'operator', 'glass', 'graphite'];
+const THEMES = ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk'];
 // What a new install opens on. Paper is the design language and still the base
 // stylesheet everything else is layered over — this is only which desk you are
 // handed first, and glass is the one that reads as a current Mac app to
@@ -55,7 +55,7 @@ const THEMES = ['paper', 'operator', 'glass', 'graphite'];
 // it: this is consulted only when nothing has been chosen.
 const DEFAULT_THEME = 'glass';
 // First-paint window background per theme (renderer CSS takes over on load).
-const THEME_BG = { paper: '#cfc3ac', operator: '#121212', glass: '#e8e9ee', graphite: '#26272c' };
+const THEME_BG = { paper: '#cfc3ac', operator: '#121212', glass: '#e8e9ee', graphite: '#26272c', soft: '#e5e5e5', dusk: '#262a31' };
 function normalizeTheme(name) { return THEMES.includes(name) ? name : DEFAULT_THEME; }
 function themeBackground(name) { return THEME_BG[normalizeTheme(name)]; }
 

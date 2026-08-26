@@ -92,15 +92,37 @@ const XTERM_THEME_GRAPHITE = {
   brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
   brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#f0f0f6',
 };
+const XTERM_THEME_SOFT = {
+  background: 'rgba(229,229,229,0)', foreground: '#2c2a33', cursor: '#ef6461', cursorAccent: '#e5e5e5',
+  selectionBackground: 'rgba(239,100,97,0.22)',
+  black: '#3c3d45', red: '#d6423e', green: '#3d7a4a', yellow: '#9a6c14', blue: '#3d6bb3',
+  magenta: '#7a4a8a', cyan: '#1f7f86', white: '#8b8c96',
+  brightBlack: '#6a6b76', brightRed: '#e0524f', brightGreen: '#4f9b5f', brightYellow: '#c98d1a',
+  brightBlue: '#5b82d9', brightMagenta: '#9a64b3', brightCyan: '#2f989f', brightWhite: '#2c2a33',
+};
+const XTERM_THEME_DUSK = {
+  background: 'rgba(38,42,49,0)', foreground: '#e8eaee', cursor: '#ef6461', cursorAccent: '#262a31',
+  selectionBackground: 'rgba(239,100,97,0.3)',
+  black: '#4a4b55', red: '#ff6b67', green: '#5fca8b', yellow: '#e8b33e', blue: '#6f9dff',
+  magenta: '#d580cc', cyan: '#4fc2cc', white: '#a7a8b3',
+  brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
+  brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#e8eaee',
+};
 const STATUS_COLORS = {
   paper: { ok: '#4a7a4a', warn: '#a8792a', mut: '#8d8065' },
   operator: { ok: '#5aa06e', warn: '#ef6461', mut: '#98958e' },
   glass: { ok: '#2e7d4f', warn: '#b07c10', mut: '#8f9094' },
   graphite: { ok: '#63c68a', warn: '#e6c05c', mut: '#9a9ba6' },
+  soft: { ok: '#3d7a4a', warn: '#a8792a', mut: '#8d939e' },
+  dusk: { ok: '#5fca8b', warn: '#e6c05c', mut: '#8d939e' },
 };
-const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite'];
+const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk'];
 const GLASS_FAMILY = new Set(['glass', 'graphite']);
-const XTERM_THEMES = { paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE };
+const SOFT_FAMILY = new Set(['soft', 'dusk']);
+const XTERM_THEMES = {
+  paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE,
+  soft: XTERM_THEME_SOFT, dusk: XTERM_THEME_DUSK,
+};
 // What a new install opens on, and the answer whenever nothing valid has been
 // chosen. Kept in step with DEFAULT_THEME in src/main/settings.js, which paints
 // the window before this file has loaded — the two disagreeing is a visible
@@ -131,6 +153,8 @@ function applyThemeAttrs(name) {
   // data-glass scopes the shared liquid-glass system CSS + the tilt engine
   if (GLASS_FAMILY.has(name)) document.body.setAttribute('data-glass', '');
   else document.body.removeAttribute('data-glass');
+  if (SOFT_FAMILY.has(name)) document.body.setAttribute('data-soft', '');
+  else document.body.removeAttribute('data-soft');
 }
 function setTheme(name, persistIt = true) {
   applyThemeAttrs(name);
@@ -376,6 +400,32 @@ function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // chat: a static transcript so the thinking/tool cards can be shot without
+  // a live agent. chat-live still starts a real Claude pane.
+  if (what === 'chat') {
+    const np = {
+      id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: 'Claude Code',
+      agentId: 'claude', cwd: (S.project && S.project.path) || '~',
+      status: 'live', started: true, sceneStatic: true,
+    };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    const rec = tileEls.get(np.id);
+    const host = rec && rec.body && rec.body.querySelector('.cw-scroll');
+    if (host) {
+      const empty = host.querySelector('.cw-empty');
+      if (empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        '<div class="cw-blk"><div class="cw-u">Compare our pricing with the top 20 competitors</div></div>'
+        + '<div class="cw-blk"><button class="cw-think"><span class="tw">Thinking…</span></button>'
+        + '<div class="cw-think-body">I\'ll line up the 20 sites first, then pull pricing into a sheet.</div></div>'
+        + '<div class="cw-blk"><div class="cw-card"><div class="cw-card-hd"><span class="k">Read</span> <span class="f">pricing.csv</span><span class="cw-run ok">done</span></div></div></div>'
+        + '<div class="cw-blk"><div class="cw-card cw-plan"><div class="cw-card-hd"><span class="k">Plan</span><span class="f">1/3</span></div>'
+        + '<ul><li class="don">Read pricing.csv</li><li class="tod">Line up 20 competitor sites</li><li class="tod">Build the spreadsheet</li></ul></div></div>'
+        + '<div class="cw-blk"><div class="cw-a">Lined up the sheet. 20 competitors, our rows on top.</div></div>');
+    }
+    return;
+  }
   // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
   if (what === 'chat-live') {
     const liveCwd = decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
@@ -495,10 +545,56 @@ function showScene(name) {
     return beginRename(p, step === 'rail' ? q('.rail-list .nav-card .goal') : t && q('.t-title', t.head));
   }
   if (what === 'theme') return toggleThemePop();
+  if (what === 'term-scroll') {
+    const p = S.panels.find((x) => x.kind === 'shell' || x.kind === 'claude') || S.panels[0];
+    if (!p) return;
+    S.expandedId = p.id; S.activeId = p.id; renderGrid();
+    return new Promise((resolve) => setTimeout(() => {
+      const t = tileEls.get(p.id);
+      if (t && t.term) {
+        for (let i = 0; i < 80; i++) t.term.write('  ' + String(i + 1).padStart(2, '0') + '  competitor row — pricing.csv\r\n');
+      }
+      resolve();
+    }, 700));
+  }
+  // empty desk — with a folder (demo) or none. Panels have to be cleared
+  // because --demo seeds two tiles onto the grid.
+  if (what === 'empty') {
+    S.panels = []; S.activeId = null; S.expandedId = null;
+    if (step === 'nofolder') { S.project = null; S.recents = []; }
+    renderGrid(); renderRail(); renderHeader();
+    return;
+  }
+  if (what === 'quickstart') return openQuickStart();
   if (what === 'workspace') {
-    // the tree needs a folder; fall back to the most recent one if none is open
-    const ready = S.project ? Promise.resolve() : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
-    return ready.then(() => { S.railTab = 'workspace'; renderRail(); });
+    // the tree needs a folder; a path in the step opens that one. Fall back
+    // to the most recent if none is open.
+    const folder = step && step.startsWith('/') ? step : null;
+    const ready = folder ? openFolder(folder)
+      : S.project ? Promise.resolve()
+      : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(async () => {
+      S.railTab = 'workspace';
+      const root = S.project && S.project.path;
+      if (root) {
+        try {
+          if (!S.tree[root]) S.tree[root] = await api.listDir(root, S.treeAll);
+          const kids = S.tree[root] || [];
+          const firstDir = kids.find((n) => n.kind === 'dir' && n.name === 'src')
+            || kids.find((n) => n.kind === 'dir' && n.name[0] !== '.' && n.name !== 'node_modules');
+          if (firstDir) {
+            S.tree[firstDir.path] = await api.listDir(firstDir.path, S.treeAll);
+            S.expanded.add(firstDir.path);
+            const sub = (S.tree[firstDir.path] || []).find((n) => n.kind === 'dir' && n.name[0] !== '.');
+            if (sub) {
+              S.tree[sub.path] = await api.listDir(sub.path, S.treeAll);
+              S.expanded.add(sub.path);
+            }
+          }
+        } catch (_) { /* demo path is fake; a missing folder just stays closed */ }
+      }
+      renderRail();
+    });
   }
   S.railTab = 'library';
   // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
@@ -939,6 +1035,8 @@ const THEME_OPTIONS = [
   { id: 'operator', name: 'operator', desc: 'dark ops' },
   { id: 'glass', name: 'glass', desc: 'liquid glass' },
   { id: 'graphite', name: 'graphite', desc: 'dark glass' },
+  { id: 'soft', name: 'soft', desc: 'off-white' },
+  { id: 'dusk', name: 'dusk', desc: 'soft dark' },
 ];
 function toggleThemePop() {
   const zone = q('#theme-zone');
@@ -1065,6 +1163,7 @@ function renderTreeLevel(container, dir, depth) {
     if (n.path === S.treeSel) row.classList.add('sel');
     if (S.treeFresh.has(n.path)) row.classList.add('landed');
     row.style.paddingLeft = (6 + depth * 13) + 'px';
+    row.style.setProperty('--d', String(depth));
     row.dataset.path = n.path; row.dataset.kind = n.kind; row.dataset.dir = dir;
     const isOpen = S.expanded.has(n.path);
     const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';

@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="./theme-operator.css" />
 <link rel="stylesheet" href="./theme-glass.css" />
 <link rel="stylesheet" href="./theme-graphite.css" />
+<link rel="stylesheet" href="./theme-soft.css" />
+<link rel="stylesheet" href="./theme-dusk.css" />
 <div id="root"></div>
 <script>
   // Frame one wears the saved theme. app.js is a deferred module, so its
@@ -16,8 +18,9 @@
   // default must stay in step with it and with src/main/settings.js.
   try {
     var t = localStorage.getItem('dainami-theme') || 'glass';
-    if (t !== 'paper' && ['operator', 'glass', 'graphite'].indexOf(t) >= 0) document.body.dataset.theme = t;
+    if (t !== 'paper' && ['operator', 'glass', 'graphite', 'soft', 'dusk'].indexOf(t) >= 0) document.body.dataset.theme = t;
     if (t === 'glass' || t === 'graphite') document.body.setAttribute('data-glass', '');
+    if (t === 'soft' || t === 'dusk') document.body.setAttribute('data-soft', '');
   } catch (_) {}
 </script>
 <script type="module" src="./app.js"></script>

@@ -103,10 +103,10 @@ test('About Nami opens Nami’s own pane, not the grey macOS panel', () => {
   assert.deepEqual(sent, ['about']);
 });
 
-test('the theme submenu is four radios with the saved one ticked', () => {
+test('the theme submenu is radios with the saved one ticked', () => {
   const theme = build({ theme: 'graphite' }).find((m) => m.label === 'View')
     .submenu.find((i) => i.label === 'Theme').submenu;
-  assert.deepEqual(theme.map((i) => i.label), ['Paper', 'Operator', 'Glass', 'Graphite']);
+  assert.deepEqual(theme.map((i) => i.label), ['Paper', 'Operator', 'Glass', 'Graphite', 'Soft', 'Dusk']);
   for (const item of theme) assert.equal(item.type, 'radio');
   assert.deepEqual(theme.filter((i) => i.checked).map((i) => i.label), ['Graphite']);
 });

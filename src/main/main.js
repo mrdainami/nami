@@ -1248,7 +1248,7 @@ function sessionEnv(path) {
   // TUIs that check COLORFGBG (vim, htop, some harnesses) pick palettes that
   // suit the theme's ground: "fg;bg" where bg 15=light desk, 0=dark desk.
   const theme = settingsStore.normalizeTheme(readSettings().theme);
-  env.COLORFGBG = (theme === 'paper' || theme === 'glass') ? '0;15' : '15;0';
+  env.COLORFGBG = (theme === 'paper' || theme === 'glass' || theme === 'soft') ? '0;15' : '15;0';
   for (const [k, v] of Object.entries(storedEnvKeys())) env[k] = v;
   return env;
 }

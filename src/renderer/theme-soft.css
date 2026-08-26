@@ -1,0 +1,583 @@
+/* Nami — the soft extrusion system: "soft" (light) + shared structure.
+   Spec: 2026-08-26-soft-dusk-themes.md
+
+   - body[data-theme="soft"]  → light token remap (this file)
+   - body[data-theme="dusk"]  → dark token remap (theme-dusk.css)
+   - body[data-soft]          → every structural rule, written ONCE for both
+   paper.css stays byte-identical. Geometry (padding, type sizes, lockup) stays;
+   only fill, shadow, radius, and the Caveat → system-sans override change.
+
+   Same-fill means a border token cannot draw a box. Family defaults below
+   extrude every button / *-chip / *-mini / *-card so a future surface that
+   uses those names does not vanish. More specific rules after them win. */
+
+body[data-theme="soft"] {
+  --desk: #e5e5e5;
+  --sheet-hi: #e5e5e5;
+  --sheet-lo: #e5e5e5;
+  --paper: #e5e5e5;
+  --paper-2: #e5e5e5;
+  --paper-3: #e5e5e5;
+  --ink: #2c2a33;
+  --muted: #5e636c;
+  --muted-2: #6a6f78;
+  --muted-3: #7a7f88;
+  --faint: #7a7f88;
+  --line: transparent;
+  --dash: transparent;
+  --dash-dark: transparent;
+  --field: #e5e5e5;
+  --field-line: rgba(44, 42, 51, 0.16);
+  --rail: #e5e5e5;
+  --hover: #e5e5e5;
+  --menu-sheet: #e5e5e5;
+  --qs-pane: #e5e5e5;
+  --green: #ef6461;
+  --green-dark: #d95350;
+  --green-ok: #3d7a4a;
+  --mode-plan: #3d6bb3;
+  --u-bg: rgba(239, 100, 97, 0.10);
+  --diff-add-bg: rgba(61, 122, 74, 0.14);
+  --diff-add-ink: #33503b;
+  --diff-del-bg: rgba(239, 100, 97, 0.12);
+  --diff-del-ink: #b2322f;
+  --amber-bg: rgba(168, 121, 42, 0.14);
+  --amber-line: rgba(168, 121, 42, 0.45);
+  --amber-ink: #9a6c14;
+  --amber-body: #8a6520;
+  --amber-btn: #a8792a;
+  --amber-btn-line: #8a6520;
+  --red-bg: rgba(239, 100, 97, 0.14);
+  --red-line: #ef6461;
+  --red-ink: #b2322f;
+  --tok-kw: #3d6bb3;
+  --tok-str: #3d7a4a;
+  --tok-num: #9a6c14;
+  --tok-com: #7a7f88;
+  --tok-key: #7a4a8a;
+  --tok-add-ink: #33503b;  --tok-add-bg: rgba(61, 122, 74, 0.12);
+  --tok-del-ink: #b2322f;  --tok-del-bg: rgba(178, 50, 47, 0.10);
+  --sweep: rgba(44, 42, 51, 0.06);
+  --shimmer-hi: #2c2a33;
+  --red-body: #a94643;
+  --red-btn: #e0524f;
+  --red-btn-line: #c8433f;
+  --shadow-soft: transparent;
+  --shadow-mid: transparent;
+  --shadow-hard: transparent;
+  --tree-ink: rgba(44, 42, 51, 0.72);
+  --tree-fill: #e5e5e5;
+  --tree-fill-open: #e5e5e5;
+  --tree-fill-file: #e5e5e5;
+  --nami-fill: #ef6461;
+  --nami-foam: #e5e5e5;
+  --nami-eye: #e5e5e5;
+  --sf-d: rgba(44, 42, 51, 0.28);
+  --sf-l: rgba(255, 255, 255, 0.52);
+  --sf-in-d: rgba(13, 39, 80, 0.16);
+  --sf-in-l: rgba(255, 255, 255, 0.55);
+  --sf-raise: 4px 4px 8px var(--sf-d), -4px -4px 8px var(--sf-l);
+  --sf-raise-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l);
+  --sf-press: inset 4px 4px 8px var(--sf-in-d), inset -3px -3px 6px var(--sf-in-l);
+  --sf-press-sm: inset 3px 3px 6px var(--sf-in-d), inset -2px -2px 5px var(--sf-in-l);
+  --sf-card: 4px 4px 8px var(--sf-d), -4px -4px 8px var(--sf-l),
+             inset 2px 2px 3px var(--sf-in-l), inset -2px -2px 4px var(--sf-in-d);
+  --sf-card-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l),
+             inset 1px 1px 2px var(--sf-in-l), inset -1px -1px 3px var(--sf-in-d);
+  --sf-go: 4px 4px 8px rgba(140, 40, 38, 0.38), -3px -3px 6px rgba(255, 220, 216, 0.7),
+           inset 2px 2px 3px rgba(255, 255, 255, 0.42), inset -2px -2px 5px rgba(120, 28, 26, 0.38);
+  --sf-go-press: inset 4px 4px 8px rgba(120, 28, 26, 0.42), inset -2px -2px 5px rgba(255, 200, 196, 0.28);
+  --sf-r: 18px;
+  --sf-r-sm: 12px;
+  --sf-r-chip: 10px;
+}
+body[data-theme="soft"] { background: #e5e5e5; }
+body[data-theme="soft"] a { color: #3d6bb3; }
+
+/* =========================================================================
+   The soft system — every rule below serves BOTH soft-family themes.
+   ========================================================================= */
+
+body[data-soft] {
+  --sf-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  font-family: var(--sf-sans);
+}
+body[data-soft] .caveat,
+body[data-soft] .brand-name,
+body[data-soft] .rail-head .title,
+body[data-soft] .lane-empty .polaroid,
+body[data-soft] .lane-empty .big,
+body[data-soft] .card-head .goal,
+body[data-soft] .approval .title,
+body[data-soft] .stopped .title,
+body[data-soft] .artifacts .title,
+body[data-soft] .modal-head .title,
+body[data-soft] .qs-head .title,
+body[data-soft] .card-lbl,
+body[data-soft] .ab-name,
+body[data-soft] .board-title { font-family: var(--sf-sans); }
+
+body[data-soft] .sheet,
+body[data-soft] .rail,
+body[data-soft] .main,
+body[data-soft] .grid,
+body[data-soft] .tile,
+body[data-soft] .modal,
+body[data-soft] .card {
+  background: var(--paper);
+}
+
+body[data-soft] ::-webkit-scrollbar-thumb {
+  background: var(--paper); border: 2px solid var(--paper);
+  box-shadow: var(--sf-raise-sm); border-radius: 99px;
+}
+body[data-soft] ::-webkit-scrollbar-thumb:hover { background: #ef6461; border-color: #ef6461; }
+body[data-soft] ::-webkit-scrollbar-track { background: var(--paper); box-shadow: var(--sf-press-sm); }
+
+/* ---- family defaults ------------------------------------------------------- */
+body[data-soft] button {
+  border-color: transparent;
+  background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  border-radius: var(--sf-r-chip);
+}
+body[data-soft] [class$="-chip"],
+body[data-soft] [class$="-mini"] {
+  border: 0;
+  background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  border-radius: 999px;
+}
+body[data-soft] [class$="-card"] {
+  border: 0;
+  background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+  border-radius: var(--sf-r-sm);
+}
+body[data-soft] input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not(.tree-rename),
+body[data-soft] textarea:not(.ed-area):not(.card-body):not(.raw-area) {
+  border: 0;
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--sf-press);
+}
+body[data-soft] .lane-tour,
+body[data-soft] .qs-link,
+body[data-soft] .cw-filelink,
+body[data-soft] .action {
+  box-shadow: none;
+  background: none;
+  border-radius: 0;
+}
+
+/* ---- lockup ---------------------------------------------------------------- */
+body[data-soft] .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+body[data-soft] .brand-ver {
+  left: 1px; top: calc(100% - 1px);
+  font-size: 10px; letter-spacing: 0.14em; color: var(--faint);
+}
+body[data-soft] .brand-sub { align-self: flex-end; padding-bottom: 2px; }
+body[data-soft] .nami-mascot {
+  height: 26px; width: 26px; padding: 3px; box-sizing: border-box;
+  border-radius: 50%; background: var(--paper); box-shadow: var(--sf-card);
+}
+
+/* ---- chrome ---------------------------------------------------------------- */
+body[data-soft] .topbar { border-bottom: 0; }
+body[data-soft] .project-chip {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .project-chip:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .projects-pop {
+  border: 0; border-radius: var(--sf-r); background: var(--paper);
+  box-shadow: var(--sf-card); padding: 10px;
+}
+body[data-soft] .project-row {
+  border: 0; border-bottom: 0; border-radius: var(--sf-r-sm);
+  background: var(--paper); box-shadow: var(--sf-raise-sm); margin: 5px 0;
+}
+body[data-soft] .project-row:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
+body[data-soft] .project-open-other {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .project-open-other:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .project-open-other .plus { color: var(--muted); }
+
+body[data-soft] .live-badge {
+  border: 0; border-radius: 999px; background: var(--paper); color: var(--green-dark);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .live-badge .dot { background: #ef6461; }
+body[data-soft] .live-badge.attn { background: var(--paper); color: var(--green-dark); box-shadow: var(--sf-raise-sm); }
+body[data-soft] .live-badge.attn .dot { background: #ef6461; }
+
+body[data-soft] .btn {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .btn:hover { box-shadow: var(--sf-press-sm); transform: none; }
+body[data-soft] .btn:disabled, body[data-soft] .btn:disabled:hover { box-shadow: none; }
+body[data-soft] .btn--go {
+  background: #ef6461; color: #fff; border: 0;
+  box-shadow: var(--sf-go);
+}
+body[data-soft] .btn--go:hover { background: #d95350; box-shadow: var(--sf-go-press); transform: none; }
+body[data-soft] .btn--quiet { box-shadow: var(--sf-raise-sm); }
+body[data-soft] .btn--quiet:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .btn--amber, body[data-soft] .btn--red { box-shadow: var(--sf-raise-sm); border: 0; border-radius: 999px; }
+body[data-soft] .btn--small { box-shadow: var(--sf-raise-sm); border-radius: var(--sf-r-chip); }
+body[data-soft] .btn--small:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] #btn-help {
+  background: var(--paper); color: var(--amber-ink); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] #btn-help:hover { box-shadow: var(--sf-press-sm); }
+
+/* ---- rail ------------------------------------------------------------------ */
+body[data-soft] .rail { border-right: 0; }
+body[data-soft] .rail-tabs { gap: 6px; padding: 8px 10px; }
+body[data-soft] .rail-tab {
+  border: 0; border-radius: 8px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .rail-tabs .rail-tab {
+  font-size: 10px; letter-spacing: 0; padding: 7px 2px;
+}
+body[data-soft] .rail-tab.active {
+  color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .rail-collapse, body[data-soft] .rail-strip {
+  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .nav-card {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .nav-card:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .nav-card.active { box-shadow: var(--sf-press); }
+body[data-soft] .nav-card.attn { box-shadow: var(--sf-card-sm), 0 0 0 1.5px rgba(239, 100, 97, 0.45); }
+body[data-soft] .nav-card .code {
+  border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+
+/* Indent the pill, not the label. --d is set on each row in renderTreeLevel;
+   paper/glass ignore it and keep the inline padding-left indent. */
+body[data-soft] .tree-row {
+  --d: 0;
+  border-bottom: 0; border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-card-sm);
+  margin: 5px 6px 5px calc(6px + var(--d) * 14px);
+  padding-left: 8px !important;
+}
+body[data-soft] .tree-row[data-kind="file"] {
+  box-shadow: var(--sf-raise-sm); border-radius: 8px;
+}
+body[data-soft] .tree-row[data-kind="file"] .name { color: var(--muted); }
+body[data-soft] .tree-row:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
+body[data-soft] .tree-row.sel { background: var(--paper); box-shadow: var(--sf-press); }
+body[data-soft] .tree-path .tree-new {
+  border-radius: 8px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .lib-search {
+  border: 0; border-radius: 14px; background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .lib-search:focus { border: 0; }
+body[data-soft] .lib-group { border-top: 0; background: var(--paper); }
+body[data-soft] .add-card {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .add-card:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .agent-row {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .agent-row:hover { transform: none; box-shadow: var(--sf-press-sm); }
+body[data-soft] .scope-tag {
+  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .code, body[data-soft] .swatch {
+  border-color: transparent; border-radius: var(--sf-r-chip);
+}
+
+/* ---- tiles ----------------------------------------------------------------- */
+body[data-soft] .tile {
+  border: 0; border-radius: var(--sf-r); box-shadow: var(--sf-card);
+}
+body[data-soft] .tile.active { box-shadow: var(--sf-card); }
+body[data-soft] .tile.attention {
+  border: 0; animation: none;
+  box-shadow: var(--sf-card), 0 0 0 1.5px rgba(239, 100, 97, 0.5);
+}
+body[data-soft] .tile.file-hint { box-shadow: var(--sf-card), 0 0 0 2px rgba(239, 100, 97, 0.35); }
+body[data-soft] .tile-head { border-bottom: 0; }
+body[data-soft] .tile-head .code {
+  border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .t-btn {
+  border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .t-btn:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .t-status .dot { background: var(--green-ok); }
+body[data-soft] .tile-body {
+  margin: 0; border-radius: 0; box-shadow: none;
+}
+body[data-soft] .card-tabs { border-bottom: 0; }
+body[data-soft] .card-tab {
+  border: 0; border-radius: 999px; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .card-tab.active {
+  color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
+body[data-soft] .ed-bar { border-top: 0; background: var(--paper); }
+body[data-soft] .ed-gutter { color: var(--faint); background: none; }
+body[data-soft] .ed-stack,
+body[data-soft] .ql-lines,
+body[data-soft] .card-body,
+body[data-soft] .card-raw .raw-area,
+body[data-soft] .viewer .vw-stage { background: none; }
+body[data-soft] .ni-field textarea { background-image: none; }
+body[data-soft] .md-read .md-pre {
+  background: var(--paper); border: 0; border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .picker-row .desc,
+body[data-soft] .modal-head .sub { color: var(--muted); }
+body[data-soft] .term-wrap {
+  background: var(--paper); border: 0; border-radius: 14px; box-shadow: var(--sf-press);
+}
+body[data-soft] .cmd-strip {
+  background: var(--paper); border: 0; border-radius: var(--sf-r-sm);
+  box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .status-chip { border-radius: 999px; }
+
+/* ---- overlays -------------------------------------------------------------- */
+body[data-soft] .overlay { background: rgba(180, 180, 184, 0.42); }
+body[data-theme="dusk"] .overlay { background: rgba(16, 18, 22, 0.5); }
+body[data-soft] .modal, body[data-soft] .picker-box,
+body[data-soft] .setup-box, body[data-soft] .peek-box, body[data-soft] .qs-box {
+  background: var(--paper); border: 0; border-radius: var(--sf-r);
+  box-shadow: var(--sf-card);
+}
+body[data-soft] .modal-head, body[data-soft] .modal-foot,
+body[data-soft] .picker-input, body[data-soft] .picker-foot,
+body[data-soft] .peek-head, body[data-soft] .qs-head { border: 0; }
+body[data-soft] .qs-box {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 170px);
+}
+body[data-soft] .qs-body {
+  background-image: none;
+  max-height: none; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+body[data-soft] .qs-foot {
+  background: var(--paper); border-top: 0; flex: none;
+  margin: 8px; border-radius: var(--sf-r-sm); box-shadow: var(--sf-press);
+}
+body[data-soft] .qs-row {
+  border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+  padding: 10px 12px; margin: 0 0 10px;
+}
+body[data-soft] .qs-row:last-child { padding-bottom: 10px; margin-bottom: 0; }
+body[data-soft] .qs-n,
+body[data-soft] .qs-t,
+body[data-soft] .qs-s { line-height: 1.45; }
+body[data-soft] .qs-acts { height: auto; margin-top: 8px; gap: 8px; }
+body[data-soft] .qs-mini { height: auto; padding: 5px 10px; }
+body[data-soft] .qs-mini--go {
+  background: #ef6461; color: #fff; box-shadow: var(--sf-go);
+}
+body[data-soft] .qs-mini--play {
+  border: 0; background: var(--amber-bg); color: var(--amber-ink);
+}
+body[data-soft] .picker-input { box-shadow: var(--sf-press); border-radius: 14px; margin: 8px 8px 0; }
+body[data-soft] .modal-x, body[data-soft] .ov-x {
+  border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .picker-list { display: flex; flex-direction: column; gap: 8px; }
+body[data-soft] .picker-row {
+  border-bottom: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .picker-row:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
+body[data-soft] .picker-row.hilite { box-shadow: var(--sf-press); }
+body[data-soft] .picker-row .code {
+  border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .tool-list { border: 0; border-radius: var(--sf-r-sm); margin: 0 0 4px 42px; box-shadow: var(--sf-press); }
+body[data-soft] .tool-row { border: 0; border-radius: 9px; }
+body[data-soft] .ni-where {
+  border: 0; border-radius: 10px; background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .ni-where.ni-knows { box-shadow: var(--sf-press-sm); }
+body[data-soft] .text-input, body[data-soft] .ni-field input, body[data-soft] .ni-field textarea,
+body[data-soft] .ni-row input, body[data-soft] .fs-row input, body[data-soft] .k-input, body[data-soft] .cw-in {
+  border: 0; border-radius: 14px; background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .text-input:focus, body[data-soft] .ni-field input:focus,
+body[data-soft] .ni-field textarea:focus, body[data-soft] .cw-in:focus { border: 0; }
+body[data-soft] .pick-chip, body[data-soft] .who-tile {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .pick-chip:hover, body[data-soft] .who-tile:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .pick-chip.picked, body[data-soft] .who-tile.picked { box-shadow: var(--sf-press); }
+body[data-soft] .sheet-cmd, body[data-soft] .scan-box {
+  background: var(--paper); border: 0; border-radius: var(--sf-r-sm); color: var(--muted);
+  box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .key-row, body[data-soft] .key-note, body[data-soft] .set-opt {
+  border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .set-nav .rail-tab.active { box-shadow: var(--sf-press); }
+body[data-soft] .theme-opt { border: 0; border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm); }
+body[data-soft] .theme-opt:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .theme-opt.picked { box-shadow: var(--sf-press); background: var(--paper); }
+body[data-soft] .ni-choice.on { box-shadow: var(--sf-press); border: 0; }
+body[data-soft] .svc-card, body[data-soft] .svc-custom, body[data-soft] .sv-fold {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .svc-card:hover, body[data-soft] .svc-custom:hover { box-shadow: var(--sf-press-sm); }
+
+/* ---- pops / toast / board -------------------------------------------------- */
+body[data-soft] .theme-pop, body[data-soft] .ctx-menu {
+  border: 0; border-radius: var(--sf-r); background: var(--paper);
+  box-shadow: var(--sf-card); padding: 10px;
+}
+body[data-soft] .ctx-item { border-radius: 10px; box-shadow: var(--sf-card-sm); margin: 3px 0; }
+body[data-soft] .ctx-item:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
+body[data-soft] .toast {
+  border: 0; border-radius: 999px; background: var(--paper); color: var(--ink);
+  box-shadow: var(--sf-card);
+}
+body[data-soft] .toast .msg { color: var(--ink); }
+body[data-soft] .toast .dot { background: #ef6461; }
+body[data-soft] .board {
+  background: var(--paper); border: 0; border-radius: var(--sf-r); box-shadow: var(--sf-card);
+}
+body[data-soft] .board-node {
+  border: 0; border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-card-sm);
+}
+
+/* ---- ACP composer ---------------------------------------------------------- */
+body[data-soft] .lc-chat {
+  border: 0; border-radius: 999px; background: var(--paper); color: #ef6461;
+  box-shadow: var(--sf-card-sm); font-size: 10px; padding: 4px 10px; gap: 5px;
+}
+body[data-soft] .lc-chat:hover {
+  color: #d95350; background: var(--paper); border-color: transparent;
+  box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .lc-beta {
+  font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
+  background: transparent; border: 0; box-shadow: none;
+  padding: 0 2px; align-self: center; margin-top: 0;
+}
+body[data-soft] .lc-chat:hover .lc-beta { color: var(--muted); box-shadow: none; }
+body[data-soft] .cw-comp { border-top: 0; }
+body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn, body[data-soft] .cw-tool {
+  border: 0; box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .cw-send {
+  border: 0; background: #ef6461; color: #fff; box-shadow: var(--sf-go);
+}
+body[data-soft] .cw-send:hover { box-shadow: var(--sf-go-press); }
+body[data-soft] .cw-pop { border: 0; box-shadow: var(--sf-card); }
+body[data-soft] .cw-ctx, body[data-soft] .cw-live-st { border: 0; box-shadow: var(--sf-press-sm); }
+
+/* Same-fill desk: --line/--dash are transparent, --paper-2 equals --paper.
+   Without extrusion the thinking/tool/plan boxes vanish into the tile. */
+body[data-soft] .cw-card,
+body[data-soft] .cw-m,
+body[data-soft] .cw-code,
+body[data-soft] .cw-perm,
+body[data-soft] .cw-err {
+  border: 0; background: var(--paper);
+  border-radius: var(--sf-r-sm); box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .cw-card-hd,
+body[data-soft] .cw-m-f,
+body[data-soft] .cw-pop .ft,
+body[data-soft] .cw-pop .r.files { border: 0; }
+body[data-soft] .cw-u {
+  border: 0; background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .cw-think {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm); padding: 4px 10px; font-style: normal;
+}
+body[data-soft] .cw-think:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .cw-think-body,
+body[data-soft] .cw-hint {
+  border-left: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-press-sm); padding: 8px 12px; margin-top: 4px;
+}
+body[data-soft] .cw-file,
+body[data-soft] .cw-chain,
+body[data-soft] .cw-open,
+body[data-soft] .cw-copy,
+body[data-soft] .cw-att .chip,
+body[data-soft] .cw-u-file,
+body[data-soft] .cw-act-btn {
+  border: 0; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .cw-btn {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .cw-btn.ap {
+  background: #ef6461; color: #fff; border: 0;
+  box-shadow: var(--sf-go);
+}
+body[data-soft] .cw-btn.ap:hover { box-shadow: var(--sf-go-press); }
+body[data-soft] .cw-perm code {
+  border: 0; background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .cw-imgout { border: 0; box-shadow: var(--sf-card-sm); }
+body[data-soft] .cw-empty-chip .code { box-shadow: var(--sf-raise-sm); border: 0; }
+
+/* xterm keeps its own bar inside the viewport; paper's brown thumb still wins
+   there unless we restyle it at this specificity. */
+body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--paper); border: 2px solid var(--paper);
+  box-shadow: var(--sf-raise-sm); border-radius: 99px; background-clip: padding-box;
+}
+body[data-soft] .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb {
+  background: #ef6461; border-color: #ef6461;
+}
+body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+
+/* ---- name-edit / misc ------------------------------------------------------ */
+body[data-soft] .name-edit { border-radius: 6px; }
+body[data-soft] .lane-empty .big {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px;
+}
+body[data-soft] .lane-empty .polaroid {
+  font-size: 14px; font-weight: 600; letter-spacing: 0; color: var(--muted);
+  border: 0; border-radius: var(--sf-r); box-shadow: var(--sf-card);
+}
+body[data-soft] .lane-empty .hint { color: var(--muted); }
+body[data-soft] .lane-empty .lane-tour { border-bottom: 0; }
+body[data-soft] .update-note { box-shadow: var(--sf-card); border: 0; border-radius: var(--sf-r-sm); background: var(--paper); }
+body[data-soft] .footer { border-top: 0; }
+
+/* appearance dots stay identifiable on every desk */
+.theme-opt[data-theme-id="soft"] .theme-dot { background: #e5e5e5; border-color: #ef6461; }
+.theme-opt[data-theme-id="dusk"] .theme-dot { background: #262a31; border-color: #ef6461; }
+
+@media (max-width: 820px) {
+  body[data-soft] #btn-settings { display: none; }
+}
+@media (max-width: 720px) {
+  body[data-soft] #btn-help { display: none; }
+}
