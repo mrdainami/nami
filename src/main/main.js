@@ -18,6 +18,7 @@ const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
 const { detectAgents, agentStatus } = require('./agents-detect');
+const { handles: opensHere, chooseTarget } = require('./open-with');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -138,6 +139,47 @@ else if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-de
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
 const winFolders = new Map();     // webContents.id -> folder that window works in
+
+// Finder handing us a file. Registered here, at module scope, because on macOS
+// a cold start fires this *before* whenReady — the path arrives while there is
+// no window, no state, nothing to open it into. Those buffer in coldOpens and
+// drain at the end of whenReady, once the saved windows are back.
+const coldOpens = [];
+app.on('open-file', (e, filePath) => {
+  e.preventDefault();          // or macOS treats the file as unhandled
+  if (!app.isReady()) { coldOpens.push(filePath); return; }
+  routeOpenFile(filePath);
+});
+
+// The path from a file to a desk. chooseTarget picks the pair; this only
+// carries out what it decided. See open-with.js for the four cases.
+function routeOpenFile(filePath) {
+  if (!filePath || !opensHere(filePath)) return;
+  const live = [...wins].filter((w) => !w.isDestroyed());
+  const focused = BrowserWindow.getFocusedWindow() || win;
+  const target = chooseTarget({
+    filePath,
+    windows: live.map((w) => ({ id: w.webContents.id, folder: winFolders.get(w.webContents.id) || null })),
+    focusedId: focused && !focused.isDestroyed() ? focused.webContents.id : null,
+  });
+  if (target.action === 'new-window') { sendOpen(createWindow(target.folder), filePath, target.folder, false); return; }
+  const w = live.find((x) => x.webContents.id === target.id);
+  if (!w) { sendOpen(createWindow(target.folder), filePath, target.folder, false); return; }
+  if (w.isMinimized()) w.restore();
+  w.focus();
+  sendOpen(w, filePath, target.folder, target.action === 'adopt');
+}
+
+// One send, three callers: the cold start, a window made for the file, and the
+// switch sheet's "open in a new window". A window that has not finished loading
+// has no listener yet, so the message waits for the load rather than vanishing.
+function sendOpen(w, filePath, folder, adopt) {
+  if (!w || w.isDestroyed()) return;
+  const msg = { filePath, folder, adopt: !!adopt };
+  const send = () => { if (!w.isDestroyed()) w.webContents.send('open:file', msg); };
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', send);
+  else send();
+}
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
 const termSessions = new Map();   // id -> pty
 // Sessions Nami is ending on purpose — quit, window close, tile close. pty.kill()
@@ -474,6 +516,9 @@ app.whenReady().then(() => {
     version: app.getVersion(), arch: process.arch,
   });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  // Anything Finder sent while the app was still starting. Drained last, so
+  // the restored windows are already in wins and can be chosen between.
+  while (coldOpens.length) routeOpenFile(coldOpens.shift());
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
@@ -590,7 +635,14 @@ ipcMain.handle('recents:remove', (_e, p) => {
   return recentsForRenderer();
 });
 
-ipcMain.handle('window:new', (_e, args) => { createWindow((args && args.folder) || null); return { ok: true }; });
+ipcMain.handle('window:new', (_e, args) => {
+  const folder = (args && args.folder) || null;
+  const w = createWindow(folder);
+  // The switch sheet sends the file along: it declined to take over this desk,
+  // so the file has to follow into the window that was made for it instead.
+  if (args && args.openFile) sendOpen(w, args.openFile, folder, false);
+  return { ok: true };
+});
 
 ipcMain.handle('app:version', () => app.getVersion());
 // What the About pane shows: which copy this is, and whether it is behind.
