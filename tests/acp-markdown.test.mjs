@@ -106,3 +106,9 @@ test('plain multi-paragraph prose gets paragraphs, no stray whitespace nodes', (
   const html = renderMarkdown('first block\n\nsecond block');
   assert.equal(html, '<p>first block</p><p>second block</p>');
 });
+
+test('loose task list (blank lines between items) never leaks the [x] text', () => {
+  const html = renderMarkdown('- [x] done thing\n\n- [ ] open thing');
+  assert.doesNotMatch(html, /\[x\]|\[ \]/);
+  assert.match(html, /<li class="task"><input type="checkbox" checked disabled> done thing<\/li>/);
+});

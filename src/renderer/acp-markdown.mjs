@@ -15,6 +15,7 @@ function inline(tokens) {
   for (const t of tokens || []) {
     switch (t.type) {
       case 'text': out += t.tokens ? inline(t.tokens) : (t.escaped ? t.text : esc(t.text)); break;
+      case 'checkbox': break; // drawn by the <li class="task"> input
       case 'escape': out += esc(t.text); break;
       case 'strong': out += `<b>${inline(t.tokens)}</b>`; break;
       case 'em': out += `<i>${inline(t.tokens)}</i>`; break;
@@ -51,10 +52,15 @@ function listBody(item) {
   // tight items carry 'text' block tokens (render inline, no <p>); loose ones
   // carry paragraphs; either way nested lists sit alongside as block tokens.
   let out = '';
+  let first = true;
   for (const t of item.tokens || []) {
-    if (t.type === 'checkbox') continue; // drawn by the <li class="task"> input
+    if (t.type === 'checkbox') { first = false; continue; } // drawn by the <li class="task"> input
     if (t.type === 'text') out += t.tokens ? inline(t.tokens) : esc(t.text);
+    // a loose task item wraps its label in a paragraph (with the checkbox
+    // nested inside) — unwrap the first one so the tick and label share a line
+    else if (item.task && first && t.type === 'paragraph') out += inline(t.tokens);
     else out += blocks([t]);
+    first = false;
   }
   return out;
 }
