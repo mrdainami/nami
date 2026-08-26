@@ -217,10 +217,19 @@ body[data-soft] .nav-card .code {
   box-shadow: var(--sf-raise-sm);
 }
 
+/* Indent the pill, not the label. --d is set on each row in renderTreeLevel;
+   paper/glass ignore it and keep the inline padding-left indent. */
 body[data-soft] .tree-row {
+  --d: 0;
   border-bottom: 0; border-radius: var(--sf-r-sm);
-  box-shadow: var(--sf-card-sm); margin: 3px 0;
+  box-shadow: var(--sf-card-sm);
+  margin: 5px 6px 5px calc(6px + var(--d) * 14px);
+  padding-left: 8px !important;
 }
+body[data-soft] .tree-row[data-kind="file"] {
+  box-shadow: var(--sf-raise-sm); border-radius: 8px;
+}
+body[data-soft] .tree-row[data-kind="file"] .name { color: var(--muted); }
 body[data-soft] .tree-row:hover { background: var(--paper); box-shadow: var(--sf-press-sm); }
 body[data-soft] .tree-row.sel { background: var(--paper); box-shadow: var(--sf-press); }
 body[data-soft] .tree-path .tree-new {
@@ -270,8 +279,7 @@ body[data-soft] .t-btn {
 body[data-soft] .t-btn:hover { box-shadow: var(--sf-press-sm); }
 body[data-soft] .t-status .dot { background: var(--green-ok); }
 body[data-soft] .tile-body {
-  margin: 0 8px 8px; border-radius: 14px; background: var(--paper);
-  box-shadow: var(--sf-press);
+  margin: 0; border-radius: 0; box-shadow: none;
 }
 body[data-soft] .card-tabs { border-bottom: 0; }
 body[data-soft] .card-tab {
@@ -302,6 +310,17 @@ body[data-soft] .setup-box, body[data-soft] .peek-box, body[data-soft] .qs-box {
 body[data-soft] .modal-head, body[data-soft] .modal-foot,
 body[data-soft] .picker-input, body[data-soft] .picker-foot,
 body[data-soft] .peek-head, body[data-soft] .qs-head { border: 0; }
+body[data-soft] .qs-box {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 170px);
+}
+body[data-soft] .qs-body {
+  background-image: none;
+  max-height: none; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+body[data-soft] .qs-foot {
+  background: var(--paper); border-top: 0; flex: none;
+}
 body[data-soft] .picker-input { box-shadow: var(--sf-press); border-radius: 14px; margin: 8px 8px 0; }
 body[data-soft] .modal-x, body[data-soft] .ov-x {
   border: 0; border-radius: var(--sf-r-chip); background: var(--paper);
@@ -397,6 +416,14 @@ body[data-soft] .cw-ctx, body[data-soft] .cw-live-st { border: 0; box-shadow: va
 
 /* ---- name-edit / misc ------------------------------------------------------ */
 body[data-soft] .name-edit { border-radius: 6px; }
+body[data-soft] .lane-empty .big {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px;
+}
+body[data-soft] .lane-empty .polaroid {
+  font-size: 14px; font-weight: 600; letter-spacing: 0; color: var(--muted);
+  border: 0; border-radius: var(--sf-r); box-shadow: var(--sf-card);
+}
+body[data-soft] .lane-empty .hint { color: var(--muted); }
 body[data-soft] .lane-empty .lane-tour { border-bottom: 0; }
 body[data-soft] .update-note { box-shadow: var(--sf-card); border: 0; border-radius: var(--sf-r-sm); background: var(--paper); }
 body[data-soft] .footer { border-top: 0; }

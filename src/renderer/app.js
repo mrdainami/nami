@@ -519,10 +519,44 @@ function showScene(name) {
     return beginRename(p, step === 'rail' ? q('.rail-list .nav-card .goal') : t && q('.t-title', t.head));
   }
   if (what === 'theme') return toggleThemePop();
+  // empty desk — with a folder (demo) or none. Panels have to be cleared
+  // because --demo seeds two tiles onto the grid.
+  if (what === 'empty') {
+    S.panels = []; S.activeId = null; S.expandedId = null;
+    if (step === 'nofolder') { S.project = null; S.recents = []; }
+    renderGrid(); renderRail(); renderHeader();
+    return;
+  }
+  if (what === 'quickstart') return openQuickStart();
   if (what === 'workspace') {
-    // the tree needs a folder; fall back to the most recent one if none is open
-    const ready = S.project ? Promise.resolve() : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
-    return ready.then(() => { S.railTab = 'workspace'; renderRail(); });
+    // the tree needs a folder; a path in the step opens that one. Fall back
+    // to the most recent if none is open.
+    const folder = step && step.startsWith('/') ? step : null;
+    const ready = folder ? openFolder(folder)
+      : S.project ? Promise.resolve()
+      : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(async () => {
+      S.railTab = 'workspace';
+      const root = S.project && S.project.path;
+      if (root) {
+        try {
+          if (!S.tree[root]) S.tree[root] = await api.listDir(root, S.treeAll);
+          const kids = S.tree[root] || [];
+          const firstDir = kids.find((n) => n.kind === 'dir' && n.name === 'src')
+            || kids.find((n) => n.kind === 'dir' && n.name[0] !== '.' && n.name !== 'node_modules');
+          if (firstDir) {
+            S.tree[firstDir.path] = await api.listDir(firstDir.path, S.treeAll);
+            S.expanded.add(firstDir.path);
+            const sub = (S.tree[firstDir.path] || []).find((n) => n.kind === 'dir' && n.name[0] !== '.');
+            if (sub) {
+              S.tree[sub.path] = await api.listDir(sub.path, S.treeAll);
+              S.expanded.add(sub.path);
+            }
+          }
+        } catch (_) { /* demo path is fake; a missing folder just stays closed */ }
+      }
+      renderRail();
+    });
   }
   S.railTab = 'library';
   // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
@@ -1091,6 +1125,7 @@ function renderTreeLevel(container, dir, depth) {
     if (n.path === S.treeSel) row.classList.add('sel');
     if (S.treeFresh.has(n.path)) row.classList.add('landed');
     row.style.paddingLeft = (6 + depth * 13) + 'px';
+    row.style.setProperty('--d', String(depth));
     row.dataset.path = n.path; row.dataset.kind = n.kind; row.dataset.dir = dir;
     const isOpen = S.expanded.has(n.path);
     const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';
