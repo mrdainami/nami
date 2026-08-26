@@ -397,7 +397,9 @@ function dropPathOnPanel(p, path, isDir) {
   if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
   // Nothing auto-starts: an empty desk lands on the session page, where the
   // agent and the surface are chosen. Scenes keep the desk to themselves.
-  else if (!S.demo && !b.scene && S.project) openLauncher();
+  // A file already on its way from Finder means the desk is about to have
+  // something on it, and the launcher would open straight over the top of it.
+  else if (!S.demo && !b.scene && S.project && !earlyOpens.length) openLauncher();
   if (b.scene) showScene(b.scene);
   // The desk exists now, so anything Finder sent during boot can land.
   deliverOpen = receiveOpenFile;
@@ -5716,6 +5718,9 @@ function overlay(cls, inner, opts) {
 // See src/main/open-with.js for how the window and folder were chosen.
 async function receiveOpenFile(ev) {
   if (!ev || !ev.filePath) return;
+  // The launcher is what an empty desk shows. A file answers the question it
+  // was asking, so it gets out of the way rather than covering the tile.
+  if (S.overlay && S.overlay.type === 'launcher') closeOverlay();
   if (!ev.adopt) return openFile(ev.filePath, { pin: true });
   S.pendingOpen = ev.filePath;
   const info = await api.openFolder(ev.folder, false);
