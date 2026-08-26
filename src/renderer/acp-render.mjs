@@ -5,29 +5,9 @@
 // Copy rules (spec 7b): plain words only, no protocol vocabulary, no
 // self-narration. Everything readable is selectable; code gets a copy button.
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+import { renderMarkdown, renderInline } from './acp-markdown.mjs';
 
-// small markdown: fenced code, links, inline code, bold. Newlines survive via
-// CSS pre-wrap; fenced blocks become real <pre> with a copy button.
-function mdBlocks(text) {
-  let html = '', last = 0, m;
-  const re = /```(\w*)\n?([\s\S]*?)(```|$)/g;
-  while ((m = re.exec(String(text)))) {
-    html += mdInline(String(text).slice(last, m.index));
-    html += `<div class="cw-codewrap"><button class="cw-copy" data-copy>copy</button><pre class="cw-code">${esc(m[2].replace(/\n$/, ''))}</pre></div>`;
-    last = re.lastIndex;
-    if (m[3] === '') break;
-  }
-  html += mdInline(String(text).slice(last));
-  return html;
-}
-function mdInline(text) {
-  return esc(text)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" data-link>$1</a>')
-    .replace(/(^|[\s(])((https?:\/\/)[^\s<)]+)/g, '$1<a href="$2" data-link>$2</a>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const KIND_LABEL = {
   execute: 'Run', edit: 'Edit', read: 'Read', fetch: 'Fetch',
@@ -101,32 +81,32 @@ export function createTranscript(container, opts) {
   function message(text) {
     if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; }
     if (!openMsg) {
-      const el = block('<div class="cw-a"></div>');
+      const el = block('<div class="cw-a cw-md"></div>');
       openMsg = el.querySelector('.cw-a'); openMsg._raw = '';
     }
     openMsg._raw += text;
-    openMsg.innerHTML = mdBlocks(openMsg._raw);
+    openMsg.innerHTML = renderMarkdown(openMsg._raw);
     wire(openMsg);
     toBottom();
   }
   function userChunk(text) {
     openMsg = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; }
-    if (!openUser) { const el = block('<div class="cw-u"></div>'); openUser = el.querySelector('.cw-u'); openUser._raw = ''; }
+    if (!openUser) { const el = block('<div class="cw-u cw-md"></div>'); openUser = el.querySelector('.cw-u'); openUser._raw = ''; }
     openUser._raw += text;
-    openUser.innerHTML = mdBlocks(openUser._raw);
+    openUser.innerHTML = renderMarkdown(openUser._raw);
     wire(openUser); toBottom();
   }
   function thought(text) {
     openMsg = null;
     if (!openThought) {
-      const el = block('<button class="cw-think"><span class="tw">Thinking…</span></button><div class="cw-think-body" hidden></div>');
+      const el = block('<button class="cw-think"><span class="tw">Thinking…</span></button><div class="cw-think-body cw-md" hidden></div>');
       const btn = el.querySelector('.cw-think');
       const bodyEl = el.querySelector('.cw-think-body');
       btn.onclick = (e) => { e.stopPropagation(); bodyEl.hidden = !bodyEl.hidden; toBottom(); };
       openThought = { body: bodyEl, btnLabel: btn.querySelector('.tw'), _raw: '' };
     }
     openThought._raw += text;
-    openThought.body.innerHTML = mdInline(openThought._raw);
+    openThought.body.innerHTML = renderMarkdown(openThought._raw);
     toBottom();
   }
   function toolCard(ev) {
@@ -178,7 +158,7 @@ export function createTranscript(container, opts) {
           newLines.slice(0, 40).map((l) => `<span class="a">+ ${esc(l)}</span>`).join('') +
           `</pre>`);
       } else if (c.type === 'content' && c.content && c.content.type === 'text') {
-        bd.insertAdjacentHTML('beforeend', `<div class="cw-tool-text">${mdBlocks(c.content.text)}</div>`);
+        bd.insertAdjacentHTML('beforeend', `<div class="cw-tool-text cw-md">${renderMarkdown(c.content.text)}</div>`);
       } else if (c.type === 'content' && c.content && c.content.type === 'image') {
         const uri = c.content.uri || '';
         const src = uri || ('data:' + (c.content.mimeType || 'image/png') + ';base64,' + (c.content.data || ''));
@@ -222,11 +202,11 @@ export function createTranscript(container, opts) {
     userTurn(text, files) {
       closeStreams();
       const chips = (files || []).map((f) => `<button class="cw-u-file" data-open="${esc(f)}">📎 ${esc(f.split('/').pop())}</button>`).join('');
-      block(`<div class="cw-u">${mdBlocks(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
+      block(`<div class="cw-u cw-md">${renderMarkdown(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
     },
-    note(text) { block(`<div class="cw-hint">${mdInline(text)}</div>`); },
+    note(text) { block(`<div class="cw-hint">${renderInline(text)}</div>`); },
     action(text, label, cb) {
-      const el = block(`<div class="cw-hint cw-action">${mdInline(text)} <button class="cw-act-btn"></button></div>`);
+      const el = block(`<div class="cw-hint cw-action">${renderInline(text)} <button class="cw-act-btn"></button></div>`);
       const b = el.querySelector('.cw-act-btn');
       b.textContent = label;
       b.onclick = (e) => { e.stopPropagation(); cb(); };
