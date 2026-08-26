@@ -414,6 +414,69 @@ body[data-soft] .cw-send, body[data-soft] .cw-plus, body[data-soft] .cw-stopbtn,
 body[data-soft] .cw-pop { border: 0; box-shadow: var(--sf-card); }
 body[data-soft] .cw-ctx, body[data-soft] .cw-live-st { border: 0; box-shadow: var(--sf-press-sm); }
 
+/* Same-fill desk: --line/--dash are transparent, --paper-2 equals --paper.
+   Without extrusion the thinking/tool/plan boxes vanish into the tile. */
+body[data-soft] .cw-card,
+body[data-soft] .cw-m,
+body[data-soft] .cw-code,
+body[data-soft] .cw-perm,
+body[data-soft] .cw-err {
+  border: 0; background: var(--paper);
+  border-radius: var(--sf-r-sm); box-shadow: var(--sf-card-sm);
+}
+body[data-soft] .cw-card-hd,
+body[data-soft] .cw-m-f,
+body[data-soft] .cw-pop .ft,
+body[data-soft] .cw-pop .r.files { border: 0; }
+body[data-soft] .cw-u {
+  border: 0; background: var(--paper); box-shadow: var(--sf-press);
+}
+body[data-soft] .cw-think {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm); padding: 4px 10px; font-style: normal;
+}
+body[data-soft] .cw-think:hover { box-shadow: var(--sf-press-sm); }
+body[data-soft] .cw-think-body,
+body[data-soft] .cw-hint {
+  border-left: 0; border-radius: var(--sf-r-sm); background: var(--paper);
+  box-shadow: var(--sf-press-sm); padding: 8px 12px; margin-top: 4px;
+}
+body[data-soft] .cw-file,
+body[data-soft] .cw-chain,
+body[data-soft] .cw-open,
+body[data-soft] .cw-copy,
+body[data-soft] .cw-att .chip,
+body[data-soft] .cw-u-file,
+body[data-soft] .cw-act-btn {
+  border: 0; background: var(--paper); box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .cw-btn {
+  border: 0; border-radius: 999px; background: var(--paper);
+  box-shadow: var(--sf-raise-sm);
+}
+body[data-soft] .cw-btn.ap {
+  background: #ef6461; color: #fff; border: 0;
+  box-shadow: 4px 4px 8px rgba(239, 100, 97, 0.28), -3px -3px 6px var(--sf-l);
+}
+body[data-soft] .cw-perm code {
+  border: 0; background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+body[data-soft] .cw-imgout { border: 0; box-shadow: var(--sf-card-sm); }
+body[data-soft] .cw-empty-chip .code { box-shadow: var(--sf-raise-sm); border: 0; }
+
+/* xterm keeps its own bar inside the viewport; paper's brown thumb still wins
+   there unless we restyle it at this specificity. */
+body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--paper); border: 2px solid var(--paper);
+  box-shadow: var(--sf-raise-sm); border-radius: 99px; background-clip: padding-box;
+}
+body[data-soft] .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb {
+  background: #ef6461; border-color: #ef6461;
+}
+body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--paper); box-shadow: var(--sf-press-sm);
+}
+
 /* ---- name-edit / misc ------------------------------------------------------ */
 body[data-soft] .name-edit { border-radius: 6px; }
 body[data-soft] .lane-empty .big {

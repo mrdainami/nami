@@ -239,6 +239,9 @@ export function mountChatPane(p, rec, hooks) {
     },
   });
 
+  rec.disposeRo = () => { offMsg && offMsg(); offErr && offErr(); offExit && offExit(); api.acpKill({ id: p.id }); };
+  if (p.sceneStatic) return;
+
   (async () => {
     const launch = AGENT_LAUNCH[p.agentId] || AGENT_LAUNCH.claude;
     const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: launch.command, args: launch.args });
@@ -255,6 +258,4 @@ export function mountChatPane(p, rec, hooks) {
       transcript.error('Couldn’t connect' + ((err && err.message) ? ' — ' + err.message : '') + '. If this agent isn’t signed in yet, run it once in a terminal.');
     }
   })();
-
-  rec.disposeRo = () => { offMsg && offMsg(); offErr && offErr(); offExit && offExit(); api.acpKill({ id: p.id }); };
 }

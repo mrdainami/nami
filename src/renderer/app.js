@@ -400,6 +400,32 @@ function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // chat: a static transcript so the thinking/tool cards can be shot without
+  // a live agent. chat-live still starts a real Claude pane.
+  if (what === 'chat') {
+    const np = {
+      id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: 'Claude Code',
+      agentId: 'claude', cwd: (S.project && S.project.path) || '~',
+      status: 'live', started: true, sceneStatic: true,
+    };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    const rec = tileEls.get(np.id);
+    const host = rec && rec.body && rec.body.querySelector('.cw-scroll');
+    if (host) {
+      const empty = host.querySelector('.cw-empty');
+      if (empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        '<div class="cw-blk"><div class="cw-u">Compare our pricing with the top 20 competitors</div></div>'
+        + '<div class="cw-blk"><button class="cw-think"><span class="tw">Thinking…</span></button>'
+        + '<div class="cw-think-body">I\'ll line up the 20 sites first, then pull pricing into a sheet.</div></div>'
+        + '<div class="cw-blk"><div class="cw-card"><div class="cw-card-hd"><span class="k">Read</span> <span class="f">pricing.csv</span><span class="cw-run ok">done</span></div></div></div>'
+        + '<div class="cw-blk"><div class="cw-card cw-plan"><div class="cw-card-hd"><span class="k">Plan</span><span class="f">1/3</span></div>'
+        + '<ul><li class="don">Read pricing.csv</li><li class="tod">Line up 20 competitor sites</li><li class="tod">Build the spreadsheet</li></ul></div></div>'
+        + '<div class="cw-blk"><div class="cw-a">Lined up the sheet. 20 competitors, our rows on top.</div></div>');
+    }
+    return;
+  }
   // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
   if (what === 'chat-live') {
     const liveCwd = decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
@@ -519,6 +545,18 @@ function showScene(name) {
     return beginRename(p, step === 'rail' ? q('.rail-list .nav-card .goal') : t && q('.t-title', t.head));
   }
   if (what === 'theme') return toggleThemePop();
+  if (what === 'term-scroll') {
+    const p = S.panels.find((x) => x.kind === 'shell' || x.kind === 'claude') || S.panels[0];
+    if (!p) return;
+    S.expandedId = p.id; S.activeId = p.id; renderGrid();
+    return new Promise((resolve) => setTimeout(() => {
+      const t = tileEls.get(p.id);
+      if (t && t.term) {
+        for (let i = 0; i < 80; i++) t.term.write('  ' + String(i + 1).padStart(2, '0') + '  competitor row — pricing.csv\r\n');
+      }
+      resolve();
+    }, 700));
+  }
   // empty desk — with a folder (demo) or none. Panels have to be cleared
   // because --demo seeds two tiles onto the grid.
   if (what === 'empty') {
