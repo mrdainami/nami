@@ -337,6 +337,7 @@ body[data-soft] .qs-body {
 }
 body[data-soft] .qs-foot {
   background: var(--paper); border-top: 0; flex: none;
+  margin: 8px; border-radius: var(--sf-r-sm); box-shadow: var(--sf-press);
 }
 body[data-soft] .picker-input { box-shadow: var(--sf-press); border-radius: 14px; margin: 8px 8px 0; }
 body[data-soft] .modal-x, body[data-soft] .ov-x {
