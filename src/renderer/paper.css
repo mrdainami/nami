@@ -1367,7 +1367,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .fmp-add { margin-top: 8px; }
 .fmp-ghost { max-width: 76ch; padding: 8px 0; opacity: 0.55; border-color: var(--dash); }
 .fmp-add:hover, .fmp-ghost:hover { opacity: 1; background: var(--hover); color: var(--ink); }
-.fmp-draft { background: var(--amber-bg); outline: 1px dashed var(--amber-line); outline-offset: 2px; margin: 6px 0; padding: 5px 4px; }
+.fmp-draft { background: var(--amber-bg); outline: 1px dashed var(--amber-line); outline-offset: 2px; margin: 6px 0; padding: 5px 4px; align-items: center; }
+.fmp-draft .fmp-key { padding-top: 0; }
+.fmp-draft .fmp-hint { padding-top: 0; }
 .fmp-draft .fmp-key input, .fmp-draft .fmp-val input {
   width: 100%; font-size: inherit; color: var(--ink); background: var(--paper);
   border: 1px dashed var(--amber-line); border-radius: 2px; padding: 3px 6px; outline: none;
@@ -1884,6 +1886,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   font-family: inherit; font-size: 12.5px; color: var(--ink); text-align: left;
 }
 .theme-opt:hover { background: var(--hover); }
+.theme-opt:focus, .theme-opt:focus-visible { outline: none; background: var(--hover); }
 .theme-opt.picked { border-color: var(--dash-dark); background: var(--paper-2); }
 .theme-opt .theme-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted-3); }
 .theme-opt.picked .theme-dot { border-color: var(--green); background: radial-gradient(circle, var(--green) 0 3.5px, transparent 4px); }

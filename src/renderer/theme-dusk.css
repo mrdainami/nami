@@ -56,7 +56,7 @@ body[data-theme="dusk"] {
   --shadow-soft: transparent;
   --shadow-mid: transparent;
   --shadow-hard: transparent;
-  --tree-ink: #a2a3ae;
+  --tree-ink: #e8eaee;
   --tree-fill: #262a31;
   --tree-fill-open: #262a31;
   --tree-fill-file: #262a31;
@@ -83,6 +83,8 @@ body[data-theme="dusk"] {
   --sf-r-chip: 10px;
 }
 body[data-theme="dusk"] { background: #262a31; }
+body[data-theme="dusk"] .tree-row .name,
+body[data-theme="dusk"] .tree-row[data-kind="file"] .name { color: var(--ink); }
 body[data-theme="dusk"] a { color: #6f9dff; }
 body[data-theme="dusk"] .ed-hl .hl-link { color: #6f9dff; }
 body[data-theme="dusk"] .viewer .vw-stage--dark { background: #000; }
