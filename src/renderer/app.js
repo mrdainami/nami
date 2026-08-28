@@ -2958,7 +2958,6 @@ function mountEditor(p, rec) {
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
   const measure = q('.ed-measure', wrap);
-  const richRoot = q('.ed-rich', wrap);
   // Milkdown owns this node's children (it wipes innerHTML on load), so the
   // properties strip lives beside it, not inside it — both scroll together
   // because .ed-rich is the scroller.
@@ -3019,8 +3018,9 @@ function mountEditor(p, rec) {
   function renderFmStrip() {
     if (!fmRoot || !editsAsFrontmatter(p.filePath)) return;
     const doc = parseDoc(p.text || '');
+    const hint = '<span class="fmp-slim-hint">/ for blocks · select text to format</span>';
     if (doc.malformed) {
-      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div>`;
+      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div><div class="fmp-slim fmp-slim--bare">${hint}</div>`;
       return;
     }
     // Collapsed: one slim row previewing the keys, with the block-editor hint
@@ -3029,8 +3029,11 @@ function mountEditor(p, rec) {
     if (!fmDraft && (!p.fmOpen || !doc.hasFrontmatter)) {
       p.fmOpen = false;
       const keys = doc.entries.map((e) => e.key).filter(Boolean).join(' · ');
-      fmRoot.innerHTML = `<div class="fmp-slim"><span class="fmp-arr">▸</span> properties${keys ? `<span class="fmp-keys">${esc(keys)}</span>` : ''}<span class="fmp-slim-hint">/ for blocks · select text to format</span></div>`;
-      q('.fmp-slim', fmRoot).onclick = () => {
+      fmRoot.innerHTML = `<div class="fmp-slim"><span class="fmp-arr">▸</span> properties${keys ? `<span class="fmp-keys">${esc(keys)}</span>` : ''}${hint}</div>`;
+      q('.fmp-slim', fmRoot).onclick = (ev) => {
+        // the hint is an editor tip riding on the row's right end, not a
+        // properties control — a click on it should do nothing
+        if (ev.target.closest('.fmp-slim-hint')) return;
         p.fmOpen = true;
         if (!doc.hasFrontmatter) fmDraft = { key: '', val: '' };
         renderFmStrip();
@@ -3063,7 +3066,7 @@ function mountEditor(p, rec) {
         <span class="fmp-key"><input class="fmp-dk" placeholder="name" value="${esc(fmDraft.key)}"></span>
         <span class="fmp-val"><input class="fmp-dv" placeholder="value (can be empty)" value="${esc(fmDraft.val)}"></span>
         <span class="fmp-hint">Enter saves · Esc cancels</span></div>` : '';
-    fmRoot.innerHTML = `<div class="fmp" data-open="${!!p.fmOpen}">
+    fmRoot.innerHTML = `<div class="fmp">
       <div class="fmp-head"><span class="fmp-arr">▾</span> Properties<span class="fmp-count">${doc.entries.length} field${doc.entries.length === 1 ? '' : 's'}</span></div>
       <div class="fmp-body">${rows}${draft}${fmDraft ? '' : '<button class="fmp-add">+ add property</button>'}</div></div>`;
 

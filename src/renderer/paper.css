@@ -1315,10 +1315,11 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .fmp-slim .fmp-slim-hint {
-  margin-left: auto; flex: none; text-transform: none; letter-spacing: 0.03em; color: var(--faint);
-  /* an editor hint, not part of the properties control — clicks fall through */
-  pointer-events: none;
+  /* --muted-3, not --faint: at 10.5px on dusk's ground, --faint is a smudge */
+  margin-left: auto; flex: none; text-transform: none; letter-spacing: 0.03em; color: var(--muted-3);
 }
+.fmp-slim--bare { cursor: default; }
+.fmp-slim--bare:hover { color: var(--muted); }
 .fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;
