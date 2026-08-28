@@ -1417,7 +1417,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   position: relative; inset: auto; display: block; flex: none;
   /* Left-aligned like Read — Edit and Read are the same page now, not two
      apps. The extra left padding is the gutter Crepe's block handle needs. */
-  min-height: 100%; max-width: calc(76ch + 66px); margin: 0;
+  min-height: 100%; max-width: none; margin: 0;
   padding: 16px 22px 60px 44px; line-height: 1.72; caret-color: var(--ink);
 }
 /* Headings sized for the clean text face, mirroring .md-read exactly —
@@ -1513,8 +1513,8 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .ed-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px dashed var(--dash); background: rgba(255,253,246,0.6); }
 
 /* ---- rendered markdown (editor Read tab) ---- */
-/* prose gets a reading measure — a full-width tile would otherwise run past
-   100 characters a line, which is the thing that made these files tiring */
+/* The document fills the tile — the tile's own size is the reading measure,
+   so expanding a tile widens the text instead of the empty band beside it. */
 /* One size on the container, everything inside it in em. Fixed px headings
    would sit still while the body grew and the page would come apart. */
 .md-read {
@@ -1523,12 +1523,10 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   line-height: 1.72; color: var(--ink); user-select: text;
   font-family: var(--doc-sans);
 }
-.md-read > * { max-width: 76ch; }
+.md-read > * { max-width: none; }
 /* An html file's Read tab is the page itself: no prose padding or measure, the
    frame fills the pane and paints its own white canvas (a page with no
-   background of its own would sit transparent on the sheet and read as broken).
-   max-width:none is load-bearing — .md-read > * caps children at 76ch for
-   readable prose, which squeezed the page into a column with a dark gap beside it. */
+   background of its own would sit transparent on the sheet and read as broken). */
 .editor--html .ed-read { padding: 0; overflow: hidden; }
 .editor--html .ed-html { width: 100%; height: 100%; max-width: none; border: 0; display: block; background: #fff; }
 .md-read > .md-pre { max-width: 100%; }
