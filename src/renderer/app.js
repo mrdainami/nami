@@ -2190,6 +2190,9 @@ function bumpDocFont(dir, p) {
     return { el, frac: room > 0 ? el.scrollTop / room : 0 };
   }) : [];
   applyDocScale(p, rec);
+  // New scale means new wrap points — remeasure the gutter before the scroll
+  // position is put back, or the fraction lands against stale heights.
+  if (rec && rec.edSync) rec.edSync();
   requestAnimationFrame(() => {
     for (const m of marks) {
       const room = m.el.scrollHeight - m.el.clientHeight;
@@ -2945,7 +2948,7 @@ function mountEditor(p, rec) {
     <div class="ed-read md-read"></div>
     ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
-      <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
+      <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><pre class="ed-measure" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
   wrap.classList.toggle('editor--rich', rich);
@@ -2954,6 +2957,7 @@ function mountEditor(p, rec) {
 
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
+  const measure = q('.ed-measure', wrap);
   const richRoot = q('.ed-rich', wrap);
   // Milkdown owns this node's children (it wipes innerHTML on load), so the
   // properties strip lives beside it, not inside it — both scroll together
@@ -3155,6 +3159,7 @@ function mountEditor(p, rec) {
   };
   rec.disposeEditor = () => {
     disposed = true;
+    edRo.disconnect();
     if (richEditor) richEditor.destroy();
     richEditor = null;
   };
@@ -3169,13 +3174,24 @@ function mountEditor(p, rec) {
   });
 
   const sync = () => {
-    const lines = ta.value.split('\n').length;
-    gutter.innerHTML = Array.from({ length: lines }, (_, i) => `<div>${i + 1}</div>`).join('');
+    // Lines soft-wrap to the pane, so a logical line can be several rows tall.
+    // The hidden measure layer shares every glyph metric with the textarea
+    // (the `.ed-hl, .ed-area, .ed-measure` rule), so the browser itself
+    // reports each line's wrapped height — no font arithmetic to drift.
+    const lines = ta.value.split('\n');
+    measure.innerHTML = lines.map((l) => `<div>${l ? esc(l) : '&#8203;'}</div>`).join('');
+    const rows = measure.children;
+    gutter.innerHTML = lines.map((_, i) => `<div style="height:${rows[i].offsetHeight}px">${i + 1}</div>`).join('');
     gutter.scrollTop = ta.scrollTop;
     // the underlay only ever mirrors the textarea, so it can't drift
     hl.innerHTML = md ? highlightMarkdown(ta.value) : '';
-    hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft;
+    hl.scrollTop = ta.scrollTop;
   };
+  rec.edSync = sync;
+  // Wrap points move whenever the pane is resized — tile drag, expand, rail
+  // collapse — and the gutter has to follow.
+  const edRo = new ResizeObserver(() => sync());
+  edRo.observe(q('.ed-stack', wrap));
   const applyMode = () => {
     wrap.dataset.mode = p.edMode;
     if (p.edMode === 'read') {
@@ -3232,7 +3248,7 @@ function mountEditor(p, rec) {
   };
 
   ta.addEventListener('input', () => { p.text = ta.value; markDirty(); if (rich) richStale = true; sync(); });
-  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
     // insertText, not an assignment to ta.value: assigning replaces the field's

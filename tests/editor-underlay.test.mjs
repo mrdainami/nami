@@ -8,8 +8,15 @@
 // So the rule is written down here instead of remembered: a declaration that
 // changes where a glyph lands must apply to BOTH layers or NEITHER. Colour,
 // weight and slant are deliberately allowed — each measured at 0.0px of drift,
-// because Courier Prime's four vendored faces share one advance width — and the
-// editor would lose its syntax colouring without them.
+// because every content face any theme uses here is fixed-pitch across weights
+// (Courier Prime's four vendored faces, and operator's SF Mono/Menlo stack all
+// share one advance width) — and the editor would lose its syntax colouring
+// without them. A theme whose content face is NOT fixed-pitch would break this
+// assumption; don't add one to the editor.
+//
+// The same contract now covers .ed-measure, the invisible third layer whose
+// per-line blocks give the gutter its wrapped row heights — it sits in the
+// shared rule, so it wraps exactly where the textarea does.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,7 +34,7 @@ const SHEETS = ['paper.css', 'theme-glass.css', 'theme-operator.css', 'theme-gra
 const MOVES_GLYPHS = [
   'font', 'font-size', 'font-family', 'font-stretch', 'font-variant',
   'letter-spacing', 'word-spacing', 'line-height', 'white-space', 'tab-size',
-  'text-transform', 'text-indent', 'word-break', 'overflow-wrap',
+  'text-transform', 'text-indent', 'word-break', 'overflow-wrap', 'scrollbar-gutter',
   'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'transform', 'zoom',
@@ -89,6 +96,8 @@ const MUST_BE_PINNED = [
   'font-family', 'font-size', 'line-height',
   'letter-spacing', 'word-spacing',   // inherited, and reset on form controls
   'white-space', 'tab-size',
+  'overflow-wrap',                    // soft wrap: both layers must break alike
+  'scrollbar-gutter',                 // reserved alike, or wrap widths diverge
 ];
 
 test('the shared rule pins every metric a theme could inherit into one layer', () => {

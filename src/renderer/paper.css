@@ -1515,14 +1515,20 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    the layer holding your caret, and 0.16px per character put them a full
    character apart by column 47. The terminal hit the same trap: see
    termLetterSpacing() in app.js, zero in every theme for the same reason. */
-.ed-hl, .ed-area {
+.ed-hl, .ed-area, .ed-measure {
   position: absolute; inset: 0; margin: 0; padding: 10px 12px; border: none; outline: none;
   font-family: 'Courier Prime', monospace;
   font-size: calc(12.5px * var(--doc-scale, 1)); line-height: calc(22px * var(--doc-scale, 1));
   letter-spacing: 0; word-spacing: 0;
-  white-space: pre; overflow: auto; tab-size: 2;
+  white-space: pre-wrap; overflow-wrap: break-word; overflow: auto; tab-size: 2;
+  /* the textarea's scrollbar takes layout width; the other layers scroll with
+     it, so all three reserve the same gutter or their wrap points diverge */
+  scrollbar-gutter: stable;
 }
 .ed-hl { color: var(--ink); pointer-events: none; overflow: hidden; background: none; }
+/* The third layer: invisible, laid out identically, one block per logical
+   line — the browser's own wrap decisions become the gutter's row heights. */
+.ed-measure { visibility: hidden; pointer-events: none; overflow: hidden; background: none; }
 .ed-area { resize: none; color: var(--ink); background: none; user-select: text; }
 /* with markdown, the underlay carries the colour and the textarea only carries
    the caret and selection — so bold really looks bold while you type */
