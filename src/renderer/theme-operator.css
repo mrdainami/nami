@@ -67,6 +67,11 @@ body[data-theme="operator"] {
   /* operator-only helpers */
   --op-accent: #ef6461;
   --op-accent-hi: #ff8b88;
+  /* Content face: what the terminal reads in, the documents read in too.
+     Chrome stays Courier Prime — the desk keeps its typewriter voice; only
+     text you open a file to read gets the denser, screen-first mono. Matches
+     termFontFamily() in app.js. */
+  --op-mono: 'SF Mono', ui-monospace, Menlo, monospace;
   --op-accent-dim: rgba(239, 100, 97, 0.12);
   --op-glow: 0 0 0 1px var(--op-accent), 0 0 14px rgba(239, 100, 97, 0.16);
   --op-grid: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1.4px);
@@ -264,25 +269,39 @@ body[data-theme="operator"] .ed-hl .hl-code, body[data-theme="operator"] .ed-hl 
 body[data-theme="operator"] .ed-hl .hl-link { color: #6ea8ff; }
 
 /* rendered markdown: operator's whole voice is mono — the base sheet's clean
-   text face for documents does not apply here, in Read or in Edit */
-body[data-theme="operator"] .md-read { font-family: 'Courier Prime', 'Courier New', monospace; }
+   text face for documents does not apply here, in Read or in Edit. Content
+   runs in --op-mono, the terminal's face. */
+body[data-theme="operator"] .md-read { font-family: var(--op-mono); }
 body[data-theme="operator"] .ed-rich {
-  --crepe-font-default: 'Courier Prime', 'Courier New', monospace;
-  --crepe-font-title: 'Courier Prime', 'Courier New', monospace;
+  --crepe-font-default: var(--op-mono);
+  --crepe-font-title: var(--op-mono);
+  --crepe-font-code: var(--op-mono);
 }
 body[data-theme="operator"] .md-read h1, body[data-theme="operator"] .md-read h2,
 body[data-theme="operator"] .md-read h3, body[data-theme="operator"] .md-read h4,
 body[data-theme="operator"] .md-read h5, body[data-theme="operator"] .md-read h6 {
-  font-family: 'Courier Prime', 'Courier New', monospace;
+  font-family: var(--op-mono);
   text-transform: uppercase; letter-spacing: 0.1em;
 }
 /* em, not px, for the same reason the base sheet uses it: the ± dial scales
-   .md-read and a fixed heading would sit still while the body grew. */
-body[data-theme="operator"] .md-read h1 { font-size: 1.231em; }   /* 16/13 */
-body[data-theme="operator"] .md-read h2 { font-size: 1.077em; }   /* 14/13 */
-body[data-theme="operator"] .md-read h3 { font-size: 0.962em; }   /* 12.5/13 */
+   .md-read and a fixed heading would sit still while the body grew.
+   Base-sheet scale, not the old near-flat ladder: uppercase alone is not
+   hierarchy — a document should scan in operator like it does everywhere. */
+body[data-theme="operator"] .md-read h1 { font-size: 1.846em; }   /* 24/13 */
+body[data-theme="operator"] .md-read h2 { font-size: 1.462em; }   /* 19/13 */
+body[data-theme="operator"] .md-read h3 { font-size: 1.154em; }   /* 15/13 */
 body[data-theme="operator"] .md-read h4, body[data-theme="operator"] .md-read h5,
-body[data-theme="operator"] .md-read h6 { font-size: 0.885em; }   /* 11.5/13 */
+body[data-theme="operator"] .md-read h6 { font-size: 1em; }
+/* every surface that shows a file's text follows the terminal's face; the
+   underlay pair is one rule on purpose — tests/editor-underlay.test.mjs */
+body[data-theme="operator"] .ed-hl,
+body[data-theme="operator"] .ed-area { font-family: var(--op-mono); }
+body[data-theme="operator"] .ed-gutter,
+body[data-theme="operator"] .md-read code,
+body[data-theme="operator"] .md-read .md-pre,
+body[data-theme="operator"] .md-read .md-fm,
+body[data-theme="operator"] .card-body,
+body[data-theme="operator"] .card-raw .raw-area { font-family: var(--op-mono); }
 body[data-theme="operator"] .md-read code { background: var(--paper-2); border-color: var(--dash-dark); }
 body[data-theme="operator"] .md-read .md-pre { background: var(--rail); border-color: var(--dash); border-radius: 6px; }
 body[data-theme="operator"] .md-read blockquote { border-left-color: var(--op-accent); }
