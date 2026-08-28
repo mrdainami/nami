@@ -2943,7 +2943,7 @@ function mountEditor(p, rec) {
     : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
   wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
-    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-fm"></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
+    ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
@@ -2955,6 +2955,10 @@ function mountEditor(p, rec) {
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
   const richRoot = q('.ed-rich', wrap);
+  // Milkdown owns this node's children (it wipes innerHTML on load), so the
+  // properties strip lives beside it, not inside it — both scroll together
+  // because .ed-rich is the scroller.
+  const richDoc = q('.ed-rich-doc', wrap);
   rec.ta = ta; rec.gutter = gutter;
   ta.value = p.text || '';
   let richEditor = null;
@@ -2985,7 +2989,9 @@ function mountEditor(p, rec) {
   // keeps that contract). Every edit rewrites only its own lines in p.text.
   const fmRoot = q('.ed-fm', wrap);
   let fmDraft = null;                 // {key, val} while a property is being born
-  if (p.fmOpen == null) p.fmOpen = true;
+  // Closed by default: a document opens as a document, not as a form. The
+  // choice sticks to the panel, so reopening the same file keeps it.
+  if (p.fmOpen == null) p.fmOpen = false;
   const fmWrite = (mutate) => {
     const doc = parseDoc(p.text || '');
     if (doc.malformed) return;
@@ -3013,9 +3019,19 @@ function mountEditor(p, rec) {
       fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div>`;
       return;
     }
-    if (!doc.hasFrontmatter && !fmDraft) {
-      fmRoot.innerHTML = `<button class="fmp-ghost">+ properties</button>`;
-      q('.fmp-ghost', fmRoot).onclick = () => { fmDraft = { key: '', val: '' }; renderFmStrip(); q('.fmp-dk', fmRoot)?.focus(); };
+    // Collapsed: one slim row previewing the keys, with the block-editor hint
+    // on its right end. It scrolls away with the document — the form only
+    // takes space while you are actually editing properties.
+    if (!fmDraft && (!p.fmOpen || !doc.hasFrontmatter)) {
+      p.fmOpen = false;
+      const keys = doc.entries.map((e) => e.key).filter(Boolean).join(' · ');
+      fmRoot.innerHTML = `<div class="fmp-slim"><span class="fmp-arr">▸</span> properties${keys ? `<span class="fmp-keys">${esc(keys)}</span>` : ''}<span class="fmp-slim-hint">/ for blocks · select text to format</span></div>`;
+      q('.fmp-slim', fmRoot).onclick = () => {
+        p.fmOpen = true;
+        if (!doc.hasFrontmatter) fmDraft = { key: '', val: '' };
+        renderFmStrip();
+        q('.fmp-dk', fmRoot)?.focus();
+      };
       return;
     }
     const rows = doc.entries.map((e, i) => {
@@ -3047,7 +3063,7 @@ function mountEditor(p, rec) {
       <div class="fmp-head"><span class="fmp-arr">▾</span> Properties<span class="fmp-count">${doc.entries.length} field${doc.entries.length === 1 ? '' : 's'}</span></div>
       <div class="fmp-body">${rows}${draft}${fmDraft ? '' : '<button class="fmp-add">+ add property</button>'}</div></div>`;
 
-    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = !p.fmOpen; renderFmStrip(); };
+    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = false; fmDraft = null; renderFmStrip(); };
     fmRoot.querySelectorAll('input[data-key]:not([type="checkbox"])').forEach((el) => {
       el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.value.trim())));
       el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.blur(); });
@@ -3110,8 +3126,8 @@ function mountEditor(p, rec) {
       return richEditor;
     }
     if (richLoading) return richLoading;
-    richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
-    richLoading = mountMarkdownEditor(richRoot, richBody(), {
+    richDoc.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
+    richLoading = mountMarkdownEditor(richDoc, richBody(), {
       resolveImage,
       // Session-only: GFM cannot store a column width, so dragged widths live
       // on the card and follow the document into the Read pane, nothing more.
@@ -3127,12 +3143,12 @@ function mountEditor(p, rec) {
     }).then((editor) => {
       if (disposed) { editor.destroy(); return null; }
       richEditor = editor; richLoading = null;
-      const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
+      const loading = q('.ed-rich-loading', richDoc); if (loading) loading.remove();
       if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return editor;
     }).catch((error) => {
       richLoading = null;
-      richRoot.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
+      richDoc.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
       return null;
     });
     return richLoading;

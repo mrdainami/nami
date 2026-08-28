@@ -1291,28 +1291,39 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .ed-tabs { flex: none; }
 .editor[data-mode="read"] .ed-pane { display: none; }
 .editor[data-mode="edit"] .ed-read { display: none; }
-.editor--rich[data-mode="read"] .ed-rich, .editor--rich[data-mode="read"] .ed-rich-tools { display: none; }
+.editor--rich[data-mode="read"] .ed-rich { display: none; }
 .editor--rich[data-mode="edit"] .ed-pane { display: none; }
-.editor--rich[data-mode="markdown"] .ed-read, .editor--rich[data-mode="markdown"] .ed-rich,
-.editor--rich[data-mode="markdown"] .ed-rich-tools { display: none; }
-.ed-rich, .ed-rich-tools, .ed-fm { display: none; }
-.editor--rich[data-mode="edit"] .ed-rich { display: block; }
-.editor--rich[data-mode="edit"] .ed-fm { display: block; }
-.editor--rich[data-mode="edit"] .ed-rich-tools { display: flex; }
+.editor--rich[data-mode="markdown"] .ed-read, .editor--rich[data-mode="markdown"] .ed-rich { display: none; }
+.ed-rich { display: none; }
+.editor--rich[data-mode="edit"] .ed-rich { display: flex; }
 
 /* ---- the properties strip ---------------------------------------------------
    Frontmatter as a form above the document — Obsidian's Properties, in paper.
-   Token-driven throughout so all four themes follow. */
-.ed-fm { flex: none; max-height: 42%; overflow-y: auto; padding: 10px 22px 0; }
+   Token-driven throughout so all four themes follow. It lives inside the
+   Edit scroller and rests as one slim row: the document owns the pane, the
+   form only takes space while properties are actually being edited. */
+.ed-fm { flex: none; padding: 10px 22px 0; }
+.fmp-slim {
+  display: flex; align-items: baseline; gap: 7px; min-width: 0; padding: 2px 0;
+  cursor: pointer; user-select: none;
+  font-family: 'Courier Prime', monospace; font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.fmp-slim:hover { color: var(--ink); }
+.fmp-slim .fmp-keys {
+  text-transform: none; letter-spacing: 0.03em; color: var(--muted-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.fmp-slim .fmp-slim-hint {
+  margin-left: auto; flex: none; text-transform: none; letter-spacing: 0.03em; color: var(--faint);
+}
 .fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;
   font-family: 'Courier Prime', monospace; font-size: 10.5px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted);
 }
-.fmp-arr { display: inline-block; transition: transform 0.15s; }
-.fmp[data-open="false"] .fmp-arr { transform: rotate(-90deg); }
-.fmp[data-open="false"] .fmp-body { display: none; }
+.fmp-arr { display: inline-block; }
 .fmp-count { margin-left: auto; color: var(--faint); text-transform: none; letter-spacing: 0; }
 .fmp-body { padding: 2px 12px 10px; }
 .fmp-row { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; border-top: 1px dotted var(--dash); position: relative; }
@@ -1359,14 +1370,13 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 .fmp-row:hover .fmp-rm { opacity: 1; }
 .fmp-rm:hover { color: var(--red-ink); }
-.fmp-add, .fmp-ghost {
+.fmp-add {
   display: block; width: 100%; padding: 5px 0; text-align: center; cursor: pointer;
   font-family: 'Courier Prime', monospace; font-size: 11px; letter-spacing: 0.05em; color: var(--muted);
   background: none; border: 1px dashed var(--dash-dark); opacity: 0.65; transition: opacity 0.12s;
 }
 .fmp-add { margin-top: 8px; }
-.fmp-ghost { max-width: none; padding: 8px 0; opacity: 0.55; border-color: var(--dash); }
-.fmp-add:hover, .fmp-ghost:hover { opacity: 1; background: var(--hover); color: var(--ink); }
+.fmp-add:hover { opacity: 1; background: var(--hover); color: var(--ink); }
 .fmp-draft { background: var(--amber-bg); outline: 1px dashed var(--amber-line); outline-offset: 2px; margin: 6px 0; padding: 5px 4px; align-items: center; }
 .fmp-draft .fmp-key { padding-top: 0; }
 .fmp-draft .fmp-hint { padding-top: 0; }
@@ -1388,7 +1398,11 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    Nami's existing paper variables rather than carrying a fifth theme of its
    own, so paper/operator/glass/graphite change this surface exactly once. */
 .ed-rich {
+  /* The scroller for the whole Edit page: properties strip + document move as
+     one sheet. flex-direction, with the doc stretching, replaces the old
+     min-height:100% chain so short documents still fill the pane. */
   flex: 1; min-height: 0; overflow: auto; position: relative; color: var(--ink);
+  flex-direction: column;
   --crepe-font-default: var(--doc-sans);
   --crepe-font-title: var(--doc-sans);
   --crepe-font-code: 'Courier Prime', monospace;
@@ -1409,16 +1423,21 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   --crepe-color-on-inverse: var(--paper);
   --crepe-shadow-1: 2px 3px 0 var(--shadow-mid), 0 0 0 1px var(--dash);
 }
-.ed-rich .milkdown { min-height: 100%; background: transparent; }
+/* A flex chain, not min-height percentages: .ed-rich-doc sits under the
+   properties strip so its height is auto, and a percentage min-height would
+   resolve to nothing — each link stretches instead, so a short document
+   still fills the pane and clicking below the last line lands in it. */
+.ed-rich-doc { flex: 1 0 auto; display: flex; flex-direction: column; min-width: 0; }
+.ed-rich .milkdown { flex: 1 0 auto; display: flex; flex-direction: column; background: transparent; }
 .ed-rich .milkdown .ProseMirror.editor {
   /* ProseMirror names its editable element `editor`; Nami's card root has the
      same class. Reset the card's absolute flex layout here or the document is
      positioned like a second full card, leaving a large empty band above it. */
-  position: relative; inset: auto; display: block; flex: none;
+  position: relative; inset: auto; display: block; flex: 1 0 auto;
   /* Read's padding exactly — Edit and Read are the same page, and a 22px
      shift between tabs reads as two documents. Crepe's block handle hangs
      in this same 22px gutter (margin-left below). */
-  min-height: 100%; max-width: none; margin: 0;
+  max-width: none; margin: 0;
   padding: 16px 22px 24px; line-height: 1.72; caret-color: var(--ink);
 }
 /* Headings sized for the clean text face, mirroring .md-read exactly —
@@ -1463,11 +1482,6 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 .ed-rich-error small { max-width: 52ch; color: var(--faint); text-align: center; }
 
-.ed-rich-tools {
-  flex: none; position: relative; align-items: center; gap: 9px; padding: 5px 10px;
-  border-bottom: 1px dashed var(--dash); background: var(--paper-3); color: var(--muted);
-  font-size: 10.5px; z-index: 4;
-}
 .ed-pane { flex: 1; min-height: 0; display: grid; grid-template-columns: 48px 1fr; }
 .ed-gutter { overflow: hidden; padding: 10px 8px 10px 0; text-align: right;
   font-family: 'Courier Prime', monospace;

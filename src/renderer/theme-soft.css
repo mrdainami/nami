@@ -341,9 +341,8 @@ body[data-soft] .card-tab.active {
 body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
 /* No ribbon: the bar keeps the tile's own fill and follows its bottom curve,
    so the pills are the only raised things — a square band would fight the
-   18px corner it sits inside. Same story for the Edit-mode tools strip. */
+   18px corner it sits inside. */
 body[data-soft] .ed-bar { border-top: 0; background: var(--paper); border-radius: 0 0 var(--sf-r) var(--sf-r); }
-body[data-soft] .ed-rich-tools { border-bottom: 0; background: transparent; }
 body[data-soft] .ed-gutter { color: var(--faint); background: none; }
 body[data-soft] .ed-stack,
 body[data-soft] .ql-lines,
