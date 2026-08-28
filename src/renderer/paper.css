@@ -1319,7 +1319,6 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   margin-left: auto; flex: none; text-transform: none; letter-spacing: 0.03em; color: var(--muted-3);
 }
 .fmp-slim--bare { cursor: default; }
-.fmp-slim--bare:hover { color: var(--muted); }
 .fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;

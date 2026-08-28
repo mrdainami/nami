@@ -3176,18 +3176,31 @@ function mountEditor(p, rec) {
     openDocLink(a.getAttribute('href'), p, read);
   });
 
+  // Lines soft-wrap to the pane, so a logical line can be several rows tall.
+  // The hidden measure layer shares every glyph metric with the textarea (the
+  // `.ed-hl, .ed-area, .ed-measure` rule), so the browser itself reports each
+  // line's wrapped height — no font arithmetic to drift. Heights are read at
+  // subpixel precision: offsetHeight rounds, and at --doc-scale 1.15 a
+  // systematic 0.3px per line has the gutter a row off by line 100.
+  let edLast = null;   // {value, width, scale} of the last full measure
   const sync = () => {
-    // Lines soft-wrap to the pane, so a logical line can be several rows tall.
-    // The hidden measure layer shares every glyph metric with the textarea
-    // (the `.ed-hl, .ed-area, .ed-measure` rule), so the browser itself
-    // reports each line's wrapped height — no font arithmetic to drift.
-    const lines = ta.value.split('\n');
-    measure.innerHTML = lines.map((l) => `<div>${l ? esc(l) : '&#8203;'}</div>`).join('');
-    const rows = measure.children;
-    gutter.innerHTML = lines.map((_, i) => `<div style="height:${rows[i].offsetHeight}px">${i + 1}</div>`).join('');
+    const value = ta.value;
+    const width = measure.clientWidth;
+    const scale = docScaleOf(p);
+    const dirty = !edLast || edLast.value !== value;
+    if (dirty) {
+      measure.innerHTML = value.split('\n').map((l) => `<div>${l ? esc(l) : '&#8203;'}</div>`).join('');
+      // the underlay only ever mirrors the textarea, so it can't drift
+      hl.innerHTML = md ? highlightMarkdown(value) : '';
+    }
+    // A pure resize re-wraps the measure layer by itself; only the heights
+    // need re-reading — skipping the reparse keeps tile-drag cheap.
+    if (dirty || edLast.width !== width || edLast.scale !== scale) {
+      const rows = measure.children;
+      gutter.innerHTML = Array.from(rows, (r, i) => `<div style="height:${r.getBoundingClientRect().height}px">${i + 1}</div>`).join('');
+    }
+    edLast = { value, width, scale };
     gutter.scrollTop = ta.scrollTop;
-    // the underlay only ever mirrors the textarea, so it can't drift
-    hl.innerHTML = md ? highlightMarkdown(ta.value) : '';
     hl.scrollTop = ta.scrollTop;
   };
   rec.edSync = sync;

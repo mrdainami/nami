@@ -306,7 +306,8 @@ body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h6 {
 /* every surface that shows a file's text follows the terminal's face; the
    underlay pair is one rule on purpose — tests/editor-underlay.test.mjs */
 body[data-theme="operator"] .ed-hl,
-body[data-theme="operator"] .ed-area { font-family: var(--op-mono); }
+body[data-theme="operator"] .ed-area,
+body[data-theme="operator"] .ed-measure { font-family: var(--op-mono); }
 body[data-theme="operator"] .ed-gutter,
 body[data-theme="operator"] .md-read code,
 body[data-theme="operator"] .md-read .md-pre,

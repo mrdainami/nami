@@ -57,26 +57,28 @@ function declares(body) {
     .filter(Boolean);
 }
 
-test('nothing moves the glyphs of one editor layer without the other', () => {
+test('nothing moves the glyphs of one editor layer without the others', () => {
   const offenders = [];
   for (const sheet of SHEETS) {
     const css = fs.readFileSync(path.join(ROOT, 'src/renderer', sheet), 'utf8');
     for (const rule of rules(css)) {
       const hitsUnderlay = /\.ed-hl\b/.test(rule.selector);
       const hitsTextarea = /\.ed-area\b/.test(rule.selector);
-      if (!hitsUnderlay && !hitsTextarea) continue;
-      if (hitsUnderlay && hitsTextarea) continue;       // shared: that is the mechanism
+      const hitsMeasure = /\.ed-measure\b/.test(rule.selector);
+      if (!hitsUnderlay && !hitsTextarea && !hitsMeasure) continue;
+      if (hitsUnderlay && hitsTextarea && hitsMeasure) continue;  // shared: that is the mechanism
       for (const prop of declares(rule.body).filter((p) => MOVES_GLYPHS.includes(p))) {
         offenders.push(`${sheet}  ${rule.selector}  declares  ${prop}`);
       }
     }
   }
   assert.deepEqual(offenders, [], offenders.length
-    ? `These move one layer's glyphs and not the other's:\n  ${offenders.join('\n  ')}\n\n`
-      + 'The caret lives in .ed-area; the letters you see are painted by .ed-hl.\n'
-      + 'Anything that changes glyph width or position has to be declared for both\n'
-      + '(the `.ed-hl, .ed-area` rule) or for neither. Colour, font-weight and\n'
-      + 'font-style are safe and stay allowed.'
+    ? `These move one layer's glyphs and not the others':\n  ${offenders.join('\n  ')}\n\n`
+      + 'The caret lives in .ed-area; the letters you see are painted by .ed-hl;\n'
+      + 'the gutter takes its wrapped row heights from .ed-measure. Anything that\n'
+      + 'changes glyph width or position has to be declared for all three (the\n'
+      + '`.ed-hl, .ed-area, .ed-measure` rule) or for none. Colour, font-weight\n'
+      + 'and font-style are safe and stay allowed.'
     : '');
 });
 
@@ -96,15 +98,19 @@ const MUST_BE_PINNED = [
   'font-family', 'font-size', 'line-height',
   'letter-spacing', 'word-spacing',   // inherited, and reset on form controls
   'white-space', 'tab-size',
-  'overflow-wrap',                    // soft wrap: both layers must break alike
-  'scrollbar-gutter',                 // reserved alike, or wrap widths diverge
+  'overflow-wrap',                    // soft wrap: the layers must break alike
 ];
 
 test('the shared rule pins every metric a theme could inherit into one layer', () => {
   const css = fs.readFileSync(path.join(ROOT, 'src/renderer/paper.css'), 'utf8');
   const shared = rules(css).find((r) =>
-    /\.ed-hl\b/.test(r.selector) && /\.ed-area\b/.test(r.selector));
-  assert.ok(shared, 'the `.ed-hl, .ed-area` rule has gone — the layers are no longer paired');
+    /\.ed-hl\b/.test(r.selector) && /\.ed-area\b/.test(r.selector) && /\.ed-measure\b/.test(r.selector));
+  assert.ok(shared, 'the `.ed-hl, .ed-area, .ed-measure` rule has gone — the layers are no longer paired');
+  // Not inherited, so no theme can split it from body — pinned anyway, because
+  // deleting it from the shared rule would let the textarea's classic
+  // scrollbar shrink its wrap width while the other layers keep the full one.
+  assert.ok(declares(shared.body).includes('scrollbar-gutter'),
+    'the shared rule must reserve the scrollbar gutter on every layer alike');
 
   const declared = declares(shared.body);
   const missing = MUST_BE_PINNED.filter((p) => !declared.includes(p));
