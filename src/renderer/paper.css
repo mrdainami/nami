@@ -1304,7 +1304,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    Frontmatter as a form above the document — Obsidian's Properties, in paper.
    Token-driven throughout so all four themes follow. */
 .ed-fm { flex: none; max-height: 42%; overflow-y: auto; padding: 10px 22px 0 44px; }
-.fmp { max-width: 76ch; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
+.fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;
   font-family: 'Courier Prime', monospace; font-size: 10.5px; letter-spacing: 0.08em;
@@ -1365,7 +1365,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   background: none; border: 1px dashed var(--dash-dark); opacity: 0.65; transition: opacity 0.12s;
 }
 .fmp-add { margin-top: 8px; }
-.fmp-ghost { max-width: 76ch; padding: 8px 0; opacity: 0.55; border-color: var(--dash); }
+.fmp-ghost { max-width: none; padding: 8px 0; opacity: 0.55; border-color: var(--dash); }
 .fmp-add:hover, .fmp-ghost:hover { opacity: 1; background: var(--hover); color: var(--ink); }
 .fmp-draft { background: var(--amber-bg); outline: 1px dashed var(--amber-line); outline-offset: 2px; margin: 6px 0; padding: 5px 4px; align-items: center; }
 .fmp-draft .fmp-key { padding-top: 0; }
@@ -1380,7 +1380,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .fmp-flash { animation: fmp-flash 1.2s ease-out; }
 @keyframes fmp-flash { 0%, 60% { background: var(--amber-bg); } 100% { background: transparent; } }
 .fmp-broken {
-  max-width: 76ch; padding: 7px 12px; border: 1px dashed var(--amber-line); background: var(--amber-bg);
+  max-width: none; padding: 7px 12px; border: 1px dashed var(--amber-line); background: var(--amber-bg);
   color: var(--amber-ink); font-family: 'Courier Prime', monospace; font-size: 11.5px;
 }
 
