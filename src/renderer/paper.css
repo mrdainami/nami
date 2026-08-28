@@ -1316,6 +1316,8 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 .fmp-slim .fmp-slim-hint {
   margin-left: auto; flex: none; text-transform: none; letter-spacing: 0.03em; color: var(--faint);
+  /* an editor hint, not part of the properties control — clicks fall through */
+  pointer-events: none;
 }
 .fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
@@ -1386,7 +1388,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 .fmp-draft .fmp-key input { font-family: 'Courier Prime', monospace; font-size: 11.5px; }
 .fmp-draft .fmp-key input:focus, .fmp-draft .fmp-val input:focus { border-style: solid; border-color: var(--field-line); }
-.fmp-hint { flex: none; font-family: 'Courier Prime', monospace; font-size: 9.5px; color: var(--amber-ink); padding-top: 7px; white-space: nowrap; }
+.fmp-hint { flex: none; font-family: 'Courier Prime', monospace; font-size: 10.5px; color: var(--amber-ink); padding-top: 7px; white-space: nowrap; }
 .fmp-flash { animation: fmp-flash 1.2s ease-out; }
 @keyframes fmp-flash { 0%, 60% { background: var(--amber-bg); } 100% { background: transparent; } }
 .fmp-broken {
