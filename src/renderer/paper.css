@@ -1442,6 +1442,11 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   max-width: none; margin: 0;
   padding: 16px 22px 24px; line-height: 1.72; caret-color: var(--ink);
 }
+/* Read's vertical rhythm too: first block flush to the top like
+   .md-read > :first-child, and paragraphs on Read's 11px margin instead of
+   Crepe's 4px paddings — otherwise the two panes drift apart line by line. */
+.ed-rich .milkdown .ProseMirror > :first-child { margin-top: 0; }
+.ed-rich .milkdown .ProseMirror p { padding: 0; margin: 0 0 11px; }
 /* Headings sized for the clean text face, mirroring .md-read exactly —
    Crepe's own scale (2.625em h1) was tuned for a display font. */
 .ed-rich .milkdown .ProseMirror h1, .ed-rich .milkdown .ProseMirror h2,
@@ -1474,7 +1479,14 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   background: var(--green); opacity: 0; transition: opacity 0.12s;
 }
 .ed-rich .nami-col-resize:hover::after, .ed-rich .nami-col-resize.live::after { opacity: 1; }
-.ed-rich .milkdown .milkdown-block-handle { margin-left: -18px; }
+/* Crepe draws the handle 66px wide (two 32px buttons side by side) and floats
+   it 16px left of the text — at a 22px gutter that clipped it entirely (and at
+   the old 44px gutter, all but 10px of it). Stack the two buttons vertically
+   at gutter width and walk the float back, so the whole handle lives in the
+   22px between pane edge and text. */
+.ed-rich .milkdown .milkdown-block-handle { margin-left: 0; flex-direction: column; }
+.ed-rich .milkdown .milkdown-block-handle .operation-item { width: 22px; height: 22px; padding: 3px; }
+.ed-rich .milkdown .milkdown-block-handle .operation-item svg { width: 16px; height: 16px; }
 .ed-rich .milkdown .milkdown-toolbar { max-width: calc(100% - 12px); overflow-x: auto; }
 .ed-rich .milkdown .milkdown-block-handle[data-show="false"],
 .ed-rich .milkdown .milkdown-slash-menu[data-show="false"] { pointer-events: none; }
