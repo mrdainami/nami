@@ -1303,7 +1303,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 /* ---- the properties strip ---------------------------------------------------
    Frontmatter as a form above the document — Obsidian's Properties, in paper.
    Token-driven throughout so all four themes follow. */
-.ed-fm { flex: none; max-height: 42%; overflow-y: auto; padding: 10px 22px 0 44px; }
+.ed-fm { flex: none; max-height: 42%; overflow-y: auto; padding: 10px 22px 0; }
 .fmp { max-width: none; border: 1px dashed var(--dash-dark); background: var(--paper-3); }
 .fmp-head {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; user-select: none;
@@ -1415,10 +1415,11 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
      same class. Reset the card's absolute flex layout here or the document is
      positioned like a second full card, leaving a large empty band above it. */
   position: relative; inset: auto; display: block; flex: none;
-  /* Left-aligned like Read — Edit and Read are the same page now, not two
-     apps. The extra left padding is the gutter Crepe's block handle needs. */
+  /* Read's padding exactly — Edit and Read are the same page, and a 22px
+     shift between tabs reads as two documents. Crepe's block handle hangs
+     in this same 22px gutter (margin-left below). */
   min-height: 100%; max-width: none; margin: 0;
-  padding: 16px 22px 60px 44px; line-height: 1.72; caret-color: var(--ink);
+  padding: 16px 22px 24px; line-height: 1.72; caret-color: var(--ink);
 }
 /* Headings sized for the clean text face, mirroring .md-read exactly —
    Crepe's own scale (2.625em h1) was tuned for a display font. */

@@ -292,6 +292,17 @@ body[data-theme="operator"] .md-read h2 { font-size: 1.462em; }   /* 19/13 */
 body[data-theme="operator"] .md-read h3 { font-size: 1.154em; }   /* 15/13 */
 body[data-theme="operator"] .md-read h4, body[data-theme="operator"] .md-read h5,
 body[data-theme="operator"] .md-read h6 { font-size: 1em; }
+/* Edit wears Read's clothes: the base sheet already matches their sizes, so
+   only operator's uppercase voice needs mirroring or the same heading grows
+   case and loses tracking the moment you switch tabs. */
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h1,
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h2,
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h3,
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h4,
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h5,
+body[data-theme="operator"] .ed-rich .milkdown .ProseMirror h6 {
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
 /* every surface that shows a file's text follows the terminal's face; the
    underlay pair is one rule on purpose — tests/editor-underlay.test.mjs */
 body[data-theme="operator"] .ed-hl,
