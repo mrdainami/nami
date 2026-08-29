@@ -2190,6 +2190,9 @@ function bumpDocFont(dir, p) {
     return { el, frac: room > 0 ? el.scrollTop / room : 0 };
   }) : [];
   applyDocScale(p, rec);
+  // New scale means new wrap points — remeasure the gutter before the scroll
+  // position is put back, or the fraction lands against stale heights.
+  if (rec && rec.edSync) rec.edSync();
   requestAnimationFrame(() => {
     for (const m of marks) {
       const room = m.el.scrollHeight - m.el.clientHeight;
@@ -2943,9 +2946,9 @@ function mountEditor(p, rec) {
     : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
   wrap.innerHTML = `${tabs}
     <div class="ed-read md-read"></div>
-    ${rich ? `<div class="ed-rich-tools"><span>Type / for blocks · select text to format</span></div><div class="ed-fm"></div><div class="ed-rich"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div>` : ''}
+    ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
-      <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
+      <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><pre class="ed-measure" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
     <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
   wrap.classList.toggle('editor--md', md);
   wrap.classList.toggle('editor--rich', rich);
@@ -2954,7 +2957,11 @@ function mountEditor(p, rec) {
 
   const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
   const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
-  const richRoot = q('.ed-rich', wrap);
+  const measure = q('.ed-measure', wrap);
+  // Milkdown owns this node's children (it wipes innerHTML on load), so the
+  // properties strip lives beside it, not inside it — both scroll together
+  // because .ed-rich is the scroller.
+  const richDoc = q('.ed-rich-doc', wrap);
   rec.ta = ta; rec.gutter = gutter;
   ta.value = p.text || '';
   let richEditor = null;
@@ -2985,7 +2992,9 @@ function mountEditor(p, rec) {
   // keeps that contract). Every edit rewrites only its own lines in p.text.
   const fmRoot = q('.ed-fm', wrap);
   let fmDraft = null;                 // {key, val} while a property is being born
-  if (p.fmOpen == null) p.fmOpen = true;
+  // Closed by default: a document opens as a document, not as a form. The
+  // choice sticks to the panel, so reopening the same file keeps it.
+  if (p.fmOpen == null) p.fmOpen = false;
   const fmWrite = (mutate) => {
     const doc = parseDoc(p.text || '');
     if (doc.malformed) return;
@@ -3009,13 +3018,27 @@ function mountEditor(p, rec) {
   function renderFmStrip() {
     if (!fmRoot || !editsAsFrontmatter(p.filePath)) return;
     const doc = parseDoc(p.text || '');
+    const hint = '<span class="fmp-slim-hint">/ for blocks · select text to format</span>';
     if (doc.malformed) {
-      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div>`;
+      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div><div class="fmp-slim fmp-slim--bare">${hint}</div>`;
       return;
     }
-    if (!doc.hasFrontmatter && !fmDraft) {
-      fmRoot.innerHTML = `<button class="fmp-ghost">+ properties</button>`;
-      q('.fmp-ghost', fmRoot).onclick = () => { fmDraft = { key: '', val: '' }; renderFmStrip(); q('.fmp-dk', fmRoot)?.focus(); };
+    // Collapsed: one slim row previewing the keys, with the block-editor hint
+    // on its right end. It scrolls away with the document — the form only
+    // takes space while you are actually editing properties.
+    if (!fmDraft && (!p.fmOpen || !doc.hasFrontmatter)) {
+      p.fmOpen = false;
+      const keys = doc.entries.map((e) => e.key).filter(Boolean).join(' · ');
+      fmRoot.innerHTML = `<div class="fmp-slim"><span class="fmp-arr">▸</span> properties${keys ? `<span class="fmp-keys">${esc(keys)}</span>` : ''}${hint}</div>`;
+      q('.fmp-slim', fmRoot).onclick = (ev) => {
+        // the hint is an editor tip riding on the row's right end, not a
+        // properties control — a click on it should do nothing
+        if (ev.target.closest('.fmp-slim-hint')) return;
+        p.fmOpen = true;
+        if (!doc.hasFrontmatter) fmDraft = { key: '', val: '' };
+        renderFmStrip();
+        q('.fmp-dk', fmRoot)?.focus();
+      };
       return;
     }
     const rows = doc.entries.map((e, i) => {
@@ -3043,11 +3066,11 @@ function mountEditor(p, rec) {
         <span class="fmp-key"><input class="fmp-dk" placeholder="name" value="${esc(fmDraft.key)}"></span>
         <span class="fmp-val"><input class="fmp-dv" placeholder="value (can be empty)" value="${esc(fmDraft.val)}"></span>
         <span class="fmp-hint">Enter saves · Esc cancels</span></div>` : '';
-    fmRoot.innerHTML = `<div class="fmp" data-open="${!!p.fmOpen}">
+    fmRoot.innerHTML = `<div class="fmp">
       <div class="fmp-head"><span class="fmp-arr">▾</span> Properties<span class="fmp-count">${doc.entries.length} field${doc.entries.length === 1 ? '' : 's'}</span></div>
       <div class="fmp-body">${rows}${draft}${fmDraft ? '' : '<button class="fmp-add">+ add property</button>'}</div></div>`;
 
-    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = !p.fmOpen; renderFmStrip(); };
+    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = false; fmDraft = null; renderFmStrip(); };
     fmRoot.querySelectorAll('input[data-key]:not([type="checkbox"])').forEach((el) => {
       el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.value.trim())));
       el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.blur(); });
@@ -3110,8 +3133,8 @@ function mountEditor(p, rec) {
       return richEditor;
     }
     if (richLoading) return richLoading;
-    richRoot.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
-    richLoading = mountMarkdownEditor(richRoot, richBody(), {
+    richDoc.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
+    richLoading = mountMarkdownEditor(richDoc, richBody(), {
       resolveImage,
       // Session-only: GFM cannot store a column width, so dragged widths live
       // on the card and follow the document into the Read pane, nothing more.
@@ -3127,18 +3150,19 @@ function mountEditor(p, rec) {
     }).then((editor) => {
       if (disposed) { editor.destroy(); return null; }
       richEditor = editor; richLoading = null;
-      const loading = q('.ed-rich-loading', richRoot); if (loading) loading.remove();
+      const loading = q('.ed-rich-loading', richDoc); if (loading) loading.remove();
       if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
       return editor;
     }).catch((error) => {
       richLoading = null;
-      richRoot.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
+      richDoc.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
       return null;
     });
     return richLoading;
   };
   rec.disposeEditor = () => {
     disposed = true;
+    edRo.disconnect();
     if (richEditor) richEditor.destroy();
     richEditor = null;
   };
@@ -3152,14 +3176,38 @@ function mountEditor(p, rec) {
     openDocLink(a.getAttribute('href'), p, read);
   });
 
+  // Lines soft-wrap to the pane, so a logical line can be several rows tall.
+  // The hidden measure layer shares every glyph metric with the textarea (the
+  // `.ed-hl, .ed-area, .ed-measure` rule), so the browser itself reports each
+  // line's wrapped height — no font arithmetic to drift. Heights are read at
+  // subpixel precision: offsetHeight rounds, and at --doc-scale 1.15 a
+  // systematic 0.3px per line has the gutter a row off by line 100.
+  let edLast = null;   // {value, width, scale} of the last full measure
   const sync = () => {
-    const lines = ta.value.split('\n').length;
-    gutter.innerHTML = Array.from({ length: lines }, (_, i) => `<div>${i + 1}</div>`).join('');
+    const value = ta.value;
+    const width = measure.clientWidth;
+    const scale = docScaleOf(p);
+    const dirty = !edLast || edLast.value !== value;
+    if (dirty) {
+      measure.innerHTML = value.split('\n').map((l) => `<div>${l ? esc(l) : '&#8203;'}</div>`).join('');
+      // the underlay only ever mirrors the textarea, so it can't drift
+      hl.innerHTML = md ? highlightMarkdown(value) : '';
+    }
+    // A pure resize re-wraps the measure layer by itself; only the heights
+    // need re-reading — skipping the reparse keeps tile-drag cheap.
+    if (dirty || edLast.width !== width || edLast.scale !== scale) {
+      const rows = measure.children;
+      gutter.innerHTML = Array.from(rows, (r, i) => `<div style="height:${r.getBoundingClientRect().height}px">${i + 1}</div>`).join('');
+    }
+    edLast = { value, width, scale };
     gutter.scrollTop = ta.scrollTop;
-    // the underlay only ever mirrors the textarea, so it can't drift
-    hl.innerHTML = md ? highlightMarkdown(ta.value) : '';
-    hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft;
+    hl.scrollTop = ta.scrollTop;
   };
+  rec.edSync = sync;
+  // Wrap points move whenever the pane is resized — tile drag, expand, rail
+  // collapse — and the gutter has to follow.
+  const edRo = new ResizeObserver(() => sync());
+  edRo.observe(q('.ed-stack', wrap));
   const applyMode = () => {
     wrap.dataset.mode = p.edMode;
     if (p.edMode === 'read') {
@@ -3216,7 +3264,7 @@ function mountEditor(p, rec) {
   };
 
   ta.addEventListener('input', () => { p.text = ta.value; markDirty(); if (rich) richStale = true; sync(); });
-  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; });
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; });
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
     // insertText, not an assignment to ta.value: assigning replaces the field's

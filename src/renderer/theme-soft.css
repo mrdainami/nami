@@ -339,7 +339,10 @@ body[data-soft] .card-tab.active {
   color: var(--ink); background: var(--paper); box-shadow: var(--sf-press);
 }
 body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(--sf-r); }
-body[data-soft] .ed-bar { border-top: 0; background: var(--paper); }
+/* No ribbon: the bar keeps the tile's own fill and follows its bottom curve,
+   so the pills are the only raised things — a square band would fight the
+   18px corner it sits inside. */
+body[data-soft] .ed-bar { border-top: 0; background: var(--paper); border-radius: 0 0 var(--sf-r) var(--sf-r); }
 body[data-soft] .ed-gutter { color: var(--faint); background: none; }
 body[data-soft] .ed-stack,
 body[data-soft] .ql-lines,
