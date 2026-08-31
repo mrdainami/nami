@@ -98,6 +98,45 @@ test('a scanned path with awkward characters is quoted for the shell', () => {
   forgetBins();
 });
 
+// Chat uses spawn(), not a shell. A bare program name the scan already found
+// becomes that path, unquoted. Absolute paths (the Claude adapter) and names
+// the scan does not know stay as they arrived.
+test('resolveSpawnProgram swaps a known bare name for the scanned path', () => {
+  const { resolveSpawnProgram } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'grok', bin: 'grok', found: true, path: '/Users/x/.local/bin/grok' }]);
+  assert.equal(resolveSpawnProgram('grok'), '/Users/x/.local/bin/grok');
+  assert.equal(resolveSpawnProgram('kimi'), 'kimi');
+  assert.equal(resolveSpawnProgram('npx'), 'npx');
+  forgetBins();
+});
+
+test('resolveSpawnProgram leaves an absolute path alone', () => {
+  const { resolveSpawnProgram } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'claude', found: true, path: '/Users/x/.local/bin/claude' }]);
+  assert.equal(
+    resolveSpawnProgram('/opt/adapter/claude-agent-acp'),
+    '/opt/adapter/claude-agent-acp',
+  );
+  forgetBins();
+});
+
+test('resolveSpawnProgram does not quote for the shell', () => {
+  const { resolveSpawnProgram } = require('../src/main/bin-cache.js');
+  forgetBins();
+  rememberBins([{ id: 'grok', bin: 'grok', found: true, path: '/Users/x/My Tools/grok' }]);
+  assert.equal(resolveSpawnProgram('grok'), '/Users/x/My Tools/grok');
+  forgetBins();
+});
+
+test('resolveSpawnProgram survives the empty and the strange', () => {
+  const { resolveSpawnProgram } = require('../src/main/bin-cache.js');
+  assert.equal(resolveSpawnProgram(''), '');
+  assert.equal(resolveSpawnProgram(undefined), '');
+  assert.equal(resolveSpawnProgram('grok agent'), 'grok agent');
+});
+
 // ---- spawn flags -----------------------------------------------------------
 // grok paints a full-screen TUI by default, which sits on top of the Nami
 // theme instead of inside it; --minimal makes it print into the tile's own
