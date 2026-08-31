@@ -104,7 +104,11 @@ export function mountChatPane(p, rec, hooks) {
   }
 
   async function sendPrompt(text, view) {
-    if (!state.connected || state.busy) return;
+    if (state.busy) return;
+    if (!state.connected) {
+      transcript.error('The agent isn’t connected yet. Wait a moment, or close this pane and start a new session.');
+      return;
+    }
     transcript.userTurn(view && view.display !== undefined ? view.display : text, view && view.files);
     state.busy = true; composer.setBusy(true); transcript.setBusy(true);
     p.working = true; if (hooks.status) hooks.status(p);
