@@ -6,24 +6,27 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+const { resolveSpawnProgram } = require('./bin-cache');
+const { userPath } = require('./user-path');
 
 const procs = new Map();
 
 function wireAcpLive(ipcMain) {
-  ipcMain.handle('acp:start', (e, { id, cwd, command, args }) => {
+  ipcMain.handle('acp:start', async (e, { id, cwd, command, args }) => {
     if (procs.has(id)) return { ok: true };
-    let cmd = command, cmdArgs = args || [];
+    let cmd = resolveSpawnProgram(command), cmdArgs = args || [];
     // the claude bridge may not be installed locally — fetch-and-run instead
     if (path.isAbsolute(cmd) && !fs.existsSync(cmd)) {
       if (cmd.includes('claude-agent-acp')) { cmd = 'npx'; cmdArgs = ['-y', '@agentclientprotocol/claude-agent-acp']; }
       else return { ok: false, error: 'not installed: ' + path.basename(cmd) };
     }
     const runCwd = cwd && fs.existsSync(cwd) ? cwd : process.env.HOME;
+    const envPath = await userPath();
     let proc;
     try {
       proc = spawn(cmd, cmdArgs, {
         cwd: runCwd,
-        env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '') },
+        env: { ...process.env, PATH: envPath || ('/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '')) },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {

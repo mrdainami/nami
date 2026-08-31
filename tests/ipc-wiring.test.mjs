@@ -46,3 +46,14 @@ test('agents:status hands stored Keys to grok so an API key counts as signed in'
   assert.match(mainSrc, /ipcMain.handle\('agents:status'/);
   assert.match(mainSrc, /agentStatus\(id,\s*\{\s*envKeys:\s*storedEnvKeys\(\)\s*\}/);
 });
+
+test('Chat spawn uses the scanned program and the login PATH', () => {
+  const acpLive = fs.readFileSync(path.join(root, 'src/main/acp-live.js'), 'utf8');
+  assert.match(acpLive, /resolveSpawnProgram\(command\)/);
+  assert.match(acpLive, /userPath\(\)/);
+  assert.doesNotMatch(
+    acpLive,
+    /PATH: '\/opt\/homebrew\/bin:\/usr\/local\/bin:' \+ \(process\.env\.PATH/,
+    'Dock stub PATH is the fallback, not the spawn default',
+  );
+});
