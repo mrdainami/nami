@@ -95,6 +95,16 @@ function resolveRunCommand(command) {
   return head + (m[2] || '');
 }
 
+// Chat (and anything else that spawn()s a program, not a shell line) needs
+// the scanned path without quoting. resolveRunCommand above quotes for a
+// typed shell; a quoted string as spawn's first argument is a file that
+// does not exist. Absolute paths (the Claude adapter) pass through.
+function resolveSpawnProgram(command) {
+  const s = String(command || '');
+  if (!s || !/^[A-Za-z][\w.-]*$/.test(s)) return s;
+  return knownBin(s) || s;
+}
+
 // ---- spawn flags -----------------------------------------------------------
 // Flags Nami always adds when it spawns a given agent, as opposed to anything
 // the user or the resume path asked for.
@@ -129,4 +139,4 @@ function withSpawnFlags(command) {
   return missing.length ? m[1] + ' ' + missing.join(' ') + tail : s;
 }
 
-module.exports = { rememberBins, knownBin, forgetBins, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags, SPAWN_FLAGS };
+module.exports = { rememberBins, knownBin, forgetBins, resolveClaudeExecutable, resolveRunCommand, resolveSpawnProgram, withSpawnFlags, SPAWN_FLAGS };
