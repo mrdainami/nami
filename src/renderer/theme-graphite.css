@@ -89,6 +89,10 @@ body[data-theme="graphite"] {
     inset 0 14px 30px rgba(255, 255, 255, 0.05),
     inset 0 -14px 30px rgba(0, 0, 0, 0.3),
     inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  /* the theme's link colour, named so the shared body[data-glass] rules can
+     reach it — the whole quick start panel comes from there, this file adds
+     no .qs- rule of its own */
+  --gl-link: #6f9dff;
   --nami-fill: #ef6461;
   --nami-foam: #ffffff;
   --nami-eye: #ececf1;
@@ -109,16 +113,6 @@ body[data-theme="graphite"] a { color: #6f9dff; }
 body[data-theme="graphite"] .nami-mascot { filter: drop-shadow(0 2px 6px rgba(239, 100, 97, 0.45)); }
 body[data-theme="graphite"] .viewer .vw-stage--dark { background: #000; }
 body[data-theme="graphite"] .say--user { color: #d9dae2; }
-
-/* The quick start is a reading panel, so it takes the modal fill rather than
-   the 44% pane wash — at that opacity the desk shows through the words. Blur
-   to match the other modals in this file. */
-body[data-theme="graphite"] .qs-box {
-  background: var(--gl-pane-modal);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
-  backdrop-filter: blur(16px) saturate(1.5);
-  border: 1px solid var(--gl-rim);
-}
 
 /* markdown editor: paper's .hl-link literal (#2f5c8a) is a light-desk blue —
    ~2.4:1 on the smoke well, links highlighted into invisibility. Graphite's

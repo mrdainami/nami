@@ -102,6 +102,9 @@ body[data-theme="glass"] {
     inset 0 14px 30px rgba(255, 255, 255, 0.3),
     inset 0 -14px 30px rgba(96, 108, 148, 0.12),
     inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  /* the theme's link colour, named so the shared body[data-glass] rules can
+     reach it — graphite answers with its own */
+  --gl-link: #3763c9;
   --nami-fill: #ef6461;
   --nami-foam: #ffffff;
   --nami-eye: #1d1d22;
@@ -176,6 +179,7 @@ body[data-glass] .approval .title,
 body[data-glass] .stopped .title,
 body[data-glass] .artifacts .title,
 body[data-glass] .modal-head .title,
+body[data-glass] .qs-head .title,
 body[data-glass] .card-lbl,
 body[data-glass] .ab-name,
 body[data-glass] .board-title,
@@ -223,7 +227,8 @@ body[data-glass] .lane-empty .polaroid {
 }
 body[data-glass] .card-head .goal { font-size: 13px; letter-spacing: 0.03em; }
 body[data-glass] .approval .title, body[data-glass] .stopped .title,
-body[data-glass] .artifacts .title, body[data-glass] .modal-head .title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .artifacts .title, body[data-glass] .modal-head .title,
+body[data-glass] .qs-head .title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.3; }
 body[data-glass] .card-lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
 body[data-glass] .ab-name { font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
 body[data-glass] .ab-link { color: var(--gl-accent, #2e7d4f); }
@@ -661,15 +666,65 @@ body[data-glass] .theme-opt.picked .theme-dot { border-color: var(--gl-accent); 
 body[data-glass] .ctx-item { border-radius: 10px; }
 body[data-glass] .ctx-item:hover { background: var(--hover); }
 
-/* The quick start is a reading panel, so it takes the modal fill rather than
-   the 44% pane wash — at that opacity the desk shows through the words. Blur
-   to match the other modals in this file. */
+/* ---- the quick start panel ---------------------------------------------- */
+/* It arrived here as a reading panel that had only been given the modal fill —
+   which left it wearing paper's square corners and its 10px 12px 0 brown offset
+   shadow inside a theme of 24px frosted slabs. Nothing below is a new value:
+   every one is already used by the surface this panel is a kind of. Graphite is
+   a pure token remap, so this one block dresses both glass-family themes and
+   theme-graphite.css carries no .qs- rule at all. */
 body[data-glass] .qs-box {
   background: var(--gl-pane-modal);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
-  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(34px) saturate(1.7);
+  backdrop-filter: blur(34px) saturate(1.7);
   border: 1px solid var(--gl-rim);
+  /* overflow, because the head and foot fill to the box edge and would
+     otherwise square off the corner they sit in */
+  border-radius: 24px; overflow: hidden;
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.32);
 }
+body[data-glass] .qs-head { padding: 16px 44px 14px 20px; border-bottom: 1px solid var(--dash); }
+/* the foot drops paper's --paper-3 wash: on a translucent modal a second fill
+   reads as a seam, and .modal-foot carries none either */
+body[data-glass] .qs-foot { padding: 12px 20px; border-top: 1px solid var(--dash); background: none; }
+/* Ruled paper is paper's texture. The 24px baseline it existed to serve goes
+   with it — glass sets its list rhythm in line-heights, not in a grid. */
+body[data-glass] .qs-body { padding: 14px; background-image: none; line-height: 1.5; }
+/* Fill, not line: the same move .tool-list, .key-row and .svc-card make. This
+   is why paper's rows carry no dividers and these need none either. */
+body[data-glass] .qs-row {
+  border-radius: 14px; background: var(--gl-pane-dim); border: 1px solid var(--gl-rim-dim);
+  padding: 12px 14px; margin: 0 0 8px;
+}
+body[data-glass] .qs-row:last-child { margin-bottom: 0; padding-bottom: 12px; }
+body[data-glass] .qs-n { color: var(--muted-2); font-family: var(--gl-mono); font-size: 10.5px; line-height: 1.5; }
+body[data-glass] .qs-t { line-height: 1.45; }
+body[data-glass] .qs-s { line-height: 1.5; margin-top: 3px; }
+body[data-glass] .qs-acts { height: auto; margin-top: 10px; gap: 8px; }
+/* the whole of .btn, type included — a sentence-case pill among uppercase ones
+   is the tell that gave the panel away */
+body[data-glass] .qs-mini {
+  height: auto; padding: 5px 13px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  border-radius: 999px; background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 4px 14px rgb(var(--gl-sh) / 0.07);
+}
+body[data-glass] .qs-mini--go {
+  color: #fff;
+  background: linear-gradient(150deg, rgba(255, 142, 136, 0.95) 0%, rgba(236, 88, 85, 0.92) 100%);
+  border-color: rgba(255, 180, 175, 0.9);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(160, 30, 30, 0.25),
+    0 0 0 1px rgba(239, 100, 97, 0.3),
+    0 0 8px rgba(239, 100, 97, 0.45),
+    0 0 12px rgba(239, 100, 97, 0.3);
+}
+/* --amber-btn is not a foreign colour in either theme — it is the wrong token
+   for a footer link, which each theme already answers with --gl-link */
+body[data-glass] .qs-link { color: var(--gl-link); text-decoration-color: var(--gl-rim-dim); }
+/* The ✕ needs nothing: it is class="t-btn ov-x", so the .t-btn rule above
+   already rounds and fills it. */
 
 /* The topbar's drop ladder (foot of paper.css) hides ? and the cog on narrow
    windows, but the icon-button restyle above sets display: grid at
