@@ -101,6 +101,7 @@ body[data-theme="operator"] .approval .title,
 body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title,
+body[data-theme="operator"] .qs-head .title,
 body[data-theme="operator"] .card-lbl,
 body[data-theme="operator"] .ab-name,
 body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
@@ -144,7 +145,9 @@ body[data-theme="operator"] .say--user { font-size: 13px; line-height: 1.6; colo
 body[data-theme="operator"] .approval .title,
 body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
-body[data-theme="operator"] .modal-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-theme="operator"] .modal-head .title,
+body[data-theme="operator"] .qs-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-theme="operator"] .qs-head .title { line-height: 1.3; }
 body[data-theme="operator"] .card-lbl { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
 body[data-theme="operator"] .ab-name { font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; }
 /* paper's green reads as dead here; the About links take the accent */
@@ -354,6 +357,40 @@ body[data-theme="operator"] .modal-foot { border-top: 1px solid var(--dash); }
 body[data-theme="operator"] .modal-x { border-radius: 5px; }
 body[data-theme="operator"] .picker-input { border-bottom: 1px solid var(--dash); }
 body[data-theme="operator"] .picker-row { border-bottom-color: var(--dash); }
+
+/* ---- the quick start panel ---------------------------------------------- */
+/* `.qs-` appeared nowhere in this file until now, so the ? panel was the one
+   surface in the theme still rendering as cream paper: square corners, a warm
+   brown offset shadow, a Caveat head and blue ruled lines. Nothing below is a
+   new value — each is the one this theme already uses for the surface the
+   panel is a kind of. */
+body[data-theme="operator"] .qs-box {
+  border-radius: 10px;
+  /* the head and foot fill to the box edge, so they need clipping to the corner */
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+/* .tile-head's treatment: a step of surface under a hairline, not a dashed rule */
+body[data-theme="operator"] .qs-head { padding: 15px 44px 13px 18px; border-bottom: 1px solid var(--dash); background: var(--paper-2); }
+body[data-theme="operator"] .qs-foot { padding: 12px 18px; border-top: 1px solid var(--dash); background: var(--paper-2); }
+/* Ruled paper is paper's texture, and the 24px baseline it served goes with it.
+   The rows carry the rhythm in line-heights instead. */
+body[data-theme="operator"] .qs-body { padding: 4px 0 0; background-image: none; line-height: 1.5; }
+/* a hairline between rows — the theme's own list idiom, from .picker-row,
+   .project-row and .tree-row. Paper's rows have no dividers only because ruled
+   paper does not carry them; with the rules gone the list needs its edges back. */
+body[data-theme="operator"] .qs-row { padding: 13px 18px; border-bottom: 1px solid var(--dash); }
+body[data-theme="operator"] .qs-row:last-child { border-bottom: 0; padding-bottom: 16px; }
+/* --amber-btn resolves to #ef6461 here: this theme maps the whole "needs you"
+   family to red. On the footer links that is right — it is also what .ab-link
+   resolves to. On five step ordinals it is not, so they step back to grey. */
+body[data-theme="operator"] .qs-n { color: var(--muted-3); line-height: 1.5; }
+body[data-theme="operator"] .qs-t { line-height: 1.45; }
+body[data-theme="operator"] .qs-s { line-height: 1.5; margin-top: 3px; }
+body[data-theme="operator"] .qs-acts { height: auto; margin-top: 10px; gap: 8px; }
+body[data-theme="operator"] .qs-mini { height: auto; padding: 5px 10px; border-radius: 6px; background: var(--paper-2); border: 1px solid var(--line); box-shadow: none; }
+body[data-theme="operator"] .qs-mini--go { border-color: var(--op-accent-hi); box-shadow: 0 0 10px rgba(239, 100, 97, 0.18); }
+/* The ✕ needs nothing: it is class="t-btn ov-x" and .t-btn is already 5px here. */
 body[data-theme="operator"] .text-input { box-shadow: none; border-radius: 6px; }
 body[data-theme="operator"] .pick-chip, body[data-theme="operator"] .who-tile, body[data-theme="operator"] .add-card { border-radius: 6px; }
 body[data-theme="operator"] .pick-chip:hover, body[data-theme="operator"] .who-tile:hover, body[data-theme="operator"] .add-card:hover { box-shadow: none; border-color: var(--dash-dark); }
