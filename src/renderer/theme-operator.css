@@ -389,7 +389,12 @@ body[data-theme="operator"] .qs-t { line-height: 1.45; }
 body[data-theme="operator"] .qs-s { line-height: 1.5; margin-top: 3px; }
 body[data-theme="operator"] .qs-acts { height: auto; margin-top: 10px; gap: 8px; }
 body[data-theme="operator"] .qs-mini { height: auto; padding: 5px 10px; border-radius: 6px; background: var(--paper-2); border: 1px solid var(--line); box-shadow: none; }
-body[data-theme="operator"] .qs-mini--go { border-color: var(--op-accent-hi); box-shadow: 0 0 10px rgba(239, 100, 97, 0.18); }
+/* the fill has to be restated: the .qs-mini rule above outranks paper's
+   .qs-mini--go, so without this the primary action loses its colour */
+body[data-theme="operator"] .qs-mini--go {
+  background: var(--green); border-color: var(--op-accent-hi); color: #f6f1e2;
+  box-shadow: 0 0 10px rgba(239, 100, 97, 0.18);
+}
 /* The ✕ needs nothing: it is class="t-btn ov-x" and .t-btn is already 5px here. */
 body[data-theme="operator"] .text-input { box-shadow: none; border-radius: 6px; }
 body[data-theme="operator"] .pick-chip, body[data-theme="operator"] .who-tile, body[data-theme="operator"] .add-card { border-radius: 6px; }
