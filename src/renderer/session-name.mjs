@@ -40,8 +40,12 @@ export function titleRank(source) {
 export function adoptTitle(current, incoming) {
   const title = String((incoming && incoming.title) || '').trim();
   if (!title) return null;
-  if (titleRank(incoming.source) <= titleRank(current && current.source)) return null;
   if (current && current.title === title) return null;
+  // The agent re-titles its own conversation as the work moves on; that is
+  // the same source updating itself, not a weaker one overriding. Every other
+  // tie holds: a flow's name stays, a second prompt guess never replaces the first.
+  const refresh = incoming.source === 'agent' && current && current.source === 'agent';
+  if (!refresh && titleRank(incoming.source) <= titleRank(current && current.source)) return null;
   return { title, source: incoming.source };
 }
 

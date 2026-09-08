@@ -27,9 +27,12 @@ function oscTitles(chunk) {
   return out;
 }
 
-// The status glyph claude prefixes: ✳ when idle, a braille frame while working.
-// It changes several times a second, so it must come off before comparing.
-const GLYPH_RE = /^[⠀-⣿✳✴·•●○∙*+\-]+\s*/;
+// The status glyph claude prefixes: ✳ when idle, a spinner frame while
+// working — braille in 2.1.226, ◐ ◑ by 2.1.263 (captured 2026-09-08). Listing
+// the frames was the bug: an unknown glyph let "◐ Claude Code" through as a
+// real name, which then outranked every name that followed. A name starts at
+// its first letter or digit; whatever precedes that is status.
+const GLYPH_RE = /^[^\p{L}\p{N}]+/u;
 
 // What claude shows before it has titled the conversation. Adopting it would
 // replace a useful prompt-derived label with a generic one, so it is not a name.

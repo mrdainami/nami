@@ -107,3 +107,8 @@ test('only deliberate names are pushed down into claude', () => {
   assert.equal(shouldPushName('agent'), false);    // it came from claude to begin with
   assert.equal(shouldPushName('generic'), false);
 });
+
+test("the agent's own name may move on — claude re-titles a conversation as the work changes", () => {
+  assert.deepEqual(adoptTitle({ title: 'Pong response', source: 'agent' }, { title: 'Fix the parser', source: 'agent' }),
+    { title: 'Fix the parser', source: 'agent' });
+});

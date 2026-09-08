@@ -3807,7 +3807,11 @@ async function restorePanels(snaps) {
 function seedTitleSource(p) {
   if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
     p.autoName = true;
-    p.titleSource = p.titleSource || 'generic';
+    // A generic title cannot have come from a prompt or the agent, whatever a
+    // snapshot says: desks saved before bare agent names counted as generic
+    // stamped "Codex" as a prompt name, and that stamp tied with the first
+    // real prompt. A flow's or your own name is never generic, so it is safe.
+    p.titleSource = 'generic';
   } else p.titleSource = p.titleSource || 'prompt';
 }
 function startPanel(opts) {
