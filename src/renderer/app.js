@@ -3800,6 +3800,16 @@ async function restorePanels(snaps) {
   renderAll();
 }
 
+// Where a new panel's name stands on the ladder (session-name.mjs). Chat cards
+// are built by hand in the agent picker rather than through startPanel, so this
+// is the one place both go through — a card born "Claude Code" must be as
+// nameable as a tile born "Claude session".
+function seedTitleSource(p) {
+  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
+    p.autoName = true;
+    p.titleSource = p.titleSource || 'generic';
+  } else p.titleSource = p.titleSource || 'prompt';
+}
 function startPanel(opts) {
   // Every session belongs to a folder. Without one the pty falls back to the
   // home directory (main.js term:create), which gives the agent the run of ~ and
@@ -3824,10 +3834,7 @@ function startPanel(opts) {
   // flow says 'flow' outright (agentSession) — everything else lands on the
   // weak sources, so a name nami merely guessed is never pushed into claude,
   // and a snapshot saved before any of this existed stays upgradable.
-  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
-    p.autoName = true;
-    p.titleSource = p.titleSource || 'generic';
-  } else p.titleSource = p.titleSource || 'prompt';
+  seedTitleSource(p);
   // Every claude panel owns a conversation id from birth (--session-id), so a
   // restore can bring back that conversation with --resume instead of --continue.
   // A cont-without-sid panel is the legacy --continue migration — minting an id
@@ -4051,6 +4058,7 @@ function renderLauncher() {
         const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
           : decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
         const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
+        seedTitleSource(np);
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();
         toast(a.name + ' \u2014 new chat session');
