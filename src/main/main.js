@@ -1574,7 +1574,11 @@ ipcMain.handle('session:watch-title', (e, { id, agent, cwd, sid }) => {
   return { ok: true };
 });
 
-ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
+ipcMain.handle('term:write', (_e, { id, data }) => {
+  const p = termSessions.get(id);
+  if (!p) return { ok: false };
+  try { p.write(data); return { ok: true }; } catch (_) { return { ok: false }; }
+});
 let ptyResizeN = 0;
 ipcMain.handle('term:resize', (_e, { id, cols, rows }) => {
   if (process.env.NAMI_PTY_LOG) {

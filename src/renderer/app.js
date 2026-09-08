@@ -30,6 +30,8 @@ import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
 import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
+import { selectionReference, appendDraft, terminalDraft } from './session-draft.mjs';
+
 const api = window.dainami;
 
 // Finder can send a file the instant the page finishes loading, which is well
@@ -2519,6 +2521,7 @@ function mountTile(p) {
   });
 
   if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
+  if (isFilePanel(p)) wireFileSelection(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -2541,6 +2544,7 @@ function refreshTileHead(p) {
   t.statusDot.style.background = m.color;
   t.root.classList.toggle('attention', !!p.attention);
   t.root.classList.toggle('exited', !!p.exited);
+  if (t.refreshDraft) t.refreshDraft();
 }
 
 // ---- terminal tiles --------------------------------------------------------
@@ -2658,6 +2662,7 @@ function mountTerminal(p, rec) {
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
+  mountSessionDraft(p, rec);
   // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
   // every frame the tile changes size. The delay that used to live here was
   // protecting the pty, and the pty has its own settle now — which is also why a
@@ -2669,6 +2674,115 @@ function mountTerminal(p, rec) {
     clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
     for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
+}
+
+// A selection is captured before opening a menu or moving keyboard focus.
+function captureFileSelection(p, rec) {
+  const ta = rec.ta;
+  if (ta && ta.getClientRects().length && ta.selectionEnd > ta.selectionStart) {
+    return selectionReference({ path: p.filePath || p.title, source: ta.value, start: ta.selectionStart, end: ta.selectionEnd });
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && rec.body.contains(selection.anchorNode) && rec.body.contains(selection.focusNode)) {
+    return selectionReference({ path: p.filePath || p.title, text: selection.toString() });
+  }
+  return null;
+}
+function wireFileSelection(p, rec) {
+  const bar = document.createElement('div'); bar.className = 'selection-actions'; bar.hidden = true;
+  const button = document.createElement('button'); button.className = 'btn'; bar.appendChild(button); rec.root.appendChild(bar);
+  const update = () => {
+    rec.selection = captureFileSelection(p, rec);
+    bar.hidden = !rec.selection;
+    if (rec.selection) button.textContent = (rec.selection.startLine ? `${rec.selection.endLine - rec.selection.startLine + 1} lines selected · ` : 'Selection · ') + 'Add to session… ⇧⌘↵';
+  };
+  rec.body.addEventListener('mouseup', update);
+  rec.body.addEventListener('keyup', update);
+  rec.body.addEventListener('select', update, true);
+  button.onmousedown = (e) => e.preventDefault();
+  button.onclick = () => openSelectionDraft(p, rec.selection);
+  rec.body.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+      update(); if (rec.selection) { e.preventDefault(); e.stopPropagation(); openSelectionDraft(p, rec.selection); }
+    }
+  });
+  rec.body.addEventListener('contextmenu', (e) => {
+    const selection = captureFileSelection(p, rec); if (!selection) return;
+    e.preventDefault(); e.stopPropagation();
+    const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+    showMenu(e.clientX, e.clientY, sessions.length ? sessions.map((s) => ({ label: `Send to ${s.title}…`, run: () => openSelectionDraft(p, selection, s.id) })) : [{ label: 'No open session', off: true }]);
+  });
+}
+function openSelectionDraft(p, selection, destination) {
+  if (!selection || !selection.text) return;
+  const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  if (!sessions.length) { toast('Open a session first.'); return; }
+  S.overlay = { type: 'selection-draft', selection, note: '', destination: destination || (sessions.some((s) => s.id === p.owner) ? p.owner : sessions[0].id) };
+  renderOverlay();
+}
+function renderSelectionDraft() {
+  const o = S.overlay;
+  const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  const modal = overlay('modal', `<div class="modal-head"><span class="title">Add selection to a draft</span></div>
+    <div class="modal-body selection-sheet"><label>Session<select id="selection-session">${sessions.map((s) => `<option value="${esc(s.id)}"${s.id === o.destination ? ' selected' : ''}>${esc(s.title)}</option>`).join('')}</select></label>
+    <div class="field-label">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
+    <label>Optional note<textarea id="selection-note" rows="3">${esc(o.note)}</textarea></label></div>
+    <div class="modal-foot"><span class="note">Appends to the draft. Nothing is sent yet.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Add to draft</button></div>`);
+  q('#selection-session', modal).onchange = (e) => { o.destination = e.target.value; };
+  q('#selection-note', modal).oninput = (e) => { o.note = e.target.value; };
+  q('#selection-cancel', modal).onclick = closeOverlay;
+  q('#selection-add', modal).onclick = () => {
+    const text = (o.note ? o.note + '\n\n' : '') + o.selection.reference + '\n\n' + o.selection.text;
+    if (stageSessionDraft(o.destination, text)) closeOverlay();
+  };
+  q('#selection-note', modal).focus();
+}
+function stageSessionDraft(id, text) {
+  const p = S.panels.find((s) => s.id === id && isSessionPanel(s) && !s.exited);
+  const rec = p && tileEls.get(id);
+  const input = rec && (rec.aiInput || rec.draftInput);
+  if (!input) { toast('That session is no longer available.'); return false; }
+  input.value = appendDraft(input.value, text);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  focusPanel(id); input.focus();
+  toast('Added to the session draft.');
+  return true;
+}
+function mountSessionDraft(p, rec) {
+  const box = document.createElement('div'); box.className = 'session-draft';
+  box.innerHTML = `<div class="draft-tools"><span class="note">Draft · sends to the current terminal input</span><button class="btn draft-jump" hidden>Jump to latest</button></div>
+    <textarea class="draft-input" rows="2" aria-label="Draft for ${esc(p.title)}" placeholder="Write while reading above…"></textarea>
+    <div class="draft-tools"><span class="note">Enter sends · Shift+Enter adds a line</span><button class="btn btn--go draft-send">Send</button></div>`;
+  rec.root.appendChild(box);
+  const input = q('.draft-input', box), send = q('.draft-send', box), jump = q('.draft-jump', box);
+  rec.draftInput = input; input.value = p.inputDraft || '';
+  let sending = false;
+  const update = () => {
+    rec.root.classList.toggle('has-draft', !!input.value);
+    input.disabled = sending || !!p.exited;
+    send.disabled = sending || !!p.exited || !input.value.trim();
+    jump.hidden = rec.term.buffer.active.viewportY >= rec.term.buffer.active.baseY;
+  };
+  rec.refreshDraft = update;
+  input.oninput = () => { p.inputDraft = input.value; update(); };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send.click(); }
+  };
+  send.onclick = async () => {
+    if (sending || p.exited || !input.value.trim()) return;
+    const data = terminalDraft(input.value, rec.term.modes.bracketedPasteMode);
+    if (data === null) { toast('This terminal does not support multiline paste. The draft is kept; use the terminal directly.'); return; }
+    sending = true; update();
+    try {
+      const result = await api.termWrite({ id: p.id, data });
+      if (!result || !result.ok) throw new Error('write failed');
+      clearAttention(p); if (p.autoName) feedSessionName(p, input.value + '\n');
+      input.value = ''; p.inputDraft = '';
+    } catch (_) { toast('Could not send. Your draft is still here.'); }
+    finally { sending = false; update(); }
+  };
+  jump.onclick = () => { rec.term.scrollToBottom(); update(); };
+  rec.term.onScroll(update); rec.term.onWriteParsed(update); update();
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -5142,6 +5256,7 @@ function renderOverlay() {
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
   if (!o) return;
+  if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
   if (o.type === 'peek') return renderPeek();

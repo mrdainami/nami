@@ -2396,3 +2396,20 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   .sheet.rail-peek .rail-tabs, .sheet.rail-peek #rail-content { display: flex; }
   .sheet.rail-peek .rail-strip { display: none; }
 }
+
+/* One composer edge belongs to the session, outside its scrollable output. */
+.session-draft { display: none; flex: none; padding: 10px 12px; border-top: 1px dashed var(--dash); background: var(--menu-sheet); }
+.main.is-split .session-draft, .tile.has-draft .session-draft { display: block; }
+.draft-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.draft-tools .note { font-size: 10px; color: var(--muted-2); }
+.session-draft .draft-input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; resize: vertical; max-height: 160px;
+  font: inherit; font-size: 12px; color: var(--ink); background: var(--paper); border: 1px dashed var(--dash); }
+.session-draft .draft-input:focus { outline: 1px solid var(--ink); border-style: solid; }
+.selection-actions { flex: none; padding: 6px 10px; border-top: 1px solid var(--dash); background: var(--menu-sheet); }
+.selection-actions[hidden], .draft-jump[hidden] { display: none; }
+.selection-actions .btn { font-size: 10px; }
+.selection-sheet label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.selection-sheet select, .selection-sheet textarea { padding: 8px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); }
+.selection-preview { white-space: pre-wrap; overflow: auto; max-height: 220px; font-size: 12px; padding: 10px; background: var(--paper-2); }
+.session-draft, .selection-actions { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+.draft-tools { flex-wrap: wrap; }
