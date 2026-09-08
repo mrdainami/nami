@@ -2397,26 +2397,19 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
   .sheet.rail-peek .rail-strip { display: none; }
 }
 
-/* One composer edge belongs to the session, outside its scrollable output. */
-.session-draft { display: none; flex: none; padding: 10px 12px; border-top: 1px dashed var(--dash); background: var(--menu-sheet); }
-.main.is-split .session-draft, .tile.has-draft .session-draft { display: block; }
-.draft-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.draft-tools .note { font-size: 10px; color: var(--muted-2); }
-.session-draft .draft-input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; resize: vertical; max-height: 160px;
-  font: inherit; font-size: 12px; color: var(--ink); background: var(--paper); border: 1px dashed var(--dash); }
-.session-draft .draft-input:focus { outline: 1px solid var(--ink); border-style: solid; }
 .selection-actions { flex: none; padding: 6px 10px; border-top: 1px solid var(--dash); background: var(--menu-sheet); }
-.selection-actions[hidden], .draft-jump[hidden] { display: none; }
+.selection-actions[hidden] { display: none; }
 .selection-actions .btn { font-size: 10px; }
 .selection-sheet label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .selection-sheet select, .selection-sheet textarea { padding: 8px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); }
 .selection-preview { white-space: pre-wrap; overflow: auto; max-height: 220px; font-size: 12px; padding: 10px; background: var(--paper-2); }
-.session-draft, .selection-actions { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
-.draft-tools { flex-wrap: wrap; }
+.session-images, .selection-actions { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .image-strip { display: flex; gap: 8px; overflow-x: auto; max-height: 118px; margin-bottom: 8px; }
 .image-strip[hidden] { display: none; }
 .image-attachment { display: flex; flex: none; flex-direction: column; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--dash); border-radius: 2px; }
 .image-attachment span { font-size: 10px; color: var(--muted-2); }
 .image-attachment .image-open { width: 96px; height: 64px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .image-open img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.image-attachment .image-remove { font: inherit; font-size: 10px; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
+.image-attachment .image-remove, .image-attachment .image-insert { font: inherit; font-size: 10px; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
+
+.session-images { flex: none; padding: 8px 12px; margin: 0; border-top: 1px solid var(--dash); background: var(--menu-sheet); }

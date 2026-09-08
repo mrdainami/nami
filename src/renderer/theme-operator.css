@@ -455,4 +455,4 @@ body[data-theme="operator"] .nav-card .count,
 body[data-theme="operator"] .viewsw { border-radius: 6px; }
 
 body[data-theme="operator"] .image-attachment { border-radius: 6px; }
-body[data-theme="operator"] .draft-input, body[data-theme="operator"] .image-remove { border-radius: 6px; }
+body[data-theme="operator"] .image-insert, body[data-theme="operator"] .image-remove { border-radius: 6px; }

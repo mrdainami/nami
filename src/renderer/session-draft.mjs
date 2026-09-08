@@ -9,8 +9,8 @@ export function selectionReference({ path = 'Untitled', source, start, end, text
   return result;
 }
 export function appendDraft(existing, text) { return existing ? existing + '\n\n' + text : text; }
-export function terminalDraft(text, bracketed) {
+export function terminalInsertion(text, bracketed) {
   const clean = String(text).replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
   if (clean.includes('\n') && !bracketed) return null;
-  return (bracketed ? '\x1b[200~' + clean + '\x1b[201~' : clean) + '\r';
+  return bracketed ? '\x1b[200~' + clean + '\x1b[201~' : clean;
 }
