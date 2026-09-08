@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('dainami', {
   disconnectService: (args) => ipcRenderer.invoke('services:disconnect', args),
   openUrl: (url) => ipcRenderer.invoke('url:open', url),
   themeSet: (theme) => ipcRenderer.invoke('theme:set', theme),
+  viewSet: (view) => ipcRenderer.invoke('view:set', view),
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsSet: (patch) => ipcRenderer.invoke('settings:set', patch),
   keysGet: () => ipcRenderer.invoke('keys:get'),

@@ -68,3 +68,9 @@ test('session:watch-title is exposed, handled, and called by the chat pane', () 
   assert.match(pane, /api\.sessionWatchTitle\(\{ id: p\.id, agent: p\.agentId \|\| 'claude', cwd: p\.cwd, sid: p\.acpSid \}\)/);
   assert.equal((pane.match(/watchTitle\(\);/g) || []).length, 2, 'after connect and after picking up a past session');
 });
+
+test('view:set is exposed, handled, and the boot payload carries the saved view', () => {
+  assert.match(preloadSrc, /viewSet:\s*\(view\)\s*=>\s*ipcRenderer\.invoke\('view:set', view\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('view:set'/);
+  assert.match(mainSrc, /view: settingsStore\.normalizeView\(readSettings\(\)\.view\)/);
+});

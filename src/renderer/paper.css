@@ -230,6 +230,10 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 /* the centre is the only part allowed to give ground; min-width:0 lets it */
 .topbar-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; position: relative; }
 .topbar-right { flex: none; display: flex; align-items: center; gap: 10px; }
+/* Desk / Split: the same two-chip control the rail uses for its tabs, so every
+   theme already knows how to draw it. Sits left of Agents. */
+.viewsw { display: flex; gap: 4px; }
+.viewsw .rail-tab { padding: 8px 13px; min-width: 54px; text-align: center; }
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;
@@ -405,6 +409,29 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 
 .rail-empty { padding: 8px 18px; font-size: 11.5px; color: var(--muted-2); line-height: 1.6; }
+
+/* ---- files under their session ------------------------------------------- */
+/* A session row carries a count that folds its files; the files sit indented
+   under it on a hairline. Each file row is a tree row — the small-row shape
+   every theme already draws — so nothing here names a colour. Loose files
+   (no live session) gather under a "Desk" heading at the end. */
+.nav-card .count {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto;
+  padding: 2px 5px; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted-3); border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+}
+.nav-card .count:hover { color: var(--ink); border-color: var(--dash-dark); }
+.nav-card .count .tw { display: inline-block; width: 10px; }
+.nav-card .count + .status { margin-left: 0; }
+.nav-card.drop-into, .nav-group.drop-into { background: var(--diff-add-bg); box-shadow: inset 0 0 0 1px var(--green-ok); }
+.nav-files { display: flex; flex-direction: column; margin: -4px 0 4px 20px; padding-left: 8px; border-left: 1px dashed var(--dash); }
+.nav-files--desk { margin-left: 6px; border-left: 0; padding-left: 0; }
+.nav-file { font-size: 11px; }
+.nav-file .code { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.nav-file .goal { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-file .status { margin-left: auto; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.nav-file.preview .goal { font-style: italic; opacity: 0.85; }
+.nav-group { padding: 8px 6px 2px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3); }
 
 .tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 14px; }
 .tree-path { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 10px; font-size: 11px; color: var(--muted); }
@@ -1031,6 +1058,29 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 /* Focused mode: one real 1fr row so the tile fills the canvas (percentage
    min-height resolves to auto against auto-sized grid rows and collapses). */
+/* ---- the split view --------------------------------------------------------
+   The grid hides; two panes take its place, inset exactly where desk cards
+   sit (26px, and 36px on the right where the desk's scroll gutter was). The
+   two cards inside are whole tiles, re-parented, so the head and body rules
+   above apply untouched; only their placement changes. */
+.main.is-split > .grid { display: none; }
+.paneview { flex: 1; min-height: 0; display: flex; padding: 12px 36px 24px 26px; }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pane-agent { flex: 0 0 var(--split, 46%); }
+.pane-files { flex: 1; }
+.pane > .tile { flex: 1; min-height: 0; height: auto; grid-area: auto; }
+.pane > .tile .tile-grip { display: none; }
+.pane-divider { flex: none; width: 20px; cursor: col-resize; position: relative; }
+.pane-divider::after { content: ""; position: absolute; left: 9px; top: 44px; bottom: 8px; width: 2px; background: var(--dash-dark); }
+.pane-divider:hover::after { background: var(--green); }
+.paneview.full-agent .pane-files, .paneview.full-agent .pane-divider,
+.paneview.full-files .pane-agent, .paneview.full-files .pane-divider { display: none; }
+.paneview.full-agent .pane-agent, .paneview.full-files .pane-files { flex: 1 1 auto; }
+.pane-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 24px; font-size: 12px; color: var(--muted-2); border: 1px dashed var(--dash);
+}
+
 .grid.has-focus { grid-template-columns: 1fr; grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
 .grid.has-focus .tile:not(.focused) { display: none; }
 /* An empty desk is one block, not a card: taken off the track grid entirely so

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { readSettings, writeSettings, normalizeTheme, themeBackground, THEMES, DEFAULT_THEME } from '../src/main/settings.js';
+import { readSettings, writeSettings, normalizeTheme, themeBackground, THEMES, DEFAULT_THEME, normalizeView, VIEWS } from '../src/main/settings.js';
 
 function tmpFile() {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nami-set-')), 'settings.json');
@@ -108,4 +108,11 @@ test('themeBackground maps every theme to its first-paint color', () => {
   assert.equal(themeBackground('dusk'), '#262a31');
   // unknown themes paint the default, matching normalizeTheme
   assert.equal(themeBackground('neon'), themeBackground(DEFAULT_THEME));
+});
+
+test('normalizeView knows desk and split and falls back to the desk', () => {
+  assert.deepEqual(VIEWS, ['desk', 'split']);
+  assert.equal(normalizeView('split'), 'split');
+  assert.equal(normalizeView('desk'), 'desk');
+  for (const bad of ['', null, undefined, 'focus', 42]) assert.equal(normalizeView(bad), 'desk');
 });
