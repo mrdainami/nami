@@ -197,6 +197,7 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   // Desk or Split (desk-view.mjs). split remembers what the two panes show.
   view: 'desk', split: { sessionId: null, fileId: null, last: {} },
+  railFold: new Set(),   // sessions whose file list is folded in the rail
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
@@ -1108,18 +1109,50 @@ function refreshSessionsRail(c) {
   c.appendChild(head);
   const cl = q('#clear-all', head); if (cl) cl.onclick = closeFinished;
   if (!S.panels.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No sessions yet. Press ⌘N, or type a message below.'; c.appendChild(e); return; }
+  // Sessions first, each with the files that joined it folded under it; files
+  // with no live session last, under "Desk" (desk-view.mjs). In split the
+  // highlight follows the two panes, on the desk the card you last clicked.
   const list = document.createElement('div'); list.className = 'rail-list';
-  for (const p of S.panels) {
-    const m = statusMeta(p);
+  const split = S.view === 'split';
+  const shownFile = split ? S.split.fileId : null;
+  const isActive = (p) => (split ? (isSessionPanel(p) ? p.id === S.split.sessionId : p.id === shownFile) : p.id === S.activeId);
+  const fileRow = (f) => {
+    const m = statusMeta(f);
     const row = document.createElement('div');
-    row.className = 'nav-card' + (p.id === S.activeId ? ' active' : '') + (p.attention ? ' attn' : '');
+    row.className = 'nav-file' + (isActive(f) ? ' active' : '') + (f.preview ? ' preview' : '');
+    row.dataset.id = f.id;
+    row.innerHTML = `${panelChip(f)}<span class="goal" title="${esc(f.title)}">${esc(f.title)}</span><span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
+    row.onclick = () => focusPanel(f.id);
+    row.ondblclick = (e) => { e.stopPropagation(); if (f.preview) { keepFile(f); refreshRail(); savePanels(); } };
+    return row;
+  };
+  const g = groupRail(S.panels);
+  for (const { session: p, files } of g.sessions) {
+    const m = statusMeta(p);
+    const folded = S.railFold.has(p.id);
+    const row = document.createElement('div');
+    row.className = 'nav-card' + (isActive(p) ? ' active' : '') + (p.attention ? ' attn' : '');
     row.dataset.id = p.id;
+    const count = files.length ? `<span class="count" title="${folded ? 'Show files' : 'Hide files'}"><span class="tw">${folded ? '▸' : '▾'}</span>${files.length} ${files.length === 1 ? 'file' : 'files'}</span>` : '';
     row.innerHTML = `${panelChip(p)}
       <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(shorten(p.title, 30))}</span><span class="sid">${esc(kindLabel(p))}</span></span>
-      <span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
+      ${count}<span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
     row.onclick = () => focusPanel(p.id);
     q('.goal', row).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.goal', row)); });
+    const cnt = q('.count', row);
+    if (cnt) cnt.onclick = (e) => { e.stopPropagation(); if (folded) S.railFold.delete(p.id); else S.railFold.add(p.id); refreshRail(); };
     list.appendChild(row);
+    if (files.length && !folded) {
+      const grp = document.createElement('div'); grp.className = 'nav-files';
+      for (const f of files) grp.appendChild(fileRow(f));
+      list.appendChild(grp);
+    }
+  }
+  if (g.desk.length) {
+    if (g.sessions.length) { const h = document.createElement('div'); h.className = 'nav-group'; h.textContent = 'Desk'; list.appendChild(h); }
+    const grp = document.createElement('div'); grp.className = 'nav-files nav-files--desk';
+    for (const f of g.desk) grp.appendChild(fileRow(f));
+    list.appendChild(grp);
   }
   c.appendChild(list);
 }
@@ -5865,7 +5898,7 @@ async function switchToFolder(info) {
   await swapDesk(info);
 }
 
-function isSessionPanel(p) { return p && !['editor', 'viewer', 'card'].includes(p.kind); }
+// isSessionPanel comes from desk-view.mjs now — one definition of what a session is.
 
 // Save → clear → restore, in that order. The save has to name the *outgoing*
 // folder explicitly: savePanels() reads S.project, which is about to change.

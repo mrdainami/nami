@@ -406,6 +406,35 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 
 .rail-empty { padding: 8px 18px; font-size: 11.5px; color: var(--muted-2); line-height: 1.6; }
 
+/* ---- files under their session ------------------------------------------- */
+/* A session row carries a count that folds its files; the files sit indented
+   under it on a hairline, smaller than a session because they are not one.
+   Loose files (no live session) gather under a "Desk" heading at the end. */
+.nav-card .count {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto;
+  padding: 2px 5px; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted-3); border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+}
+.nav-card .count:hover { color: var(--ink); border-color: var(--dash-dark); }
+.nav-card .count .tw { display: inline-block; width: 10px; }
+.nav-card .count + .status { margin-left: 0; }
+.nav-files {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: -4px 0 4px 20px; padding-left: 10px; border-left: 1px dashed var(--dash);
+}
+.nav-files--desk { margin-left: 6px; border-left: 0; padding-left: 0; }
+.nav-file {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  font-size: 11px; color: var(--muted); cursor: pointer; border: 1px solid transparent;
+}
+.nav-file:hover { color: var(--ink); }
+.nav-file.active { color: var(--ink); border-color: var(--dash-dark); }
+.nav-file .code { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.nav-file .goal { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-file .status { margin-left: auto; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.nav-file.preview .goal { font-style: italic; opacity: 0.85; }   /* a preview: the next click replaces it */
+.nav-group { padding: 8px 6px 2px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3); }
+
 .tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 14px; }
 .tree-path { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 10px; font-size: 11px; color: var(--muted); }
 .tree-path .path { flex: 1; min-width: 0; word-break: break-all; }
