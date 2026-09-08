@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions,
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Menu, nativeImage } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -1271,6 +1271,17 @@ ipcMain.handle('folder:choose', async (e) => {
   const parent = BrowserWindow.fromWebContents(e.sender) || win;
   const res = await dialog.showOpenDialog(parent, { properties: ['openDirectory'], title: 'Move to which folder?' });
   return res.canceled || !res.filePaths[0] ? null : res.filePaths[0];
+});
+ipcMain.handle('clipboard:save-image', (_e, dataUrl) => {
+  try {
+    if (typeof dataUrl !== 'string' || dataUrl.length > 28 * 1024 * 1024 || !/^data:image\/(png|jpeg|webp);base64,/.test(dataUrl)) return { ok: false, error: 'Paste a PNG, JPEG or WebP image under 20 MB.' };
+    const img = nativeImage.createFromDataURL(dataUrl);
+    if (img.isEmpty()) return { ok: false, error: 'That image could not be read.' };
+    const { storePng } = require('./pasted-images');
+    const file = storePng(path.join(app.getPath('userData'), 'pastes'), img.toPNG());
+    const size = img.getSize(), scale = Math.min(96 / size.width, 64 / size.height);
+    return { ok: true, path: file, thumbnail: img.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)), quality: 'good' }).toDataURL() };
+  } catch (_) { return { ok: false, error: 'Could not save the pasted image.' }; }
 });
 ipcMain.handle('clipboard:write', (_e, text) => { try { clipboard.writeText(String(text || '')); } catch (_) {} return true; });
 ipcMain.handle('clipboard:read', () => { try { return clipboard.readText(); } catch (_) { return ''; } });

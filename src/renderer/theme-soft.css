@@ -618,3 +618,6 @@ body[data-soft] .nav-files { gap: 4px; }
 body[data-soft] .nav-file { border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-raise-sm); }
 body[data-soft] .nav-file.sel { border-color: var(--ink); box-shadow: var(--sf-press-sm); }
 body[data-soft] .viewsw { border-radius: var(--sf-r-sm); }
+
+body[data-soft] .image-attachment { border-radius: var(--sf-r-sm); }
+body[data-soft] .draft-input, body[data-soft] .image-remove { border-radius: var(--sf-r-sm); }

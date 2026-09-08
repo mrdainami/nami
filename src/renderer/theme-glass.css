@@ -746,3 +746,6 @@ body[data-glass] .nav-card .count { border-radius: 17px; }
 body[data-glass] .viewsw { border-radius: 17px; }
 body[data-glass] .viewsw .view-choice.active,
 body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #fff; }
+
+body[data-glass] .image-attachment { border-radius: 12px; }
+body[data-glass] .draft-input, body[data-glass] .image-remove { border-radius: 12px; }
