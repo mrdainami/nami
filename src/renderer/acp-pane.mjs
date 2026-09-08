@@ -131,6 +131,9 @@ export function mountChatPane(p, rec, hooks) {
       const skills = (attachments || []).filter((a) => a && a.skill).map((a) => a.skill);
       if (skills.length) full += '\n\nUse the ' + skills.join(', ') + ' skill' + (skills.length > 1 ? 's' : '') + ' for this.';
       if (paths.length) full += '\n\nFiles: ' + paths.map((x) => '"' + x + '"').join(' ');
+      // the first real message names a card the way the first typed line names
+      // a terminal tile (feedSessionName in app.js); the attachments are not prose
+      if (hooks.prompt) hooks.prompt(p, text);
       sendPrompt(full, { display: text, files: paths });
     },
     onCommand: (name) => route(name),

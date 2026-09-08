@@ -2219,12 +2219,15 @@ function spawnTerminalTwin(p, draft) {
   }
   if (spawned) closePanel(p.id);
 }
-function adoptChatTitle(p, title) {
-  if (p.titleSource === 'user') return;
-  p.title = shorten(String(title), 60);
-  p.titleSource = 'ai';
-  refreshTileHead(p); renderRail();
-}
+// The agent's own name for a chat, over the ACP channel or from its store on
+// disk. Same rung as a terminal's transcript name: it upgrades a prompt guess
+// and never touches a name you typed. ('ai' used to be its own source here,
+// unknown to session-name.mjs and so ranked at zero — a later prompt guess
+// could overwrite the agent's name.)
+function adoptChatTitle(p, title) { applyTitle(p, shorten(String(title), 60), 'agent'); }
+// The first message sent from a card names it at once, as Enter does in a
+// terminal tile; the newline is what commits the draft.
+function promptNamesChat(p, text) { if (p.autoName) feedSessionName(p, String(text || '') + '\n'); }
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
   root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
@@ -2300,7 +2303,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -3811,7 +3814,7 @@ function startPanel(opts) {
   // flow says 'flow' outright (agentSession) — everything else lands on the
   // weak sources, so a name nami merely guessed is never pushed into claude,
   // and a snapshot saved before any of this existed stays upgradable.
-  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title)) {
+  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
     p.autoName = true;
     p.titleSource = p.titleSource || 'generic';
   } else p.titleSource = p.titleSource || 'prompt';
