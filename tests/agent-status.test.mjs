@@ -153,15 +153,15 @@ test('shortModel takes the last path segment', () => {
 // (grok 1.0.5); values synthetic, keys and nesting are not. The real file also
 // holds `key` (a JWT) and `refresh_token`; neither may ever reach a row.
 const GROK_IN = JSON.stringify({
-  'https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828': {
+  'https://auth.x.ai::00000000-0000-4000-8000-000000000004': {
     key: 'eyJhbGciOiJFUzI1NiJ9.SECRET.SIGNATURE',
     auth_mode: 'oidc',
     create_time: '2026-08-21T03:53:40.441473Z',
-    user_id: '9683642d-4d1a-45d7-a804-ce0d7dd2a012',
+    user_id: '00000000-0000-4000-8000-000000000005',
     email: 'dev@example.com',
     first_name: 'Dev',
     principal_type: 'User',
-    team_id: 'ee0e550b-b5d9-4a97-aab5-ae0cb4c6e474',
+    team_id: '00000000-0000-4000-8000-000000000006',
     refresh_token: 'SECRET-RT',   // short on purpose: repo-shape.test.mjs scans for credential shapes
     expires_at: '2026-08-21T09:53:40.441473Z',
     oidc_issuer: 'https://auth.x.ai',

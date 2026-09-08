@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { claudeSpawnArgs, projectSlug } = require('../src/main/claude-args.js');
 
-const SID = '9f2c41ab-0000-4000-8000-c7d088e30000';
+const SID = '00000000-0000-4000-8000-000000000007';
 
 test('a fresh panel pins its own conversation id', () => {
   assert.deepEqual(claudeSpawnArgs({ cont: false, sid: SID, hasTranscript: false }), ['--session-id', SID]);
@@ -59,8 +59,8 @@ const typed = (o) => ['claude', ...claudeSpawnArgs(o)].map(shellQuote).join(' ')
 
 test('the shell fallback types the whole command, not a bare claude', () => {
   assert.equal(
-    typed({ sid: '90a00e7a-98c8-4d98-8f03-6a536cfd1aeb', cont: false, hasTranscript: false, name: null }),
-    'claude --session-id 90a00e7a-98c8-4d98-8f03-6a536cfd1aeb',
+    typed({ sid: '00000000-0000-4000-8000-000000000008', cont: false, hasTranscript: false, name: null }),
+    'claude --session-id 00000000-0000-4000-8000-000000000008',
   );
   assert.equal(
     typed({ sid: '90a00e7a', cont: true, hasTranscript: true, name: null }),

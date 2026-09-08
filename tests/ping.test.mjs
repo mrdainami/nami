@@ -14,7 +14,7 @@ const base = () => ({
   env: {},
   version: '0.2.0',
   arch: 'arm64',
-  randomUUID: () => '11111111-2222-4333-8444-555566667777',
+  randomUUID: () => '00000000-0000-4000-8000-000000000009',
 });
 
 // --- the decision: what to send, if anything ---------------------------------
@@ -28,8 +28,8 @@ test('first launch mints an id and flags first', () => {
 });
 
 test('a later launch reuses the stored id, un-flagged', () => {
-  const plan = pingPlan({ ...base(), settings: { pingId: 'aaaabbbb-cccc-4ddd-8eee-ffff00001111' } });
-  assert.equal(plan.payload.id, 'aaaabbbb-cccc-4ddd-8eee-ffff00001111');
+  const plan = pingPlan({ ...base(), settings: { pingId: '00000000-0000-4000-8000-000000000010' } });
+  assert.equal(plan.payload.id, '00000000-0000-4000-8000-000000000010');
   assert.equal(plan.payload.first, false);
   assert.equal(plan.mintedId, null);
 });
@@ -74,7 +74,7 @@ test('a stored id is not re-saved', async () => {
   const saved = [];
   const r = await sendPing({
     ...base(),
-    settings: { pingId: 'aaaabbbb-cccc-4ddd-8eee-ffff00001111' },
+    settings: { pingId: '00000000-0000-4000-8000-000000000010' },
     saveSettings: (patch) => saved.push(patch),
     fetchImpl: async () => ({ ok: true }),
   });
