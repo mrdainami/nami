@@ -22,6 +22,7 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
+import { createLinkHint } from './link-hint.mjs';
 import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
 import { basesFromText, joinBase } from './path-bases.mjs';
@@ -34,6 +35,7 @@ import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 
 const api = window.dainami;
+const terminalHint = createLinkHint({ document, window });
 
 // Finder can send a file the instant the page finishes loading, which is well
 // before boot() has a desk to put it on. The listener goes up here, at module
@@ -884,6 +886,15 @@ function buildShell() {
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; S.railPeek = false; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; S.railPeek = true; applyChrome(); };
   document.addEventListener('keydown', onGlobalKey);
+  // Capture Escape before a terminal treats it as an agent command.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && terminalHint.hide()) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('pointerdown', () => terminalHint.hide(), true);
+  document.addEventListener('scroll', () => terminalHint.hide(), true);
+  document.addEventListener('wheel', () => terminalHint.hide(), { capture: true, passive: true });
+  window.addEventListener('blur', () => terminalHint.hide());
+  window.addEventListener('resize', () => terminalHint.hide());
   initGlassTilt();
 
   // The desk relays its own tracks. Cheap — it only re-renders when the count
@@ -1462,6 +1473,7 @@ function markFresh(paths) {
 
 // ---- workspace context menu ------------------------------------------------
 function showMenu(x, y, items) {
+  terminalHint.hide();
   hideMenu();
   const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
   for (const it of items) {
@@ -2663,6 +2675,7 @@ function mountTerminal(p, rec) {
   // straight through, which is what made the canvas and the agent one job.
   term.onResize(() => notifyPty(p, rec));
   term.onBell(() => setAttention(p));
+  term.onScroll(() => terminalHint.hide(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
   mountSessionImages(p, rec);
@@ -2674,7 +2687,7 @@ function mountTerminal(p, rec) {
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
   rec.disposeRo = () => {
-    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id); terminalHint.hide(p);
     for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
 }
@@ -2975,14 +2988,17 @@ function registerTerminalLinks(term, p) {
         // underline has to keep meaning "this opens".
         decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
         activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
-        hover: () => hoveredLink.set(p.id, { link: row.link, st: row.st, live }),
+        hover: (ev) => {
+          hoveredLink.set(p.id, { link: row.link, st: row.st, live });
+          if (!S.overlay && !q('#ctx-menu')) terminalHint.show({ kind: row.link.kind, st: row.st }, ev, p);
+        },
         // Only clear if this link is still the one recorded. Moving from
         // one link straight onto the next fires the new hover before the
         // old leave, and an unconditional delete would throw away the link
         // the pointer is actually on.
         leave: () => {
           const cur = hoveredLink.get(p.id);
-          if (cur && cur.link === row.link) hoveredLink.delete(p.id);
+          if (cur && cur.link === row.link) { hoveredLink.delete(p.id); terminalHint.hide(p); }
         },
       });
     }
@@ -3190,7 +3206,32 @@ async function copyLinkText(text) {
 // own provider. Claiming the handler matters: xterm's default pops a blocking
 // confirm() and a bare window.open, which in Electron is a dead-end window.
 function oscLinkHandler(p) {
+  let hover = null;
   return {
+    hover: async (ev, uri) => {
+      terminalHint.hide(p);
+      const revision = terminalHint.revision;
+      const marker = {};
+      hover = marker;
+      let hit;
+      if (/^https?:\/\//i.test(uri)) {
+        hit = { link: { kind: 'url', text: uri }, st: null, live: true };
+      } else if (/^file:\/\//i.test(uri)) {
+        let path = uri.replace(/^file:\/\/(localhost)?/i, '');
+        try { path = decodeURIComponent(path); } catch (_) {}
+        let st;
+        try { st = await api.statPath({ token: path, cwd: p.cwd, id: p.id }); } catch (_) { return; }
+        hit = { link: { kind: 'path', text: path }, st, live: !!st && st.exists };
+      }
+      if (!hit || hover !== marker || terminalHint.revision !== revision || !tileEls.has(p.id) || S.overlay || q('#ctx-menu')) return;
+      marker.hit = hit;
+      hoveredLink.set(p.id, hit);
+      terminalHint.show({ kind: hit.link.kind, st: hit.st }, ev, p);
+    },
+    leave: () => {
+      if (hover && hoveredLink.get(p.id) === hover.hit) { hoveredLink.delete(p.id); terminalHint.hide(p); }
+      hover = null;
+    },
     activate: async (ev, uri) => {
       if (!(ev.metaKey || ev.ctrlKey)) return;
       if (/^https?:\/\//i.test(uri)) { api.openUrl(uri); return; }
@@ -5293,6 +5334,7 @@ function rememberHelpFocus() {
   if (!S.overlay || !['settings', 'quickstart'].includes(S.overlay.type)) helpReturnFocus = document.activeElement;
 }
 function renderOverlay() {
+  terminalHint.hide();
   const focused = document.activeElement;
   helpFocusKey = focused && els.overlayRoot.contains(focused)
     ? { id: focused.id, section: focused.dataset.sec } : null;

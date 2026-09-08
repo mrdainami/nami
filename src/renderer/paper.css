@@ -2464,5 +2464,15 @@ body .modal.modal--settings .set-nav .rail-tab.active { color: var(--menu-sheet)
   .shortcut-keys { max-width: 100%; flex-wrap: wrap; }
 }
 
+.term-link-hint {
+  position: fixed; z-index: 120; pointer-events: none; max-width: calc(100vw - 24px);
+  padding: 10px 14px; border: 1px solid var(--dash-dark); border-radius: 2px;
+  background: var(--menu-sheet); backdrop-filter: blur(16px) saturate(1.2);
+  color: var(--ink); box-shadow: 3px 4px 0 var(--shadow-mid);
+  font-size: 12px; line-height: 1.7;
+}
+.term-link-hint strong, .term-link-hint span { display: block; }
+.term-link-hint span { color: var(--muted); font-size: 11px; }
+
 /* Secondary help copy needs to remain readable at its compact size. */
-.shortcuts-intro, .shortcuts-note, .shortcut-row small { color: color-mix(in srgb, var(--muted) 75%, var(--ink)); }
+.shortcuts-intro, .shortcuts-note, .shortcut-row small, .term-link-hint span { color: color-mix(in srgb, var(--muted) 75%, var(--ink)); }
