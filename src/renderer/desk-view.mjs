@@ -52,6 +52,14 @@ export function orphan(panels, closedId) {
   return n;
 }
 
+// A file moves to another session, or to the desk (null). Moving keeps it —
+// a file you placed by hand is not a preview any more.
+export function moveTo(file, ownerId) {
+  if (!file) return file;
+  if (ownerId) file.owner = ownerId; else delete file.owner;
+  return keep(file);
+}
+
 // ---- what the split shows -----------------------------------------------------
 // state: { panels, sessionId, fileId, last } where last maps a session id to
 // the file it showed most recently. Actions:

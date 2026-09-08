@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isFile, isSession, ownerFor, groupRail, previewToReplace, keep, orphan, splitAfter, ownerIndexes, resolveOwners } from '../src/renderer/desk-view.mjs';
+import { isFile, isSession, ownerFor, groupRail, previewToReplace, keep, orphan, moveTo, splitAfter, ownerIndexes, resolveOwners } from '../src/renderer/desk-view.mjs';
 
 // A desk the way S.panels holds it: newest first, sessions and files mixed.
 function desk() {
@@ -79,6 +79,14 @@ test('keep drops the preview flag and nothing else', () => {
   assert.deepEqual(f, { id: 'f2', kind: 'editor', owner: 'cc' });
   keep(f);
   assert.deepEqual(f, { id: 'f2', kind: 'editor', owner: 'cc' });
+});
+
+test('a file moves to another session, or to the desk, and is kept either way', () => {
+  const f = { id: 'f2', kind: 'editor', owner: 'cc', preview: true };
+  moveTo(f, 'codex');
+  assert.deepEqual(f, { id: 'f2', kind: 'editor', owner: 'codex' });
+  moveTo(f, null);
+  assert.deepEqual(f, { id: 'f2', kind: 'editor' });
 });
 
 // ---- closing a session -----------------------------------------------------

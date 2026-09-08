@@ -28,7 +28,7 @@ import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-gr
 import { isOutsideProject } from './path-guard.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
-import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, splitAfter, ownerIndexes, resolveOwners } from './desk-view.mjs';
+import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
 const api = window.dainami;
 
@@ -281,6 +281,7 @@ function isFileDrag(e) { return dragTypes(e).includes('Files'); }
 // holding it, and a hidden payload cannot answer that.
 const PATH_TYPE = 'application/x-nami-path';
 const DIR_TYPE = 'application/x-nami-dir';
+const PANEL_TYPE = 'application/x-nami-panel'; // a file row dragged onto a session row in the rail
 function dragTypes(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []); }
 function isPathDrag(e) { return dragTypes(e).includes(PATH_TYPE); }
 function isDirDrag(e) { return dragTypes(e).includes(DIR_TYPE); }
@@ -815,7 +816,7 @@ function buildShell() {
           <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
           <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
-          <div class="rail-tabs viewsw" id="viewsw" title="Desk: every card on a grid. Split: one session beside one of its files.">
+          <div class="viewsw" id="viewsw" title="Desk: every card on a grid. Split: one session beside one of its files.">
             <button class="rail-tab" data-view="desk">Desk</button>
             <button class="rail-tab" data-view="split">Split</button>
           </div>
@@ -1161,12 +1162,20 @@ function refreshSessionsRail(c) {
   const fileRow = (f) => {
     const m = statusMeta(f);
     const row = document.createElement('div');
-    row.className = 'nav-file' + (isActive(f) ? ' active' : '') + (f.preview ? ' preview' : '');
-    row.dataset.id = f.id;
-    row.innerHTML = `${panelChip(f)}<span class="goal" title="${esc(f.title)}">${esc(f.title)}</span><span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
+    row.className = 'tree-row nav-file' + (isActive(f) ? ' sel' : '') + (f.preview ? ' preview' : '');
+    row.dataset.id = f.id; row.draggable = true;
+    row.innerHTML = `${panelChip(f)}<span class="name goal" title="${esc(f.title)}">${esc(f.title)}</span><span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
     row.onclick = () => focusPanel(f.id);
-    row.ondblclick = (e) => { e.stopPropagation(); if (f.preview) { keepFile(f); refreshRail(); savePanels(); } };
+    row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(f)); };
+    // drag a file row onto a session row (or the Desk heading) to move it
+    row.ondragstart = (e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData(PANEL_TYPE, f.id); e.dataTransfer.setData('text/plain', f.id); } catch (_) {} row.classList.add('dragging'); };
+    row.ondragend = () => row.classList.remove('dragging');
     return row;
+  };
+  const dropTarget = (el, ownerId) => {
+    el.addEventListener('dragover', (e) => { if (!Array.from(e.dataTransfer.types).includes(PANEL_TYPE)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-into'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-into'));
+    el.addEventListener('drop', (e) => { el.classList.remove('drop-into'); const id = e.dataTransfer.getData(PANEL_TYPE); if (!id) return; e.preventDefault(); e.stopPropagation(); const f = S.panels.find((x) => x.id === id); if (f && isFilePanel(f)) moveFileTo(f, ownerId); });
   };
   const g = groupRail(S.panels);
   for (const { session: p, files } of g.sessions) {
@@ -1183,6 +1192,7 @@ function refreshSessionsRail(c) {
     q('.goal', row).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.goal', row)); });
     const cnt = q('.count', row);
     if (cnt) cnt.onclick = (e) => { e.stopPropagation(); if (folded) S.railFold.delete(p.id); else S.railFold.add(p.id); refreshRail(); };
+    dropTarget(row, p.id);
     list.appendChild(row);
     if (files.length && !folded) {
       const grp = document.createElement('div'); grp.className = 'nav-files';
@@ -1191,7 +1201,7 @@ function refreshSessionsRail(c) {
     }
   }
   if (g.desk.length) {
-    if (g.sessions.length) { const h = document.createElement('div'); h.className = 'nav-group'; h.textContent = 'Desk'; list.appendChild(h); }
+    if (g.sessions.length) { const h = document.createElement('div'); h.className = 'nav-group'; h.textContent = 'Desk'; dropTarget(h, null); list.appendChild(h); }
     const grp = document.createElement('div'); grp.className = 'nav-files nav-files--desk';
     for (const f of g.desk) grp.appendChild(fileRow(f));
     list.appendChild(grp);
@@ -1275,10 +1285,9 @@ function renderTreeLevel(container, dir, depth) {
     row.draggable = true;
     row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>
       <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
-    // On the desk a click peeks; in split it opens a preview into the session on
-    // the left, and a double-click keeps it (desk-view.mjs: one preview per session).
-    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path, S.view === 'split' ? { pin: true, preview: true } : undefined); refreshRail(); } };
-    row.ondblclick = (e) => { if (n.kind === 'dir') return; e.stopPropagation(); if (S.view === 'split') openFile(n.path, { pin: true }); };
+    // On the desk a click peeks; in split it opens the file into the session
+    // on the left and keeps it there — every file you open stays.
+    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path, S.view === 'split' ? { pin: true } : undefined); refreshRail(); } };
     row.oncontextmenu = (e) => { e.preventDefault(); S.treeSel = n.path; showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
     row.ondragstart = (e) => {
       S.treeDrag = n.path;
@@ -2428,6 +2437,7 @@ function mountTile(p) {
   // drag reorder
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
+  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(p)); };
   root.addEventListener('dragover', (e) => {
     e.preventDefault(); e.stopPropagation();
     // Stopped for the same reason the drop below is: every tile is a direct
@@ -4044,6 +4054,26 @@ async function openFile(filePath, opts) {
   const p = await buildFilePanel(filePath);
   if (opts && opts.pin) pinFilePanel(p, opts);
   else openPeek(p);
+}
+// A file changes session by hand: right-click a file row or a file card's
+// head, or drag the row onto a session row. Null is the desk.
+function moveFileTo(p, ownerId) {
+  if (!isFilePanel(p) || (p.owner || null) === (ownerId || null)) return;
+  moveFile(p, ownerId);
+  if (S.view === 'split') { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'select-file', id: p.id }); S.splitFull = null; }
+  refreshTileHead(p); renderGrid(); renderRail(); savePanels();
+}
+function moveMenu(p) {
+  const items = [];
+  for (const s of S.panels) {
+    if (!isSessionPanel(s)) continue;
+    const here = p.owner === s.id;
+    items.push({ label: (here ? '● ' : 'Move to ') + shorten(s.title, 28), off: here, kb: here ? 'here' : '', run: () => moveFileTo(p, s.id) });
+  }
+  if (items.length) items.push('-');
+  const loose = !p.owner || !S.panels.some((s) => s.id === p.owner && isSessionPanel(s));
+  items.push({ label: loose ? '● Desk' : 'Move to desk', off: loose, kb: loose ? 'here' : '', run: () => moveFileTo(p, null) });
+  return items;
 }
 // Every file that lands on the desk comes through here — the tree's pin, a
 // pinned peek, a card, a restore. It joins the session that is active
