@@ -90,6 +90,7 @@ body[data-theme="soft"] {
   --sf-r: 18px;
   --sf-r-sm: 12px;
   --sf-r-chip: 10px;
+  --sf-thumb: rgba(44, 42, 51, 0.22);
 }
 body[data-theme="soft"] { background: #e5e5e5; }
 body[data-theme="soft"] a { color: #3d6bb3; }
@@ -127,12 +128,16 @@ body[data-soft] .card {
   background: var(--paper);
 }
 
+/* Scrollbars: paper's flat pill, tinted per theme. A raised thumb cannot live
+   inside a 10px bar — the outset shadow clips and a same-fill thumb vanishes,
+   leaving only the track's groove as a line down every panel. The well the
+   bar sits in already carries the depth; the bar itself stays flat. */
 body[data-soft] ::-webkit-scrollbar-thumb {
-  background: var(--paper); border: 2px solid var(--paper);
-  box-shadow: var(--sf-raise-sm); border-radius: 99px;
+  background: var(--sf-thumb); border: 3px solid transparent;
+  background-clip: content-box; border-radius: 10px; box-shadow: none;
 }
-body[data-soft] ::-webkit-scrollbar-thumb:hover { background: #ef6461; border-color: #ef6461; }
-body[data-soft] ::-webkit-scrollbar-track { background: var(--paper); box-shadow: var(--sf-press-sm); }
+body[data-soft] ::-webkit-scrollbar-thumb:hover { background: #ef6461; background-clip: content-box; }
+body[data-soft] ::-webkit-scrollbar-track { background: transparent; box-shadow: none; }
 
 /* ---- family defaults ------------------------------------------------------- */
 body[data-soft] button {
@@ -558,14 +563,14 @@ body[data-soft] .cw-empty-chip .code { box-shadow: var(--sf-raise-sm); border: 0
 /* xterm keeps its own bar inside the viewport; paper's brown thumb still wins
    there unless we restyle it at this specificity. */
 body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--paper); border: 2px solid var(--paper);
-  box-shadow: var(--sf-raise-sm); border-radius: 99px; background-clip: padding-box;
+  background: var(--sf-thumb); border: 2px solid transparent;
+  background-clip: content-box; border-radius: 8px; box-shadow: none;
 }
 body[data-soft] .xterm .xterm-viewport:hover::-webkit-scrollbar-thumb {
-  background: #ef6461; border-color: #ef6461;
+  background: #ef6461; background-clip: content-box;
 }
 body[data-soft] .xterm .xterm-viewport::-webkit-scrollbar-track {
-  background: var(--paper); box-shadow: var(--sf-press-sm);
+  background: transparent; box-shadow: none;
 }
 
 /* ---- name-edit / misc ------------------------------------------------------ */
