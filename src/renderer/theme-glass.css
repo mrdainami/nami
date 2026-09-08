@@ -749,3 +749,8 @@ body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #ff
 
 body[data-glass] .image-attachment { border-radius: 12px; }
 body[data-glass] .image-insert, body[data-glass] .image-remove { border-radius: 12px; }
+
+/* Shortcut reference follows this theme’s type and link treatment. */
+body[data-glass] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: var(--gl-dot); font-size: 18px; }
+body[data-glass] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }
+body[data-theme="glass"] .modal--settings .set-nav .rail-tab.active { color: color-mix(in srgb, var(--ink) 90%, black); }

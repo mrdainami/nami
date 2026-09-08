@@ -206,3 +206,11 @@ test('the channel name is the same string in preload and in main', async () => {
   assert.match(preload, /ipcRenderer\.on\('menu:command'/, 'preload does not listen on menu:command');
   assert.match(main, /'menu:command'/, 'main never sends menu:command');
 });
+
+// The API-key store and keyboard reference must remain separate destinations.
+test('Keyboard Shortcuts opens the reference, not API Keys', () => {
+  const sent = [];
+  const help = build({ send: (command) => sent.push(command) }).find((menu) => menu.role === 'help');
+  help.submenu.find((item) => item.label === 'Keyboard Shortcuts').click();
+  assert.deepEqual(sent, ['settings:shortcuts']);
+});

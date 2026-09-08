@@ -9,7 +9,7 @@ import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file
 import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter, listItems, setListField, removeField } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
-import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
+import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon, helpIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { receiversOf, knowsCopy } from './receivers.mjs';
@@ -22,6 +22,7 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
+import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
@@ -859,6 +860,7 @@ function buildShell() {
           <div class="footer">
             <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
             <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
+            <button class="footer-shortcuts" id="btn-shortcuts"><span aria-hidden="true">⌘</span> Shortcuts</button>
           </div>
         </div>
       </div>
@@ -875,6 +877,7 @@ function buildShell() {
   q('#btn-agents').onclick = () => openAgentPicker();
   document.querySelectorAll('#viewsw .view-choice').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
   q('#btn-help').onclick = () => openQuickStart();
+  q('#btn-shortcuts').onclick = () => openSettings('shortcuts');
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
   document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
@@ -1030,7 +1033,7 @@ function onGlobalKey(e) {
   // so which one the keystroke takes cannot change what it does.
   if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); closeActive(); return; }
   if (meta && (e.key === 's' || e.key === 'S')) { if (saveActive()) e.preventDefault(); return; }
-  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
+  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { closeOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
 // ===========================================================================
@@ -5284,12 +5287,25 @@ function renderImproveItem() {
 // ---- overlays --------------------------------------------------------------
 let lastOverlayType = null; // same-type re-renders skip the entrance animation
 let overlayDispose = null;
+let helpReturnFocus = null;
+let helpFocusKey = null;
+function rememberHelpFocus() {
+  if (!S.overlay || !['settings', 'quickstart'].includes(S.overlay.type)) helpReturnFocus = document.activeElement;
+}
 function renderOverlay() {
+  const focused = document.activeElement;
+  helpFocusKey = focused && els.overlayRoot.contains(focused)
+    ? { id: focused.id, section: focused.dataset.sec } : null;
   if (overlayDispose) { overlayDispose(); overlayDispose = null; }
   els.overlayRoot.innerHTML = ''; const o = S.overlay;
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
-  if (!o) return;
+  if (!o) {
+    if (helpReturnFocus && helpReturnFocus.isConnected) helpReturnFocus.focus({ preventScroll: true });
+    helpReturnFocus = null;
+    return;
+  }
+  if (!['settings', 'quickstart'].includes(o.type)) helpReturnFocus = null;
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
@@ -5318,9 +5334,11 @@ const SET_SECTIONS = [
   { id: 'voice', name: 'Voice', lead: 'how Nami hears you' },
   { id: 'look', name: 'Look', lead: 'how Nami looks on this desk' },
   { id: 'keys', name: 'Keys', lead: 'keys every session can use' },
+  { id: 'shortcuts', name: 'Shortcuts', lead: 'small moves that make your desk easier to use' },
   { id: 'about', name: 'About', lead: 'about this copy of Nami' },
 ];
 function openSettings(section) {
+  rememberHelpFocus();
   S.overlay = { type: 'settings', section: section || 'voice', draft: {}, test: null };
   renderOverlay();
   // both are cheap and let the sheet paint immediately with what we already know
@@ -5332,19 +5350,19 @@ function isSettingsOpen() { return !!S.overlay && S.overlay.type === 'settings';
 function renderSettings() {
   const o = S.overlay;
   const sec = SET_SECTIONS.find((s) => s.id === o.section) || SET_SECTIONS[0];
-  const modal = overlay('modal modal--settings', `
+  const modal = overlay('modal modal--settings' + (sec.id === 'shortcuts' ? ' modal--shortcuts' : ''), `
     <div class="modal-head"><span class="col">
       <span class="title">Settings</span>
       <span class="sub">${esc(sec.lead)}</span></span></div>
     <div class="modal-body"><div class="set-wrap">
       <div class="set-nav">${SET_SECTIONS.map((s) =>
-        `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}">${esc(s.name)}</button>`).join('')}</div>
+        `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}"${s.id === sec.id ? ' aria-current="page"' : ''}>${helpIcon(s.id)}<span>${esc(s.name)}</span></button>`).join('')}</div>
       <div class="set-pane" id="set-pane">${
         sec.id === 'voice' ? voicePaneHtml()
           : sec.id === 'look' ? lookPaneHtml()
-            : sec.id === 'about' ? aboutPaneHtml() : keysPaneHtml()}</div>
+            : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
     </div></div>
-    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
+    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">⌘ Command · ⌥ Option · ⇧ Shift</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
 
   modal.querySelectorAll('.set-nav .rail-tab').forEach((b) => {
@@ -5355,6 +5373,49 @@ function renderSettings() {
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
   if (sec.id === 'about') wireAboutPane(modal);
+  if (sec.id === 'shortcuts') {
+    q('#shortcuts-back', modal).onclick = closeOverlay;
+    q('#shortcuts-guide', modal).onclick = () => api.openUrl(DOCS.home);
+  }
+  wireHelpDialog(modal);
+}
+
+// Settings and Quick Start are keyboard-accessible help surfaces. Preserve the
+// focused control across async Settings refreshes and return to the invoker.
+function wireHelpDialog(modal) {
+  const title = q('.title', modal);
+  title.id = 'help-dialog-title';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', title.id);
+  modal.tabIndex = -1;
+  q('.ov-x', modal).setAttribute('aria-label', 'Close dialog');
+  modal.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const controls = Array.from(modal.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'))
+      .filter((el) => el.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { e.preventDefault(); return; }
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modal)) { e.preventDefault(); first.focus(); }
+  });
+  let target = helpFocusKey && helpFocusKey.id ? document.getElementById(helpFocusKey.id) : null;
+  if ((!target || !modal.contains(target)) && helpFocusKey && helpFocusKey.section) {
+    target = Array.from(modal.querySelectorAll('[data-sec]')).find((b) => b.dataset.sec === helpFocusKey.section);
+  }
+  (target && modal.contains(target) ? target : modal).focus({ preventScroll: true });
+}
+
+function shortcutsPaneHtml() {
+  const row = ([label, keys, sub]) => `<div class="shortcut-row"><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    <span class="shortcut-keys">${keys.map((key) => key === 'click' ? '<span>+ click</span>' : `<kbd>${esc(key)}</kbd>`).join('')}</span></div>`;
+  return `<h1 class="shortcuts-title">Shortcuts &amp; gestures</h1>
+    <p class="shortcuts-intro">Small moves that make your desk easier to use.</p>
+    <div class="shortcuts-hero">${helpIcon('link')}<div><h2>Open what your agent makes.</h2>
+      <p>${esc(OPEN_OUTPUT_COPY)}</p><button class="shortcuts-link" id="shortcuts-back">Back to my desk →</button></div></div>
+    ${SHORTCUT_GROUPS.map((group) => `<section class="shortcut-group"><h2>${helpIcon(group.icon)}${esc(group.title)}</h2>
+      ${group.rows.map(row).join('')}${group.note ? `<p class="shortcuts-note">${esc(group.note)}</p>` : ''}</section>`).join('')}
+    <p class="shortcuts-note">Shortcuts inside an agent’s terminal can vary by agent. This reference covers Nami’s controls.</p>`;
 }
 
 // ---- Voice -----------------------------------------------------------------
@@ -5560,6 +5621,7 @@ const REPO_URL = 'https://github.com/mrdainami/nami';
 // then have to search. Kept next to REPO_URL so every outward link Nami has is
 // read in one place.
 const DOCS = {
+  home: 'https://nami.dainami.ai/docs/',
   start: 'https://nami.dainami.ai/docs/start/',
   pickAgent: 'https://nami.dainami.ai/docs/pick-an-agent/',
   examples: 'https://nami.dainami.ai/docs/examples/',
@@ -6113,7 +6175,7 @@ function qsMark(n) {
   const done = qsDone(); done.add(n);
   try { localStorage.setItem(QS_DONE, JSON.stringify([...done])); } catch { /* private mode */ }
 }
-function openQuickStart() { S.overlay = { type: 'quickstart' }; renderOverlay(); }
+function openQuickStart() { rememberHelpFocus(); S.overlay = { type: 'quickstart' }; renderOverlay(); }
 
 function quickStartRows() {
   return [
@@ -6149,6 +6211,11 @@ function quickStartRows() {
       sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
       acts: [{ label: 'How permissions work', run: () => api.openUrl(DOCS.permissions) }],
     },
+    {
+      n: 6, title: 'Open what your agent makes',
+      sub: OPEN_OUTPUT_COPY,
+      acts: [{ label: '⌘ Shortcuts & gestures', run: () => openSettings('shortcuts') }],
+    },
   ];
 }
 
@@ -6174,6 +6241,7 @@ function renderQuickStart() {
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
     <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
 
+  wireHelpDialog(modal);
   modal.querySelectorAll('[data-act]').forEach((b) => {
     b.onclick = () => {
       const row = rows.find((r) => r.n === +b.dataset.row);

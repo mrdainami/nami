@@ -197,7 +197,7 @@ function buildMenuTemplate({
   // opens has the star button as its primary action.
   const helpSubmenu = [
     link('Nami Docs', LINKS.docs),
-    cmd('Keyboard Shortcuts', 'settings:keys'),
+    cmd('Keyboard Shortcuts', 'settings:shortcuts'),
     SEP,
     link('Nami on GitHub', LINKS.repo),
     link('★ Star Nami', LINKS.repo),
