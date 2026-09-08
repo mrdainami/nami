@@ -57,6 +57,9 @@ const DEFAULT_THEME = 'glass';
 // First-paint window background per theme (renderer CSS takes over on load).
 const THEME_BG = { paper: '#cfc3ac', operator: '#121212', glass: '#e8e9ee', graphite: '#26272c', soft: '#e5e5e5', dusk: '#262a31' };
 function normalizeTheme(name) { return THEMES.includes(name) ? name : DEFAULT_THEME; }
+// Desk or Split (specs/2026-09-08-split-view.md): anything else is the desk.
+const VIEWS = ['desk', 'split'];
+function normalizeView(name) { return VIEWS.includes(name) ? name : 'desk'; }
 function themeBackground(name) { return THEME_BG[normalizeTheme(name)]; }
 
-module.exports = { readSettings, writeSettings, fsIo, normalizeTheme, themeBackground, THEMES, DEFAULT_THEME };
+module.exports = { readSettings, writeSettings, fsIo, normalizeTheme, themeBackground, THEMES, DEFAULT_THEME, normalizeView, VIEWS };

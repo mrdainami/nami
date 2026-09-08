@@ -230,6 +230,9 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 /* the centre is the only part allowed to give ground; min-width:0 lets it */
 .topbar-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; position: relative; }
 .topbar-right { flex: none; display: flex; align-items: center; gap: 10px; }
+/* Desk / Split: the same two-chip control the rail uses for its tabs, so every
+   theme already knows how to draw it. Sits left of Agents. */
+.topbar-right .viewsw { padding: 0; gap: 4px; }
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;

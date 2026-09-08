@@ -164,6 +164,24 @@ function applyThemeAttrs(name) {
   if (SOFT_FAMILY.has(name)) document.body.setAttribute('data-soft', '');
   else document.body.removeAttribute('data-soft');
 }
+// Desk or Split. Persisted like the theme: localStorage for the next boot of
+// this window, settings.json so a fresh window agrees. Entering split works
+// out what the two panes show from whatever was active (desk-view.mjs).
+const VIEW_KEY = 'dainami-view';
+function setView(name, persistIt = true) {
+  const view = name === 'split' ? 'split' : 'desk';
+  const was = S.view;
+  S.view = view;
+  try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
+  if (persistIt && api.viewSet) api.viewSet(view);
+  if (view === 'split' && was !== 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'enter', activeId: S.activeId });
+  if (view !== 'split') S.expandedId = null;
+  applyViewAttrs();
+  if (els.grid) { renderGrid(); renderRail(); }
+}
+function applyViewAttrs() {
+  document.querySelectorAll('#viewsw .rail-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === S.view));
+}
 function setTheme(name, persistIt = true) {
   applyThemeAttrs(name);
   try { localStorage.setItem(THEME_KEY, name); } catch (_) {}
@@ -323,6 +341,10 @@ function dropPathOnPanel(p, path, isDir) {
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
+  // The view you left the app in. localStorage is this window's memory,
+  // settings.json the shared one; a --scene may force one for a screenshot.
+  let view = null; try { view = localStorage.getItem(VIEW_KEY); } catch (_) {}
+  setView(view || b.view || 'desk', false);
 
   // One window opening a folder reorders the list for every window; without this
   // the other windows' popovers keep showing a stale order until they reboot.
@@ -778,6 +800,10 @@ function buildShell() {
           <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
           <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
+          <div class="rail-tabs viewsw" id="viewsw" title="Desk: every card on a grid. Split: one session beside one of its files.">
+            <button class="rail-tab" data-view="desk">Desk</button>
+            <button class="rail-tab" data-view="split">Split</button>
+          </div>
           <button class="btn" id="btn-agents">Agents<span class="kb"> ⌘K</span></button>
           <button class="btn btn--go" id="btn-new"><span class="uni-i">＋ </span><span class="pix-i">${pixIcon('plus')}</span>New<span class="kb2"> session</span><span class="kb"> ⌘N</span></button>
         </div>
@@ -813,6 +839,7 @@ function buildShell() {
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
+  document.querySelectorAll('#viewsw .rail-tab').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
   q('#btn-help').onclick = () => openQuickStart();
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
@@ -2357,7 +2384,8 @@ function refreshTileHead(p) {
     titleEl.textContent = p.title + (p.kind === 'editor' && p.dirty ? ' •' : '');
     titleEl.title = p.title + ' — double-click to rename';
   }
-  q('.t-sub', t.head).textContent = kindLabel(p);
+  const owner = p.owner ? S.panels.find((x) => x.id === p.owner) : null;
+  q('.t-sub', t.head).textContent = kindLabel(p) + (owner ? ' · ' + shorten(owner.title, 22) : '');
   q('.t-status .lbl', t.head).textContent = m.label;
   t.statusDot.style.background = m.color;
   t.root.classList.toggle('attention', !!p.attention);
@@ -3735,6 +3763,7 @@ function applyTitle(p, title, source) {
   p.title = win.title; p.titleSource = win.source;
   if (source !== 'prompt') { p.autoName = false; p._nameDraft = ''; }
   refreshTileHead(p); refreshRail(); savePanels();
+  for (const f of S.panels) if (f.owner === p.id) refreshTileHead(f); // file cards name their session
   if (source !== 'user') flashTitle(p); // you typed it yourself: nothing to notice
   return true;
 }

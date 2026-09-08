@@ -599,6 +599,8 @@ ipcMain.handle('boot', (e) => {
     collapsed: process.argv.includes('--collapsed'),
     // --theme=operator forces a theme for this run (screenshots); not persisted
     themeArg: (process.argv.find((a) => a.startsWith('--theme=')) || '').split('=')[1] || null,
+    // Desk or Split, as last saved; the renderer's own localStorage wins when it has one
+    view: settingsStore.normalizeView(readSettings().view),
     // --scene=<name> opens one surface on boot so it can be screenshotted; screenshots only
     scene: SCENE,
     // ask the provider registry, not the environment — a key typed into Settings
@@ -924,11 +926,14 @@ ipcMain.handle('theme:set', (_e, theme) => {
   return saved;
 });
 
+// Desk or Split, so the app reopens in the view you left.
+ipcMain.handle('view:set', (_e, view) => writeSettings({ view: settingsStore.normalizeView(view) }));
+
 // The Settings page reads and writes settings.json directly. Only these keys are
 // writable from the renderer — panel layout and recents live in state.json and
 // have their own channels, and nothing else should be reachable from a page.
 const WRITABLE_SETTINGS = new Set([
-  'theme',
+  'theme', 'view',
   'sttProvider', 'openaiKey', 'elevenKey', 'openaiModel', 'elevenModel',
   'sttModelId',
 ]);
