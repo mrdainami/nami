@@ -4,7 +4,7 @@
 // nami pinned with --session-id once the user runs /resume and picks another.
 //
 // Proven divergence, measured:
-//   pinned c602aba0…  →  after /resume, live dddf8560…  →  pinned transcript never created
+//   pinned example-A  →  after /resume, live example-B  →  pinned transcript never created
 //
 // That divergence is why a tile's label used to freeze on the typed prompt and
 // why a restored tile silently started a blank conversation instead of resuming.
@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readLiveSession, liveSessionChanged } from '../src/main/session-registry.js';
 
 const rec = (o) => JSON.stringify(Object.assign({
-  pid: 4242, sessionId: 'dddf8560-3aad-4b62-9184-33ad8101ba20',
+  pid: 4242, sessionId: '00000000-0000-4000-8000-000000000002',
   cwd: '/Users/dev/code/nami', status: 'idle',
   name: 'dainami-cli-ff', nameSource: 'derived',
 }, o));
@@ -22,7 +22,7 @@ const io = (text) => ({ read: () => { if (text === null) throw new Error('ENOENT
 
 test('reads the live session id and status for a pid', () => {
   const got = readLiveSession(4242, io(rec()));
-  assert.equal(got.sessionId, 'dddf8560-3aad-4b62-9184-33ad8101ba20');
+  assert.equal(got.sessionId, '00000000-0000-4000-8000-000000000002');
   assert.equal(got.status, 'idle');
 });
 
@@ -33,7 +33,7 @@ test('a missing registry file is not an error, just no answer', () => {
 });
 
 test('corrupt or half-written JSON is ignored rather than thrown', () => {
-  assert.equal(readLiveSession(4242, io('{"sessionId": "dddf')), null);
+  assert.equal(readLiveSession(4242, io('{"sessionId": "example')), null);
   assert.equal(readLiveSession(4242, io('')), null);
 });
 

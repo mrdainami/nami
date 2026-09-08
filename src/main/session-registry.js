@@ -6,8 +6,8 @@
 // conversation's id and never writes a line to the pinned one. Measured on a
 // real pty (CLI 2.1.226):
 //
-//   pinned  c602aba0-3040-4c24-82be-04807276ea15
-//   live    dddf8560-3aad-4b62-9184-33ad8101ba20   after /resume + Enter
+//   pinned  00000000-0000-4000-8000-000000000001
+//   live    00000000-0000-4000-8000-000000000002   after /resume + Enter
 //   pinned transcript exists: false
 //
 // Two things then break silently. The title sweep stats a file that will never

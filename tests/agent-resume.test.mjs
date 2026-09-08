@@ -320,8 +320,8 @@ test('grok joins the resumable agents', () => {
 });
 
 test('resumeCommand: grok resumes by id', () => {
-  assert.equal(resumeCommand('grok', '01a022b6-e47c-7f50-9f3a-005e1be7ca73'),
-    'grok --resume 01a022b6-e47c-7f50-9f3a-005e1be7ca73');
+  assert.equal(resumeCommand('grok', '00000000-0000-4000-8000-000000000003'),
+    'grok --resume 00000000-0000-4000-8000-000000000003');
   // the sid is typed into a shell, so anything outside the safe charset is refused
   assert.equal(resumeCommand('grok', 'a b; rm -rf /'), null);
   assert.equal(resumeCommand('grok', ''), null);
