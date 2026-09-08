@@ -136,9 +136,12 @@ const XTERM_THEMES = {
 // the window before this file has loaded — the two disagreeing is a visible
 // flash of the wrong colour on every launch.
 const DEFAULT_THEME = 'glass';
+function normalizeTheme(name) {
+  return THEME_NAMES.includes(name) ? name : DEFAULT_THEME;
+}
 function currentTheme() {
   const t = document.body.dataset.theme;
-  return THEME_NAMES.includes(t) ? t : DEFAULT_THEME;
+  return t === undefined ? 'paper' : normalizeTheme(t);
 }
 function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
 function statusColors() { return STATUS_COLORS[currentTheme()]; }
@@ -156,6 +159,7 @@ function termFontFamily() {
   return "'SF Mono', ui-monospace, Menlo, monospace";
 }
 function applyThemeAttrs(name) {
+  name = normalizeTheme(name);
   if (name !== 'paper' && THEME_NAMES.includes(name)) document.body.dataset.theme = name;
   else delete document.body.dataset.theme;
   // data-glass scopes the shared liquid-glass system CSS + the tilt engine
@@ -172,8 +176,8 @@ function setView(name, persistIt = true) {
   const view = name === 'split' ? 'split' : 'desk';
   const was = S.view;
   S.view = view;
-  if (!S.demo) { try { localStorage.setItem(VIEW_KEY, view); } catch (_) {} }
-  if (persistIt && !S.demo && api.viewSet) api.viewSet(view);
+  if (persistIt && !S.demo && !S.review) { try { localStorage.setItem(VIEW_KEY, view); } catch (_) {} }
+  if (persistIt && !S.demo && !S.review && api.viewSet) api.viewSet(view);
   if (view === 'split' && was !== 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'enter', activeId: S.activeId });
   if (view !== 'split') S.expandedId = null;
   applyViewAttrs();
@@ -182,10 +186,19 @@ function setView(name, persistIt = true) {
 function applyViewAttrs() {
   document.querySelectorAll('#viewsw .rail-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === S.view));
 }
+let themeSaveVersion = 0;
 function setTheme(name, persistIt = true) {
+  name = normalizeTheme(name);
   applyThemeAttrs(name);
-  try { localStorage.setItem(THEME_KEY, name); } catch (_) {}
-  if (persistIt && api.themeSet) api.themeSet(name);
+  if (api.themeApplied) api.themeApplied(name);
+  const version = ++themeSaveVersion;
+  let saved = Promise.resolve();
+  if (persistIt && !S.review && api.themeSet) {
+    saved = Promise.resolve(api.themeSet(name)).then((result) => {
+      if (!result || !result.ok) throw new Error('save failed');
+      if (version === themeSaveVersion) { try { localStorage.setItem(THEME_KEY, name); } catch (_) {} }
+    }).catch(() => toast('Appearance changed, but could not be saved for next launch.'));
+  }
   tileEls.forEach((t, id) => {
     if (!t.term) return;
     t.term.options.theme = xtermTheme();
@@ -195,6 +208,7 @@ function setTheme(name, persistIt = true) {
     markFit(t);
   });
   if (els.grid) renderAll();
+  return saved;
 }
 // apply the saved theme before first paint (localStorage mirrors settings.json)
 // Before first paint, and before boot data arrives. An install that has never
@@ -334,6 +348,7 @@ function dropPathOnPanel(p, path, isDir) {
   // the lockup is never laid out twice — the stack is sized by Nami above it,
   // and a build that somehow reports no version simply shows nothing.
   if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
+  S.review = !!b.review;
   S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
   // Here, not in buildShell: buildShell runs before this await resolves, so the
   // project was still null there and the window watched nothing at all until you
@@ -342,7 +357,8 @@ function dropPathOnPanel(p, path, isDir) {
   watchProject();
   setSttInfo(b.sttInfo);
   if (b.collapsed) S.railCollapsed = true;
-  if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
+  setTheme(b.themeArg || b.theme || DEFAULT_THEME, false);
+  if (!S.review) { try { localStorage.setItem(THEME_KEY, currentTheme()); } catch (_) {} }
   // The view you left the app in. localStorage is this window's memory,
   // settings.json the shared one; a --scene may force one for a screenshot.
   let view = null; if (!S.demo) { try { view = localStorage.getItem(VIEW_KEY); } catch (_) {} }
@@ -1115,7 +1131,7 @@ function toggleThemePop() {
   const ex = q('.theme-pop'); if (ex) { ex.remove(); return; }
   const pop = document.createElement('div'); pop.className = 'theme-pop';
   pop.innerHTML = `<div class="pop-label">Appearance</div>` + THEME_OPTIONS.map((t) =>
-    `<button class="theme-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}">
+    `<button class="theme-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}" aria-pressed="${currentTheme() === t.id}">
       <span class="theme-dot"></span><span class="theme-name">${t.name}</span><span class="theme-desc">${t.desc}</span></button>`).join('');
   pop.onclick = (e) => e.stopPropagation();
   // fixed + measured + parked on body — same clipping story as the projects pop
@@ -1126,7 +1142,10 @@ function toggleThemePop() {
   pop.querySelectorAll('.theme-opt').forEach((b) => {
     b.onclick = () => {
       setTheme(b.dataset.themeId);
-      pop.querySelectorAll('.theme-opt').forEach((o) => o.classList.toggle('picked', o.dataset.themeId === b.dataset.themeId));
+      pop.querySelectorAll('.theme-opt').forEach((o) => {
+        const picked = o.dataset.themeId === currentTheme();
+        o.classList.toggle('picked', picked); o.setAttribute('aria-pressed', String(picked));
+      });
     };
   });
   setTimeout(() => document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }, { once: true }), 0);
@@ -5331,14 +5350,19 @@ function toggleSettingsMic(modal) {
 // ---- Look ------------------------------------------------------------------
 function lookPaneHtml() {
   return `<div class="field-label">appearance</div>` + THEME_OPTIONS.map((t) =>
-    `<button class="theme-opt set-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}">
+    `<button class="theme-opt set-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}" aria-pressed="${currentTheme() === t.id}">
       <span class="theme-dot"></span>
       <span class="set-opt-col"><span class="theme-name">${esc(t.name)}</span>
         <span class="set-opt-desc">${esc(t.desc)}</span></span></button>`).join('');
 }
 function wireLookPane(modal) {
   modal.querySelectorAll('[data-theme-id]').forEach((b) => {
-    b.onclick = () => { setTheme(b.dataset.themeId); renderOverlay(); };
+    b.onclick = () => {
+      const theme = b.dataset.themeId;
+      setTheme(theme);
+      // setTheme rebuilds Settings; keep keyboard navigation on the new row.
+      q(`.set-opt[data-theme-id="${theme}"]`)?.focus({ preventScroll: true });
+    };
   });
 }
 
