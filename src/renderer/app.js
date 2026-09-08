@@ -30,7 +30,7 @@ import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
 import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
-import { selectionReference, appendDraft, terminalDraft } from './session-draft.mjs';
+import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 
 const api = window.dainami;
 
@@ -2544,7 +2544,7 @@ function refreshTileHead(p) {
   t.statusDot.style.background = m.color;
   t.root.classList.toggle('attention', !!p.attention);
   t.root.classList.toggle('exited', !!p.exited);
-  if (t.refreshDraft) t.refreshDraft();
+  if (t.refreshImages) t.refreshImages();
 }
 
 // ---- terminal tiles --------------------------------------------------------
@@ -2662,7 +2662,7 @@ function mountTerminal(p, rec) {
   term.onBell(() => setAttention(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
-  mountSessionDraft(p, rec);
+  mountSessionImages(p, rec);
   // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
   // every frame the tile changes size. The delay that used to live here was
   // protecting the pty, and the pty has its own settle now — which is also why a
@@ -2723,30 +2723,41 @@ function openSelectionDraft(p, selection, destination) {
 function renderSelectionDraft() {
   const o = S.overlay;
   const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
-  const modal = overlay('modal', `<div class="modal-head"><span class="title">Add selection to a draft</span></div>
+  const modal = overlay('modal', `<div class="modal-head"><span class="title">Insert selection into session</span></div>
     <div class="modal-body selection-sheet"><label>Session<select id="selection-session">${sessions.map((s) => `<option value="${esc(s.id)}"${s.id === o.destination ? ' selected' : ''}>${esc(s.title)}</option>`).join('')}</select></label>
     <div class="field-label">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
     <label>Optional note<textarea id="selection-note" rows="3">${esc(o.note)}</textarea></label></div>
-    <div class="modal-foot"><span class="note">Appends to the draft. Nothing is sent yet.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Add to draft</button></div>`);
+    <div class="modal-foot"><span class="note">Inserts into the session input without submitting.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Insert into session</button></div>`);
   q('#selection-session', modal).onchange = (e) => { o.destination = e.target.value; };
   q('#selection-note', modal).oninput = (e) => { o.note = e.target.value; };
   q('#selection-cancel', modal).onclick = closeOverlay;
-  q('#selection-add', modal).onclick = () => {
+  q('#selection-add', modal).onclick = async () => {
+    q('#selection-add', modal).disabled = true;
     const text = (o.note ? o.note + '\n\n' : '') + o.selection.reference + '\n\n' + o.selection.text;
-    if (stageSessionDraft(o.destination, text)) closeOverlay();
+    if (await insertSessionText(o.destination, text)) closeOverlay();
+    else q('#selection-add', modal).disabled = false;
   };
   q('#selection-note', modal).focus();
 }
-function stageSessionDraft(id, text) {
+async function insertSessionText(id, text) {
   const p = S.panels.find((s) => s.id === id && isSessionPanel(s) && !s.exited);
   const rec = p && tileEls.get(id);
-  const input = rec && (rec.aiInput || rec.draftInput);
-  if (!input) { toast('That session is no longer available.'); return false; }
-  input.value = appendDraft(input.value, text);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  focusPanel(id); input.focus();
-  toast('Added to the session draft.');
-  return true;
+  if (!rec) { toast('That session is no longer available.'); return false; }
+  if (rec.aiInput) {
+    rec.aiInput.value = appendDraft(rec.aiInput.value, text);
+    rec.aiInput.dispatchEvent(new Event('input', { bubbles: true }));
+    focusPanel(id); rec.aiInput.focus();
+    return true;
+  }
+  if (!rec.term) { toast('That session is no longer available.'); return false; }
+  const data = terminalInsertion(text, rec.term.modes.bracketedPasteMode);
+  if (data === null) { toast('This terminal does not support safe multiline insertion. The selection is kept here.'); return false; }
+  try {
+    const result = await api.termWrite({ id, data });
+    if (!result?.ok) throw new Error('write failed');
+    focusPanel(id); rec.term.scrollToBottom(); rec.term.focus();
+    return true;
+  } catch (_) { toast('Could not insert into that terminal.'); return false; }
 }
 function wireImagePaste(p, rec) {
   rec.root.addEventListener('paste', (e) => {
@@ -2762,73 +2773,44 @@ function wireImagePaste(p, rec) {
         if (!saved || !saved.ok) { toast(saved?.error || 'Could not save the image.'); continue; }
         if (!S.panels.includes(p)) return;
         p.imageAttachments = p.imageAttachments || [];
-        if (p.imageAttachments.some((a) => a.path === saved.path && !a.sent)) continue;
-        p.imageAttachments.push({ id: uid('image_'), path: saved.path, thumbnail: saved.thumbnail, sent: false });
-        rec.refreshDraft(); savePanels();
+        if (!p.imageAttachments.some((a) => a.path === saved.path)) {
+          p.imageAttachments.push({ id: uid('image_'), path: saved.path, thumbnail: saved.thumbnail });
+        }
+        await insertSessionText(p.id, shellQuote(saved.path) + ' ');
+        rec.refreshImages(); savePanels();
       }
     }).catch(() => toast('Could not paste that image.'));
   }, true);
 }
-function mountSessionDraft(p, rec) {
-  const box = document.createElement('div'); box.className = 'session-draft';
-  box.innerHTML = `<div class="image-strip" aria-label="Pasted images"></div><div class="draft-tools"><span class="note">Draft · sends to the current terminal input</span><button class="btn draft-jump" hidden>Jump to latest</button></div>
-    <textarea class="draft-input" rows="2" aria-label="Draft for ${esc(p.title)}" placeholder="Write while reading above…"></textarea>
-    <div class="draft-tools"><span class="note">Enter sends · Shift+Enter adds a line</span><button class="btn btn--go draft-send">Send</button></div>`;
-  rec.root.appendChild(box);
-  const input = q('.draft-input', box), send = q('.draft-send', box), jump = q('.draft-jump', box);
-  rec.draftInput = input; input.value = p.inputDraft || '';
-  let sending = false, newOutput = false;
-  const strip = q('.image-strip', box);
-  let imageSignature = '';
-  const renderImages = () => {
-    const signature = JSON.stringify([sending, p.imageAttachments || []]);
-    if (signature === imageSignature) return;
-    imageSignature = signature;
+function mountSessionImages(p, rec) {
+  const strip = document.createElement('div');
+  strip.className = 'image-strip session-images'; strip.setAttribute('aria-label', 'Pasted images');
+  rec.root.appendChild(strip);
+  let signature = '';
+  rec.refreshImages = () => {
+    const next = JSON.stringify([!!p.exited, p.imageAttachments || []]);
+    if (next === signature) return;
+    signature = next;
     strip.innerHTML = '';
     for (const image of p.imageAttachments || []) {
       const item = document.createElement('div'); item.className = 'image-attachment';
-      item.innerHTML = `<button class="image-open" title="Open pasted image"><img alt="Pasted image" src="${esc(image.thumbnail)}"></button><span>${image.sent ? 'Sent to terminal' : 'Staged'}</span><button class="image-remove">${image.sent ? 'Hide' : 'Remove'}</button>`;
+      item.innerHTML = `<button class="image-open" title="Open pasted image"><img alt="Pasted image" src="${esc(image.thumbnail)}"></button><button class="image-insert">Insert path</button><button class="image-remove" title="Hide thumbnail; keeps the file and terminal text">Hide</button>`;
       q('.image-open', item).onclick = () => { focusPanel(p.id); openFile(image.path, { pin: true }); };
-      const remove = q('.image-remove', item); remove.disabled = sending;
-      remove.onclick = () => { p.imageAttachments = p.imageAttachments.filter((a) => a.id !== image.id); update(); savePanels(); };
+      const insert = q('.image-insert', item); insert.disabled = !!p.exited;
+      insert.onclick = async () => {
+        insert.disabled = true;
+        await insertSessionText(p.id, shellQuote(image.path) + ' ');
+        insert.disabled = !!p.exited;
+      };
+      q('.image-remove', item).onclick = () => {
+        p.imageAttachments = p.imageAttachments.filter((a) => a.id !== image.id);
+        rec.refreshImages(); savePanels();
+      };
       strip.appendChild(item);
     }
     strip.hidden = !strip.childElementCount;
   };
-  const update = () => {
-    rec.root.classList.toggle('has-draft', !!input.value || !!p.imageAttachments?.length);
-    renderImages();
-    input.disabled = sending || !!p.exited;
-    send.disabled = sending || !!p.exited || (!input.value.trim() && !(p.imageAttachments || []).some((a) => !a.sent));
-    jump.hidden = rec.term.buffer.active.viewportY >= rec.term.buffer.active.baseY;
-    if (jump.hidden) newOutput = false;
-    jump.textContent = newOutput ? 'New output · Jump to latest' : 'Jump to latest';
-  };
-  rec.refreshDraft = update;
-  input.oninput = () => { p.inputDraft = input.value; update(); savePanels(); };
-  input.onkeydown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send.click(); }
-  };
-  send.onclick = async () => {
-    const pending = (p.imageAttachments || []).filter((a) => !a.sent);
-    if (sending || p.exited || (!input.value.trim() && !pending.length)) return;
-    const text = input.value + (pending.length ? (input.value ? ' ' : '') + pending.map((a) => shellQuote(a.path)).join(' ') : '');
-    const data = terminalDraft(text, rec.term.modes.bracketedPasteMode);
-    if (data === null) { toast('This terminal does not support multiline paste. The draft is kept; use the terminal directly.'); return; }
-    sending = true; update();
-    try {
-      const result = await api.termWrite({ id: p.id, data });
-      if (!result || !result.ok) throw new Error('write failed');
-      clearAttention(p); if (p.autoName) feedSessionName(p, input.value + '\n');
-      input.value = ''; p.inputDraft = ''; pending.forEach((a) => { a.sent = true; }); savePanels();
-    } catch (_) { toast('Could not send. Your draft is still here.'); }
-    finally { sending = false; update(); }
-  };
-  jump.onclick = () => { rec.term.scrollToBottom(); update(); };
-  rec.term.onScroll(update); rec.term.onWriteParsed(() => {
-    if (rec.term.buffer.active.viewportY < rec.term.buffer.active.baseY) newOutput = true;
-    update();
-  }); wireImagePaste(p, rec); update();
+  wireImagePaste(p, rec); rec.refreshImages();
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -4108,7 +4090,7 @@ function panelSnapshot() {
   // remember is five places to forget.
   const size = (p) => {
     const o = { spanX: p.spanX, spanY: p.spanY };
-    if (isSessionPanel(p)) { o.inputDraft = p.inputDraft || ''; o.imageAttachments = p.imageAttachments || []; }
+    if (isSessionPanel(p)) { o.imageAttachments = p.imageAttachments || []; }
     if (p.fontSize >= 10 && p.fontSize <= 18) o.fontSize = p.fontSize;
     if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
     return o;
@@ -4175,10 +4157,9 @@ async function restorePanels(snaps) {
         if (s.fontSize) n.fontSize = s.fontSize;
         if (s.docScale) n.docScale = s.docScale;
         if (isSessionPanel(n)) {
-          n.inputDraft = typeof s.inputDraft === 'string' ? s.inputDraft : '';
           n.imageAttachments = Array.isArray(s.imageAttachments) ? s.imageAttachments.filter((a) => a && typeof a.path === 'string' && typeof a.thumbnail === 'string').slice(0, 20) : [];
           const rec = tileEls.get(n.id);
-          if (rec?.draftInput) { rec.draftInput.value = n.inputDraft; rec.refreshDraft(); }
+          if (rec?.refreshImages) rec.refreshImages();
         }
       }
     } catch (_) {}
