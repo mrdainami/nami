@@ -131,13 +131,19 @@ if (SHOT_PATH) {
 // impossible to see at all without deleting your own config. Development gets its own
 // directory instead. Must run before anything reads userData, hence module scope.
 // --user-data <dir> gives a run its own profile — two dev sessions sharing
-// Nami-dev otherwise restore each other's desks into every screenshot.
-const UD_IDX = process.argv.indexOf('--user-data');
-if (UD_IDX >= 0 && process.argv[UD_IDX + 1]) app.setPath('userData', path.resolve(process.argv[UD_IDX + 1]));
-else if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
+// Nami-dev otherwise restore each other's desks into every screenshot. Review
+// flags default to a disposable profile. An explicit --user-data must also be
+// disposable for review: it is used as supplied and is never deleted by Nami.
+const { createReviewProfile } = require('./review-profile');
+const reviewProfile = createReviewProfile({
+  argv: process.argv, normalPath: app.getPath('userData'), packaged: app.isPackaged,
+});
+app.setPath('userData', reviewProfile.path);
+const REVIEW = reviewProfile.review;
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
+const windowThemes = new Map();
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
 const termSessions = new Map();   // id -> pty
@@ -285,14 +291,14 @@ function menuSend(cmd) {
   const w = BrowserWindow.getFocusedWindow() || win;
   if (w) sendWc(w.webContents, 'menu:command', cmd);
 }
-function refreshAppMenu() {
+function refreshAppMenu(focusedWindow = BrowserWindow.getFocusedWindow() || win) {
   installAppMenu({
     Menu,
     shell,
     app,
     send: menuSend,
     newWindow: () => createWindow(null),
-    theme: readSettings().theme,
+    theme: windowThemes.get(focusedWindow?.webContents.id) || settingsStore.normalizeTheme(readSettings().theme),
     // A recents row can outlive its folder, and a menu item that opens nothing
     // is worse than one that is not there.
     recents: recentsForRenderer().filter((r) => !r.missing),
@@ -317,7 +323,7 @@ async function pollForUpdate() {
 }
 
 function startUpdatePolling() {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged || REVIEW) return;
   // A beat after launch, not during it — the first seconds belong to the window.
   setTimeout(pollForUpdate, 8000).unref?.();
   setInterval(pollForUpdate, UPDATE_EVERY).unref?.();
@@ -415,6 +421,8 @@ function createWindow(folder, bounds) {
   });
   const wcId = w.webContents.id;
   wins.add(w); win = w;
+  windowThemes.set(wcId, settingsStore.normalizeTheme(readSettings().theme));
+  w.on('focus', () => refreshAppMenu(w));
   winFolders.set(wcId, folder === undefined ? state.currentFolder : folder);
   lockNavigation(w.webContents);
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
@@ -426,6 +434,7 @@ function createWindow(folder, bounds) {
   w.on('leave-full-screen', () => w.webContents.send('window:fullscreen', false));
   w.on('closed', () => {
     wins.delete(w);
+    windowThemes.delete(wcId);
     winFolders.delete(wcId);
     reapSessions(wcId);
     if (win === w) win = [...wins].pop() || null;
@@ -551,6 +560,7 @@ app.on('before-quit', () => {
 // timer is unref'd so it never holds a fast exit open; it only fires if the
 // process is still here two seconds after it had any reason to be.
 app.on('quit', () => {
+  try { reviewProfile.cleanup(); } catch (err) { console.error('[review] profile cleanup:', err.message); }
   setTimeout(() => process.exit(0), 2000).unref?.();
 });
 
@@ -596,6 +606,8 @@ ipcMain.handle('boot', (e) => {
     version: app.getVersion(),
     updatedAt: appUpdatedAt(),
     demo: DEMO,
+    review: REVIEW,
+    theme: settingsStore.normalizeTheme(readSettings().theme),
     collapsed: process.argv.includes('--collapsed'),
     // --theme=operator forces a theme for this run (screenshots); not persisted
     themeArg: (process.argv.find((a) => a.startsWith('--theme=')) || '').split('=')[1] || null,
@@ -920,14 +932,20 @@ ipcMain.handle('url:open', (_e, url) => {
 });
 
 // Theme lives in settings.json so the window background matches on next launch.
+ipcMain.on('theme:applied', (e, theme) => {
+  if (!wins.has(BrowserWindow.fromWebContents(e.sender))) return;
+  windowThemes.set(e.sender.id, settingsStore.normalizeTheme(theme));
+  refreshAppMenu();
+});
 ipcMain.handle('theme:set', (_e, theme) => {
+  if (REVIEW) return { ok: true };
   const saved = writeSettings({ theme: settingsStore.normalizeTheme(theme) });
-  refreshAppMenu();   // View > Theme ticks the saved one, so it has to be rebuilt
+  refreshAppMenu();
   return saved;
 });
 
 // Desk or Split, so the app reopens in the view you left.
-ipcMain.handle('view:set', (_e, view) => writeSettings({ view: settingsStore.normalizeView(view) }));
+ipcMain.handle('view:set', (_e, view) => REVIEW ? { ok: true } : writeSettings({ view: settingsStore.normalizeView(view) }));
 
 // The Settings page reads and writes settings.json directly. Only these keys are
 // writable from the renderer — panel layout and recents live in state.json and
@@ -980,6 +998,7 @@ ipcMain.handle('keys:reveal', (_e, { name }) => ({ value: storedEnvKeys()[name] 
 ipcMain.handle('settings:set', (_e, patch) => {
   const clean = {};
   for (const [k, v] of Object.entries(patch || {})) if (WRITABLE_SETTINGS.has(k)) clean[k] = v;
+  if (REVIEW) { delete clean.theme; delete clean.view; }
   const res = writeSettings(clean);
   return res.ok ? { ok: true, sttInfo: sttStatus() } : res;
 });
