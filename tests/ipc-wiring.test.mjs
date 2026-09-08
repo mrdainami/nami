@@ -57,3 +57,14 @@ test('Chat spawn uses the scanned program and the login PATH', () => {
     'Dock stub PATH is the fallback, not the spawn default',
   );
 });
+
+// A chat card asks main to watch its session's store for a name. The same
+// button-click check as the library channels: exposed in the preload, handled
+// in main, and the card actually calls it once it has a session id.
+test('session:watch-title is exposed, handled, and called by the chat pane', () => {
+  assert.match(preloadSrc, /sessionWatchTitle:\s*\(args\)\s*=>\s*ipcRenderer\.invoke\('session:watch-title', args\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('session:watch-title'/);
+  const pane = fs.readFileSync(path.join(root, 'src/renderer/acp-pane.mjs'), 'utf8');
+  assert.match(pane, /api\.sessionWatchTitle\(\{ id: p\.id, agent: p\.agentId \|\| 'claude', cwd: p\.cwd, sid: p\.acpSid \}\)/);
+  assert.equal((pane.match(/watchTitle\(\);/g) || []).length, 2, 'after connect and after picking up a past session');
+});

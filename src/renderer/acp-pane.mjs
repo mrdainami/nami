@@ -131,6 +131,9 @@ export function mountChatPane(p, rec, hooks) {
       const skills = (attachments || []).filter((a) => a && a.skill).map((a) => a.skill);
       if (skills.length) full += '\n\nUse the ' + skills.join(', ') + ' skill' + (skills.length > 1 ? 's' : '') + ' for this.';
       if (paths.length) full += '\n\nFiles: ' + paths.map((x) => '"' + x + '"').join(' ');
+      // the first real message names a card the way the first typed line names
+      // a terminal tile (feedSessionName in app.js); the attachments are not prose
+      if (hooks.prompt) hooks.prompt(p, text);
       sendPrompt(full, { display: text, files: paths });
     },
     onCommand: (name) => route(name),
@@ -179,6 +182,7 @@ export function mountChatPane(p, rec, hooks) {
           transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
           await client.loadSession(row.value, p.cwd);
           p.acpSid = row.value;
+          watchTitle();
           if (hooks.rename) hooks.rename(p, row.name);
         } catch (err) {
           transcript.error('Couldn\u2019t pick that session up \u2014 ' + ((err && err.message) || 'try another.'));
@@ -247,6 +251,9 @@ export function mountChatPane(p, rec, hooks) {
   rec.cwFeed = (ev) => transcript.apply(ev); // scenes/screenshots replay events without an agent
   if (p.sceneStatic) return;
 
+  // The agent names the conversation in its own store a turn or two in; main
+  // watches that store for this id and reports the name over session:title.
+  const watchTitle = () => { if (api.sessionWatchTitle && p.acpSid) api.sessionWatchTitle({ id: p.id, agent: p.agentId || 'claude', cwd: p.cwd, sid: p.acpSid }); };
   (async () => {
     const launch = AGENT_LAUNCH[p.agentId] || AGENT_LAUNCH.claude;
     const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: launch.command, args: launch.args });
@@ -255,6 +262,7 @@ export function mountChatPane(p, rec, hooks) {
       const { session } = await client.connect(p.cwd);
       state.connected = true;
       p.acpSid = session.sessionId;
+      watchTitle();
       state.modes = session.modes || null;
       state.configOptions = session.configOptions || [];
       syncChips();

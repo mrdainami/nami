@@ -86,3 +86,23 @@ test('feedOscTitle survives a chunk with no OSC at all', () => {
   assert.equal(feedOscTitle(st, 'just some output\r\n'), null);
   assert.equal(st.last, 'Fix the parser');
 });
+
+// Captured from claude 2.1.263 on 2026-09-08: the working glyph became ◐ ◑,
+// which the old glyph list did not know. "◐ Claude Code" then passed as a real
+// name, and every later name — the prompt, the agent's own — tied with it and
+// lost. That is the tile that stayed "Claude Code" until a resume.
+test('the placeholder is still a placeholder under the half-circle spinner', () => {
+  const st = { last: null };
+  assert.equal(feedOscTitle(st, OSC('✳ Claude Code')), null);
+  assert.equal(feedOscTitle(st, OSC('◐ Claude Code')), null);
+  assert.equal(feedOscTitle(st, OSC('◑ Claude Code')), null);
+  assert.equal(feedOscTitle(st, OSC('◑ Pong response')), 'Pong response');
+  assert.equal(feedOscTitle(st, OSC('◐ Pong response')), null, 'the spinner alone is not a change');
+  assert.equal(feedOscTitle(st, OSC('✳ Pong response')), null);
+});
+
+test('any leading symbol run is a status glyph, letters and digits start the name', () => {
+  assert.equal(cleanAgentTitle('⟳ Ship it'), 'Ship it');
+  assert.equal(cleanAgentTitle('▸▸ 3 tests failing'), '3 tests failing');
+  assert.equal(cleanAgentTitle('— Claude Code'), null);
+});

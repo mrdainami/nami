@@ -10,7 +10,7 @@ const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, with
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
 const { wireAcpLive } = require('./acp-live');
-const { agentForCommand, resumeCommand, sessionExists, startDiscovery } = require('./agent-resume.js');
+const { agentForCommand, resumeCommand, sessionExists, startDiscovery, readSessionTitle } = require('./agent-resume.js');
 const { feedOscTitle } = require('./osc-title');
 const { installAppMenu } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
@@ -1318,7 +1318,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
   const claudeExe = resolveClaudeExecutable();
 
-  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null, discoverAgent = null;
+  let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null, discoverAgent = null, storeWatch = null;
   if (kind === 'claude') {
     // sid: the panel's own conversation id, minted in the renderer at first spawn.
     // A fresh spawn pins it with --session-id; a restored panel resumes it with
@@ -1376,7 +1376,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) typed = resolveRunCommand(withSpawnFlags(resume));
+        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume)); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
@@ -1397,6 +1397,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   termSessions.set(id, p);
   sessionOwners.set(id, wc.id);
   if (claudeWatch) watchTitle(id, wc, claudeWatch.transcript, { pid: p.pid, sid: claudeWatch.sid, cwd: claudeWatch.cwd });
+  // A resumed run tile (codex, kimi, …) knows its id now; its name comes from
+  // the agent's store rather than a transcript file. A fresh one registers
+  // the moment discovery finds its id, below.
+  if (storeWatch) watchTitle(id, wc, null, { agent: storeWatch.agent, sid: storeWatch.sid, cwd });
   // A fresh agent tile does not know its conversation id — the agent only
   // files the new session in its store once it starts. Poll for it (shared
   // unref'd interval, see agent-resume.js); a hit goes to the renderer, which
@@ -1405,7 +1409,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     id, agent: discoverAgent,
     cwd: (cwd && fs.existsSync(cwd)) ? cwd : os.homedir(), // the pty's own cwd rule
     sinceMs: Date.now(),
-    onFound: (found) => sendWc(wc, 'term:session-id', { id, sid: found }),
+    onFound: (found) => { sendWc(wc, 'term:session-id', { id, sid: found }); watchTitle(id, wc, null, { agent: discoverAgent, sid: found, cwd }); },
   }) : null;
   // Claude publishes its name for the LIVE conversation as an OSC 0 title on
   // nearly every frame. Reading it out of the stream costs nothing and, unlike
@@ -1511,11 +1515,18 @@ function sweepTitles() {
         sendWc(w.wc, 'session:sid', { id, sid: w.sid });
       }
     }
-    let stat = null;
-    try { stat = fs.statSync(w.file); } catch (_) { continue; } // not written yet
-    if (stat.mtimeMs === w.mtime) continue;
-    w.mtime = stat.mtimeMs;
-    const title = readTailTitle(w.file);
+    let title = null;
+    if (w.file) {
+      let stat = null;
+      try { stat = fs.statSync(w.file); } catch (_) { continue; } // not written yet
+      if (stat.mtimeMs === w.mtime) continue;
+      w.mtime = stat.mtimeMs;
+      title = readTailTitle(w.file);
+    } else if (w.agent && w.sid) {
+      // No file to stat: ask the agent's store on the same cadence. Each
+      // reader is one small file or one indexed row (agent-resume.js).
+      title = readSessionTitle(w.agent, w.cwd, w.sid);
+    } else continue;
     if (!title || title === w.title) continue;
     w.title = title;
     sendWc(w.wc, 'session:title', { id, title });
@@ -1523,10 +1534,21 @@ function sweepTitles() {
   if (!titleWatch.size) { clearInterval(titleTimer); titleTimer = null; titleEvery = 0; }
 }
 
-function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null } = {}) {
-  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd });
+function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null, agent = null } = {}) {
+  titleWatch.set(id, { file, wc, mtime: 0, title: null, pid, sid, cwd, agent });
   retimeTitles();
 }
+
+// A chat card learns its session id in the renderer (the ACP handshake), so it
+// asks from there. Agent ids are the launcher's; the stores are keyed by bin.
+// Closing the card goes through term:kill, which drops the watch.
+const STORE_AGENT = { antigravity: 'agy' };
+ipcMain.handle('session:watch-title', (e, { id, agent, cwd, sid }) => {
+  if (!id || !sid) return { ok: false };
+  const key = STORE_AGENT[agent] || agent || 'claude';
+  watchTitle(id, e.sender, null, { agent: key, sid, cwd });
+  return { ok: true };
+});
 
 ipcMain.handle('term:write', (_e, { id, data }) => { const p = termSessions.get(id); if (p) try { p.write(data); } catch (_) {} return { ok: !!p }; });
 let ptyResizeN = 0;

@@ -4,11 +4,19 @@
 // list instead of a column of identical labels, and keeps reading like one
 // after the work moves on.
 
+// What a session is called before anyone has said anything: the launcher's
+// display names (agents-detect.js). A card is born as "Claude Code" and a run
+// tile as "Codex" — those are placeholders, not names, and the first prompt
+// may replace them. Runtime callers can pass the names they learned as well.
+export const AGENT_DISPLAY_NAMES = ['Claude Code', 'Codex', 'OpenCode', 'Grok', 'Antigravity', 'Hermes', 'Kimi Code'];
+
 // Titles the auto-namer may overwrite. Anything a human or a flow chose
 // ("build: dark mode", "improve: my-skill") is not generic and stays.
-export function isGenericTitle(title) {
+export function isGenericTitle(title, agentNames = []) {
   const t = String(title || '').trim();
-  return !t || /\bsession$/i.test(t);
+  if (!t || /\bsession$/i.test(t)) return true;
+  const low = t.toLowerCase();
+  return AGENT_DISPLAY_NAMES.concat(agentNames || []).some((n) => String(n).toLowerCase() === low);
 }
 
 // Who chose a tile's name. A stronger source may overwrite a weaker one; an
@@ -32,8 +40,12 @@ export function titleRank(source) {
 export function adoptTitle(current, incoming) {
   const title = String((incoming && incoming.title) || '').trim();
   if (!title) return null;
-  if (titleRank(incoming.source) <= titleRank(current && current.source)) return null;
   if (current && current.title === title) return null;
+  // The agent re-titles its own conversation as the work moves on; that is
+  // the same source updating itself, not a weaker one overriding. Every other
+  // tie holds: a flow's name stays, a second prompt guess never replaces the first.
+  const refresh = incoming.source === 'agent' && current && current.source === 'agent';
+  if (!refresh && titleRank(incoming.source) <= titleRank(current && current.source)) return null;
   return { title, source: incoming.source };
 }
 

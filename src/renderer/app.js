@@ -1110,6 +1110,7 @@ function refreshSessionsRail(c) {
     const m = statusMeta(p);
     const row = document.createElement('div');
     row.className = 'nav-card' + (p.id === S.activeId ? ' active' : '') + (p.attention ? ' attn' : '');
+    row.dataset.id = p.id;
     row.innerHTML = `${panelChip(p)}
       <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(shorten(p.title, 30))}</span><span class="sid">${esc(kindLabel(p))}</span></span>
       <span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
@@ -2219,12 +2220,15 @@ function spawnTerminalTwin(p, draft) {
   }
   if (spawned) closePanel(p.id);
 }
-function adoptChatTitle(p, title) {
-  if (p.titleSource === 'user') return;
-  p.title = shorten(String(title), 60);
-  p.titleSource = 'ai';
-  refreshTileHead(p); renderRail();
-}
+// The agent's own name for a chat, over the ACP channel or from its store on
+// disk. Same rung as a terminal's transcript name: it upgrades a prompt guess
+// and never touches a name you typed. ('ai' used to be its own source here,
+// unknown to session-name.mjs and so ranked at zero — a later prompt guess
+// could overwrite the agent's name.)
+function adoptChatTitle(p, title) { applyTitle(p, shorten(String(title), 60), 'agent'); }
+// The first message sent from a card names it at once, as Enter does in a
+// terminal tile; the newline is what commits the draft.
+function promptNamesChat(p, text) { if (p.autoName) feedSessionName(p, String(text || '') + '\n'); }
 function mountTile(p) {
   const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
   root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
@@ -2300,7 +2304,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
+  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -3697,7 +3701,16 @@ function applyTitle(p, title, source) {
   p.title = win.title; p.titleSource = win.source;
   if (source !== 'prompt') { p.autoName = false; p._nameDraft = ''; }
   refreshTileHead(p); refreshRail(); savePanels();
+  if (source !== 'user') flashTitle(p); // you typed it yourself: nothing to notice
   return true;
+}
+// One flash on both labels when a name arrives on its own, so the rename is
+// noticed rather than puzzled over. The rail row was just rebuilt, so only the
+// tile's label needs its animation restarted.
+function flashTitle(p) {
+  const t = tileEls.get(p.id);
+  const labels = [t && q('.t-title', t.head), q(`.nav-card[data-id="${p.id}"] .goal`)].filter(Boolean);
+  for (const el of labels) { el.classList.remove('renamed'); void el.offsetWidth; el.classList.add('renamed'); }
 }
 // Keystrokes stream into a name draft until Enter commits one (session-name.mjs
 // decides); the committed prompt names the tile straight away, so the rail is
@@ -3787,6 +3800,20 @@ async function restorePanels(snaps) {
   renderAll();
 }
 
+// Where a new panel's name stands on the ladder (session-name.mjs). Chat cards
+// are built by hand in the agent picker rather than through startPanel, so this
+// is the one place both go through — a card born "Claude Code" must be as
+// nameable as a tile born "Claude session".
+function seedTitleSource(p) {
+  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
+    p.autoName = true;
+    // A generic title cannot have come from a prompt or the agent, whatever a
+    // snapshot says: desks saved before bare agent names counted as generic
+    // stamped "Codex" as a prompt name, and that stamp tied with the first
+    // real prompt. A flow's or your own name is never generic, so it is safe.
+    p.titleSource = 'generic';
+  } else p.titleSource = p.titleSource || 'prompt';
+}
 function startPanel(opts) {
   // Every session belongs to a folder. Without one the pty falls back to the
   // home directory (main.js term:create), which gives the agent the run of ~ and
@@ -3811,10 +3838,7 @@ function startPanel(opts) {
   // flow says 'flow' outright (agentSession) — everything else lands on the
   // weak sources, so a name nami merely guessed is never pushed into claude,
   // and a snapshot saved before any of this existed stays upgradable.
-  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title)) {
-    p.autoName = true;
-    p.titleSource = p.titleSource || 'generic';
-  } else p.titleSource = p.titleSource || 'prompt';
+  seedTitleSource(p);
   // Every claude panel owns a conversation id from birth (--session-id), so a
   // restore can bring back that conversation with --resume instead of --continue.
   // A cont-without-sid panel is the legacy --continue migration — minting an id
@@ -4038,6 +4062,7 @@ function renderLauncher() {
         const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
           : decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
         const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
+        seedTitleSource(np);
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();
         toast(a.name + ' \u2014 new chat session');
