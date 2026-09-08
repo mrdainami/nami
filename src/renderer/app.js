@@ -207,7 +207,7 @@ function setTheme(name, persistIt = true) {
     t.term.options.letterSpacing = termLetterSpacing();
     markFit(t);
   });
-  if (els.grid) renderAll();
+  if (els.grid) { renderAll(); requestAnimationFrame(positionThemePop); }
   return saved;
 }
 // apply the saved theme before first paint (localStorage mirrors settings.json)
@@ -884,7 +884,7 @@ function buildShell() {
   // The desk relays its own tracks. Cheap — it only re-renders when the count
   // actually changes, which is a handful of times across a whole window drag.
   syncDeskColumns();
-  window.addEventListener('resize', syncDeskColumns);
+  window.addEventListener('resize', () => { syncDeskColumns(); positionThemePop(); });
 
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
@@ -1126,6 +1126,16 @@ const THEME_OPTIONS = [
   { id: 'soft', name: 'soft', desc: 'off-white' },
   { id: 'dusk', name: 'dusk', desc: 'soft dark' },
 ];
+function positionThemePop() {
+  const pop = q('.theme-pop'), zone = q('#theme-zone');
+  if (!pop || !zone) return;
+  const anchor = zone.getBoundingClientRect();
+  const right = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, window.innerWidth - anchor.right));
+  pop.style.right = right + 'px';
+  pop.style.top = (anchor.bottom + 8) + 'px';
+  pop.style.maxHeight = Math.max(80, window.innerHeight - anchor.bottom - 16) + 'px';
+  pop.style.overflowY = 'auto';
+}
 function toggleThemePop() {
   const zone = q('#theme-zone');
   const ex = q('.theme-pop'); if (ex) { ex.remove(); return; }
@@ -1135,10 +1145,8 @@ function toggleThemePop() {
       <span class="theme-dot"></span><span class="theme-name">${t.name}</span><span class="theme-desc">${t.desc}</span></button>`).join('');
   pop.onclick = (e) => e.stopPropagation();
   // fixed + measured + parked on body — same clipping story as the projects pop
-  const anchor = zone.getBoundingClientRect();
-  pop.style.right = (window.innerWidth - anchor.right) + 'px';
-  pop.style.top = (anchor.bottom + 8) + 'px';
   document.body.appendChild(pop);
+  positionThemePop();
   pop.querySelectorAll('.theme-opt').forEach((b) => {
     b.onclick = () => {
       setTheme(b.dataset.themeId);
