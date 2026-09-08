@@ -228,3 +228,22 @@ export function pixIcon(name) {
   // cell boundaries and a pixel glyph stops looking like one.
   return `<svg class="pix-glyph" viewBox="0 0 ${grid} ${grid}" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}"/></svg>`;
 }
+
+// Settings and help use the same small outline family. Every icon keeps its
+// text label; these SVGs are decoration, never the accessible name of a button.
+const HELP_ICONS = {
+  voice: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>',
+  look: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  keys: '<circle cx="8" cy="8" r="5"/><path d="m11.5 11.5 9 9M17 17l3-3M14 14l3-3"/>',
+  shortcuts: '<path d="M8 8H5a3 3 0 1 1 3-3v14a3 3 0 1 1-3-3h14a3 3 0 1 1-3 3V5a3 3 0 1 1 3 3z"/>',
+  about: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/>',
+  keyboard: '<rect x="2" y="5" width="20" height="14" rx="1"/><path d="M6 9h1m4 0h1m4 0h1M6 13h1m4 0h1m4 0h1M7 16h10"/>',
+  desk: '<rect x="2" y="4" width="8" height="16" rx="1"/><rect x="14" y="4" width="8" height="7" rx="1"/><rect x="14" y="15" width="8" height="5" rx="1"/>',
+  file: '<path d="M14 2H5v20h14V7zM14 2v5h5M8 12h8M8 16h8"/>',
+};
+export function helpIcon(name) {
+  const paths = HELP_ICONS[name];
+  if (!paths) return '';
+  return `<svg class="help-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}

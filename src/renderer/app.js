@@ -9,7 +9,7 @@ import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file
 import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter, listItems, setListField, removeField } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
-import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon } from './icons.mjs';
+import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon, helpIcon } from './icons.mjs';
 import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
 import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
 import { receiversOf, knowsCopy } from './receivers.mjs';
@@ -22,6 +22,8 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
+import { createLinkHint } from './link-hint.mjs';
+import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
@@ -33,6 +35,7 @@ import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 
 const api = window.dainami;
+const terminalHint = createLinkHint({ document, window });
 
 // Finder can send a file the instant the page finishes loading, which is well
 // before boot() has a desk to put it on. The listener goes up here, at module
@@ -859,6 +862,7 @@ function buildShell() {
           <div class="footer">
             <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
             <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
+            <button class="footer-shortcuts" id="btn-shortcuts"><span aria-hidden="true">⌘</span> Shortcuts</button>
           </div>
         </div>
       </div>
@@ -875,12 +879,22 @@ function buildShell() {
   q('#btn-agents').onclick = () => openAgentPicker();
   document.querySelectorAll('#viewsw .view-choice').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
   q('#btn-help').onclick = () => openQuickStart();
+  q('#btn-shortcuts').onclick = () => openSettings('shortcuts');
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
   document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; S.railPeek = false; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; S.railPeek = true; applyChrome(); };
   document.addEventListener('keydown', onGlobalKey);
+  // Capture Escape before a terminal treats it as an agent command.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && terminalHint.hide()) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('pointerdown', () => terminalHint.hide(), true);
+  document.addEventListener('scroll', () => terminalHint.hide(), true);
+  document.addEventListener('wheel', () => terminalHint.hide(), { capture: true, passive: true });
+  window.addEventListener('blur', () => terminalHint.hide());
+  window.addEventListener('resize', () => terminalHint.hide());
   initGlassTilt();
 
   // The desk relays its own tracks. Cheap — it only re-renders when the count
@@ -1030,7 +1044,7 @@ function onGlobalKey(e) {
   // so which one the keystroke takes cannot change what it does.
   if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); closeActive(); return; }
   if (meta && (e.key === 's' || e.key === 'S')) { if (saveActive()) e.preventDefault(); return; }
-  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { S.overlay = null; renderOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
+  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { closeOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
 }
 
 // ===========================================================================
@@ -1459,6 +1473,7 @@ function markFresh(paths) {
 
 // ---- workspace context menu ------------------------------------------------
 function showMenu(x, y, items) {
+  terminalHint.hide();
   hideMenu();
   const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
   for (const it of items) {
@@ -2660,6 +2675,7 @@ function mountTerminal(p, rec) {
   // straight through, which is what made the canvas and the agent one job.
   term.onResize(() => notifyPty(p, rec));
   term.onBell(() => setAttention(p));
+  term.onScroll(() => terminalHint.hide(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
   mountSessionImages(p, rec);
@@ -2671,7 +2687,7 @@ function mountTerminal(p, rec) {
   ro.observe(rec.body);
   // a closed tile must not leave the link it was hovering behind in the map
   rec.disposeRo = () => {
-    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id);
+    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id); terminalHint.hide(p);
     for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
 }
@@ -2972,14 +2988,17 @@ function registerTerminalLinks(term, p) {
         // underline has to keep meaning "this opens".
         decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
         activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
-        hover: () => hoveredLink.set(p.id, { link: row.link, st: row.st, live }),
+        hover: (ev) => {
+          hoveredLink.set(p.id, { link: row.link, st: row.st, live });
+          if (!S.overlay && !q('#ctx-menu')) terminalHint.show({ kind: row.link.kind, st: row.st }, ev, p);
+        },
         // Only clear if this link is still the one recorded. Moving from
         // one link straight onto the next fires the new hover before the
         // old leave, and an unconditional delete would throw away the link
         // the pointer is actually on.
         leave: () => {
           const cur = hoveredLink.get(p.id);
-          if (cur && cur.link === row.link) hoveredLink.delete(p.id);
+          if (cur && cur.link === row.link) { hoveredLink.delete(p.id); terminalHint.hide(p); }
         },
       });
     }
@@ -3187,7 +3206,32 @@ async function copyLinkText(text) {
 // own provider. Claiming the handler matters: xterm's default pops a blocking
 // confirm() and a bare window.open, which in Electron is a dead-end window.
 function oscLinkHandler(p) {
+  let hover = null;
   return {
+    hover: async (ev, uri) => {
+      terminalHint.hide(p);
+      const revision = terminalHint.revision;
+      const marker = {};
+      hover = marker;
+      let hit;
+      if (/^https?:\/\//i.test(uri)) {
+        hit = { link: { kind: 'url', text: uri }, st: null, live: true };
+      } else if (/^file:\/\//i.test(uri)) {
+        let path = uri.replace(/^file:\/\/(localhost)?/i, '');
+        try { path = decodeURIComponent(path); } catch (_) {}
+        let st;
+        try { st = await api.statPath({ token: path, cwd: p.cwd, id: p.id }); } catch (_) { return; }
+        hit = { link: { kind: 'path', text: path }, st, live: !!st && st.exists };
+      }
+      if (!hit || hover !== marker || terminalHint.revision !== revision || !tileEls.has(p.id) || S.overlay || q('#ctx-menu')) return;
+      marker.hit = hit;
+      hoveredLink.set(p.id, hit);
+      terminalHint.show({ kind: hit.link.kind, st: hit.st }, ev, p);
+    },
+    leave: () => {
+      if (hover && hoveredLink.get(p.id) === hover.hit) { hoveredLink.delete(p.id); terminalHint.hide(p); }
+      hover = null;
+    },
     activate: async (ev, uri) => {
       if (!(ev.metaKey || ev.ctrlKey)) return;
       if (/^https?:\/\//i.test(uri)) { api.openUrl(uri); return; }
@@ -5284,12 +5328,26 @@ function renderImproveItem() {
 // ---- overlays --------------------------------------------------------------
 let lastOverlayType = null; // same-type re-renders skip the entrance animation
 let overlayDispose = null;
+let helpReturnFocus = null;
+let helpFocusKey = null;
+function rememberHelpFocus() {
+  if (!S.overlay || !['settings', 'quickstart'].includes(S.overlay.type)) helpReturnFocus = document.activeElement;
+}
 function renderOverlay() {
+  terminalHint.hide();
+  const focused = document.activeElement;
+  helpFocusKey = focused && els.overlayRoot.contains(focused)
+    ? { id: focused.id, section: focused.dataset.sec } : null;
   if (overlayDispose) { overlayDispose(); overlayDispose = null; }
   els.overlayRoot.innerHTML = ''; const o = S.overlay;
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
-  if (!o) return;
+  if (!o) {
+    if (helpReturnFocus && helpReturnFocus.isConnected) helpReturnFocus.focus({ preventScroll: true });
+    helpReturnFocus = null;
+    return;
+  }
+  if (!['settings', 'quickstart'].includes(o.type)) helpReturnFocus = null;
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
@@ -5318,9 +5376,11 @@ const SET_SECTIONS = [
   { id: 'voice', name: 'Voice', lead: 'how Nami hears you' },
   { id: 'look', name: 'Look', lead: 'how Nami looks on this desk' },
   { id: 'keys', name: 'Keys', lead: 'keys every session can use' },
+  { id: 'shortcuts', name: 'Shortcuts', lead: 'small moves that make your desk easier to use' },
   { id: 'about', name: 'About', lead: 'about this copy of Nami' },
 ];
 function openSettings(section) {
+  rememberHelpFocus();
   S.overlay = { type: 'settings', section: section || 'voice', draft: {}, test: null };
   renderOverlay();
   // both are cheap and let the sheet paint immediately with what we already know
@@ -5332,19 +5392,19 @@ function isSettingsOpen() { return !!S.overlay && S.overlay.type === 'settings';
 function renderSettings() {
   const o = S.overlay;
   const sec = SET_SECTIONS.find((s) => s.id === o.section) || SET_SECTIONS[0];
-  const modal = overlay('modal modal--settings', `
+  const modal = overlay('modal modal--settings' + (sec.id === 'shortcuts' ? ' modal--shortcuts' : ''), `
     <div class="modal-head"><span class="col">
       <span class="title">Settings</span>
       <span class="sub">${esc(sec.lead)}</span></span></div>
     <div class="modal-body"><div class="set-wrap">
       <div class="set-nav">${SET_SECTIONS.map((s) =>
-        `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}">${esc(s.name)}</button>`).join('')}</div>
+        `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}"${s.id === sec.id ? ' aria-current="page"' : ''}>${helpIcon(s.id)}<span>${esc(s.name)}</span></button>`).join('')}</div>
       <div class="set-pane" id="set-pane">${
         sec.id === 'voice' ? voicePaneHtml()
           : sec.id === 'look' ? lookPaneHtml()
-            : sec.id === 'about' ? aboutPaneHtml() : keysPaneHtml()}</div>
+            : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
     </div></div>
-    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
+    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">⌘ Command · ⌥ Option · ⇧ Shift</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
 
   modal.querySelectorAll('.set-nav .rail-tab').forEach((b) => {
@@ -5355,6 +5415,49 @@ function renderSettings() {
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
   if (sec.id === 'about') wireAboutPane(modal);
+  if (sec.id === 'shortcuts') {
+    q('#shortcuts-back', modal).onclick = closeOverlay;
+    q('#shortcuts-guide', modal).onclick = () => api.openUrl(DOCS.home);
+  }
+  wireHelpDialog(modal);
+}
+
+// Settings and Quick Start are keyboard-accessible help surfaces. Preserve the
+// focused control across async Settings refreshes and return to the invoker.
+function wireHelpDialog(modal) {
+  const title = q('.title', modal);
+  title.id = 'help-dialog-title';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', title.id);
+  modal.tabIndex = -1;
+  q('.ov-x', modal).setAttribute('aria-label', 'Close dialog');
+  modal.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const controls = Array.from(modal.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'))
+      .filter((el) => el.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { e.preventDefault(); return; }
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modal)) { e.preventDefault(); first.focus(); }
+  });
+  let target = helpFocusKey && helpFocusKey.id ? document.getElementById(helpFocusKey.id) : null;
+  if ((!target || !modal.contains(target)) && helpFocusKey && helpFocusKey.section) {
+    target = Array.from(modal.querySelectorAll('[data-sec]')).find((b) => b.dataset.sec === helpFocusKey.section);
+  }
+  (target && modal.contains(target) ? target : modal).focus({ preventScroll: true });
+}
+
+function shortcutsPaneHtml() {
+  const row = ([label, keys, sub]) => `<div class="shortcut-row"><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    <span class="shortcut-keys">${keys.map((key) => key === 'click' ? '<span>+ click</span>' : `<kbd>${esc(key)}</kbd>`).join('')}</span></div>`;
+  return `<h1 class="shortcuts-title">Shortcuts &amp; gestures</h1>
+    <p class="shortcuts-intro">Small moves that make your desk easier to use.</p>
+    <div class="shortcuts-hero">${helpIcon('link')}<div><h2>Open what your agent makes.</h2>
+      <p>${esc(OPEN_OUTPUT_COPY)}</p><button class="shortcuts-link" id="shortcuts-back">Back to my desk →</button></div></div>
+    ${SHORTCUT_GROUPS.map((group) => `<section class="shortcut-group"><h2>${helpIcon(group.icon)}${esc(group.title)}</h2>
+      ${group.rows.map(row).join('')}${group.note ? `<p class="shortcuts-note">${esc(group.note)}</p>` : ''}</section>`).join('')}
+    <p class="shortcuts-note">Shortcuts inside an agent’s terminal can vary by agent. This reference covers Nami’s controls.</p>`;
 }
 
 // ---- Voice -----------------------------------------------------------------
@@ -5560,6 +5663,7 @@ const REPO_URL = 'https://github.com/mrdainami/nami';
 // then have to search. Kept next to REPO_URL so every outward link Nami has is
 // read in one place.
 const DOCS = {
+  home: 'https://nami.dainami.ai/docs/',
   start: 'https://nami.dainami.ai/docs/start/',
   pickAgent: 'https://nami.dainami.ai/docs/pick-an-agent/',
   examples: 'https://nami.dainami.ai/docs/examples/',
@@ -6113,7 +6217,7 @@ function qsMark(n) {
   const done = qsDone(); done.add(n);
   try { localStorage.setItem(QS_DONE, JSON.stringify([...done])); } catch { /* private mode */ }
 }
-function openQuickStart() { S.overlay = { type: 'quickstart' }; renderOverlay(); }
+function openQuickStart() { rememberHelpFocus(); S.overlay = { type: 'quickstart' }; renderOverlay(); }
 
 function quickStartRows() {
   return [
@@ -6149,6 +6253,11 @@ function quickStartRows() {
       sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
       acts: [{ label: 'How permissions work', run: () => api.openUrl(DOCS.permissions) }],
     },
+    {
+      n: 6, title: 'Open what your agent makes',
+      sub: OPEN_OUTPUT_COPY,
+      acts: [{ label: '⌘ Shortcuts & gestures', run: () => openSettings('shortcuts') }],
+    },
   ];
 }
 
@@ -6174,6 +6283,7 @@ function renderQuickStart() {
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
     <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
 
+  wireHelpDialog(modal);
   modal.querySelectorAll('[data-act]').forEach((b) => {
     b.onclick = () => {
       const row = rows.find((r) => r.n === +b.dataset.row);

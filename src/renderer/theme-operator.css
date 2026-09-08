@@ -456,3 +456,7 @@ body[data-theme="operator"] .viewsw { border-radius: 6px; }
 
 body[data-theme="operator"] .image-attachment { border-radius: 6px; }
 body[data-theme="operator"] .image-insert, body[data-theme="operator"] .image-remove { border-radius: 6px; }
+
+/* Shortcut reference follows this theme’s type and link treatment. */
+body[data-theme="operator"] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: 'Courier Prime', monospace; font-size: 18px; text-transform: uppercase; }
+body[data-theme="operator"] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }

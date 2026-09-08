@@ -621,3 +621,8 @@ body[data-soft] .viewsw { border-radius: var(--sf-r-sm); }
 
 body[data-soft] .image-attachment { border-radius: var(--sf-r-sm); }
 body[data-soft] .image-insert, body[data-soft] .image-remove { border-radius: var(--sf-r-sm); }
+
+/* Shortcut reference follows this theme’s type and link treatment. */
+body[data-soft] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: var(--sf-sans); font-size: 18px; }
+body[data-soft] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }
+body[data-theme="soft"] .modal--settings .set-nav .rail-tab.active { color: color-mix(in srgb, var(--ink) 90%, black); }

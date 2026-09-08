@@ -2413,3 +2413,66 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .image-attachment .image-remove, .image-attachment .image-insert { font: inherit; font-size: 10px; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
 
 .session-images { flex: none; padding: 8px 12px; margin: 0; border-top: 1px solid var(--dash); background: var(--menu-sheet); }
+
+/* The keyboard reference is one Settings page, reachable from the desk. */
+.help-icon { width: 17px; height: 17px; flex: none; vertical-align: middle; }
+.set-nav { flex-basis: 140px; }
+.set-nav .rail-tab { display: flex; align-items: center; gap: 9px; }
+body .modal.modal--settings .set-nav .rail-tab.active { color: var(--menu-sheet); background: var(--green); border-color: var(--green-dark); box-shadow: none; }
+.modal--settings:focus, .qs-box:focus { outline: none; }
+.footer-shortcuts {
+  display: inline-flex; align-items: center; gap: 7px; flex: none; margin-left: auto;
+  padding: 6px 10px; font: inherit; color: var(--ink); white-space: nowrap;
+  background: var(--paper); border: 1px dashed var(--dash-dark); cursor: pointer;
+}
+.footer-shortcuts:hover { background: var(--hover); border-style: solid; }
+.footer-shortcuts:focus-visible, .shortcuts-link:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.modal--shortcuts { width: 870px; }
+.modal--shortcuts .set-wrap { align-items: flex-start; }
+.modal--shortcuts .set-nav { position: sticky; top: 0; }
+.shortcuts-title { margin: 0 0 5px; font: 700 30px 'Caveat', cursive; }
+.shortcuts-intro, .shortcuts-note { margin: 0 0 18px; font-size: 12px; line-height: 1.65; color: var(--muted); }
+.shortcuts-note { margin: 12px 0 0; font-size: 11.5px; }
+.shortcuts-hero { display: flex; align-items: flex-start; gap: 16px; padding: 16px; background: var(--paper-2); border: 1px dashed var(--dash-dark); }
+.shortcuts-hero > .help-icon { width: 26px; height: 26px; color: var(--green); }
+.shortcuts-hero h2, .shortcut-group h2 { font: 700 23px 'Caveat', cursive; margin: 0 0 8px; }
+.shortcuts-hero p { font-size: 12px; line-height: 1.65; margin: 0 0 12px; }
+.shortcuts-link { border: 0; padding: 0; background: none; color: var(--green-dark); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.shortcut-group { margin-top: 22px; }
+.shortcut-group h2 { display: flex; gap: 9px; align-items: center; }
+.shortcut-group h2 .help-icon { color: var(--green); }
+.shortcut-row { display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--dash); font-size: 12px; line-height: 1.5; }
+.shortcut-row > span:first-child { min-width: 0; }
+.shortcut-row small { display: block; font-size: 11px; color: var(--muted); }
+.shortcut-keys { display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-shrink: 0; }
+.shortcut-keys kbd { font: inherit; font-size: 12px; padding: 3px 7px; white-space: nowrap; background: var(--field); border: 1px solid var(--field-line); border-radius: 2px; box-shadow: 0 2px 0 var(--dash); }
+.modal--shortcuts .modal-foot { flex-wrap: wrap; }
+.modal--shortcuts .modal-foot .note { min-width: 180px; }
+@media (max-width: 900px) {
+  .footer > span:not(.path) { display: none; }
+  .footer .path { min-width: 0; }
+}
+@media (max-width: 620px) {
+  .modal--settings { max-width: calc(100% - 24px); }
+  .modal--settings .set-wrap { flex-direction: column; }
+  .modal--settings .set-nav { flex: none; width: 100%; flex-direction: row; flex-wrap: wrap; position: static; }
+  .modal--settings .set-nav .rail-tab { padding: 6px; gap: 5px; }
+  .modal--settings .set-pane { width: 100%; }
+  .modal--shortcuts .modal-body { padding: 12px; }
+  .shortcuts-hero { padding: 12px; gap: 10px; }
+  .shortcut-row { flex-wrap: wrap; gap: 8px; }
+  .shortcut-keys { max-width: 100%; flex-wrap: wrap; }
+}
+
+.term-link-hint {
+  position: fixed; z-index: 120; pointer-events: none; max-width: calc(100vw - 24px);
+  padding: 10px 14px; border: 1px solid var(--dash-dark); border-radius: 2px;
+  background: var(--menu-sheet); backdrop-filter: blur(16px) saturate(1.2);
+  color: var(--ink); box-shadow: 3px 4px 0 var(--shadow-mid);
+  font-size: 12px; line-height: 1.7;
+}
+.term-link-hint strong, .term-link-hint span { display: block; }
+.term-link-hint span { color: var(--muted); font-size: 11px; }
+
+/* Secondary help copy needs to remain readable at its compact size. */
+.shortcuts-intro, .shortcuts-note, .shortcut-row small, .term-link-hint span { color: color-mix(in srgb, var(--muted) 75%, var(--ink)); }
