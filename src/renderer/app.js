@@ -28,7 +28,7 @@ import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-gr
 import { isOutsideProject } from './path-guard.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
-import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, ownerIndexes, resolveOwners } from './desk-view.mjs';
+import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
 const api = window.dainami;
 
@@ -184,7 +184,7 @@ function setView(name, persistIt = true) {
   if (els.grid) { renderGrid(); renderRail(); }
 }
 function applyViewAttrs() {
-  document.querySelectorAll('#viewsw .rail-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === S.view));
+  document.querySelectorAll('#viewsw .view-choice').forEach((b) => { const active = b.dataset.view === S.view; b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active)); });
 }
 let themeSaveVersion = 0;
 function setTheme(name, persistIt = true) {
@@ -229,7 +229,7 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   // Desk or Split (desk-view.mjs). split remembers what the two panes show.
   view: 'desk', split: { sessionId: null, fileId: null, last: {} },
-  splitPx: 0, splitFull: null,   // the divider's position; which pane ⤢ filled
+  splitRatio: .46, splitFull: null,   // the divider's position; which pane ⤢ filled
   railFold: new Set(),   // sessions whose file list is folded in the rail
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
@@ -248,7 +248,7 @@ const S = {
   library: { items: [], edges: [], q: '', loaded: false, loading: false, macLoaded: false, macLoading: false, collapsed: new Set(MAC_GROUP_KEYS), macGen: 0 },
   pointer: null, pointerLoading: false,
   services: { catalog: [], connected: [], loading: false },   // connect-a-service state
-  railCollapsed: false,
+  railCollapsed: false, railPeek: false,
 };
 
 let els = {};
@@ -832,9 +832,9 @@ function buildShell() {
           <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
           <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
-          <div class="viewsw" id="viewsw" title="Desk: every card on a grid. Split: one session beside one of its files.">
-            <button class="rail-tab" data-view="desk">Desk</button>
-            <button class="rail-tab" data-view="split">Split</button>
+          <div class="viewsw" id="viewsw" role="group" aria-label="Workspace view" title="Desk: every card on a grid. Split: one session beside one of its files.">
+            <button class="view-choice" data-view="desk">Desk</button>
+            <button class="view-choice" data-view="split">Split</button>
           </div>
           <button class="btn" id="btn-agents">Agents<span class="kb"> ⌘K</span></button>
           <button class="btn btn--go" id="btn-new"><span class="uni-i">＋ </span><span class="pix-i">${pixIcon('plus')}</span>New<span class="kb2"> session</span><span class="kb"> ⌘N</span></button>
@@ -871,13 +871,13 @@ function buildShell() {
   };
   q('#btn-new').onclick = () => openLauncher();
   q('#btn-agents').onclick = () => openAgentPicker();
-  document.querySelectorAll('#viewsw .rail-tab').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
+  document.querySelectorAll('#viewsw .view-choice').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
   q('#btn-help').onclick = () => openQuickStart();
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
   document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
-  q('#rail-collapse').onclick = () => { S.railCollapsed = true; applyChrome(); };
-  q('#rail-strip').onclick = () => { S.railCollapsed = false; applyChrome(); };
+  q('#rail-collapse').onclick = () => { S.railCollapsed = true; S.railPeek = false; applyChrome(); };
+  q('#rail-strip').onclick = () => { S.railCollapsed = false; S.railPeek = true; applyChrome(); };
   document.addEventListener('keydown', onGlobalKey);
   initGlassTilt();
 
@@ -970,6 +970,7 @@ function initGlassTilt() {
 function applyChrome() {
   const sheet = q('.sheet');
   sheet.classList.toggle('rail-collapsed', S.railCollapsed);
+  sheet.classList.toggle('rail-peek', S.railPeek);
   // tiles need a re-fit when the grid width changes
   setTimeout(() => { syncDeskColumns(); tileEls.forEach((t) => markFit(t)); }, 60);
 }
@@ -1189,8 +1190,9 @@ function refreshSessionsRail(c) {
   const fileRow = (f) => {
     const m = statusMeta(f);
     const row = document.createElement('div');
-    row.className = 'tree-row nav-file' + (isActive(f) ? ' sel' : '') + (f.preview ? ' preview' : '');
-    row.dataset.id = f.id; row.draggable = true;
+    row.className = 'nav-file' + (isActive(f) ? ' sel' : '') + (f.preview ? ' preview' : '');
+    row.dataset.id = f.id; row.draggable = true; row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-pressed', String(isActive(f)));
+    row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanel(f.id); } };
     row.innerHTML = `${panelChip(f)}<span class="name goal" title="${esc(f.title)}">${esc(f.title)}</span><span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
     row.onclick = () => focusPanel(f.id);
     row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(f)); };
@@ -1211,14 +1213,14 @@ function refreshSessionsRail(c) {
     const row = document.createElement('div');
     row.className = 'nav-card' + (isActive(p) ? ' active' : '') + (p.attention ? ' attn' : '');
     row.dataset.id = p.id;
-    const count = files.length ? `<span class="count" title="${folded ? 'Show files' : 'Hide files'}"><span class="tw">${folded ? '▸' : '▾'}</span>${files.length} ${files.length === 1 ? 'file' : 'files'}</span>` : '';
+    const count = files.length ? `<button type="button" class="count" aria-expanded="${!folded}" title="${folded ? 'Show files' : 'Hide files'}"><span class="tw">${folded ? '▸' : '▾'}</span>${files.length} ${files.length === 1 ? 'file' : 'files'}</button>` : '';
     row.innerHTML = `${panelChip(p)}
-      <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(shorten(p.title, 30))}</span><span class="sid">${esc(kindLabel(p))}</span></span>
-      ${count}<span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
+      <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(p.title)}</span><span class="sid">${esc(kindLabel(p))}</span></span>
+      <span class="nav-meta"><span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>${count}</span>`;
     row.onclick = () => focusPanel(p.id);
     q('.goal', row).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.goal', row)); });
     const cnt = q('.count', row);
-    if (cnt) cnt.onclick = (e) => { e.stopPropagation(); if (folded) S.railFold.delete(p.id); else S.railFold.add(p.id); refreshRail(); };
+    if (cnt) cnt.onclick = (e) => { e.stopPropagation(); if (folded) S.railFold.delete(p.id); else S.railFold.add(p.id); refreshRail(); q(`.nav-card[data-id="${p.id}"] .count`)?.focus({ preventScroll: true }); };
     dropTarget(row, p.id);
     list.appendChild(row);
     if (files.length && !folded) {
@@ -2086,7 +2088,7 @@ function renderSplit() {
   let pv = q('.paneview', main);
   if (S.view !== 'split') {
     // renderGrid already moved the two cards back into the grid; only the frame is left
-    if (pv) { for (const el of Array.from(pv.querySelectorAll('.tile'))) els.grid.appendChild(el); pv.remove(); }
+    if (pv) { pv._resize?.disconnect(); for (const el of Array.from(pv.querySelectorAll('.tile'))) els.grid.appendChild(el); pv.remove(); }
     main.classList.remove('is-split');
     return;
   }
@@ -2097,11 +2099,17 @@ function renderSplit() {
   if (fixed.sessionId !== S.split.sessionId || fixed.fileId !== S.split.fileId) { S.split = fixed; S.splitFull = null; }
   if (!pv) {
     pv = document.createElement('div'); pv.className = 'paneview';
-    pv.innerHTML = '<div class="pane pane-agent"></div><div class="pane-divider" title="Drag to resize"></div><div class="pane pane-files"></div>';
+    pv.innerHTML = '<div class="pane-switch" role="group" aria-label="Visible pane"><button data-pane="agent">Session</button><button data-pane="files">File</button></div><div class="pane pane-agent"></div><div class="pane-divider" title="Drag to resize"></div><div class="pane pane-files"></div>';
     main.insertBefore(pv, els.grid);
     wireDivider(pv);
+    pv.querySelectorAll('[data-pane]').forEach((b) => { b.onclick = () => {
+      const id = b.dataset.pane === 'agent' ? S.split.sessionId : S.split.fileId;
+      if (id) focusPanel(id);
+    }; });
+    pv._resize = new ResizeObserver(() => syncSplitLayout(pv));
+    pv._resize.observe(pv);
   }
-  if (S.splitPx) pv.style.setProperty('--split', S.splitPx + 'px');
+  syncSplitLayout(pv);
   pv.classList.toggle('full-agent', S.splitFull === 'agent');
   pv.classList.toggle('full-files', S.splitFull === 'files');
   const place = (host, id, emptyText) => {
@@ -2122,6 +2130,18 @@ function renderSplit() {
   place(q('.pane-agent', pv), S.split.sessionId, 'No session — ⌘N starts one');
   place(q('.pane-files', pv), S.split.fileId, sess ? `No files with ${sess.title} yet — open one from the Workspace tab` : 'Open a file from the Workspace tab');
 }
+function syncSplitLayout(pv) {
+  const cs = getComputedStyle(pv);
+  const width = pv.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const layout = splitLayout(width, S.splitRatio);
+  pv.classList.toggle('is-compact', layout.compact);
+  pv.style.setProperty('--split', layout.left + 'px');
+  pv.dataset.show = S.activeId === S.split.fileId ? 'files' : 'agent';
+  pv.querySelectorAll('[data-pane]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.pane === pv.dataset.show));
+    b.disabled = !(b.dataset.pane === 'agent' ? S.split.sessionId : S.split.fileId);
+  });
+}
 // The line between the panes: drag it, the left pane keeps the width.
 function wireDivider(pv) {
   const div = q('.pane-divider', pv);
@@ -2131,8 +2151,9 @@ function wireDivider(pv) {
     const cs = getComputedStyle(pv);
     const left = parseFloat(cs.paddingLeft || '0');
     const mv = (ev) => {
-      const px = Math.max(380, Math.min(r.width - 440, ev.clientX - r.left - left));
-      S.splitPx = Math.round(px); pv.style.setProperty('--split', S.splitPx + 'px');
+      const width = pv.clientWidth - left - parseFloat(cs.paddingRight || '0');
+      const px = splitLayout(width, (ev.clientX - r.left - left) / (width - 20)).left;
+      S.splitRatio = px / (width - 20); syncSplitLayout(pv);
       tileEls.forEach((t) => { if (t.fit && t.root.closest('.paneview')) markFit(t); });
     };
     const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };

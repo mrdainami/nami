@@ -127,3 +127,11 @@ export function resolveOwners(restored, snaps) {
   });
   return restored;
 }
+
+// Keep the user's preferred ratio separate from the width available today.
+export function splitLayout(width, ratio = .46) {
+  const available = Math.max(0, Number(width) || 0);
+  const preferred = Number.isFinite(ratio) ? ratio : .46;
+  return { compact: available < 660,
+    left: Math.round(Math.max(320, Math.min(available - 340, (available - 20) * preferred))) };
+}

@@ -230,10 +230,14 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 /* the centre is the only part allowed to give ground; min-width:0 lets it */
 .topbar-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; position: relative; }
 .topbar-right { flex: none; display: flex; align-items: center; gap: 10px; }
-/* Desk / Split: the same two-chip control the rail uses for its tabs, so every
-   theme already knows how to draw it. Sits left of Agents. */
-.viewsw { display: flex; gap: 4px; }
-.viewsw .rail-tab { padding: 8px 13px; min-width: 54px; text-align: center; }
+/* Desk / Split has its own geometry, independent of themed rail tabs. */
+.viewsw { display: flex; gap: 0; border: 1px solid var(--dash-dark); flex: none; border-radius: 2px; overflow: hidden; }
+.viewsw .view-choice { border: 0; border-radius: 0; box-shadow: none; background: var(--paper); color: var(--ink); font: inherit;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; min-width: 54px;
+  padding: 8px 12px; cursor: pointer; }
+.viewsw .view-choice + .view-choice { border-left: 1px solid var(--dash-dark); }
+.viewsw .view-choice.active { background: var(--green); color: var(--paper); }
+.viewsw .view-choice:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;
@@ -386,7 +390,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 
 .rail-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 8px; }
 .nav-card {
-  display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+  display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 6px 10px; padding: 9px 10px;
   cursor: pointer; background: var(--paper); border: 1px solid var(--dash);
 }
 .nav-card.active { box-shadow: 3px 3px 0 var(--shadow-mid); }
@@ -415,23 +419,32 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    under it on a hairline. Each file row is a tree row — the small-row shape
    every theme already draws — so nothing here names a colour. Loose files
    (no live session) gather under a "Desk" heading at the end. */
+.nav-meta { grid-column: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nav-meta .status { display: inline-flex; align-items: center; min-height: 24px; }
 .nav-card .count {
-  flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto;
-  padding: 2px 5px; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--muted-3); border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+  flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 0; min-height: 24px; background: var(--paper); font-family: inherit;
+  padding: 2px 5px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink); border: 1px solid var(--dash-dark); cursor: pointer; white-space: nowrap;
 }
+.nav-card .count:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .nav-card .count:hover { color: var(--ink); border-color: var(--dash-dark); }
 .nav-card .count .tw { display: inline-block; width: 10px; }
 .nav-card .count + .status { margin-left: 0; }
 .nav-card.drop-into, .nav-group.drop-into { background: var(--diff-add-bg); box-shadow: inset 0 0 0 1px var(--green-ok); }
 .nav-files { display: flex; flex-direction: column; margin: -4px 0 4px 20px; padding-left: 8px; border-left: 1px dashed var(--dash); }
 .nav-files--desk { margin-left: 6px; border-left: 0; padding-left: 0; }
-.nav-file { font-size: 11px; }
-.nav-file .code { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
+.nav-file { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px;
+  padding: 5px 6px; font-size: 11px; cursor: pointer; border: 1px solid transparent;
+  border-bottom-color: var(--dash); }
+.nav-file:hover { background: var(--hover); }
+.nav-file.sel { border-color: var(--ink); background: var(--paper-2); }
+.nav-file:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.nav-file.dragging { opacity: .4; }
+.nav-file .code { width: 18px; height: 18px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1px solid rgba(60, 45, 25, 0.3); }
 .nav-file .goal { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nav-file .status { margin-left: auto; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.nav-file .status { flex: none; margin-left: auto; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 .nav-file.preview .goal { font-style: italic; opacity: 0.85; }
-.nav-group { padding: 8px 6px 2px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3); }
+.nav-group { padding: 8px 6px 2px; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-3); }
 
 .tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 14px; }
 .tree-path { display: flex; align-items: baseline; gap: 8px; padding: 2px 6px 10px; font-size: 11px; color: var(--muted); }
@@ -2361,3 +2374,25 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-md th { background: var(--paper-2); font-size: 11px; letter-spacing: 0.06em; }
 .cw-md tr:nth-child(even) td { background: var(--paper-2); }
 .cw-u.cw-md th, .cw-u.cw-md tr:nth-child(even) td { background: var(--paper); }
+
+/* Split gives each pane a useful width before falling back to a pane switch. */
+.pane-switch { display: none; flex: none; gap: 0; margin-bottom: 10px; }
+.paneview .pane-switch button { flex: 1; padding: 8px; font: inherit; font-size: 11px;
+  border: 1px solid var(--dash-dark); background: var(--paper); color: var(--ink); cursor: pointer; }
+.paneview .pane-switch button[aria-pressed="true"] { background: var(--green); color: var(--paper); }
+.paneview .pane-switch button:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+.paneview .pane-switch button:disabled { opacity: .5; cursor: default; }
+.paneview.is-compact { flex-direction: column; }
+.paneview.is-compact .pane-switch { display: flex; }
+.paneview.is-compact .pane-divider,
+.paneview.is-compact[data-show="agent"] .pane-files,
+.paneview.is-compact[data-show="files"] .pane-agent { display: none; }
+.paneview.is-compact .pane { flex: 1 1 auto; }
+.pane > .tile:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 1100px) { .paneview { padding: 10px 12px 16px; } }
+@media (max-width: 760px) {
+  .split { position: relative; }
+  .sheet.rail-peek .rail { position: absolute; inset: 0 auto 0 0; width: 282px; z-index: 30; background: var(--menu-sheet); }
+  .sheet.rail-peek .rail-tabs, .sheet.rail-peek #rail-content { display: flex; }
+  .sheet.rail-peek .rail-strip { display: none; }
+}
