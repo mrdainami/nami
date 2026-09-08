@@ -1974,6 +1974,7 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 }
 .theme-opt:hover { background: var(--hover); }
 .theme-opt:focus, .theme-opt:focus-visible { outline: none; background: var(--hover); }
+.theme-opt:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .theme-opt.picked { border-color: var(--dash-dark); background: var(--paper-2); }
 .theme-opt .theme-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted-3); }
 .theme-opt.picked .theme-dot { border-color: var(--green); background: radial-gradient(circle, var(--green) 0 3.5px, transparent 4px); }
