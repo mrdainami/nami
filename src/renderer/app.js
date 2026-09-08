@@ -172,8 +172,8 @@ function setView(name, persistIt = true) {
   const view = name === 'split' ? 'split' : 'desk';
   const was = S.view;
   S.view = view;
-  try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
-  if (persistIt && api.viewSet) api.viewSet(view);
+  if (!S.demo) { try { localStorage.setItem(VIEW_KEY, view); } catch (_) {} }
+  if (persistIt && !S.demo && api.viewSet) api.viewSet(view);
   if (view === 'split' && was !== 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'enter', activeId: S.activeId });
   if (view !== 'split') S.expandedId = null;
   applyViewAttrs();
@@ -215,6 +215,7 @@ const S = {
   panels: [], activeId: null, expandedId: null,
   // Desk or Split (desk-view.mjs). split remembers what the two panes show.
   view: 'desk', split: { sessionId: null, fileId: null, last: {} },
+  splitPx: 0, splitFull: null,   // the divider's position; which pane ⤢ filled
   railFold: new Set(),   // sessions whose file list is folded in the rail
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
@@ -343,8 +344,8 @@ function dropPathOnPanel(p, path, isDir) {
   if (b.themeArg) setTheme(b.themeArg, false); // --theme= override (screenshots)
   // The view you left the app in. localStorage is this window's memory,
   // settings.json the shared one; a --scene may force one for a screenshot.
-  let view = null; try { view = localStorage.getItem(VIEW_KEY); } catch (_) {}
-  setView(view || b.view || 'desk', false);
+  let view = null; if (!S.demo) { try { view = localStorage.getItem(VIEW_KEY); } catch (_) {} }
+  setView(S.demo ? 'desk' : (view || b.view || 'desk'), false);
 
   // One window opening a folder reorders the list for every window; without this
   // the other windows' popovers keep showing a stale order until they reboot.
@@ -439,6 +440,20 @@ function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
   if (what === 'settings') return openSettings(step || 'voice');
+  // split: the demo desk with its files joined to the session, in the split view
+  if (what === 'split') {
+    const sess = S.panels.find(isSessionPanel);
+    const first = S.panels.find(isFilePanel);
+    if (sess && first) {
+      first.owner = sess.id;
+      const second = { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'webauthn.ts', filePath: '/Users/calvin/work/atlas/src/auth/webauthn.ts', owner: sess.id, preview: true, status: 'live',
+        text: "export async function verifyRegistration(cred: Credential) {\n  const res = await fetch('/api/webauthn/verify', {\n    method: 'POST', body: JSON.stringify(cred),\n  })\n  if (!res.ok) throw new Error('registration rejected')\n  return res.json()\n}\n" };
+      S.panels.splice(S.panels.indexOf(first), 0, second);
+      S.activeId = first.id;
+    }
+    setView(step === 'desk' ? 'desk' : 'split', false); renderHeader();
+    return;
+  }
   // chat: a static transcript so the thinking/tool cards can be shot without
   // a live agent. chat-live still starts a real Claude pane.
   if (what === 'chat') {
@@ -843,7 +858,7 @@ function buildShell() {
   q('#btn-help').onclick = () => openQuickStart();
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
-  document.querySelectorAll('.rail-tab').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
+  document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; applyChrome(); };
   document.addEventListener('keydown', onGlobalKey);
@@ -1116,7 +1131,7 @@ function toggleThemePop() {
   setTimeout(() => document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }, { once: true }), 0);
 }
 
-function renderRail() { document.querySelectorAll('.rail-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === S.railTab)); refreshRail(); }
+function renderRail() { document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => t.classList.toggle('active', t.dataset.tab === S.railTab)); refreshRail(); }
 // Rebuilds wipe the tab's scroller, so its position is saved and put back.
 const RAIL_SCROLLER = { sessions: '.rail-list', workspace: '.tree', library: '.lib-list' };
 const railScroll = {};
@@ -1260,7 +1275,10 @@ function renderTreeLevel(container, dir, depth) {
     row.draggable = true;
     row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>
       <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
-    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path); refreshRail(); } };
+    // On the desk a click peeks; in split it opens a preview into the session on
+    // the left, and a double-click keeps it (desk-view.mjs: one preview per session).
+    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path, S.view === 'split' ? { pin: true, preview: true } : undefined); refreshRail(); } };
+    row.ondblclick = (e) => { if (n.kind === 'dir') return; e.stopPropagation(); if (S.view === 'split') openFile(n.path, { pin: true }); };
     row.oncontextmenu = (e) => { e.preventDefault(); S.treeSel = n.path; showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
     row.ondragstart = (e) => {
       S.treeDrag = n.path;
@@ -1999,17 +2017,20 @@ function renderGrid() {
   const refocusId = focusedTile ? focusedTile.dataset.id : null;
   // Moving a DOM node restarts its CSS animation, so settled tiles stay put.
   let cursor = els.grid.firstElementChild;
+  const inPane = (p) => S.view === 'split' && (p.id === S.split.sessionId || p.id === S.split.fileId);
   for (const p of S.panels) {
     if (!tileEls.has(p.id)) mountTile(p);
     const t = tileEls.get(p.id);
     t.root.classList.toggle('focused', p.id === S.expandedId);
     t.root.classList.toggle('active', p.id === S.activeId);
+    refreshTileHead(p);
+    if (inPane(p)) continue;                 // the split's two cards are placed below
     if (t.root === cursor) cursor = cursor.nextElementSibling;
     else els.grid.insertBefore(t.root, cursor);
-    refreshTileHead(p);
     applySpan(p, t);
     if (t.fit) markFit(t);
   }
+  renderSplit();
   // Only if the move actually cost us the keyboard — never steal it from a
   // rename box, the rail, or an overlay that opened during the render.
   const now = document.activeElement;
@@ -2017,6 +2038,77 @@ function renderGrid() {
     const t = tileEls.get(refocusId);
     if (t) { if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
   }
+}
+
+// ---- the split view -------------------------------------------------------
+// Two panes beside the (hidden) grid: the chosen session card on the left, one
+// of its files on the right, each the whole tile re-parented — head, body,
+// terminal and all. Every other card stays mounted in the grid, unseen, so a
+// terminal keeps running and Desk brings everything back untouched.
+function renderSplit() {
+  const main = els.grid.parentElement;
+  let pv = q('.paneview', main);
+  if (S.view !== 'split') {
+    // renderGrid already moved the two cards back into the grid; only the frame is left
+    if (pv) { for (const el of Array.from(pv.querySelectorAll('.tile'))) els.grid.appendChild(el); pv.remove(); }
+    main.classList.remove('is-split');
+    return;
+  }
+  main.classList.add('is-split');
+  // The state may be stale — set at boot before the desk was restored, or
+  // pointing at a card that closed. Repair it against the panels that exist.
+  const fixed = splitAfter({ ...S.split, panels: S.panels }, { type: 'close' });
+  if (fixed.sessionId !== S.split.sessionId || fixed.fileId !== S.split.fileId) { S.split = fixed; S.splitFull = null; }
+  if (!pv) {
+    pv = document.createElement('div'); pv.className = 'paneview';
+    pv.innerHTML = '<div class="pane pane-agent"></div><div class="pane-divider" title="Drag to resize"></div><div class="pane pane-files"></div>';
+    main.insertBefore(pv, els.grid);
+    wireDivider(pv);
+  }
+  if (S.splitPx) pv.style.setProperty('--split', S.splitPx + 'px');
+  pv.classList.toggle('full-agent', S.splitFull === 'agent');
+  pv.classList.toggle('full-files', S.splitFull === 'files');
+  const place = (host, id, emptyText) => {
+    const want = id ? tileEls.get(id) : null;
+    for (const el of Array.from(host.children)) {
+      if (want && el === want.root) continue;
+      if (el.classList.contains('tile')) els.grid.appendChild(el); else el.remove();
+    }
+    if (want) {
+      if (want.root.parentElement !== host) { host.appendChild(want.root); want.root.style.gridColumn = ''; want.root.style.gridRow = ''; }
+      want.root.classList.remove('focused');
+      if (want.fit) markFit(want);
+    } else if (!q('.pane-empty', host)) {
+      const e = document.createElement('div'); e.className = 'pane-empty'; e.textContent = emptyText; host.appendChild(e);
+    }
+  };
+  const sess = S.split.sessionId ? S.panels.find((x) => x.id === S.split.sessionId) : null;
+  place(q('.pane-agent', pv), S.split.sessionId, 'No session — ⌘N starts one');
+  place(q('.pane-files', pv), S.split.fileId, sess ? `No files with ${sess.title} yet — open one from the Workspace tab` : 'Open a file from the Workspace tab');
+}
+// The line between the panes: drag it, the left pane keeps the width.
+function wireDivider(pv) {
+  const div = q('.pane-divider', pv);
+  div.onmousedown = (e) => {
+    e.preventDefault(); ptyDiscrete();
+    const r = pv.getBoundingClientRect();
+    const cs = getComputedStyle(pv);
+    const left = parseFloat(cs.paddingLeft || '0');
+    const mv = (ev) => {
+      const px = Math.max(380, Math.min(r.width - 440, ev.clientX - r.left - left));
+      S.splitPx = Math.round(px); pv.style.setProperty('--split', S.splitPx + 'px');
+      tileEls.forEach((t) => { if (t.fit && t.root.closest('.paneview')) markFit(t); });
+    };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+  };
+}
+// In split, ⤢ fills the desk with one pane instead of hiding the other cards.
+function toggleSplitFull(id) {
+  const which = id === S.split.sessionId ? 'agent' : id === S.split.fileId ? 'files' : null;
+  if (!which) return;
+  S.splitFull = S.splitFull === which ? null : which;
+  renderSplit();
 }
 
 // A card's size is two numbers it keeps: how many columns and how many rows it
@@ -2032,6 +2124,7 @@ function renderGrid() {
 // which is why ⤢ twice returns a 3×2 card to 3×2 and not to the default.
 function applySpan(p, t) {
   if (!t || !t.root) return;
+  if (t.root.parentElement && t.root.parentElement.classList.contains('pane')) return; // a pane owns the size
   if (p.id === S.expandedId) { t.root.style.gridColumn = ''; t.root.style.gridRow = ''; return; }
   const cols = syncDeskColumns.last || MIN_COLS;
   t.root.style.gridColumn = 'span ' + clampSpan(p.spanX, cols);
@@ -2329,7 +2422,7 @@ function mountTile(p) {
   q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
   // Expand is a committed change, not a gesture — every tile it moves is told
   // on the next frame, not 140ms later, so one press is one movement.
-  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); ptyDiscrete(); S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
+  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); ptyDiscrete(); if (S.view === 'split') { toggleSplitFull(p.id); return; } S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
   q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
   head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
   // drag reorder
@@ -3039,7 +3132,7 @@ function mountEditor(p, rec) {
 
   const markDirty = () => {
     if (p.dirty) return;
-    p.dirty = true; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+    p.dirty = true; keepFile(p); refreshTileHead(p); refreshRail(); refreshBrowserButtons(p); // an edit keeps a preview
   };
   const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
   // Frontmatter never enters the block editor: Milkdown reads `---` as a
@@ -3490,7 +3583,7 @@ function mountCard(p, rec) {
     </div>`;
   rec.body.appendChild(wrap);
   const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
-  const markDirty = () => { if (!p.dirty) { p.dirty = true; refreshTileHead(p); refreshRail(); } };
+  const markDirty = () => { if (!p.dirty) { p.dirty = true; keepFile(p); refreshTileHead(p); refreshRail(); } };
 
   const syncFormFromDoc = () => {
     formEl.querySelectorAll('.card-in').forEach((inp) => { inp.value = getField(p.doc, inp.dataset.f); });
@@ -3916,6 +4009,7 @@ function startPanel(opts) {
   if (p.kind === 'claude' && !p.sid && !p.cont) p.sid = crypto.randomUUID();
   p.cwd = cwd; // an explicit `cwd: undefined` in opts must not beat the fallback
   S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  if (S.view === 'split') { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'select-session', id: p.id }); S.splitFull = null; }
   renderGrid(); renderRail(); renderHeader(); savePanels();
   return p;
 }
@@ -3966,7 +4060,12 @@ function pinFilePanel(p, opts = {}) {
   renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function focusPanel(id, scroll = true) {
-  S.activeId = id; renderRail();
+  S.activeId = id;
+  if (S.view === 'split') {
+    const p = S.panels.find((x) => x.id === id);
+    if (p) { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: isSessionPanel(p) ? 'select-session' : 'select-file', id }); S.splitFull = null; renderGrid(); }
+  }
+  renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
   const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.aiInput) t.aiInput.focus(); else if (t.ta) t.ta.focus(); }
 }
