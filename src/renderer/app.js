@@ -1110,6 +1110,7 @@ function refreshSessionsRail(c) {
     const m = statusMeta(p);
     const row = document.createElement('div');
     row.className = 'nav-card' + (p.id === S.activeId ? ' active' : '') + (p.attention ? ' attn' : '');
+    row.dataset.id = p.id;
     row.innerHTML = `${panelChip(p)}
       <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(shorten(p.title, 30))}</span><span class="sid">${esc(kindLabel(p))}</span></span>
       <span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>`;
@@ -3700,7 +3701,16 @@ function applyTitle(p, title, source) {
   p.title = win.title; p.titleSource = win.source;
   if (source !== 'prompt') { p.autoName = false; p._nameDraft = ''; }
   refreshTileHead(p); refreshRail(); savePanels();
+  if (source !== 'user') flashTitle(p); // you typed it yourself: nothing to notice
   return true;
+}
+// One flash on both labels when a name arrives on its own, so the rename is
+// noticed rather than puzzled over. The rail row was just rebuilt, so only the
+// tile's label needs its animation restarted.
+function flashTitle(p) {
+  const t = tileEls.get(p.id);
+  const labels = [t && q('.t-title', t.head), q(`.nav-card[data-id="${p.id}"] .goal`)].filter(Boolean);
+  for (const el of labels) { el.classList.remove('renamed'); void el.offsetWidth; el.classList.add('renamed'); }
 }
 // Keystrokes stream into a name draft until Enter commits one (session-name.mjs
 // decides); the committed prompt names the tile straight away, so the rail is

@@ -436,6 +436,10 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .tree-row.sel { background: var(--hover); box-shadow: inset 2px 0 0 var(--amber-btn); }
 /* a row that just landed — from a session's write, an import, or a move */
 @keyframes tree-landed { from { background: var(--diff-add-bg); } to { background: transparent; } }
+/* a tile that just got its name — from your first prompt, then from the agent
+   itself — says so once, the way a landed file does in the tree */
+@keyframes renamed { from { background: var(--diff-add-bg); } to { background: transparent; } }
+.nav-card .goal.renamed, .t-title.renamed { animation: renamed 1.4s ease-out; border-radius: 2px; }
 .tree-row.landed { animation: tree-landed 2.2s ease-out both; }
 .tree-row.landed .name { color: var(--green-ok); font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .tree-row.landed { animation: none; } }
