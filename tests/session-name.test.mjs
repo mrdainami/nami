@@ -11,6 +11,15 @@ test('generic titles are the ones auto-naming may replace', () => {
   assert.equal(isGenericTitle(''), true);
 });
 
+test("a bare agent name is generic too — it is what a card or a run tile is born with", () => {
+  for (const name of ['Claude Code', 'Codex', 'Kimi Code', 'OpenCode', 'codex']) assert.equal(isGenericTitle(name), true, name);
+  assert.equal(isGenericTitle('Codex — pricing'), false);
+  assert.equal(isGenericTitle('Compare pricing with 20 competitors'), false);
+  // names the app learned at runtime count as well
+  assert.equal(isGenericTitle('My Agent', ['My Agent']), true);
+  assert.equal(isGenericTitle('My Agent'), false);
+});
+
 test('typing a prompt then Enter commits it as the name', () => {
   let d = '';
   for (const ch of 'fix the login bug') d = feedNameDraft(d, ch).draft;
