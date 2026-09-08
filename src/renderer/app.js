@@ -2748,41 +2748,87 @@ function stageSessionDraft(id, text) {
   toast('Added to the session draft.');
   return true;
 }
+function wireImagePaste(p, rec) {
+  rec.root.addEventListener('paste', (e) => {
+    const files = Array.from(e.clipboardData?.items || []).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault(); e.stopPropagation();
+    rec.pasteQueue = (rec.pasteQueue || Promise.resolve()).then(async () => {
+      for (const file of files) {
+        if (p.exited || !S.panels.includes(p)) { toast('That session is no longer available.'); return; }
+        if ((p.imageAttachments || []).length >= 20) { toast('Hide or remove an image before adding more.'); return; }
+        const dataUrl = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(file); });
+        const saved = await api.savePastedImage(dataUrl);
+        if (!saved || !saved.ok) { toast(saved?.error || 'Could not save the image.'); continue; }
+        if (!S.panels.includes(p)) return;
+        p.imageAttachments = p.imageAttachments || [];
+        if (p.imageAttachments.some((a) => a.path === saved.path && !a.sent)) continue;
+        p.imageAttachments.push({ id: uid('image_'), path: saved.path, thumbnail: saved.thumbnail, sent: false });
+        rec.refreshDraft(); savePanels();
+      }
+    }).catch(() => toast('Could not paste that image.'));
+  }, true);
+}
 function mountSessionDraft(p, rec) {
   const box = document.createElement('div'); box.className = 'session-draft';
-  box.innerHTML = `<div class="draft-tools"><span class="note">Draft · sends to the current terminal input</span><button class="btn draft-jump" hidden>Jump to latest</button></div>
+  box.innerHTML = `<div class="image-strip" aria-label="Pasted images"></div><div class="draft-tools"><span class="note">Draft · sends to the current terminal input</span><button class="btn draft-jump" hidden>Jump to latest</button></div>
     <textarea class="draft-input" rows="2" aria-label="Draft for ${esc(p.title)}" placeholder="Write while reading above…"></textarea>
     <div class="draft-tools"><span class="note">Enter sends · Shift+Enter adds a line</span><button class="btn btn--go draft-send">Send</button></div>`;
   rec.root.appendChild(box);
   const input = q('.draft-input', box), send = q('.draft-send', box), jump = q('.draft-jump', box);
   rec.draftInput = input; input.value = p.inputDraft || '';
-  let sending = false;
+  let sending = false, newOutput = false;
+  const strip = q('.image-strip', box);
+  let imageSignature = '';
+  const renderImages = () => {
+    const signature = JSON.stringify([sending, p.imageAttachments || []]);
+    if (signature === imageSignature) return;
+    imageSignature = signature;
+    strip.innerHTML = '';
+    for (const image of p.imageAttachments || []) {
+      const item = document.createElement('div'); item.className = 'image-attachment';
+      item.innerHTML = `<button class="image-open" title="Open pasted image"><img alt="Pasted image" src="${esc(image.thumbnail)}"></button><span>${image.sent ? 'Sent to terminal' : 'Staged'}</span><button class="image-remove">${image.sent ? 'Hide' : 'Remove'}</button>`;
+      q('.image-open', item).onclick = () => { focusPanel(p.id); openFile(image.path, { pin: true }); };
+      const remove = q('.image-remove', item); remove.disabled = sending;
+      remove.onclick = () => { p.imageAttachments = p.imageAttachments.filter((a) => a.id !== image.id); update(); savePanels(); };
+      strip.appendChild(item);
+    }
+    strip.hidden = !strip.childElementCount;
+  };
   const update = () => {
-    rec.root.classList.toggle('has-draft', !!input.value);
+    rec.root.classList.toggle('has-draft', !!input.value || !!p.imageAttachments?.length);
+    renderImages();
     input.disabled = sending || !!p.exited;
-    send.disabled = sending || !!p.exited || !input.value.trim();
+    send.disabled = sending || !!p.exited || (!input.value.trim() && !(p.imageAttachments || []).some((a) => !a.sent));
     jump.hidden = rec.term.buffer.active.viewportY >= rec.term.buffer.active.baseY;
+    if (jump.hidden) newOutput = false;
+    jump.textContent = newOutput ? 'New output · Jump to latest' : 'Jump to latest';
   };
   rec.refreshDraft = update;
-  input.oninput = () => { p.inputDraft = input.value; update(); };
+  input.oninput = () => { p.inputDraft = input.value; update(); savePanels(); };
   input.onkeydown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send.click(); }
   };
   send.onclick = async () => {
-    if (sending || p.exited || !input.value.trim()) return;
-    const data = terminalDraft(input.value, rec.term.modes.bracketedPasteMode);
+    const pending = (p.imageAttachments || []).filter((a) => !a.sent);
+    if (sending || p.exited || (!input.value.trim() && !pending.length)) return;
+    const text = input.value + (pending.length ? (input.value ? ' ' : '') + pending.map((a) => shellQuote(a.path)).join(' ') : '');
+    const data = terminalDraft(text, rec.term.modes.bracketedPasteMode);
     if (data === null) { toast('This terminal does not support multiline paste. The draft is kept; use the terminal directly.'); return; }
     sending = true; update();
     try {
       const result = await api.termWrite({ id: p.id, data });
       if (!result || !result.ok) throw new Error('write failed');
       clearAttention(p); if (p.autoName) feedSessionName(p, input.value + '\n');
-      input.value = ''; p.inputDraft = '';
+      input.value = ''; p.inputDraft = ''; pending.forEach((a) => { a.sent = true; }); savePanels();
     } catch (_) { toast('Could not send. Your draft is still here.'); }
     finally { sending = false; update(); }
   };
   jump.onclick = () => { rec.term.scrollToBottom(); update(); };
-  rec.term.onScroll(update); rec.term.onWriteParsed(update); update();
+  rec.term.onScroll(update); rec.term.onWriteParsed(() => {
+    if (rec.term.buffer.active.viewportY < rec.term.buffer.active.baseY) newOutput = true;
+    update();
+  }); wireImagePaste(p, rec); update();
 }
 
 // ---- terminal links --------------------------------------------------------
@@ -4062,6 +4108,7 @@ function panelSnapshot() {
   // remember is five places to forget.
   const size = (p) => {
     const o = { spanX: p.spanX, spanY: p.spanY };
+    if (isSessionPanel(p)) { o.inputDraft = p.inputDraft || ''; o.imageAttachments = p.imageAttachments || []; }
     if (p.fontSize >= 10 && p.fontSize <= 18) o.fontSize = p.fontSize;
     if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
     return o;
@@ -4127,6 +4174,12 @@ async function restorePanels(snaps) {
         if (s.spanX || s.spanY) { n.spanX = s.spanX; n.spanY = s.spanY; }
         if (s.fontSize) n.fontSize = s.fontSize;
         if (s.docScale) n.docScale = s.docScale;
+        if (isSessionPanel(n)) {
+          n.inputDraft = typeof s.inputDraft === 'string' ? s.inputDraft : '';
+          n.imageAttachments = Array.isArray(s.imageAttachments) ? s.imageAttachments.filter((a) => a && typeof a.path === 'string' && typeof a.thumbnail === 'string').slice(0, 20) : [];
+          const rec = tileEls.get(n.id);
+          if (rec?.draftInput) { rec.draftInput.value = n.inputDraft; rec.refreshDraft(); }
+        }
       }
     } catch (_) {}
   }

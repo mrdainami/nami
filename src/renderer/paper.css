@@ -2413,3 +2413,10 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .selection-preview { white-space: pre-wrap; overflow: auto; max-height: 220px; font-size: 12px; padding: 10px; background: var(--paper-2); }
 .session-draft, .selection-actions { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .draft-tools { flex-wrap: wrap; }
+.image-strip { display: flex; gap: 8px; overflow-x: auto; max-height: 118px; margin-bottom: 8px; }
+.image-strip[hidden] { display: none; }
+.image-attachment { display: flex; flex: none; flex-direction: column; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--dash); border-radius: 2px; }
+.image-attachment span { font-size: 10px; color: var(--muted-2); }
+.image-attachment .image-open { width: 96px; height: 64px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.image-open img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.image-attachment .image-remove { font: inherit; font-size: 10px; color: var(--ink); background: var(--paper); border: 1px solid var(--dash); cursor: pointer; }
