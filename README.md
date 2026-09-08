@@ -76,6 +76,9 @@ security warning.
 2. **Point it at one folder** you work in. It never looks outside it.
 3. **Ask for something.** It finds the agents you already have.
 
+Find your way around with **⌘ Shortcuts** in the app, or read the
+[shortcuts and gestures reference](docs/shortcuts.md).
+
 Windows is coming.
 
 ## Build it yourself
