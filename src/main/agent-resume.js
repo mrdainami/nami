@@ -320,4 +320,69 @@ function startDiscovery({ id, agent, cwd, sinceMs, onFound, home, everyMs } = {}
   return () => { pending.delete(id); };
 }
 
-module.exports = { AGENT_BINS, agentForCommand, resumeCommand, sessionExists, findSession, startDiscovery };
+// ---- the agent's own name for a session ------------------------------------
+// The same stores, read for a title instead of an id, so a tile can take the
+// agent's name while it runs rather than only after a close and a resume.
+// Where each keeps it (verified on disk 2026-09-08):
+//
+//   codex     ~/.codex/session_index.jsonl — {id, thread_name, updated_at};
+//             a rename appends a fresh line, so the last line for the id wins.
+//   kimi      <sessionDir>/state.json — `title`, the first prompt verbatim,
+//             absent until there is one.
+//   opencode  session.title — placeholder "New session - <iso date>" until the
+//             agent names it, which is not a name.
+//   hermes    sessions.display_name — usually empty.
+//   claude    the transcript tail (session-title.js), same as the terminal
+//             watcher; the transcript path is built from cwd and id.
+//   agy, grok no title in the store that could be found; null.
+const MAX_TITLE = 60;
+function label(t) {
+  const s = String(t || '').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  return s.length > MAX_TITLE ? s.slice(0, MAX_TITLE - 1).trimEnd() + '…' : s;
+}
+function readSessionTitle(agent, cwd, sid, home = os.homedir()) {
+  try {
+    const s = String(sid || '');
+    if (!s) return null;
+    if (agent === 'codex') {
+      let raw = '';
+      try { raw = fs.readFileSync(path.join(home, '.codex', 'session_index.jsonl'), 'utf8'); } catch (_) { return null; }
+      let name = null;
+      for (const line of raw.split('\n')) {
+        if (line.indexOf(s) < 0) continue;
+        try { const rec = JSON.parse(line); if (rec && rec.id === s && rec.thread_name) name = rec.thread_name; } catch (_) {}
+      }
+      return label(name);
+    }
+    if (agent === 'kimi') {
+      let raw = '';
+      try { raw = fs.readFileSync(path.join(home, '.kimi-code', 'session_index.jsonl'), 'utf8'); } catch (_) { return null; }
+      for (const line of raw.split('\n')) {
+        if (line.indexOf(s) < 0) continue;
+        let rec = null;
+        try { rec = JSON.parse(line); } catch (_) { continue; }
+        if (!rec || rec.sessionId !== s || !rec.sessionDir) continue;
+        try { return label(JSON.parse(fs.readFileSync(path.join(rec.sessionDir, 'state.json'), 'utf8')).title); } catch (_) { return null; }
+      }
+      return null;
+    }
+    if (agent === 'opencode') {
+      const row = withDb(opencodeDb(home), (db) => db.prepare('select title from session where id = ?').get(s));
+      const t = row && row.title;
+      return t && !/^New session - /.test(t) ? label(t) : null;
+    }
+    if (agent === 'hermes') {
+      const row = withDb(hermesDb(home), (db) => db.prepare('select display_name from sessions where id = ?').get(s));
+      return label(row && row.display_name);
+    }
+    if (agent === 'claude') {
+      const { readTailTitle } = require('./session-title');
+      const { projectSlug } = require('./claude-args');
+      return label(readTailTitle(path.join(home, '.claude', 'projects', projectSlug(cwd), s + '.jsonl')));
+    }
+  } catch (_) {}
+  return null;
+}
+
+module.exports = { AGENT_BINS, agentForCommand, resumeCommand, sessionExists, findSession, startDiscovery, readSessionTitle };

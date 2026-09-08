@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { AGENT_BINS, agentForCommand, resumeCommand, sessionExists, findSession, startDiscovery } = require('../src/main/agent-resume.js');
+const { AGENT_BINS, agentForCommand, resumeCommand, sessionExists, findSession, startDiscovery, readSessionTitle } = require('../src/main/agent-resume.js');
 
 // Fixture stores built the way each agent really writes them (see the header
 // of agent-resume.js), in a throwaway home so nothing real is ever touched.
@@ -21,6 +21,10 @@ function kimiStore(home, rows) {
   for (const r of rows) {
     const dir = path.join(home, 'kimi-sessions', r.id);
     fs.mkdirSync(dir, { recursive: true });
+    // kimi keeps the session's own record beside its logs; a title appears
+    // there once the session has one (the first prompt, verbatim). Written
+    // before the mtime is pinned: discovery reads the directory's mtime.
+    put(path.join(dir, 'state.json'), JSON.stringify({ id: r.id, cwd: r.cwd, ...(r.title ? { title: r.title } : {}) }));
     setMtime(dir, r.mtime);
     lines.push(JSON.stringify({ sessionId: r.id, sessionDir: dir, workDir: r.cwd }));
   }
@@ -35,6 +39,10 @@ function codexStore(home, rows) {
       payload: { session_id: r.id, cwd: r.cwd, timestamp: new Date(r.at).toISOString() },
     }) + '\n{"type":"turn_context"}\n');
   });
+  // ~/.codex/session_index.jsonl is where codex keeps the thread's name; a
+  // rename appends a fresh line for the same id, so the last one wins
+  const idx = rows.filter((r) => r.title).map((r) => JSON.stringify({ id: r.id, thread_name: r.title, updated_at: new Date(r.at).toISOString() }));
+  if (idx.length) put(path.join(home, '.codex', 'session_index.jsonl'), idx.join('\n') + '\n');
 }
 
 function agyStore(home, cwd, id, mtime) {
@@ -53,7 +61,7 @@ function opencodeStore(home, rows) {
   db.exec('create table session (id text primary key, directory text, title text, time_created integer, time_updated integer)');
   for (const r of rows) {
     db.prepare('insert into session (id, directory, title, time_created, time_updated) values (?, ?, ?, ?, ?)')
-      .run(r.id, r.cwd, '', r.at, r.at);
+      .run(r.id, r.cwd, r.title || '', r.at, r.at);
   }
   db.close();
 }
@@ -63,10 +71,10 @@ function hermesStore(home, rows) {
   const file = path.join(home, '.hermes', 'state.db');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
-  db.exec('create table sessions (id text, source text, cwd text, started_at real)');
+  db.exec('create table sessions (id text, source text, cwd text, started_at real, display_name text)');
   for (const r of rows) {
-    db.prepare('insert into sessions (id, source, cwd, started_at) values (?, ?, ?, ?)')
-      .run(r.id, r.source || 'cli', r.cwd, r.at / 1000);
+    db.prepare('insert into sessions (id, source, cwd, started_at, display_name) values (?, ?, ?, ?, ?)')
+      .run(r.id, r.source || 'cli', r.cwd, r.at / 1000, r.title || null);
   }
   db.close();
 }
@@ -354,4 +362,58 @@ test('a cwd with spaces and unicode still finds its own sessions', () => {
   grokStore(home, [{ id: 'ses_odd', cwd: odd, mtime: 4000 }]);
   assert.equal(sessionExists('grok', odd, 'ses_odd', home), true);
   assert.equal(findSession('grok', odd, 0, home), 'ses_odd');
+});
+
+// ---- the agent's own name for a live session ---------------------------------
+// Read from the same stores resume uses, so a tile can take the name while it
+// runs instead of only after a close and a resume.
+
+test('readSessionTitle: codex reads thread_name from the session index, last line wins', () => {
+  const home = mkhome();
+  codexStore(home, [{ id: 'c-1', cwd: CWD, at: 5000, title: 'Fix intro video errors' }, { id: 'c-2', cwd: CWD, at: 6000 }]);
+  assert.equal(readSessionTitle('codex', CWD, 'c-1', home), 'Fix intro video errors');
+  assert.equal(readSessionTitle('codex', CWD, 'c-2', home), null, 'no name yet');
+  fs.appendFileSync(path.join(home, '.codex', 'session_index.jsonl'), JSON.stringify({ id: 'c-1', thread_name: 'Intro video', updated_at: 'x' }) + '\n');
+  assert.equal(readSessionTitle('codex', CWD, 'c-1', home), 'Intro video');
+});
+
+test('readSessionTitle: kimi reads title out of the session\'s state.json, trimmed to a label', () => {
+  const home = mkhome();
+  const long = 'can you do a favour for me, currently when I close and reopen the app the only session that resumes is claude';
+  kimiStore(home, [{ id: 'k-1', cwd: CWD, mtime: 5000, title: long }, { id: 'k-2', cwd: CWD, mtime: 6000 }]);
+  const t = readSessionTitle('kimi', CWD, 'k-1', home);
+  assert.ok(t.startsWith('can you do a favour for me'));
+  assert.ok(t.length <= 60);
+  assert.equal(readSessionTitle('kimi', CWD, 'k-2', home), null);
+});
+
+test('readSessionTitle: opencode reads the title column and ignores its own placeholder', () => {
+  const home = mkhome();
+  opencodeStore(home, [{ id: 'ses_1', cwd: CWD, at: 5000, title: 'Rename database columns' }, { id: 'ses_2', cwd: CWD, at: 6000, title: 'New session - 2026-09-06T07:29:09.553Z' }]);
+  assert.equal(readSessionTitle('opencode', CWD, 'ses_1', home), 'Rename database columns');
+  assert.equal(readSessionTitle('opencode', CWD, 'ses_2', home), null);
+});
+
+test('readSessionTitle: hermes reads display_name when it has one', () => {
+  const home = mkhome();
+  hermesStore(home, [{ id: 'h-1', cwd: CWD, at: 5000, title: 'Ship the release' }, { id: 'h-2', cwd: CWD, at: 6000 }]);
+  assert.equal(readSessionTitle('hermes', CWD, 'h-1', home), 'Ship the release');
+  assert.equal(readSessionTitle('hermes', CWD, 'h-2', home), null);
+});
+
+test('readSessionTitle: claude reads the transcript tail for this cwd and id', () => {
+  const home = mkhome();
+  const { projectSlug } = require('../src/main/claude-args.js');
+  put(path.join(home, '.claude', 'projects', projectSlug(CWD), 'abc.jsonl'), '{"type":"user"}\n{"type":"ai-title","aiTitle":"Investigate naming"}\n');
+  assert.equal(readSessionTitle('claude', CWD, 'abc', home), 'Investigate naming');
+  assert.equal(readSessionTitle('claude', CWD, 'nope', home), null);
+});
+
+test('readSessionTitle: a store without names, a missing store or a bad id is null, never a throw', () => {
+  const home = mkhome();
+  assert.equal(readSessionTitle('agy', CWD, 'x', home), null);
+  assert.equal(readSessionTitle('grok', CWD, 'x', home), null);
+  assert.equal(readSessionTitle('codex', CWD, '', home), null);
+  assert.equal(readSessionTitle('kimi', CWD, 'k-1', home), null);
+  assert.equal(readSessionTitle('nope', CWD, 'x', home), null);
 });
