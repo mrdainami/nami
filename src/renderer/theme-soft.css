@@ -609,3 +609,12 @@ body[data-soft] .cw-md blockquote {
   box-shadow: var(--sf-press-sm); padding: 8px 12px;
 }
 body[data-soft] .cw-md hr { border: 0; height: 4px; border-radius: 2px; box-shadow: var(--sf-press-sm); }
+
+/* Selection stays visible independently of the soft surface shadows. */
+body[data-soft] .nav-card.active { outline: 1px solid var(--ink); outline-offset: -1px; }
+
+/* Keep file rows curved like their parent, with compact, quieter depth. */
+body[data-soft] .nav-files { gap: 4px; }
+body[data-soft] .nav-file { border-radius: var(--sf-r-sm); background: var(--paper); box-shadow: var(--sf-raise-sm); }
+body[data-soft] .nav-file.sel { border-color: var(--ink); box-shadow: var(--sf-press-sm); }
+body[data-soft] .viewsw { border-radius: var(--sf-r-sm); }
