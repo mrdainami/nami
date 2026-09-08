@@ -737,3 +737,12 @@ body[data-glass] .qs-link { color: var(--gl-link); text-decoration-color: var(--
 @media (max-width: 720px) {
   body[data-glass] #btn-help { display: none; }
 }
+
+/* Child files belong to the same curved surface family as their session. */
+body[data-glass] .nav-files { gap: 4px; }
+body[data-glass] .nav-file { border-radius: 17px; background: var(--gl-pane); }
+body[data-glass] .nav-file.sel { background: var(--gl-pane-strong); border-color: var(--ink); }
+body[data-glass] .nav-card .count { border-radius: 17px; }
+body[data-glass] .viewsw { border-radius: 17px; }
+body[data-glass] .viewsw .view-choice.active,
+body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #fff; }

@@ -449,3 +449,7 @@ body[data-theme="operator"] .agent-pick:focus-visible { border-color: var(--op-a
 body[data-theme="operator"] .ctx-menu { border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
 body[data-theme="operator"] .ctx-item { border-radius: 5px; }
 body[data-theme="operator"] .ctx-item:hover { background: var(--hover); }
+
+body[data-theme="operator"] .nav-file { border-radius: 6px; }
+body[data-theme="operator"] .nav-card .count,
+body[data-theme="operator"] .viewsw { border-radius: 6px; }
