@@ -28,6 +28,7 @@ import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-gr
 import { isOutsideProject } from './path-guard.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
+import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, splitAfter, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
 const api = window.dainami;
 
@@ -194,6 +195,8 @@ const EVERGREEN_ROWS = [
 const S = {
   project: null, recents: [], demo: false,
   panels: [], activeId: null, expandedId: null,
+  // Desk or Split (desk-view.mjs). split remembers what the two panes show.
+  view: 'desk', split: { sessionId: null, fileId: null, last: {} },
   railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
   pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
   version: '', updatedAt: null,        // shown in Settings → About, filled at boot
@@ -3384,10 +3387,8 @@ async function openCard(item, opts) {
     chipKind: chip.kind, code: chip.code, title: item.name, cwd: S.project && S.project.path,
   };
   if (doc.malformed) toast('Frontmatter looks malformed. Raw view only.');
-  if (opts && opts.pin) {
-    S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-    renderGrid(); renderRail(); renderHeader(); savePanels();
-  } else openPeek(p);
+  if (opts && opts.pin) pinFilePanel(p, opts);
+  else openPeek(p);
 }
 function mountCard(p, rec) {
   // A broken link has no file behind it, so its inputs are disabled for the same
@@ -3738,10 +3739,14 @@ function panelSnapshot() {
     if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
     return o;
   };
+  // A file names the session it belongs to by that session's position in this
+  // list: ids are minted fresh on restore, positions are not (desk-view.mjs).
+  const owners = ownerIndexes(S.panels);
+  const own = (p) => (owners[p.id] === undefined ? {} : { ownerIndex: owners[p.id] });
   return S.panels.map((p) => {
-    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...size(p) };
-    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...size(p) };
-    if (p.kind === 'card') return { kind: 'card', item: p.item, ...size(p) };
+    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...own(p), ...size(p) };
+    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...own(p), ...size(p) };
+    if (p.kind === 'card') return { kind: 'card', item: p.item, ...own(p), ...size(p) };
     // A one-shot that has run comes back as a plain terminal, not as its
     // command. Restoring the command re-ran it: leave an install tile on the
     // desk, quit, and Nami piped curl into bash again on the next launch, and
@@ -3774,8 +3779,9 @@ async function restorePanels(snaps) {
   // A run panel (kimi, codex, …) resumes by its saved acpSid; main checks the
   // agent's store still holds that session and falls back to a fresh spawn.
   const newestLegacy = snaps.find((s) => s.kind === 'claude' && !s.sid);
+  const restored = snaps.map(() => null); // snapshot position -> the panel it became
   // open* unshift; walk the list backwards so the restored order matches
-  for (const s of [...snaps].reverse()) {
+  for (const [i, s] of [...snaps.entries()].reverse()) {
     try {
       // Every open* unshifts, so a tile that actually arrived is S.panels[0].
       // Reading the size back off that is exact whatever the kind, and does not
@@ -3790,12 +3796,14 @@ async function restorePanels(snaps) {
       // span renders at the default. That is the whole of the migration.
       if (S.panels.length > before) {
         const n = S.panels[0];
+        restored[i] = n;
         if (s.spanX || s.spanY) { n.spanX = s.spanX; n.spanY = s.spanY; }
         if (s.fontSize) n.fontSize = s.fontSize;
         if (s.docScale) n.docScale = s.docScale;
       }
     } catch (_) {}
   }
+  resolveOwners(restored, snaps); // owners by position, now that every id exists
   S.activeId = S.panels[0] ? S.panels[0].id : null;
   renderAll();
 }
@@ -3876,28 +3884,43 @@ function confirmOutsideOpen(abs) {
 // drop onto the desk, or restore-on-boot) makes it a tile.
 async function openFile(filePath, opts) {
   const r = resolveOpen(S.panels, 'file', filePath);
-  if (r.action === 'focus') { focusPanel(r.id); return; }
+  if (r.action === 'focus') { const f = S.panels.find((x) => x.id === r.id); if (f && opts && opts.pin && !opts.preview) keepFile(f); focusPanel(r.id); return; }
   const p = await buildFilePanel(filePath);
-  if (opts && opts.pin) {
-    S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-    renderGrid(); renderRail(); renderHeader(); savePanels();
-  } else openPeek(p);
+  if (opts && opts.pin) pinFilePanel(p, opts);
+  else openPeek(p);
+}
+// Every file that lands on the desk comes through here — the tree's pin, a
+// pinned peek, a card, a restore. It joins the session that is active
+// (desk-view.mjs decides which), and as a preview it takes the place of the
+// session's previous preview, so browsing ten files leaves one tab, not ten.
+function pinFilePanel(p, opts = {}) {
+  const owner = ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+  if (owner) p.owner = owner; else delete p.owner;
+  if (opts.preview) p.preview = true; else delete p.preview;
+  const old = opts.preview ? previewToReplace(S.panels, owner, p) : null;
+  if (old) closePanel(old.id, { silent: true });
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  if (S.view === 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'open', id: p.id });
+  renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function focusPanel(id, scroll = true) {
   S.activeId = id; renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
   const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.aiInput) t.aiInput.focus(); else if (t.ta) t.ta.focus(); }
 }
-function closePanel(id) {
+function closePanel(id, opts = {}) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
-  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !opts.silent && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
   else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') {
     api.termKill({ id });
   }
   const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
+  orphanFiles(S.panels, id); // a closed session's files stay, on the desk
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
   if (S.expandedId === id) S.expandedId = null;
+  if (S.view === 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'close', id });
+  if (opts.silent) return;
   renderGrid(); renderRail(); renderHeader(); savePanels();
 }
 function closeFinished() {
@@ -5375,9 +5398,8 @@ function renderPeek() {
 function pinPeek() {
   const o = S.overlay; if (!o || o.type !== 'peek') return;
   const p = o.panel;
-  S.overlay = null;
-  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
-  renderOverlay(); renderGrid(); renderRail(); renderHeader(); savePanels();
+  S.overlay = null; renderOverlay();
+  pinFilePanel(p);
 }
 function requestClosePeek() {
   const o = S.overlay; if (!o || o.type !== 'peek') { closeOverlay(); return; }
