@@ -62,14 +62,40 @@ function chromeBlobPrefix(encrypted) {
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
   return buf.subarray(0, 3).toString();
 }
-function decryptChromeCookie(encrypted, key) {
+function decryptChromeBlob(encrypted, key) {
   if (!encrypted || encrypted.length < 4) return null;
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
   if (chromeBlobPrefix(buf) !== 'v10') return null;
   try {
     const decipher = crypto.createDecipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
-    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]).toString('utf8');
+    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]);
   } catch { return null; }
+}
+// Chrome 130 and later prepend the SHA-256 of the cookie's domain to the
+// plaintext before encrypting it, so a decrypted cookie is 32 bytes of hash
+// followed by the value. Hand that whole thing to Chromium and it rejects the
+// cookie as malformed — which is how an import could report success and leave
+// you signed out: on this Mac 3,866 cookies decrypted and 31 survived the write.
+//
+// Passwords are not wrapped this way (their blobs start at 16 bytes, so there
+// is no room for a prefix), which is why this belongs to the cookie path alone.
+//
+// The prefix is detected, never assumed, so a profile written by an older
+// Chrome still imports: a SHA-256 is 32 bytes of binary, and the chance of all
+// 32 landing inside printable ASCII is about one in 10^14, while a cookie value
+// is printable by specification.
+function stripCookieDomainHash(buf) {
+  if (buf.length < 32) return buf;
+  for (let i = 0; i < 32; i++) { const b = buf[i]; if (b < 0x20 || b > 0x7e) return buf.subarray(32); }
+  return buf;
+}
+function decryptChromeCookie(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? buf.toString('utf8') : null;
+}
+function decryptChromeCookieValue(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? stripCookieDomainHash(buf).toString('utf8') : null;
 }
 function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
   // Every browser here is Chromium underneath, which means one profile layout,
@@ -248,7 +274,7 @@ function chromeKeychainPassword(browser, execFileSync) {
   } catch { return null; }
 }
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
-  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, locked = false, decryptUnavailable = false, error = null;
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, rejected = 0, locked = false, decryptUnavailable = false, error = null;
   for (const source of sources || []) {
     let rows = [];
     try { rows = readChromeCookieRows(source.cookies); }
@@ -260,7 +286,7 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
       if (!includeGoogle && isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
       const prefix = chromeBlobPrefix(row.encrypted_value);
       if (prefix === 'v20') { skippedV20++; skippedEncrypted++; continue; }
-      const value = row.value || (key ? decryptChromeCookie(row.encrypted_value, key) : null);
+      const value = row.value || (key ? decryptChromeCookieValue(row.encrypted_value, key) : null);
       if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
       ready.push({ ...row, value });
     }
@@ -273,11 +299,11 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
           sameSite: ({ 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified'),
         });
         imported++;
-      } catch { skippedEncrypted++; }
+      } catch { rejected++; }
     }
   }
   log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
-  return { imported, skippedGoogle, skippedEncrypted, skippedV20, locked, decryptUnavailable, error };
+  return { imported, skippedGoogle, skippedEncrypted, skippedV20, rejected, locked, decryptUnavailable, error };
 }
 function parsePasswordCsv(text) {
   if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
@@ -394,7 +420,7 @@ function createProfileStore({ directory, safeStorage }) {
 }
 module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
-  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
+  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
   readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure,
 };

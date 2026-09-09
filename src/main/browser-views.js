@@ -427,6 +427,10 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         let extra = '';
         if (locked) extra = ' Quit ' + source.browser + ' from the menu bar and try again.';
         else if (reasons.length) extra = ' ' + reasons[0];
+        // A cookie that decrypted and was then refused by the browser is its
+        // own outcome. Folding it in with "encrypted" is how an import came to
+        // report 3,866 cookies read, write 31 of them, and say nothing.
+        else if (cookies.rejected) extra = ' ' + cookies.rejected + ' cookies were refused by the browser and not copied.';
         else if (cookies.skippedV20) extra = ' ' + source.browser + ' encrypts these cookies on this Mac, so they could not be copied.';
         else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
         return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };

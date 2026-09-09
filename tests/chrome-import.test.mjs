@@ -17,9 +17,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs, chromeKeychainPassword, readFailure } = require('../src/main/browser-profiles');
+const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs, chromeKeychainPassword, readFailure, decryptChromeCookieValue, decryptChromeCookie, deriveChromeKey, stripCookieDomainHash } = require('../src/main/browser-profiles');
 
 // Real values, copied from a live Chrome profile. Both are > 2^53.
 const EXPIRES_UTC = 13433531963056867;
@@ -162,4 +163,37 @@ test('a permission denial is not a lock, so it never says to quit the browser', 
   assert.match(readFailure(denied).error, /permission denied/);
   assert.equal(readFailure(busy).locked, true);
   assert.equal(readFailure(new Error('database is locked')).locked, true);
+});
+
+test('a cookie carrying Chrome\'s domain hash decrypts to just its value', () => {
+  // Chrome 130+ prepends the SHA-256 of the cookie's domain to the plaintext.
+  // Left in place it is 32 bytes of binary in front of the value, which
+  // Chromium rejects as malformed — an import that reported success and signed
+  // you into nothing. Measured on a real profile: 3,866 cookies decrypted,
+  // 31 survived the write.
+  const key = deriveChromeKey('fixture-password');
+  const seal = (plain) => {
+    const c = crypto.createCipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
+    return Buffer.concat([Buffer.from('v10'), c.update(plain), c.final()]);
+  };
+  const hash = crypto.createHash('sha256').update('example.com').digest();
+  const wrapped = seal(Buffer.concat([hash, Buffer.from('session=abc123')]));
+  assert.equal(decryptChromeCookieValue(wrapped, key), 'session=abc123');
+
+  // An older profile has no prefix, and must come through untouched.
+  assert.equal(decryptChromeCookieValue(seal(Buffer.from('plain-value')), key), 'plain-value');
+  // Nor may a long printable value lose its first 32 characters.
+  const long = 'abcdefghijklmnopqrstuvwxyz0123456789-and-more';
+  assert.equal(decryptChromeCookieValue(seal(Buffer.from(long)), key), long);
+
+  // Passwords are not wrapped, so their path must not strip anything.
+  assert.equal(decryptChromeCookie(seal(Buffer.from('secret-pass')), key), 'secret-pass');
+});
+
+test('the domain hash is detected, never assumed', () => {
+  assert.equal(stripCookieDomainHash(Buffer.from('short')).toString(), 'short');
+  const printable = Buffer.from('x'.repeat(40));
+  assert.equal(stripCookieDomainHash(printable).length, 40, 'printable text is a value, not a hash');
+  const binary = Buffer.concat([Buffer.alloc(32), Buffer.from('kept')]);
+  assert.equal(stripCookieDomainHash(binary).toString(), 'kept');
 });
