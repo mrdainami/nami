@@ -435,6 +435,23 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
         return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
       });
+    } else if (action === 'contents') {
+      // What is actually in this profile, counted from the live session rather
+      // than from the file on disk. Session cookies — which is what most
+      // sign-ins are — never reach the file, so a count read from SQLite
+      // reports a profile as emptier than it is and sends everyone hunting a
+      // bug that is not there.
+      const record = getPartition(w, profileId);
+      let cookies = 0, session = 0;
+      try {
+        const all = await record.session.cookies.get({});
+        cookies = all.length;
+        session = all.filter((c) => !c.expirationDate).length;
+      } catch {}
+      let passwords = 0, history = 0;
+      try { passwords = profiles.credentials(profileId).length; } catch {}
+      try { history = (profiles.get(profileId).history || []).length; } catch {}
+      output.contents = { cookies, session, passwords, history };
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
     return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
