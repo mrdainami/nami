@@ -35,14 +35,15 @@ function mergeReports(primary, extra) {
 // A file too big to parse is a skip, not an absence: the caller has to know the
 // difference so it can ask the account instead of reporting "no usage".
 const JSON_SIZE_LIMIT = 64000;
+const SKIPPED = Object.freeze({ skipped: 'too-large' });
 function readJson(file) {
   try {
-    if (fs.statSync(file).size >= JSON_SIZE_LIMIT) return { skipped: 'too-large' };
+    if (fs.statSync(file).size >= JSON_SIZE_LIMIT) return SKIPPED;
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
   } catch (_) { return null; }
 }
-const usable = (data) => data && !data.skipped ? data : null;
+const usable = (data) => data && data !== SKIPPED ? data : null;
 function unavailable(agent, detail) {
   return [{ id: agent.id, name: agent.name, providerId: agent.id, providerName: agent.name, status: 'unavailable', remaining: null, detail: detail || ('Sign in with ' + (agent.name || agent.id)) }];
 }
@@ -163,7 +164,7 @@ function claudeFiles(home) {
   return files;
 }
 function claudeSkippedLocal(home) {
-  return claudeFiles(home).some((file) => readJson(file)?.skipped === 'too-large');
+  return claudeFiles(home).some((file) => readJson(file) === SKIPPED);
 }
 function claudeRows(home, directory, now) {
   let rows = [];

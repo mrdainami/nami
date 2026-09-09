@@ -83,3 +83,17 @@ test('a stale local window still shows a number when the account has a fresh one
   assert.equal(result.accounts[0].remaining, 75);
   assert.equal(result.accounts[0].status, 'reported');
 });
+
+test('a Claude config too large to scan says so instead of reporting nothing', async () => {
+  const home = tmpDir('nami-fidelity-big-');
+  const padding = Object.fromEntries(Array.from({ length: 900 }, (_, i) => ['project-' + i, 'x'.repeat(80)]));
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ ...padding, cachedUsageUtilization: { fetchedAtMs: NOW, utilization: { five_hour: { utilization: 10 } } } }));
+  assert.ok(fs.statSync(path.join(home, '.claude.json')).size >= 64000);
+  const result = await readUsage({
+    agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
+    directory: tmpDir('nami-fidelity-feeds-'), home, now: NOW,
+  });
+  assert.equal(result.accounts.length, 1);
+  assert.equal(result.accounts[0].status, 'unavailable');
+  assert.match(result.accounts[0].detail, /too large to scan/);
+});
