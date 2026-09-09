@@ -34,9 +34,9 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
       const entries = () => route.revoked ? [] : [...views.values()].filter((e) => access.allows(route.id, e.id));
       if (!entries().length) throw new Error('No browser tabs are shared with this session.');
       const bridge = await createCdpBridge({ entries, create: async (url) => {
-        const first = entries()[0]; if (!first) throw new Error('Browser access revoked.');
-        const e = await create(first.window, { id: 'browser-' + randomBytes(8).toString('hex'), owner: route.id, url });
-        access.get(route.id).views.add(e.id); send(e, 'created', { owner: route.id, url }); return e;
+        const first = entries().find(e=>!e.record?.local); if (!first) throw new Error('Open the website in Nami and grant its browser tab access first. Local HTML permission does not include signed-in browser profiles.');
+        const e = await create(first.window, { id: 'browser-' + randomBytes(8).toString('hex'), owner: route.id, profileId: first.profileId, url });
+        access.get(route.id).views.add(e.id); send(e, 'created', { owner: route.id, profileId: first.profileId, url }); return e;
       }, close: remove });
       route.bridge = bridge;
       const { chromium } = require('playwright');
@@ -56,7 +56,7 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
   }
   async function dispatch(route, message) {
     const s = access.get(route.id);
-    if (message.method === 'initialize') return { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'nami-browser', version: '1.0.0' } };
+    if (message.method === 'initialize') { route.connected = true; return { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'nami-browser', version: '1.0.0' } }; }
     if (message.method === 'ping') return {};
     if (message.method === 'tools/list') {
       const browserTools = s.views.size ? (await (await engine(route)).listTools()).tools.filter((t) => ALLOWED_TOOLS.has(t.name)).map((tool) => {
@@ -79,6 +79,8 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
       notifyMessage?.(target.windowId, { sessionId: args.to, message: msg });
       return result({ delivered: true });
     }
+    if ((name==='browser_navigate'||(name==='browser_tabs'&&args.action==='new')) && [...s.views].every(id=>views.get(id)?.record?.local)) throw new Error('Open the website in Nami and grant its browser tab access first. Local HTML permission does not include signed-in browser profiles.');
+    if(name==='browser_tabs' && args.action==='close' && [...s.views].some(id=>views.get(id)?.pendingCount>0)) throw new Error('Review or discard pending annotations before closing browser tabs through the agent.');
     if (!ALLOWED_TOOLS.has(name)) throw new Error('Tool is not available in Nami.');
     if (Object.hasOwn(args, 'filename')) throw new Error('Browser tools return context directly; file output is not enabled.');
     return (await engine(route)).callTool({ name, arguments: args });
@@ -101,7 +103,7 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
     try { m = JSON.parse(Buffer.concat(chunks).toString('utf8')); if (!m || typeof m.method !== 'string') throw new Error('Invalid request.'); }
     catch (_) { res.writeHead(400).end(); return; }
     if (m.id === undefined) { res.writeHead(202).end(); return; }
-    const run = serial.then(async () => { if (!routes.has(req.url)) throw new Error('Connection revoked.'); return dispatch(route, m); });
+    const run = serial.then(async () => { if (!routes.has(req.url)) throw new Error('Connection revoked.'); route.inFlight = dispatch(route, m); try { return await route.inFlight; } finally { route.inFlight = null; } });
     serial = run.catch(() => {});
     try { const output = await run; res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: output })); }
     catch (error) { res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: error.message } })); }
@@ -109,9 +111,13 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
   server.requestTimeout = 30000;
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   async function revoke(id) { for (const [key, route] of routes) if (route.id === id) {
-    routes.delete(key); route.revoked = true; await stopEngine(route);
+    routes.delete(key); route.revoked = true;
+    // Drain an already running operation before changing a browser identity.
+    // Queued requests now fail their route check; no old grant reaches new data.
+    await route.inFlight?.catch(() => {}); await stopEngine(route);
   } }
   return { connection: async (id) => { access.get(id); const key = '/mcp/' + randomBytes(24).toString('hex'); routes.set(key, { id }); return { url: `http://127.0.0.1:${server.address().port}${key}` }; },
+    isConnected: (id) => [...routes.values()].some((r) => r.id === id && r.connected && !r.revoked),
     revoke, close: async () => { for (const route of [...routes.values()]) await revoke(route.id); server.closeAllConnections(); server.close(); } };
 }
 module.exports = { createBrowserMcp, ALLOWED_TOOLS };

@@ -2,8 +2,13 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('dainami', {
   boot: () => ipcRenderer.invoke('boot'),
+  browserConfirmDiscard: (count) => ipcRenderer.invoke('browser:confirm-discard', { count }),
+  browserOverlays: (args) => ipcRenderer.invoke('browser:overlays', args),
+  onBrowserOverlayInput: (cb) => { const h = (_e, value) => cb(value); ipcRenderer.on('browser:overlay-input', h); return () => ipcRenderer.removeListener('browser:overlay-input', h); },
+  browserProfiles: (args) => ipcRenderer.invoke('browser:profiles', args),
+  browserResolve: (value) => ipcRenderer.invoke('browser:resolve', { value }),
   browserCreate: (args) => ipcRenderer.invoke('browser:create', args),
-  browserClose: (id) => ipcRenderer.invoke('browser:close', { id }),
+  browserClose: (id) => ipcRenderer.invoke('browser:close', { id, confirmed:true }),
   browserLayout: (args) => ipcRenderer.invoke('browser:layout', args),
   browserAction: (args) => ipcRenderer.invoke('browser:action', args),
   browserSync: (sessions) => ipcRenderer.invoke('browser:sync', { sessions }),

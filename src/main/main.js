@@ -439,7 +439,7 @@ function createWindow(folder, bounds) {
           const probe = await w.webContents.executeJavaScript(process.env.SHOT_DEBUG);
           console.log('[shot-debug]', JSON.stringify(probe));
         }
-        const png = await require('./window-capture').captureWindow(w, browserViews.views);
+        const png = await require('./window-capture').captureWindow(w, new Map(w.contentView.children.filter(view => view.webContents && view.webContents !== w.webContents).map((view, i) => [i, { window:w, view }])));
         fs.mkdirSync(path.dirname(path.resolve(SHOT_PATH)), { recursive: true });
         fs.writeFileSync(path.resolve(SHOT_PATH), png);
         console.log('screenshot →', path.resolve(SHOT_PATH));
@@ -562,6 +562,7 @@ app.on('quit', () => {
 let bootSeq = 0;
 
 const browserViews = wireBrowserViews(ipcMain, { readSettings, writeSettings });
+const browserOverlays = require('./browser-overlays').wireBrowserOverlays(ipcMain);
 let usagePending;
 ipcMain.handle('usage:read', async (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
