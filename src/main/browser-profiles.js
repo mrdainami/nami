@@ -273,6 +273,37 @@ function chromeKeychainPassword(browser, execFileSync) {
     return String(execFileSync('security', ['find-generic-password', '-w', '-s', label + ' Safe Storage', '-a', label], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
   } catch { return null; }
 }
+// How a Chrome row becomes a cookie Chromium will actually accept.
+//
+// The whole of a sign-in lives or dies on one field. Chrome marks a cookie
+// host-only by storing its host WITHOUT a leading dot, and a host-only cookie
+// must be written with no domain at all — supplying one is not a widening, it
+// is a different cookie, and Chromium refuses it. Sending `domain` on every row
+// therefore lost every host-only cookie there was: on this Mac that was 585 of
+// 587, and it is exactly the set that keeps you logged in. GitHub arrived with
+// _octo, dotcom_user and logged_in — its three dotted cookies — while
+// user_session, _gh_sess and _device_id, all host-only, were dropped in silence.
+//
+// A __Host- cookie is stricter still: the prefix is a promise that it carries no
+// domain, sits at the root, and is secure. Break any of the three and it is
+// rejected outright.
+function cookieOptions(cookie) {
+  const host = String(cookie.host_key || '');
+  const hostPrefixed = String(cookie.name || '').startsWith('__Host-');
+  const sameSite = { 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified';
+  const options = {
+    url: cookieUrl(cookie), name: cookie.name, value: cookie.value,
+    path: hostPrefixed ? '/' : (cookie.path || '/'),
+    // SameSite=None is only legal on a secure cookie; Chromium rejects the pair
+    // rather than repairing it, so the flag follows the value it needs.
+    secure: hostPrefixed || sameSite === 'no_restriction' ? true : !!cookie.is_secure,
+    httpOnly: !!cookie.is_httponly,
+    expirationDate: chromeExpiryUnix(cookie.expires_utc),
+    sameSite,
+  };
+  if (host.startsWith('.') && !hostPrefixed) options.domain = host;
+  return options;
+}
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
   let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, rejected = 0, locked = false, decryptUnavailable = false, error = null;
   for (const source of sources || []) {
@@ -292,12 +323,7 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
     }
     for (const cookie of ready.slice(0, 5000)) {
       try {
-        await session.cookies.set({
-          url: cookieUrl(cookie), name: cookie.name, value: cookie.value, domain: cookie.host_key,
-          path: cookie.path || '/', secure: !!cookie.is_secure, httpOnly: !!cookie.is_httponly,
-          expirationDate: chromeExpiryUnix(cookie.expires_utc),
-          sameSite: ({ 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified'),
-        });
+        await session.cookies.set(cookieOptions(cookie));
         imported++;
       } catch { rejected++; }
     }
@@ -420,7 +446,7 @@ function createProfileStore({ directory, safeStorage }) {
 }
 module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
-  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash,
+  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
   readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure,
 };

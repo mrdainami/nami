@@ -20,7 +20,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs, chromeKeychainPassword, readFailure, decryptChromeCookieValue, decryptChromeCookie, deriveChromeKey, stripCookieDomainHash } = require('../src/main/browser-profiles');
+const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs, chromeKeychainPassword, readFailure, decryptChromeCookieValue, decryptChromeCookie, deriveChromeKey, stripCookieDomainHash, cookieOptions } = require('../src/main/browser-profiles');
 
 // Real values, copied from a live Chrome profile. Both are > 2^53.
 const EXPIRES_UTC = 13433531963056867;
@@ -196,4 +196,39 @@ test('the domain hash is detected, never assumed', () => {
   assert.equal(stripCookieDomainHash(printable).length, 40, 'printable text is a value, not a hash');
   const binary = Buffer.concat([Buffer.alloc(32), Buffer.from('kept')]);
   assert.equal(stripCookieDomainHash(binary).toString(), 'kept');
+});
+
+test('a host-only cookie is written without a domain, or the sign-in is lost', () => {
+  // Chrome marks a cookie host-only by storing its host with no leading dot.
+  // Sending a domain for one is not a widening — it is a different cookie, and
+  // Chromium refuses it. Real numbers from a live profile before this fix:
+  // 585 of 587 host-only cookies dropped, and with them every session cookie
+  // GitHub had. Only its three dotted ones arrived.
+  const hostOnly = cookieOptions({ host_key: 'github.com', name: 'user_session', value: 'x', path: '/', is_secure: 1, is_httponly: 1, samesite: 1, expires_utc: 0 });
+  assert.equal('domain' in hostOnly, false, 'a host-only cookie must carry no domain');
+  assert.equal(hostOnly.url, 'https://github.com/');
+
+  const domainWide = cookieOptions({ host_key: '.github.com', name: 'logged_in', value: 'x', path: '/', is_secure: 1, is_httponly: 1, samesite: 1, expires_utc: 0 });
+  assert.equal(domainWide.domain, '.github.com', 'a dotted host keeps its domain');
+});
+
+test('a __Host- cookie keeps the three promises its prefix makes', () => {
+  // No domain, root path, secure. Break any one and Chromium rejects it.
+  const o = cookieOptions({ host_key: 'github.com', name: '__Host-user_session_same_site', value: 'x', path: '/deep', is_secure: 0, is_httponly: 1, samesite: 2, expires_utc: 0 });
+  assert.equal('domain' in o, false);
+  assert.equal(o.path, '/');
+  assert.equal(o.secure, true);
+  // even when the row came from a dotted host
+  const dotted = cookieOptions({ host_key: '.github.com', name: '__Host-x', value: 'x', path: '/', is_secure: 1, is_httponly: 0, samesite: 1, expires_utc: 0 });
+  assert.equal('domain' in dotted, false);
+});
+
+test('SameSite=None is only ever written on a secure cookie', () => {
+  // Chromium rejects the pair rather than repairing it.
+  const o = cookieOptions({ host_key: '.example.com', name: 'a', value: 'b', path: '/', is_secure: 0, is_httponly: 0, samesite: 0, expires_utc: 0 });
+  assert.equal(o.sameSite, 'no_restriction');
+  assert.equal(o.secure, true);
+  // an ordinary lax cookie keeps whatever Chrome recorded
+  const lax = cookieOptions({ host_key: '.example.com', name: 'a', value: 'b', path: '/', is_secure: 0, is_httponly: 0, samesite: 1, expires_utc: 0 });
+  assert.equal(lax.secure, false);
 });
