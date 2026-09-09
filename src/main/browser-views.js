@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, chromeKeychainPassword, importChromiumCookies } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   // Status is polled frequently. Never turn a UI refresh into filesystem or
@@ -320,6 +320,38 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
           ? 'Copied ' + result.imported + ' cookies into this Nami profile. Google cookies skipped. Chrome is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
           : 'Chrome’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. Chrome is unchanged.';
         return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
+      });
+    } else if (action === 'import-browser') {
+      output = await mutateProfile(profileId, async () => {
+        const sources = detectChromiumProfiles();
+        const source = sources[Number(args.sourceIndex)] || sources[0];
+        if (!source) return { message: 'No Chrome or Edge profile was found. Close Chrome and try again, or sign in inside Nami.' };
+        const { execFileSync } = require('node:child_process');
+        const password = chromeKeychainPassword(source.browser, execFileSync);
+        const key = password ? deriveChromeKey(password) : null;
+        const record = getPartition(w, profileId);
+        const parts = [];
+        let cookies = { imported: 0, decryptUnavailable: false, skippedEncrypted: 0 };
+        if (args.cookies !== false && source.cookies) {
+          cookies = await importChromiumCookies({ session: record.session, sources: [source], passwordFor: () => password, includeGoogle: true });
+          parts.push(cookies.imported ? cookies.imported + ' cookies' : 'no cookies');
+        }
+        let passwords = { imported: 0 };
+        if (args.passwords !== false && source.logins) {
+          const parsed = readChromeLogins(source.logins, key);
+          if (parsed.locked) parts.push('passwords locked (quit Chrome)');
+          else { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
+        }
+        let history = { imported: 0 };
+        if (args.history !== false && source.history) {
+          const parsed = readChromeHistory(source.history);
+          if (parsed.locked) parts.push('history locked (quit Chrome)');
+          else { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
+        }
+        const extra = cookies.decryptUnavailable || (!key && (args.cookies !== false || args.passwords !== false))
+          ? ' Some encrypted items could not be copied. Quit Chrome completely and allow Keychain access, then try again. Some sites (especially Google) may still ask you to sign in.'
+          : ' Some sites may still ask you to sign in.';
+        return { ...cookies, passwords: passwords.imported, history: history.imported, message: 'Imported ' + parts.join(', ') + ' into this Nami browser. Chrome is unchanged.' + extra };
       });
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
     return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), directChrome: false, cookies: true, history: false } };

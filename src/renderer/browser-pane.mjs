@@ -3,7 +3,7 @@ import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs
 import { createBrowserOverlays } from './browser-overlays.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
-  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, addAgent, shareTab, panelIcon }) {
+  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, shareTab, panelIcon }) {
   let frame = 0, signature = '';
   const annotations = createBrowserAnnotations({ api, esc, icon:helpIcon, selection, toast, dictation, focus, insertAnnotation, sessions, onChange:schedule, confirmDiscard:count=>api.browserConfirmDiscard(count) });
   const overlays = createBrowserOverlays({ api });
@@ -58,27 +58,18 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if (rec.companionTabs.hidden) return;
     const owner=p.companionOf||p.owner;
     const siblings = state.panels.filter(x => (isFile(x) && (x.owner||null)===(owner||null)) || (owner && x.companionOf===owner));
-    rec.companionTabs.innerHTML = siblings.map(x=>`<span class="companion-tab-item${x.id===p.id?' selected':''}"><button class="companion-tab" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id===p.id}">${panelIcon?.(x)||''}<span>${esc(x.title)}</span></button><button class="companion-close" data-close-id="${esc(x.id)}" aria-label="Close ${esc(x.title)}" title="Close tab">×</button></span>`).join('')+'<button class="companion-add" title="Add browser or agent" aria-label="Add browser or agent">＋</button>';
+    rec.companionTabs.innerHTML = siblings.map(x=>`<span class="companion-tab-item${x.id===p.id?' selected':''}"><button class="companion-tab" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id===p.id}">${panelIcon?.(x)||''}<span>${esc(x.title)}</span></button><button class="companion-close" data-close-id="${esc(x.id)}" aria-label="Close ${esc(x.title)}" title="Close tab">×</button></span>`).join('')+'<button class="companion-add" title="New browser tab" aria-label="New browser tab">＋</button>';
     rec.companionTabs.querySelectorAll('[data-view-id]').forEach(b=>{
       b.onclick=()=>focus(b.dataset.viewId);
       b.oncontextmenu=e=>{e.preventDefault();const tab=siblings.find(x=>x.id===b.dataset.viewId);if(tab.kind==='browser')shareTab?.(tab,e.clientX,e.clientY);};
     });
     rec.companionTabs.querySelectorAll('[data-close-id]').forEach(b=>b.onclick=e=>{e.stopPropagation();closePanel(b.dataset.closeId);});
-    q('.companion-add',rec.companionTabs).onclick=e=>addMenu(owner,e.currentTarget);
-  }
-  function addMenu(owner,anchor) {
-    closeMenu(); menu=document.createElement('div');menu.className='browser-menu';menu.setAttribute('role','menu');
-    for(const [title,run] of [['Browser',()=>newBrowser(owner)],['Agent',()=>addAgent?.(owner)]]) {
-      const b=document.createElement('button');b.textContent=title;b.setAttribute('role','menuitem');b.onclick=()=>{closeMenu();run();};menu.appendChild(b);
-    }
-    const r=anchor.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(r.left,innerWidth-236))+'px';menu.style.top=Math.max(8,Math.min(r.bottom,innerHeight-110))+'px';
-    document.body.appendChild(menu);menu.onkeydown=e=>{if(e.key==='Escape')closeMenu();};menu.querySelector('button').focus();schedule();
-
+    q('.companion-add',rec.companionTabs).onclick=()=>newBrowser(owner);
   }
   function decorate() {
     for (const p of state.panels) { const rec = tiles.get(p.id); if (rec) tabs(p, rec); }
     const empty = q('.pane-files .pane-empty');
-    if (empty && !q('button', empty)) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = '+ Add'; b.onclick = () => addMenu(state.split.sessionId,b); empty.appendChild(b); }
+    if (empty && !q('button', empty)) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = '+ Add'; b.onclick = () => newBrowser(state.split.sessionId); empty.appendChild(b); }
     api.browserSync(state.panels.filter((p) => isSession(p) && !p.exited).map((p) => ({ id: p.id, title: p.title }))).catch(() => {});
     schedule();
   }
@@ -151,7 +142,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       ['Reset zoom', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=1}).then(check)],
       ['Take screenshot…', () => api.browserAction({id:p.id,action:'capture'}).then(check)],
       ['Browser access…', () => show({type:'browser-access',sessionId:p.owner || state.split.sessionId})],
-      ['Import saved passwords…', () => show({type:'browser-profiles',panelId:p.id,section:'import'})],
+      ['Import from Chrome…', () => show({type:'browser-import',panelId:p.id})],
       ['Manage profiles…', () => show({type:'browser-profiles',panelId:p.id})],
       ['Clear browsing data…', () => show({type:'browser-profiles',panelId:p.id,section:'clear'})],
       ['Browser settings…', () => settings('browser')],
@@ -192,7 +183,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     q('#profile-new',host).onclick=()=>nameForm('create');q('#profile-rename',host).onclick=()=>nameForm('rename');
     if(view)q('#profile-switch',host).onclick=()=>ask('Switch this tab to '+chosen.name+' and revoke its agent access?',async()=>{if(await run({action:'switch',id:view.id})){close();toast('Profile changed. Reconfigure browser access when ready.');}});
     q('#profile-remove',host).onclick=()=>ask('Close this profile’s tabs, discard their pending notes, and permanently remove its Nami sign-ins and passwords? Chrome stays unchanged.',async()=>{if(await run({action:'remove',confirmed:true}))show({...o});});
-    q('#profile-import-cookies',host).onclick=()=>ask('Copy cookies from detected Chrome or Edge profiles into '+chosen.name+'? Google cookies are skipped. Chrome stays unchanged. Existing agent access will be revoked.',async()=>{const out=await run({action:'import-cookies'});if(out)result.textContent=out.message||('Copied '+(out.imported??0)+' cookies.');});
+    q('#profile-import-cookies',host).onclick=()=>show({type:'browser-import',profileId:chosen.id,panelId:o.panelId});
     q('#profile-import',host).onclick=()=>ask('Import a password CSV into '+chosen.name+'? Existing agent access to this profile will be revoked.',async()=>{const out=await run({action:'import-passwords'});if(out)result.textContent=out.canceled?'Import cancelled.':out.message||('Imported '+(out.imported??0)+' passwords'+(out.skipped?', skipped '+out.skipped+' invalid rows':'')+'.');});
     q('#profile-clear',host).onclick=()=>{const siteData=q('#clear-signins',host).checked,credentials=q('#clear-passwords',host).checked;if(!siteData&&!credentials){result.textContent='Choose data to clear.';return;}ask('Clear selected data from '+chosen.name+'? Clearing sign-ins closes all its Nami tabs and discards their pending notes. Chrome stays unchanged.',async()=>{if(await run({action:'clear',siteData,credentials,confirmed:true})){result.textContent='Selected Nami data cleared. Agent access revoked.';}});};
     const canFill=!!view && chosen.id===view.profileId;
@@ -203,8 +194,36 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
     host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
   }
+  async function renderImport() {
+    const o=state.overlay;
+    const modal=dialog('modal modal--browser', `<div class="modal-head"><span class="title">Import from your browser</span></div>
+      <div class="modal-body browser-profile-body">Loading…</div>
+      <div class="modal-foot"><button class="btn" id="import-cancel">Cancel</button><button class="btn btn--go" id="import-go">Import</button></div>`);
+    q('#import-cancel',modal).onclick=close;
+    const r=await api.browserProfiles({action:'list'}); if(state.overlay!==o||!check(r))return;
+    const sources=r.capabilities?.cookieImport?.browsers||[];
+    const host=q('.browser-profile-body',modal);
+    const dest=r.profiles.find(p=>p.id===(o.profileId))||r.profiles[0];
+    if(!dest){host.textContent='Create a Nami profile first.';return;}
+    host.innerHTML=`<p class="note">Choose data to bring over to Nami’s browser.</p>
+      <label class="field-label">From<select id="import-source">${sources.map((s,i)=>`<option value="${i}">${esc(s.browser)} · ${esc(s.name)}</option>`).join('')||'<option value="">No Chrome or Edge profile found</option>'}</select></label>
+      <p class="note">Quit Chrome completely before importing.</p>
+      <label class="browser-check"><input type="checkbox" id="import-passwords" checked><span>Saved passwords</span></label>
+      <label class="browser-check"><input type="checkbox" id="import-cookies" checked><span>Cookies</span></label>
+      <label class="browser-check"><input type="checkbox" id="import-history" checked><span>Browsing history</span></label>
+      <div class="browser-profile-result" role="status"></div>`;
+    const go=q('#import-go',modal), result=q('.browser-profile-result',host);
+    go.disabled=!sources.length;
+    go.onclick=async()=>{
+      go.disabled=true; result.textContent='Importing…';
+      const out=await api.browserProfiles({action:'import-browser',profileId:dest.id,sourceIndex:Number(q('#import-source',host).value)||0,passwords:q('#import-passwords',host).checked,cookies:q('#import-cookies',host).checked,history:q('#import-history',host).checked});
+      go.disabled=false;
+      if(!check(out))return;
+      result.textContent=out.message||'Import finished.';
+    };
+  }
   function settingsHtml() { return browserSettingsHtml(); }
-  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onAccess:sessionId=>show({type:'browser-access',sessionId}), onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-profiles',section:'import'}), onImportCookies:()=>show({type:'browser-profiles',section:'cookies'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
+  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onAccess:sessionId=>show({type:'browser-access',sessionId}), onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
   api.onBrowserEvent((event) => {
     let p = state.panels.find((p) => p.id === event.id), rec = tiles.get(event.id);
     if (event.type === 'created') { if (!p) open(event.url, null, event.owner, event.id, false, event.profileId); return; }
@@ -226,5 +245,5 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if (!p.browserMessages?.length) { toast('No messages for this session.'); return; }
     selection({ owner: p.id }, { reference: 'Messages for ' + p.title, text: p.browserMessages.map((m) => 'From ' + m.title + '\n' + m.text).join('\n\n') });
   }
-  return { open, mount, restore, decorate, schedule, clearNotes, newBrowser, renderNew, renderNote, renderAccess, renderConnection, settingsHtml, wireSettings, renderProfiles, inbox, hasPending:p=>annotations.hasPending(p), canClose:p=>annotations.canClose(p), removeNotes:id=>annotations.removeTab(id) };
+  return { open, mount, restore, decorate, schedule, clearNotes, newBrowser, renderNew, renderNote, renderAccess, renderConnection, settingsHtml, wireSettings, renderProfiles, renderImport, inbox, hasPending:p=>annotations.hasPending(p), canClose:p=>annotations.canClose(p), removeNotes:id=>annotations.removeTab(id) };
 }

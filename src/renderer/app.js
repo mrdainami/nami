@@ -1,6 +1,5 @@
 import { createSessionSources } from './session-sources.mjs';
 import { terminalSnapshot } from './session-context.mjs';
-import { seedCompanion } from './companion-seed.mjs';
 import { createMcpSetup, CONNECT_OVERLAYS } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
@@ -267,7 +266,7 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), addAgent: openCompanionLauncher, shareTab: (p,x,y)=>sources.shareMenu(p,x,y), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), shareTab: (p,x,y)=>sources.shareMenu(p,x,y), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
 const sources = createSessionSources({ api, state:S, tiles:tileEls, esc, icon:helpIcon, isSession:isSessionPanel, menu:showMenu, toast,
   settings:id=>{S.overlay={type:'browser-access',sessionId:id};renderOverlay();}, publish:publishSessionContext,
   insert:(id,text)=>insertSessionText(id,text,{focus:false}) });
@@ -291,28 +290,12 @@ async function sessionBrowserConnection(p) {
   await api.browserSync(S.panels.filter(isSessionPanel).filter(x=>!x.exited).map(x=>({id:x.id,title:x.title})));
   return api.browserConnection({id:p.id});
 }
-async function openCompanionLauncher(owner) {
-  try {
-    const enabled=await api.browserEnable(true);
-    if(!enabled?.ok)toast(enabled?.error||'Local connection unavailable. Context can still be inserted manually.');
-  } catch { toast('Local connection unavailable. Context can still be inserted manually.'); }
-  if(!S.panels.some(p=>p.id===owner&&!p.exited))return;
-  S.overlay={type:'launcher',companionOf:owner};renderOverlay();refreshAgents();
-}
 function attachCompanion(p,owner) {
   if(!p||!owner)return;
   p.companionOf=owner;
   if(S.view!=='split')setView('split');
   S.split=splitAfter({...S.split,panels:S.panels},{type:'select-companion',id:p.id});S.splitFull=null;
   renderGrid();renderRail();savePanels();
-  const source=S.panels.find(x=>x.id===owner);
-  if(source) sources.shareContext(source,p.id).then(ok=>{
-    if(!ok) return;
-    const rec=tileEls.get(p.id), ownerRec=tileEls.get(owner);
-    const snapshot=ownerRec?.sessionContext?.() || (ownerRec?.term && terminalSnapshot(ownerRec.term));
-    if(rec?.insertSessionDraft) seedCompanion({ title: source.title, snapshot }, rec);
-    else sources.refreshInto(p.id);
-  });
 }
 async function insertAnnotation(payload,destinations) {
   const inserted=[],failed=[];
@@ -5506,6 +5489,7 @@ function renderOverlay() {
   if (o.type === 'browser-connection') return browsers.renderConnection();
   if (o.type === 'insertion-history') return renderInsertionHistory();
   if (o.type === 'browser-profiles') return browsers.renderProfiles();
+  if (o.type === 'browser-import') return browsers.renderImport();
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();

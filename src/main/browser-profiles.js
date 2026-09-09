@@ -89,8 +89,10 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
       const directory = path.join(root, dir);
       const cookies = exists(path.join(directory, 'Network/Cookies')) ? path.join(directory, 'Network/Cookies')
         : exists(path.join(directory, 'Cookies')) ? path.join(directory, 'Cookies') : '';
-      if (!cookies) continue;
-      found.push({ browser, name: info[dir]?.name || dir, directory, cookies });
+      const logins = exists(path.join(directory, 'Login Data')) ? path.join(directory, 'Login Data') : '';
+      const history = exists(path.join(directory, 'History')) ? path.join(directory, 'History') : '';
+      if (!cookies && !logins && !history) continue;
+      found.push({ browser, name: info[dir]?.name || dir, directory, cookies, logins, history });
     }
   }
   return found;
@@ -110,7 +112,51 @@ function readChromeCookieRows(file) {
 }
 function cookieImportStatus(options) {
   const sources = detectChromiumProfiles(options);
-  return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name })) };
+  return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
+}
+function readSqliteRows(file, sql) {
+  const { DatabaseSync } = require('node:sqlite');
+  const tmp = file + '.nami-read-' + process.pid;
+  fs.copyFileSync(file, tmp);
+  try {
+    const db = new DatabaseSync(tmp, { readOnly: true });
+    const rows = db.prepare(sql).all();
+    db.close();
+    return rows;
+  } finally { fs.rmSync(tmp, { force: true }); }
+}
+function chromeTimeToMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  return Math.floor(n / 1000 - 11_644_473_600_000);
+}
+function readChromeLogins(file, key) {
+  let rows = [];
+  try { rows = readSqliteRows(file, 'SELECT origin_url, username_value, password_value FROM logins'); }
+  catch { return { entries: [], skipped: 0, locked: true }; }
+  const entries = []; let skipped = 0;
+  for (const row of rows) {
+    const password = key ? decryptChromeCookie(row.password_value, key) : (typeof row.password_value === 'string' ? row.password_value : null);
+    let origin = '';
+    try { origin = new URL(browserUrl(row.origin_url)).origin; } catch { skipped++; continue; }
+    if (!password || origin === 'null') { skipped++; continue; }
+    entries.push({ origin, username: String(row.username_value || '').slice(0, 2000), password });
+  }
+  return { entries, skipped, locked: false };
+}
+function readChromeHistory(file) {
+  let rows = [];
+  try { rows = readSqliteRows(file, 'SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 5000'); }
+  catch { return { entries: [], locked: true }; }
+  return {
+    locked: false,
+    entries: rows.flatMap((row) => {
+      try {
+        const url = browserUrl(row.url);
+        return [{ url, title: String(row.title || '').slice(0, 200), at: chromeTimeToMs(row.last_visit_time) }];
+      } catch { return []; }
+    }),
+  };
 }
 function chromeKeychainPassword(browser, execFileSync) {
   if (typeof execFileSync !== 'function') return null;
@@ -119,7 +165,7 @@ function chromeKeychainPassword(browser, execFileSync) {
     return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
   } catch { return null; }
 }
-async function importChromiumCookies({ session, sources, passwordFor, log = () => {} }) {
+async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
   let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, decryptUnavailable = false;
   for (const source of sources || []) {
     let rows = [];
@@ -129,7 +175,7 @@ async function importChromiumCookies({ session, sources, passwordFor, log = () =
     const key = password ? deriveChromeKey(password) : null;
     const ready = [];
     for (const row of rows) {
-      if (isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
+      if (!includeGoogle && isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
       const value = row.value || (key ? decryptChromeCookie(row.encrypted_value, key) : null);
       if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
       ready.push({ ...row, value });
@@ -218,6 +264,21 @@ function createProfileStore({ directory, safeStorage }) {
       for (const e of parsed.entries) { const old = entries.findIndex((v) => v.origin === e.origin && v.username === e.username); const value = { ...e, id: old < 0 ? randomUUID() : entries[old].id }; if (old < 0) entries.push(value); else entries[old] = value; imported++; }
       writeVault(id, entries); return { imported, skipped: parsed.skipped };
     },
+    importLogins(id, incoming = []) {
+      get(id); const entries = readVault(id); let imported = 0;
+      for (const e of incoming.slice(0, 5000)) {
+        if (!e?.origin || !e.password) continue;
+        const old = entries.findIndex((v) => v.origin === e.origin && v.username === e.username);
+        const value = { origin: e.origin, username: e.username || '', password: e.password, id: old < 0 ? randomUUID() : entries[old].id };
+        if (old < 0) entries.push(value); else entries[old] = value; imported++;
+      }
+      writeVault(id, entries); return { imported };
+    },
+    setHistory(id, entries = []) {
+      const p = get(id);
+      p.history = (entries || []).slice(0, 5000).map((e) => ({ url: String(e.url || '').slice(0, 2000), title: String(e.title || '').slice(0, 200), at: Number(e.at) || Date.now() }));
+      persist(); return { imported: p.history.length };
+    },
     credentials(id, origin) { return readVault(id).filter((e) => !origin || e.origin === origin).map(({ id, origin, username }) => ({ id, origin, username })); },
     credential(id, entryId, origin) { const e = readVault(id).find((e) => e.id === entryId && e.origin === origin); if (!e) throw new Error('This password does not match the current website.'); return e; },
     deleteCredential(id, entryId) { writeVault(id, readVault(id).filter((e) => e.id !== entryId)); },
@@ -251,4 +312,5 @@ module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
+  readChromeLogins, readChromeHistory, chromeTimeToMs,
 };

@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { parsePasswordCsv, createProfileStore, isGoogleHost, filterImportableCookies, detectChromiumProfiles, deriveChromeKey, decryptChromeCookie, readChromeCookieRows, cookieUrl, chromeExpiryUnix } = require('../src/main/browser-profiles');
+const { parsePasswordCsv, createProfileStore, isGoogleHost, filterImportableCookies, detectChromiumProfiles, deriveChromeKey, decryptChromeCookie, readChromeCookieRows, cookieUrl, chromeExpiryUnix, importChromiumCookies, readChromeLogins } = require('../src/main/browser-profiles');
 const { userBrowserUrl, browserUrl, cleanSelection, cleanAnnotationLayout } = require('../src/main/browser-policy');
 test('human address input resolves domains and searches without relaxing agent navigation', () => {
   assert.equal(userBrowserUrl(' youtube.com '), 'https://youtube.com/');
@@ -138,5 +138,52 @@ test('Chrome cookie rows are read from a fixture database, never a live profile'
     assert.equal(keep[0].name, 'session');
     assert.equal(skippedGoogle, 1);
     assert.equal(JSON.stringify(keep.map(({ host_key, name }) => ({ host_key, name }))).includes('google-fixture'), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Chrome login rows decrypt with a fixture key and copy into the vault', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-login-db-'));
+  const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-vault-'));
+  try {
+    const key = deriveChromeKey('fixture-password');
+    const iv = Buffer.alloc(16, ' ');
+    const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
+    const encrypted = Buffer.concat([Buffer.from('v10'), cipher.update('secret-pass'), cipher.final()]);
+    const { DatabaseSync } = require('node:sqlite');
+    const file = path.join(dir, 'Login Data');
+    const db = new DatabaseSync(file);
+    db.exec('CREATE TABLE logins (origin_url TEXT, username_value TEXT, password_value BLOB)');
+    db.prepare('INSERT INTO logins VALUES (?, ?, ?)').run('https://shop.example/login', 'ada', encrypted);
+    db.close();
+    const parsed = readChromeLogins(file, key);
+    assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.entries[0].username, 'ada');
+    assert.equal(parsed.entries[0].password, 'secret-pass');
+    const store = createProfileStore({ directory: vault, safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(s), decryptString: (b) => b.toString() } });
+    assert.equal(store.importLogins('default', parsed.entries).imported, 1);
+    assert.equal(store.credentials('default')[0].username, 'ada');
+    assert.equal(store.credential('default', store.credentials('default')[0].id, 'https://shop.example').password, 'secret-pass');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(vault, { recursive: true, force: true }); }
+});
+
+test('cookie import can keep Google cookies when asked', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-cookie-keep-'));
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const file = path.join(dir, 'Cookies');
+    const db = new DatabaseSync(file);
+    db.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('.example.com', 'session', 'keep-me', Buffer.alloc(0), '/', 0, 1, 1, 1);
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('.google.com', 'SID', 'google-keep', Buffer.alloc(0), '/', 0, 1, 1, 1);
+    db.close();
+    const kept = [];
+    await importChromiumCookies({
+      session: { cookies: { set: async (c) => kept.push(c.name + ':' + c.value) } },
+      includeGoogle: true,
+      sources: [{ cookies: file }],
+      passwordFor: () => null,
+    });
+    assert.ok(kept.includes('session:keep-me'));
+    assert.ok(kept.includes('SID:google-keep'));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

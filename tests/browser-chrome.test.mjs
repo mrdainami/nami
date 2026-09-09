@@ -92,6 +92,15 @@ test('Settings → Browser is compact controls for download, popups, camera/mic 
   assert.match(html, /id="browser-popups-oauth"/);
   assert.match(html, /meet\.example/);
   assert.match(html, /data-browser-settings="cookies"/);
-  assert.match(html, /password CSV/);
+  assert.match(html, /Import from Chrome/);
   assert.doesNotMatch(html, /This imports saved passwords, not Chrome cookies/);
+});
+
+test('plus opens a new browser tab and does not offer a companion Agent', () => {
+  assert.match(pane, /title="New browser tab"/);
+  assert.match(pane, /onclick=\(\)=>newBrowser\(owner\)/);
+  assert.doesNotMatch(pane, /'Agent'/);
+  assert.doesNotMatch(pane, /addAgent/);
+  assert.match(pane, /type:'browser-import'/);
+  assert.match(pane, /Import from your browser/);
 });
