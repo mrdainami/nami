@@ -41,8 +41,9 @@ app.whenReady().then(async () => {
     await click('[data-comment="save"]');
     await run('a.handleEvent({id:"tab",type:"annotation-layout",layout:{documentId:"other",selections:[]}})');
     assert.equal(await run('document.querySelectorAll(".browser-annotation-pin").length'), 0);
-    assert.match(await run('document.querySelector(".browser-annotation-note-list").textContent'), /Snapshot/);
-    await click('[data-note="review"]');
+    assert.equal(await run('!!document.querySelector(".browser-annotation-toolbar")'), false, 'overlay toolbar is gone');
+    assert.equal(await run('a.store.list(p).some(n=>n.stale)'), true);
+    await run('a.review(p)');
     assert.match(await run('payload.text'), /Revised feedback/); assert.match(await run('payload.text'), /Snapshot/);
     assert.equal(await run('a.store.list(p).length'), 1, 'review alone must not consume notes');
     await run('payload.onInserted()'); assert.equal(await run('a.store.list(p).length'), 0);

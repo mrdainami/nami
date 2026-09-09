@@ -34,23 +34,24 @@ test('bubble positions stay inside compact panes and left of right-edge selectio
   assert.equal(small.x, 8); assert.equal(small.width, 164); assert.equal(small.y, 8);
 });
 
-function helper() {
+function helper(options = {}) {
   const listeners = new Map(), ipc = new Map(), sent = [];
-  const document = { title: 'Fixture', querySelectorAll: () => [element] };
+  const document = { title: 'Fixture', querySelectorAll: () => [element], caretRangeFromPoint: options.caretRangeFromPoint || (() => null) };
   let y = 30, text = 'Selected button';
   const element = { id: 'button', tagName: 'BUTTON', isConnected: true, getRootNode: () => document, getBoundingClientRect: () => ({ x: 20, y, width: 100, height: 25 }), getClientRects() { return [this.getBoundingClientRect()]; }, get innerText() { return text; } };
-  let animation;
-  const window = { addEventListener: (name, fn) => { const list = listeners.get(name) || []; list.push(fn); listeners.set(name, list); }, getSelection: () => null };
+  let animation, selection = options.selection || null;
+  const window = { addEventListener: (name, fn) => { const list = listeners.get(name) || []; list.push(fn); listeners.set(name, list); }, getSelection: () => selection };
   const context = { require: () => ({ ipcRenderer: { on: (name, fn) => ipc.set(name, fn), send: (name, value) => sent.push([name, value]) } }), window, document,
     crypto: { randomUUID: () => 'document-1' }, CSS: { escape: (x) => x }, innerWidth: 600, innerHeight: 400, scrollX: 0, scrollY: 0,
     requestAnimationFrame: (fn) => { animation = fn; return 1; }, MutationObserver: class { observe() {} } };
   vm.runInNewContext(fs.readFileSync(new URL('../src/main/browser-preload.js', import.meta.url), 'utf8'), context);
   return { sent, element, mode: (value) => ipc.get('browser:annotate-mode')({}, value), move: (value) => { y = value; }, change: (value) => { text = value; }, layout: () => { window.addEventListener; for (const fn of listeners.get('scroll')) fn(); animation(); },
+    setSelection(value) { selection = value; },
     dispatch(name, fields = {}) { const event = { isTrusted: true, clientX: 25, clientY: 35, composedPath: () => [element], preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; }, ...fields }; for (const fn of listeners.get(name) || []) { fn(event); if (event.stopped) break; } return event; } };
 }
 
-test('component selection blocks website activation and tracks scroll/content changes without private page UI', () => {
-  const h = helper(); h.mode({ active: true, mode: 'component' });
+test('click infers a component without a toolbar mode and blocks website activation', () => {
+  const h = helper(); h.mode({ active: true });
   assert.equal(h.dispatch('pointerdown').prevented, true);
   assert.equal(h.dispatch('click').prevented, true);
   const selected = h.sent.find(([name]) => name === 'browser:selection')[1];
@@ -64,12 +65,31 @@ test('component selection blocks website activation and tracks scroll/content ch
   assert.equal(layout.selections[0].stale, true);
 });
 
-test('region selection reports honest visual geometry and suppresses trailing page click', () => {
-  const h = helper(); h.mode({ active: true, mode: 'region' });
+test('a text drag infers highlight without setting a toolbar mode', () => {
+  const range = { cloneRange() { return this; }, toString: () => 'Selected words', commonAncestorContainer: { nodeType: 3, parentElement: null } };
+  const h = helper({
+    caretRangeFromPoint: () => ({ startContainer: { nodeType: 3, nodeValue: 'Selected words for feedback.' } }),
+    selection: { toString: () => '', rangeCount: 0, getRangeAt: () => range },
+  });
+  range.commonAncestorContainer.parentElement = h.element;
+  h.mode({ active: true });
+  assert.equal(h.dispatch('pointerdown', { clientX: 10, clientY: 20 }).prevented, undefined);
+  h.setSelection({ toString: () => 'Selected words', rangeCount: 1, getRangeAt: () => range });
+  h.dispatch('pointerup', { clientX: 120, clientY: 22 });
+  const selected = h.sent.find(([name]) => name === 'browser:selection')[1];
+  assert.equal(selected.kind, 'text');
+  assert.equal(selected.text, 'Selected words');
+  assert.equal(h.dispatch('click').prevented, true);
+  assert.equal(h.sent.filter(([name]) => name === 'browser:selection').length, 1);
+});
+
+test('a non-text drag infers a region and suppresses the trailing page click', () => {
+  const h = helper(); h.mode({ active: true });
   h.dispatch('pointerdown', { clientX: 10, clientY: 15 });
   h.dispatch('pointerup', { clientX: 80, clientY: 100 });
   const selected = h.sent.find(([name]) => name === 'browser:selection')[1];
   assert.equal(selected.kind, 'region'); assert.equal(selected.rect.width, 70); assert.equal(selected.locator, '');
   assert.equal(selected.label, 'Visual region');
   assert.equal(h.dispatch('click').prevented, true);
+  assert.equal(h.sent.filter(([name]) => name === 'browser:selection').length, 1);
 });

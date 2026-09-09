@@ -72,15 +72,6 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
   function render(p) {
     const rec = mounts.get(p.id); if (!rec) return;
     const notes = store.list(p), tab = store.tab(p.id);
-    rec.toolbar.hidden = editing?.panelId === p.id || !rec.active;
-    rec.toolbar.innerHTML = `<select aria-label="Annotation selection mode"><option value="component">Component</option><option value="text">Text</option><option value="region">Region</option></select><button class="btn btn--small" data-note="add" title="Select another part">Select</button>${notes.length ? `<select class="browser-annotation-note-list" aria-label="Edit annotation"><option value="">Notes (${notes.length})</option>${notes.map((n, i) => `<option value="${esc(n.id)}">${i + 1}. ${esc(n.title || 'Browser')}${n.stale ? ' · Snapshot' : ''}</option>`).join('')}</select>` : ''}${!insertAnnotation ? `<button class="btn btn--small" data-note="review" ${notes.length ? '' : 'disabled'}>Add to session (${notes.length})</button>` : ''}<span class="browser-annotation-tools"><button class="t-btn" data-note="clear" aria-label="Clear annotations" title="Clear annotations" ${notes.length ? '' : 'disabled'}>${icon('trash')}</button><button class="t-btn" data-note="close" aria-label="Exit annotation mode" title="Exit annotation mode">${icon('close')}</button></span>`;
-    q('select', rec.toolbar).value = rec.mode;
-    q('select', rec.toolbar).onchange = (e) => start(p, e.target.value);
-    q('.browser-annotation-note-list', rec.toolbar)?.addEventListener('change', (e) => { const note = notes.find((n) => n.id === e.target.value); if (note) { const source = mounts.get(note.panelId); if (source) { focus(source.panel.id); edit(source.panel, note); } else toast('Open the source tab to edit this note.'); } });
-    q('[data-note="add"]', rec.toolbar).onclick = () => start(p, rec.mode);
-    q('[data-note="review"]', rec.toolbar)?.addEventListener('click', () => review(p));
-    q('[data-note="clear"]', rec.toolbar).onclick = async () => { if (await approveDiscard(notes.filter(pending).length)) { for (const note of notes) { discardImage(note); action(note.panelId, 'annotation-track', { remove: [note.selectionId] }); } store.clear(p); cancel(); renderAll(); } };
-    q('[data-note="close"]', rec.toolbar).onclick = () => stop(p);
     rec.pins.innerHTML = tab.map((n) => {
       const number = notes.indexOf(n) + 1;
       const r = scaled(rec, n).rect;
@@ -203,7 +194,7 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
       saved.inserted = saved.recipients.every((id) => saved.delivered.includes(id));
       if (saved.inserted) {
         saved.sending = false; if (editing === saved) cancel(); renderAll();
-        if (rec.active && !editing) action(p.id, 'annotate', { active: true, mode: rec.mode });
+        if (rec.active && !editing) action(p.id, 'annotate', { active: true });
         toast('Annotation added to session input.'); return;
       }
       if (editing === saved) status.textContent = result?.error || result?.failed?.map((item) => item.error).filter(Boolean).join(' · ') || 'Some sessions could not receive this annotation. Retry sends only to remaining sessions.';
@@ -217,18 +208,17 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
   function mount(panel, viewport) {
     unmount(panel.id);
     const host = document.createElement('div'); host.className = 'browser-annotations'; viewport.appendChild(host);
-    const toolbar = document.createElement('div'); toolbar.className = 'browser-annotation-toolbar browser-annotation-surface'; toolbar.hidden = true;
     const pins = document.createElement('div'), draftHighlight = document.createElement('div'); pins.className = 'browser-annotation-pins'; draftHighlight.className = 'browser-annotation-draft';
-    host.append(pins, draftHighlight, toolbar);
-    const rec = { panel, host, toolbar, pins, draftHighlight, mode: 'component', active: false };
+    host.append(pins, draftHighlight);
+    const rec = { panel, host, pins, draftHighlight, active: false };
     rec.observer = new ResizeObserver(() => { render(panel); positionBubble(rec); }); rec.observer.observe(host);
     mounts.set(panel.id, rec); render(panel);
     return () => unmount(panel.id);
   }
   function unmount(id) { const rec = mounts.get(id); if (!rec) return; if (editing?.panelId === id) cancel(); rec.observer.disconnect(); rec.host.remove(); mounts.delete(id); }
-  function start(p, mode = 'component') { const rec = mounts.get(p.id); if (!rec) return; rememberDraft(); cancel(); rec.draftHighlight.innerHTML = ''; rec.active = true; rec.mode = mode; render(p); action(p.id, 'annotate', { active: true, mode }); }
+  function start(p) { const rec = mounts.get(p.id); if (!rec) return; rememberDraft(); cancel(); rec.draftHighlight.innerHTML = ''; rec.active = true; render(p); action(p.id, 'annotate', { active: true }); }
   function stop(p) { const rec = mounts.get(p.id); if (!rec) return; rememberDraft(); cancel(); rec.active = false; action(p.id, 'cancel-annotation'); render(p); }
-  function toggle(p) { const rec = mounts.get(p.id); if (rec?.active) stop(p); else start(p, rec?.mode); }
+  function toggle(p) { const rec = mounts.get(p.id); if (rec?.active) stop(p); else start(p); }
   function review(p) { const notes = store.list(p); if (insertAnnotation) { const note = notes.find(pending) || notes[0]; const source = note && mounts.get(note.panelId); if (source) { focus(source.panel.id); edit(source.panel, note); } return; } if (notes.length) selection(p, { reference: 'Browser annotations · one-time insertion', text: annotationBatch(notes), onInserted: () => { for (const n of notes) { store.remove(n.id); action(n.panelId, 'annotation-track', { remove: [n.selectionId] }); } renderAll(); } }); }
   function handleEvent(event) {
     const rec = mounts.get(event.id); if (!rec) return;
@@ -243,7 +233,7 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
         if (editing.documentId && value.documentId !== editing.documentId) editing.stale = true;
         if (update) { editing.stale ||= !!update.stale; if (!editing.stale) Object.assign(editing, { rect: update.rect, rects: update.rects, viewport: value.viewport }); }
         positionBubble(rec);
-      } else if (rec.active) rec.draftHighlight.innerHTML = value.hover ? outlines(rec, { ...value.hover, viewport: value.viewport }) : '';
+      } else if (rec.active) rec.draftHighlight.innerHTML = value.hover ? outlines(rec, { ...value.hover, viewport: value.viewport }, 'is-hover') : '';
       render(rec.panel);
     }
   }

@@ -33,6 +33,7 @@ const ALLOWED_DIRS = new Set([
 ]);
 const ALLOWED_ROOT = new Set([
   'package.json', 'package-lock.json', 'electron-builder.yml',
+  'electron-builder.review.yml',
   'README.md', 'LICENSE', 'CONTRIBUTING.md', '.gitignore',
 ]);
 

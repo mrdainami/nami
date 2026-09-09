@@ -5,13 +5,14 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, chromeKeychainPassword, importChromiumCookies } = require('./browser-profiles');
 
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   // Status is polled frequently. Never turn a UI refresh into filesystem or
   // macOS privacy access; only startup and an explicit toggle touch settings.
   let browserEnabled = !!readSettings().browserEnabled;
   const views = new Map(), access = new Access(), partitions = new Map();
-  const profiles = require('./browser-profiles').createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
+  const profiles = createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
   const contexts = new (require('./browser-context').SessionContextStore)();
   const { AnnotationImageStore, captureRect } = require('./browser-images');
   const images = new AnnotationImageStore(path.join(app.getPath('userData'), 'annotation-images'));
@@ -31,9 +32,30 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     const key = localId ? 'local:' + w.webContents.id + ':' + localId : profileId;
     if (partitions.has(key)) return partitions.get(key);
     const record = { key, local: !!localId, session: session.fromPartition((localId ? 'nami-browser-' : 'persist:nami-browser-') + key), roots: new Set() };
-    record.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-    record.session.setPermissionCheckHandler(() => false);
-    record.session.on('will-download', (event) => event.preventDefault());
+    record.session.setPermissionRequestHandler((wc, permission, callback) => {
+      let origin = '';
+      try { origin = new URL(wc.getURL()).origin; } catch {}
+      const e = [...views.values()].find((v) => v.view.webContents === wc);
+      const profileId = e?.profileId || 'default';
+      try {
+        if (permissionAllowed(profiles.get(profileId).permissions?.[origin], permission)) { callback(true); return; }
+        profiles.notePermissionRequest(profileId, origin, permission);
+      } catch {}
+      callback(false);
+    });
+    record.session.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+      let origin = '';
+      try { origin = requestingOrigin ? new URL(requestingOrigin).origin : ''; } catch { origin = ''; }
+      const e = [...views.values()].find((v) => v.record === record);
+      try { return permissionAllowed(profiles.get(e?.profileId || 'default').permissions?.[origin], permission); }
+      catch { return false; }
+    });
+    record.session.on('will-download', (_event, item, wc) => {
+      const e = [...views.values()].find((v) => v.view.webContents === wc);
+      let mode = 'ask';
+      try { mode = profiles.get(e?.profileId || 'default').downloadMode === 'auto' ? 'auto' : 'ask'; } catch {}
+      if (mode === 'auto') item.setSavePath(uniqueDownloadPath(app.getPath('downloads'), item.getFilename()));
+    });
     record.session.protocol.handle('nami-doc', async (request) => {
       const p = parseDocUrl(request.url);
       const file = p && record.roots.has(p.root) && resolveWithinRoot(p.root, p.rel);
@@ -75,7 +97,13 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     };
     wc.on('will-navigate', checkNavigation);
     wc.on('will-redirect', checkNavigation);
-    wc.setWindowOpenHandler(({ url: target }) => { if (allowed(target) && /^https?:/.test(target)) send(e, 'new-tab', { url: target, profileId: e.profileId }); return { action: 'deny' }; });
+    wc.setWindowOpenHandler(({ url: target }) => {
+      let popupMode = 'block';
+      try { popupMode = profiles.get(e.profileId).popupMode || 'block'; } catch {}
+      const decision = popupDecision(target, popupMode);
+      if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
+      return { action: decision.action };
+    });
     const update = () => {
       const local = parseDocUrl(wc.getURL());
       e.filePath = local ? resolveWithinRoot(local.root, local.rel) : null;
@@ -105,7 +133,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const w = mainWindow(ev);
       const profileMutation = channel === 'browser:profiles' && !['list', 'credentials'].includes(args.action || 'list');
       const navigation = channel === 'browser:action' && args.action === 'navigate';
-      const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'delete-credential'].includes(args.action)) || (navigation && find(w, args.id).record.local);
+      const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'import-cookies', 'delete-credential'].includes(args.action)) || (navigation && find(w, args.id).record.local);
       const serialized = profileMutation || navigation || ['browser:create', 'browser:close', 'browser:grant', 'browser:enable', 'browser:sync', 'browser:connection'].includes(channel);
       // A grant chosen before an identity change must not be replayed against
       // the same tab ID after that change. Ask the user to review it again.
@@ -271,8 +299,26 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       })()`); } catch (_) { throw new Error('This website could not accept autofill. Try entering the password manually.'); }
       if (!filled) throw new Error('No visible sign-in form found on this website.');
       output.filled = true;
+    } else if (action === 'configure') {
+      output.profile = profiles.configure(profileId, args);
+    } else if (action === 'import-cookies') {
+      output = await mutateProfile(profileId, async () => {
+        const record = getPartition(w, profileId);
+        const sources = detectChromiumProfiles();
+        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chrome or Edge profile was found. Import a password CSV and sign in inside Nami. Chrome is unchanged.' };
+        const { execFileSync } = require('node:child_process');
+        const result = await importChromiumCookies({
+          session: record.session,
+          sources,
+          passwordFor: (source) => chromeKeychainPassword(source.browser, execFileSync),
+        });
+        const message = result.imported
+          ? 'Copied ' + result.imported + ' cookies into this Nami profile. Google cookies skipped. Chrome is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
+          : 'Chrome’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. Chrome is unchanged.';
+        return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
+      });
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), directChrome: false, cookies: false, history: false } };
+    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), directChrome: false, cookies: true, history: false } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);

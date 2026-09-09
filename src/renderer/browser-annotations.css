@@ -19,7 +19,8 @@
 .browser-annotation-status:empty { display: none; }
 .browser-annotation-pin { position: absolute; z-index: 2; width: 23px; height: 23px; padding: 0; border: 1px solid var(--paper); border-radius: 50%; font: inherit; font-size: 11px; font-weight: bold; color: var(--paper); background: var(--green); cursor: pointer; }
 .browser-annotation-highlight { position: absolute; box-sizing: border-box; outline: 1px solid var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); pointer-events: none; }
-.browser-annotation-highlight.is-editing { outline-style: dashed; }
+.browser-annotation-highlight.is-editing, .browser-annotation-highlight.is-hover { outline-style: dashed; }
+.browser-annotation-highlight.is-hover { background: transparent; }
 body[data-glass] .browser-annotation-toolbar, body[data-glass] .browser-annotation-bubble, body[data-soft] .browser-annotation-toolbar, body[data-soft] .browser-annotation-bubble { border-radius: 9px; box-shadow: none; }
 body[data-theme="operator"] .browser-annotation-bubble, body[data-theme="graphite"] .browser-annotation-bubble { box-shadow: none; }
 /* Native child views cannot blur a different webContents underneath them.

@@ -43,7 +43,7 @@ app.whenReady().then(async()=>{
     await click('.source-remove');
     await until(()=>run('!document.querySelector(".source-chip")'),'chip removed');
     assert.ok((await run('dainami.browserStatus()')).views.some(v=>v.id===tab.id),'unshare leaves tab open');
-    await click('.browser-tile .t-mic');
+    await click('.browser-annotate');
     await nativeClick(page,'#preview-action');
     const bubble=await until(()=>overlay('#browser-comment'),'native bubble');
     await until(()=>run('!!document.querySelector(".browser-annotation-image img")'),'crop preview');
@@ -64,7 +64,7 @@ app.whenReady().then(async()=>{
     assert.match(pasted,/Fix this selected button/);assert.match(pasted,/Screenshot file reference/);
     assert.equal(await page.executeJavaScript('document.documentElement.innerHTML.includes("Fix this selected button")'),false);
     assert.equal(await run('!!document.querySelector("#selection-add")'),false,'no repeated review dialog');
-    await click('.browser-tile .t-mic');
+    await click('.browser-annotate');
     // Ordinary Chromium text highlighting has tracked capture identity too.
     await page.executeJavaScript(`(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('h1'));const s=getSelection();s.removeAllRanges();s.addRange(range)})()`);
     page.sendInputEvent({type:'mouseUp',x:20,y:20,button:'left',clickCount:1});
@@ -77,7 +77,7 @@ app.whenReady().then(async()=>{
     textBubble.sendInputEvent({type:'keyDown',keyCode:'Return'});textBubble.sendInputEvent({type:'keyUp',keyCode:'Return'});
     await until(()=>fs.readFileSync(path.join(dir,'0'),'utf8').includes('Clarify this heading'));
     assert.equal(await run('!!document.querySelector("#browser-comment")'),false);
-    await click('.browser-tile .t-mic');
+    await click('.browser-annotate');
     // History inspection is read-only, and inserting again opens a preview.
     const historyBytes=fs.statSync(path.join(dir,'0')).size;
     await click(`[data-id="${owner.id}"] .browser-note-strip button`);
