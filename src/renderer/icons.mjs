@@ -232,6 +232,11 @@ export function pixIcon(name) {
 // Settings and help use the same small outline family. Every icon keeps its
 // text label; these SVGs are decoration, never the accessible name of a button.
 const HELP_ICONS = {
+  browser: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-5 5-5 13 0 18M12 3c5 5 5 13 0 18"/>',
+  usage: '<path d="M4 18a9 9 0 1 1 16 0M12 13l4-5M5 18h14"/>',
+  annotate: '<path d="M4 3h16v13H9l-5 5zM8 9h8M12 5v8"/>',
+  back: '<path d="m14 5-7 7 7 7"/>',
+  refresh: '<path d="M20 10a8 8 0 1 0-2 8M20 3v7h-7"/>',
   voice: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>',
   look: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
   keys: '<circle cx="8" cy="8" r="5"/><path d="m11.5 11.5 9 9M17 17l3-3M14 14l3-3"/>',

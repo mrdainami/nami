@@ -7,7 +7,7 @@
 // rail groups files under their session; the split view shows one session
 // beside one of its files.
 
-export const FILE_KINDS = ['editor', 'viewer', 'card'];
+export const FILE_KINDS = ['editor', 'viewer', 'card', 'browser'];
 export function isFile(p) { return !!p && FILE_KINDS.includes(p.kind); }
 export function isSession(p) { return !!p && !FILE_KINDS.includes(p.kind); }
 

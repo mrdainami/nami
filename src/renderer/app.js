@@ -33,6 +33,7 @@ import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEF
 import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
+import { createBrowserPane } from './browser-pane.mjs';
 
 const api = window.dainami;
 const terminalHint = createLinkHint({ document, window });
@@ -55,7 +56,7 @@ function chipKindOf(panel) {
   if (panel.chipKind) return panel.chipKind;
   switch (panel.kind) {
     case 'editor': return 'editor';
-    case 'viewer': return 'viewer';
+    case 'viewer': case 'browser': return 'viewer';
     case 'shell': return 'shell';
     case 'card': return 'agent';
     // every agent session is one kind — Claude, OpenCode, any other CLI — so the
@@ -257,7 +258,12 @@ const S = {
 };
 
 let els = {};
-const tileEls = new Map(); // panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
+const tileEls = new Map();
+const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
+  pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
+  show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
+  selection: openSelectionDraft, settings: openSettings, closePanel });
+// panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
 
 // w<winId> makes the name unique across every open window: main keys its session
 // maps by whatever id we invent here, and on its own S.seq restarts at 1 in each
@@ -417,7 +423,7 @@ function dropPathOnPanel(p, path, isDir) {
     // A panel can care that its command finished — an agent sign-out re-reads
     // who is signed in, so the details sheet is never stale.
     if (p.onExit) { try { p.onExit(code); } catch (_) {} }
-    refreshTileHead(p); refreshRail(); renderHeader();
+    refreshTileHead(p); refreshRail(); renderHeader(); browsers.decorate();
   });
 
   // Claude names its own conversation a few turns in, and re-names it as the
@@ -461,6 +467,13 @@ function dropPathOnPanel(p, path, isDir) {
 function showScene(name) {
   const [what, ...rest] = String(name).split(':');
   const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
+  if (what === 'browser') {
+    const sess = S.panels.find(isSessionPanel);
+    if (S.demo && step === 'multi' && sess) S.panels.push({ ...sess, id: uid('p_'), title: 'Codex session', code: 'CX', sceneStatic: true });
+    if (sess) S.activeId = sess.id;
+    browsers.open('about:blank', new URL('./browser-welcome.html', import.meta.url).pathname, sess?.id);
+    setView('split', false); return;
+  }
   if (what === 'settings') return openSettings(step || 'voice');
   // split: the demo desk with its files joined to the session, in the split view
   if (what === 'split') {
@@ -1063,7 +1076,7 @@ function renderHeader() {
   // An errand whose command has landed is not a live session — its shell is
   // still open, but nothing is running in it and counting it makes the badge
   // say two sessions are working when one of them is a finished install.
-  const live = S.panels.filter((x) => x.status === 'live' && x.kind !== 'editor'
+  const live = S.panels.filter((x) => x.status === 'live' && isSessionPanel(x)
     && !(x.oneShot && x.commandDone)).length;
   const attn = S.panels.filter((x) => x.attention).length;
   if (live > 0) { els.liveBadge.style.display = ''; els.liveLabel.textContent = attn ? `${attn} needs you` : `${live} live`; els.liveBadge.classList.toggle('attn', attn > 0); }
@@ -1962,6 +1975,7 @@ function renderFooter() { els.footerPath.textContent = S.project ? S.project.pat
 // ===========================================================================
 function statusMeta(p) {
   const c = statusColors();
+  if (p.kind === 'browser') return { label: 'browser', color: c.ok };
   if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? c.warn : c.mut };
   if (p.kind === 'viewer') return { label: p.sub, color: c.mut };
   if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? c.warn : c.mut };
@@ -1988,6 +2002,7 @@ function statusMeta(p) {
   return { label: 'live', color: c.ok };
 }
 function kindLabel(p) {
+  if (p.kind === 'browser') return 'browser';
   if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
   if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
   if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
@@ -2034,7 +2049,7 @@ async function makeFolderDialog() {
 
 function renderGrid() {
   if (!S.panels.length) {
-    tileEls.forEach((t) => t.root.remove()); tileEls.clear();
+    tileEls.forEach((t) => { if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); }); tileEls.clear();
     els.grid.classList.remove('has-focus');
     // The empty lane is not a card and must not be laid out on the card grid —
     // it is one block that wants the whole canvas, and a 210px row track would
@@ -2055,11 +2070,12 @@ function renderGrid() {
     const tour = q('#lane-tour', els.grid); if (tour) tour.onclick = openQuickStart;
     const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
     const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
+    browsers.decorate();
     return;
   }
   els.grid.classList.remove('is-empty');
   if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
-  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); } }
+  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); tileEls.delete(id); } }
   els.grid.classList.toggle('has-focus', !!S.expandedId);
   // Moving a node takes the keyboard with it: insertBefore below re-parents the
   // tile, and the browser drops focus from whatever was inside it — for a
@@ -2086,6 +2102,7 @@ function renderGrid() {
     if (t.fit) markFit(t);
   }
   renderSplit();
+  browsers.decorate();
   // Only if the move actually cost us the keyboard — never steal it from a
   // rename box, the rail, or an overlay that opened during the render.
   const now = document.activeElement;
@@ -2502,6 +2519,7 @@ function mountTile(p) {
   // drag reorder
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
+  if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }, { label: 'Browser access…', run: () => { S.overlay = { type: 'browser-access', sessionId: p.id }; renderOverlay(); } }, { label: 'Review messages…', run: () => browsers.inbox(p) }]); };
   if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(p)); };
   root.addEventListener('dragover', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -2535,8 +2553,8 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
-  if (isFilePanel(p)) wireFileSelection(p, rec);
+  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
+  if (isFilePanel(p) && p.kind !== 'browser') wireFileSelection(p, rec);
 }
 
 function refreshTileHead(p) {
@@ -2739,30 +2757,33 @@ function openSelectionDraft(p, selection, destination) {
 function renderSelectionDraft() {
   const o = S.overlay;
   const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
-  const modal = overlay('modal', `<div class="modal-head"><span class="title">Insert selection into session</span></div>
-    <div class="modal-body selection-sheet"><label>Session<select id="selection-session">${sessions.map((s) => `<option value="${esc(s.id)}"${s.id === o.destination ? ' selected' : ''}>${esc(s.title)}</option>`).join('')}</select></label>
-    <div class="field-label">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
+  const modal = overlay('modal modal--selection', `<div class="modal-head"><span class="title">Insert selection into session</span></div>
+    <div class="modal-body selection-sheet"><div class="field-label">Sessions</div><div class="selection-recipients">${sessions.map((s) => `<label><input type="checkbox" data-selection-session="${esc(s.id)}"${(o.destinations || [o.destination]).includes(s.id) ? ' checked' : ''}${o.inserted?.includes(s.id) ? ' disabled' : ''}>${esc(s.title)}${o.inserted?.includes(s.id) ? ' · inserted' : ''}</label>`).join('')}</div>
+    <div class="context-reference">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
     <label>Optional note<textarea id="selection-note" rows="3">${esc(o.note)}</textarea></label></div>
     <div class="modal-foot"><span class="note">Inserts into the session input without submitting.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Insert into session</button></div>`);
-  q('#selection-session', modal).onchange = (e) => { o.destination = e.target.value; };
+  modal.querySelectorAll('[data-selection-session]').forEach((b) => { b.onchange = () => { o.destinations = [...modal.querySelectorAll('[data-selection-session]:checked')].map((b) => b.dataset.selectionSession); }; });
   q('#selection-note', modal).oninput = (e) => { o.note = e.target.value; };
   q('#selection-cancel', modal).onclick = closeOverlay;
   q('#selection-add', modal).onclick = async () => {
     q('#selection-add', modal).disabled = true;
     const text = (o.note ? o.note + '\n\n' : '') + o.selection.reference + '\n\n' + o.selection.text;
-    if (await insertSessionText(o.destination, text)) closeOverlay();
-    else q('#selection-add', modal).disabled = false;
+    const ids = (o.destinations || [o.destination]).filter((id) => !o.inserted?.includes(id));
+    if (!ids.length) { toast('Choose a session.'); q('#selection-add', modal).disabled = false; return; }
+    o.inserted ||= [];
+    for (const id of ids) if (await insertSessionText(id, text, { focus: ids.length === 1 })) { o.inserted.push(id); rememberContext(id, o.selection); }
+    if (ids.every((id) => o.inserted.includes(id))) closeOverlay(); else renderSelectionDraft();
   };
   q('#selection-note', modal).focus();
 }
-async function insertSessionText(id, text) {
+async function insertSessionText(id, text, { focus = true } = {}) {
   const p = S.panels.find((s) => s.id === id && isSessionPanel(s) && !s.exited);
   const rec = p && tileEls.get(id);
   if (!rec) { toast('That session is no longer available.'); return false; }
   if (rec.aiInput) {
     rec.aiInput.value = appendDraft(rec.aiInput.value, text);
     rec.aiInput.dispatchEvent(new Event('input', { bubbles: true }));
-    focusPanel(id); rec.aiInput.focus();
+    if (focus) { focusPanel(id); rec.aiInput.focus(); }
     return true;
   }
   if (!rec.term) { toast('That session is no longer available.'); return false; }
@@ -2771,7 +2792,7 @@ async function insertSessionText(id, text) {
   try {
     const result = await api.termWrite({ id, data });
     if (!result?.ok) throw new Error('write failed');
-    focusPanel(id); rec.term.scrollToBottom(); rec.term.focus();
+    if (focus) { focusPanel(id); rec.term.scrollToBottom(); rec.term.focus(); }
     return true;
   } catch (_) { toast('Could not insert into that terminal.'); return false; }
 }
@@ -3183,6 +3204,8 @@ function registerTerminalLinks(term, p) {
 // terminal menu, and copying arbitrary text is what selection is for.
 function wireTerminalMenu(p, rec) {
   rec.body.addEventListener('contextmenu', (e) => {
+    const picked = rec.term?.getSelection();
+    if (picked?.trim()) { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add selection to session…', run: () => openSelectionDraft({ owner: p.id }, { reference: p.title + ' (terminal excerpt)', text: picked }) }, { label: 'Copy selection', run: () => copyLinkText(picked) }]); return; }
     const hit = hoveredLink.get(p.id);
     if (!hit) return;
     e.preventDefault();
@@ -3193,6 +3216,7 @@ function wireTerminalMenu(p, rec) {
       // here keeps the menu and the modifier on one implementation.
       return { ...it, run: () => openTermLink(hit.link, hit.st, { altKey: it.label === 'Reveal in Finder' }) };
     });
+    if (hit.link.kind === 'url') items.unshift({ label: 'Open in Nami browser', run: () => { browsers.open(urlTarget(hit.link.text), null, p.id); setView('split'); } });
     showMenu(e.clientX, e.clientY, items);
   });
 }
@@ -3309,8 +3333,8 @@ function browserButtonLabel(button, p) {
   if (!button) return;
   button.innerHTML = p && p.dirty ? 'Save &amp; open ↗' : 'Browser ↗';
   button.title = p && p.dirty
-    ? 'Save this page, then open it in your default browser'
-    : 'Open this saved page in your default browser';
+    ? 'Save this page, then open it in Nami’s browser view'
+    : 'Open this saved page in Nami’s browser view';
 }
 function bindBrowserButton(button, p) {
   if (!button) return;
@@ -3329,8 +3353,9 @@ async function openFileInBrowser(filePath, panel) {
     const saved = await saveEditor(p);
     if (!saved) return;
   }
-  const res = await api.openFileInBrowser(filePath);
-  if (!res || !res.ok) toast((res && res.error) || 'Could not open the browser.');
+  closeOverlay();
+  browsers.open('about:blank', filePath, p?.owner);
+  setView('split');
 }
 
 // ---- editor tiles ----------------------------------------------------------
@@ -4144,6 +4169,7 @@ function panelSnapshot() {
   const owners = ownerIndexes(S.panels);
   const own = (p) => (owners[p.id] === undefined ? {} : { ownerIndex: owners[p.id] });
   return S.panels.map((p) => {
+    if (p.kind === 'browser') return { kind: 'browser', url: p.url, filePath: p.filePath, title: p.title, ...own(p), ...size(p) };
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...own(p), ...size(p) };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...own(p), ...size(p) };
     if (p.kind === 'card') return { kind: 'card', item: p.item, ...own(p), ...size(p) };
@@ -4187,7 +4213,8 @@ async function restorePanels(snaps) {
       // Reading the size back off that is exact whatever the kind, and does not
       // depend on five different functions agreeing to return their panel.
       const before = S.panels.length;
-      if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
+      if (s.kind === 'browser') browsers.open(s.url, s.filePath, null, null, true);
+      else if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
@@ -4209,6 +4236,7 @@ async function restorePanels(snaps) {
     } catch (_) {}
   }
   resolveOwners(restored, snaps); // owners by position, now that every id exists
+  browsers.restore();
   S.activeId = S.panels[0] ? S.panels[0].id : null;
   renderAll();
 }
@@ -4320,7 +4348,7 @@ function moveMenu(p) {
 // (desk-view.mjs decides which), and as a preview it takes the place of the
 // session's previous preview, so browsing ten files leaves one tab, not ten.
 function pinFilePanel(p, opts = {}) {
-  const owner = ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+  const owner = opts.owner || ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
   if (owner) p.owner = owner; else delete p.owner;
   if (opts.preview) p.preview = true; else delete p.preview;
   const old = opts.preview ? previewToReplace(S.panels, owner, p) : null;
@@ -4342,10 +4370,10 @@ function focusPanel(id, scroll = true) {
 function closePanel(id, opts = {}) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
   if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !opts.silent && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
-  else if (p.kind !== 'editor' && p.kind !== 'viewer' && p.kind !== 'card') {
+  else if (!isFilePanel(p)) {
     api.termKill({ id });
   }
-  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); t.root.remove(); tileEls.delete(id); }
+  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); tileEls.delete(id); }
   S.panels = S.panels.filter((x) => x.id !== id);
   orphanFiles(S.panels, id); // a closed session's files stay, on the desk
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -5334,6 +5362,7 @@ function rememberHelpFocus() {
   if (!S.overlay || !['settings', 'quickstart'].includes(S.overlay.type)) helpReturnFocus = document.activeElement;
 }
 function renderOverlay() {
+  browsers.schedule();
   terminalHint.hide();
   const focused = document.activeElement;
   helpFocusKey = focused && els.overlayRoot.contains(focused)
@@ -5348,6 +5377,10 @@ function renderOverlay() {
     return;
   }
   if (!['settings', 'quickstart'].includes(o.type)) helpReturnFocus = null;
+  if (o.type === 'browser-new') return browsers.renderNew();
+  if (o.type === 'browser-note') return browsers.renderNote();
+  if (o.type === 'browser-access') return browsers.renderAccess();
+  if (o.type === 'browser-connection') return browsers.renderConnection();
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
@@ -5377,6 +5410,8 @@ const SET_SECTIONS = [
   { id: 'look', name: 'Look', lead: 'how Nami looks on this desk' },
   { id: 'keys', name: 'Keys', lead: 'keys every session can use' },
   { id: 'shortcuts', name: 'Shortcuts', lead: 'small moves that make your desk easier to use' },
+  { id: 'browser', name: 'Browser', lead: 'browser views your sessions can use' },
+  { id: 'usage', name: 'Usage', lead: 'remaining allowance by connected account' },
   { id: 'about', name: 'About', lead: 'about this copy of Nami' },
 ];
 function openSettings(section) {
@@ -5402,7 +5437,7 @@ function renderSettings() {
       <div class="set-pane" id="set-pane">${
         sec.id === 'voice' ? voicePaneHtml()
           : sec.id === 'look' ? lookPaneHtml()
-            : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
+            : sec.id === 'browser' ? browsers.settingsHtml() : sec.id === 'usage' ? usagePaneHtml() : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
     </div></div>
     <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">⌘ Command · ⌥ Option · ⇧ Shift</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
@@ -5415,6 +5450,8 @@ function renderSettings() {
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
   if (sec.id === 'about') wireAboutPane(modal);
+  if (sec.id === 'browser') browsers.wireSettings(modal);
+  if (sec.id === 'usage') wireUsagePane(modal);
   if (sec.id === 'shortcuts') {
     q('#shortcuts-back', modal).onclick = closeOverlay;
     q('#shortcuts-guide', modal).onclick = () => api.openUrl(DOCS.home);
@@ -6387,9 +6424,10 @@ async function swapDesk(info) {
 // has already established there is nothing live and nothing unsaved to lose.
 function clearDesk() {
   for (const p of S.panels) if (isSessionPanel(p)) api.termKill({ id: p.id });
-  for (const [, t] of tileEls) { if (t.disposeRo) t.disposeRo(); t.root.remove(); }
+  for (const [, t] of tileEls) { if (t.disposeRo) t.disposeRo(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); }
   tileEls.clear();
   S.panels = []; S.activeId = null; S.expandedId = null;
+  browsers.clearNotes(); browsers.decorate();
 }
 
 async function restoreDeskFor(folder) {
@@ -6655,4 +6693,28 @@ function seedDemo() {
   S.panels = [ct, e]; S.activeId = ct.id;
   // paint a paper "claude" banner into the demo terminal after mount
   setTimeout(() => { const t = tileEls.get(ct.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
+}
+
+function rememberContext(id, context) {
+  const rec = tileEls.get(id), p = S.panels.find((p) => p.id === id); if (!rec || !p) return;
+  p.contextNotes ||= []; p.contextNotes.push(context); p.contextNotes = p.contextNotes.slice(-20);
+  if (!rec.contextStrip) { rec.contextStrip = document.createElement('div'); rec.contextStrip.className = 'browser-note-strip'; rec.root.appendChild(rec.contextStrip); }
+  rec.contextStrip.innerHTML = `<span>${p.contextNotes.length} context ${p.contextNotes.length === 1 ? 'item' : 'items'}</span><button class="btn btn--small">Review</button><button class="btn btn--small">Hide</button>`;
+  const [review, hide] = rec.contextStrip.querySelectorAll('button');
+  review.onclick = () => openSelectionDraft({ owner: id }, { reference: 'Attached context', text: p.contextNotes.map((n) => n.reference + '\n' + n.text).join('\n\n') });
+  hide.onclick = () => { p.contextNotes = []; rec.contextStrip.remove(); rec.contextStrip = null; };
+}
+function usagePaneHtml() { return '<div id="usage-body"><p class="note">Checking available account usage…</p></div>'; }
+async function wireUsagePane(modal) {
+  const host = q('#usage-body', modal);
+  let result;
+  try { result = await api.usageRead(); } catch (_) { if (host?.isConnected) { host.innerHTML = '<p class="note">Could not read usage.</p><button class="btn">Retry</button>'; host.querySelector('button').onclick = () => wireUsagePane(modal); } return; }
+  if (!host?.isConnected) return;
+  host.innerHTML = '<p class="note">Account limits can be shared across models. Unavailable does not mean zero.</p>' + (result.accounts || []).map((a) => `<div class="usage-account"><div class="usage-account-head"><strong>${esc(a.name)}</strong><span>${a.remaining == null ? 'Unavailable' : a.remaining + '% left'}</span></div>${a.remaining == null ? '' : `<div class="usage-meter"><span style="width:${a.remaining}%"></span></div>`}<p class="note">${esc(a.detail)}${a.checkedAt ? ' · ' + new Date(a.checkedAt).toLocaleTimeString() : ''}</p></div>`).join('') + '<button class="btn" id="usage-refresh">Refresh</button><details class="browser-peers"><summary>Connect Claude usage</summary><p class="note">Claude Code can report eligible subscription limits through its status line after an API response. Add this command in Claude’s status-line settings, or integrate it into your existing status-line script. Nami does not replace your configuration.</p><button class="btn" id="usage-copy-claude">Copy status-line command</button></details>';
+  q('#usage-copy-claude', host).onclick = () => api.copyText(result.claudeCommand).then(() => toast('Copied.'));
+  const setup = document.createElement('details'); setup.className = 'browser-peers';
+  setup.innerHTML = '<summary>Connect another provider</summary><p class="note">A provider adapter can write its reported quota to a JSON file here. Use one file per account; refresh reports within five minutes. Nami reads the feed when you open Usage or press Refresh.</p><pre class="selection-preview">' + esc(result.feedDirectory + '/my-provider.json') + '</pre><button class="btn">Copy feed format</button>';
+  setup.querySelector('button').onclick = () => api.copyText(JSON.stringify({ name: 'My provider', source: 'Provider quota API', at: Date.now(), windows: [{ label: 'Weekly', remainingPercent: null, resetsAt: null }] }, null, 2)).then(() => toast('Copied. Timestamps use milliseconds; replace null with reported values.'));
+  host.appendChild(setup);
+  q('#usage-refresh', host).onclick = () => wireUsagePane(modal);
 }

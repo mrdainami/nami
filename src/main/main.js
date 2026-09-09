@@ -17,7 +17,7 @@ const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { stripInheritedClaude } = require('./session-env');
-const { detectAgents, agentStatus } = require('./agents-detect');
+const { detectAgents, agentStatus, findOnDisk } = require('./agents-detect');
 const { handles: opensHere, chooseTarget } = require('./open-with');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
@@ -42,8 +42,9 @@ const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
 const { sendPing } = require('./ping');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
-const { parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
+const { parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { browserFileUrl } = require('./browser-file');
+const { wireBrowserViews } = require('./browser-views');
 const stt = require('./stt');
 
 // nami-doc:// — how a viewed HTML page and its neighbouring images are served.
@@ -57,26 +58,6 @@ protocol.registerSchemesAsPrivileged([{
   scheme: 'nami-doc',
   privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false },
 }]);
-
-// A minimal content type from the extension — enough for a browser to render a
-// document and its own assets. Unknown types are served as octet-stream, which a
-// page never asks for as an image or stylesheet, so an accidental download of
-// something odd stays inert.
-function docContentType(file) {
-  const e = (file.split('.').pop() || '').toLowerCase();
-  // The text types carry a charset or an em-dash arrives as mojibake — the file
-  // is read as bytes and the browser guesses latin-1 without this.
-  return ({
-    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
-    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8',
-    json: 'application/json; charset=utf-8', svg: 'image/svg+xml; charset=utf-8',
-    png: 'image/png', jpg: 'image/jpeg',
-    jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
-    ico: 'image/x-icon', bmp: 'image/bmp', woff: 'font/woff', woff2: 'font/woff2',
-    ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', webm: 'video/webm',
-    mp3: 'audio/mpeg', wav: 'audio/wav',
-  })[e] || 'application/octet-stream';
-}
 
 // The one policy every served response carries: the page may run and style
 // itself (agents inline both) and load its own assets, but connect-src 'none'
@@ -419,6 +400,7 @@ function createWindow(folder, bounds) {
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, plugins: true },
   });
+  browserViews.bindWindow(w);
   const wcId = w.webContents.id;
   wins.add(w); win = w;
   windowThemes.set(wcId, settingsStore.normalizeTheme(readSettings().theme));
@@ -457,9 +439,9 @@ function createWindow(folder, bounds) {
           const probe = await w.webContents.executeJavaScript(process.env.SHOT_DEBUG);
           console.log('[shot-debug]', JSON.stringify(probe));
         }
-        const img = await w.webContents.capturePage();
+        const png = await require('./window-capture').captureWindow(w, browserViews.views);
         fs.mkdirSync(path.dirname(path.resolve(SHOT_PATH)), { recursive: true });
-        fs.writeFileSync(path.resolve(SHOT_PATH), img.toPNG());
+        fs.writeFileSync(path.resolve(SHOT_PATH), png);
         console.log('screenshot →', path.resolve(SHOT_PATH));
       } catch (e) { console.error('shot failed', e); }
       setTimeout(() => app.quit(), 300);
@@ -578,6 +560,27 @@ app.on('quit', () => {
 // reload while the renderer's counter restarts, so a reloaded window would
 // collide with the sessions it just left behind.
 let bootSeq = 0;
+
+const browserViews = wireBrowserViews(ipcMain, { readSettings, writeSettings });
+let usagePending;
+ipcMain.handle('usage:read', async (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w || e.sender !== w.webContents) return { accounts: [] };
+  if (usagePending) return usagePending;
+  usagePending = (async () => {
+    // Reuse Nami's detected binaries. A usage refresh must not launch a fresh
+    // interactive login shell for every provider (rc scripts can hang).
+    let timer;
+    const envPath = await Promise.race([userPath(), new Promise((resolve) => { timer = setTimeout(() => resolve(process.env.PATH || ''), 2000); })]);
+    clearTimeout(timer);
+    const agents = await detectAgents({ exec: (bin) => knownBin(bin) || findOnDisk(bin, { env: { ...process.env, PATH: envPath } }) });
+    const result = await require('./usage').readUsage({ agents, directory: path.join(app.getPath('userData'), 'usage'), envPath });
+    const script = path.join(__dirname, 'usage-statusline.js');
+    const command = 'ELECTRON_RUN_AS_NODE=1 ' + shellQuote(process.execPath) + ' ' + shellQuote(script) + ' ' + shellQuote(path.join(app.getPath('userData'), 'usage'));
+    return { ...result, claudeCommand: command, feedDirectory: path.join(app.getPath('userData'), 'usage') };
+  })().finally(() => { usagePending = null; });
+  return usagePending;
+});
 
 wireAcpLive(ipcMain);
 ipcMain.handle('link:open', (_e, url) => {
