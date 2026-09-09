@@ -59,7 +59,7 @@ function wireBrowserOverlays(ipcMain) {
     for (const [w, records] of windows) for (const [id, rec] of records) {
       if (rec.view.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame || w.isDestroyed()) continue;
       if (!input || !['click','input','change','keydown','focus','submit'].includes(input.type) || !Number.isInteger(input.target)) return;
-      w.webContents.send('browser:overlay-input', { id, version:input.version, sequence:input.sequence, type: input.type, target: input.target, value: typeof input.value === 'string' ? input.value.slice(0, 100000) : undefined, checked: !!input.checked, key: String(input.key || '').slice(0, 40), shiftKey: !!input.shiftKey });
+      w.webContents.send('browser:overlay-input', { id, version:input.version, sequence:input.sequence, type: input.type, target: input.target, value: typeof input.value === 'string' ? input.value.slice(0, 100000) : undefined, checked: !!input.checked, key: String(input.key || '').slice(0, 40), shiftKey: !!input.shiftKey, isComposing:!!input.isComposing, keyCode:input.keyCode===229?229:0 });
       return;
     }
   });

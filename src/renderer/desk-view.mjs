@@ -45,10 +45,11 @@ export function previewToReplace(panels, ownerId, file) {
 // A preview becomes a kept file: double-click, the pin control, or an edit.
 export function keep(file) { if (file && 'preview' in file) delete file.preview; return file; }
 
-// A closed session leaves its files on the desk. Returns how many.
+// A closed session leaves its files on the desk and detaches companion sessions.
 export function orphan(panels, closedId) {
   let n = 0;
   for (const f of panels) if (isFile(f) && f.owner === closedId) { delete f.owner; n++; }
+  for (const p of panels) if (p.companionOf === closedId) delete p.companionOf;
   return n;
 }
 
@@ -79,9 +80,9 @@ export function splitAfter(state, action) {
   const t = action && action.type;
   if (t === 'enter') {
     const a = byId(panels, action.activeId);
-    const s = a ? (isSession(a) ? a : liveOwner(panels, a)) : null;
+    const s = a ? (a.companionOf ? byId(panels,a.companionOf) : isSession(a) ? a : liveOwner(panels, a)) : null;
     sessionId = s ? s.id : (sessions[0] ? sessions[0].id : null);
-    const f = a && isFile(a) && s ? a : firstFile(sessionId);
+    const f = a && (isFile(a) || a.companionOf===sessionId) && s ? a : firstFile(sessionId);
     fileId = f ? f.id : null;
   } else if (t === 'select-companion') {
     const p = byId(panels, action.id), owner = p && byId(panels, p.companionOf);

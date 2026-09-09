@@ -1,3 +1,5 @@
+import { createSessionSources } from './session-sources.mjs';
+import { terminalSnapshot } from './session-context.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
@@ -263,7 +265,72 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), addAgent: openCompanionLauncher, shareTab: (p,x,y)=>sources.shareMenu(p,x,y), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
+const sources = createSessionSources({ api, state:S, tiles:tileEls, esc, icon:helpIcon, isSession:isSessionPanel, menu:showMenu, toast,
+  settings:id=>{S.overlay={type:'browser-access',sessionId:id};renderOverlay();}, publish:publishSessionContext,
+  insert:(id,text)=>insertSessionText(id,text,{focus:false}) });
+const contextTimers = new Map();
+async function publishSessionContext(p, provided) {
+  const rec=tileEls.get(p.id); if(!rec || p.exited)return;
+  let snapshot=provided || rec.sessionContext?.();
+  if(!snapshot && rec.term) snapshot=terminalSnapshot(rec.term);
+  if(!snapshot)return;
+  await api.browserSync(S.panels.filter(isSessionPanel).filter(x=>!x.exited).map(x=>({id:x.id,title:x.title})));
+  const result=await api.browserContext({action:'update',id:p.id,identity:snapshot.identity||p.sid||p.acpSid||p.id,title:p.title,
+    kind:rec.term?'terminal':'chat',content:snapshot.content||'',truncated:!!snapshot.truncated,incompleteHistory:snapshot.incomplete!==false});
+  if(!result?.ok)throw new Error(result?.error||'Could not update session context.');
+  return result;
+}
+function queueSessionContext(p) {
+  if(contextTimers.has(p.id))return;
+  contextTimers.set(p.id,setTimeout(()=>{contextTimers.delete(p.id);publishSessionContext(p).catch(()=>{});},500));
+}
+async function sessionBrowserConnection(p) {
+  await api.browserSync(S.panels.filter(isSessionPanel).filter(x=>!x.exited).map(x=>({id:x.id,title:x.title})));
+  return api.browserConnection({id:p.id});
+}
+async function openCompanionLauncher(owner) {
+  try {
+    const enabled=await api.browserEnable(true);
+    if(!enabled?.ok)toast(enabled?.error||'Local connection unavailable. Context can still be inserted manually.');
+  } catch { toast('Local connection unavailable. Context can still be inserted manually.'); }
+  if(!S.panels.some(p=>p.id===owner&&!p.exited))return;
+  S.overlay={type:'launcher',companionOf:owner};renderOverlay();refreshAgents();
+}
+function attachCompanion(p,owner) {
+  if(!p||!owner)return;
+  p.companionOf=owner;
+  if(S.view!=='split')setView('split');
+  S.split=splitAfter({...S.split,panels:S.panels},{type:'select-companion',id:p.id});S.splitFull=null;
+  renderGrid();renderRail();savePanels();
+  const source=S.panels.find(x=>x.id===owner);
+  if(source) sources.shareContext(source,p.id).then(ok=>{if(ok && tileEls.get(p.id)?.insertSessionDraft)sources.refreshInto(p.id);});
+}
+async function insertAnnotation(payload,destinations) {
+  const inserted=[],failed=[];
+  for(const id of destinations) {
+    try {
+    const rec=tileEls.get(id),p=S.panels.find(p=>p.id===id);
+    if(!p||p.exited||!rec){failed.push({id,error:'Session is closed.'});continue;}
+    let text=payload.text || `${payload.note}\n\n${payload.reference}`;
+    if(payload.image) {
+      const grant=await api.browserAnnotationImage({action:'grant',id:payload.image.id,recipientIds:[id]});
+      if(!grant?.ok){failed.push({id,error:grant?.error||'Image unavailable.'});continue;}
+    }
+    let ok;
+    if(rec.insertSessionDraft) {
+      const r=await rec.insertSessionDraft({text,images:payload.image?[payload.image]:[]});ok=r?.ok;
+    } else {
+      if(payload.image)text+=`\n\nScreenshot file reference: ${JSON.stringify(payload.image.path)}\nNami image ID: ${payload.image.id} (available through nami_read_annotation_image when connected).`;
+      ok=await insertSessionText(id,text,{focus:false});
+    }
+    if(ok){inserted.push(id);rememberContext(id,{reference:payload.reference||payload.url,text,insertedAt:Date.now()});}
+    else failed.push({id,error:'Could not insert into this input.'});
+    } catch(error) { failed.push({id,error:error.message||'Insertion failed.'}); }
+  }
+  if(inserted.length)toast('Feedback inserted into '+inserted.length+' session input'+(inserted.length===1?'':'s')+'.');
+  return {ok:failed.length===0,inserted,failed};
+}
 // panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
 
 // w<winId> makes the name unique across every open window: main keys its session
@@ -288,6 +355,8 @@ function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); 
 function q(sel, root) { return (root || document).querySelector(sel); }
 // A panel's chip: brand glyph when the session maps to a known brand, else its code.
 function panelChip(p) {
+  if (p.kind === 'browser') return `<span class="code code--icon" data-kind="viewer">${helpIcon('browser')}</span>`;
+  if (isFilePanel(p)) return `<span class="code code--icon" data-kind="${chipKindOf(p)}">${treeIcon(p.filePath || p.title, 'file')}</span>`;
   const key = p.kind === 'claude' ? 'claude'
     : iconKeyFor(p.agentId) || iconKeyFor(p.title);
   return chipHtml({ key, code: p.code, kind: chipKindOf(p) });
@@ -392,7 +461,7 @@ function dropPathOnPanel(p, path, isDir) {
   });
 
   api.onTermData(({ id, data }) => {
-    const t = tileEls.get(id); if (t && t.term) t.term.write(data);
+    const t = tileEls.get(id); if (t && t.term) t.term.write(data,()=>{const p=S.panels.find(p=>p.id===id);if(p)queueSessionContext(p);});
     // when a byte last moved — the auto-takeover's "is the terminal mid-task"
     const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
   });
@@ -404,6 +473,7 @@ function dropPathOnPanel(p, path, isDir) {
     if (!p || !sid || p.acpSid) return;
     p.acpSid = sid;
     savePanels();
+    publishSessionContext(p).catch(()=>{});
   });
 
   // A one-shot command Nami ran on the user's behalf has landed. The shell is
@@ -442,6 +512,7 @@ function dropPathOnPanel(p, path, isDir) {
     const p = S.panels.find((x) => x.id === id); if (!p || !sid || p.sid === sid) return;
     p.sid = sid;
     savePanels();
+    publishSessionContext(p).catch(()=>{});
   });
 
   api.onMenuCommand((cmd) => runMenuCommand(cmd));
@@ -1216,7 +1287,7 @@ function refreshSessionsRail(c) {
   const list = document.createElement('div'); list.className = 'rail-list';
   const split = S.view === 'split';
   const shownFile = split ? S.split.fileId : null;
-  const isActive = (p) => (split ? (isSessionPanel(p) ? p.id === S.split.sessionId : p.id === shownFile) : p.id === S.activeId);
+  const isActive = (p) => (split ? p.id === S.split.sessionId || p.id === shownFile : p.id === S.activeId);
   const fileRow = (f) => {
     const m = statusMeta(f);
     const row = document.createElement('div');
@@ -2521,7 +2592,7 @@ function mountTile(p) {
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
   if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }, { label: 'Browser access…', run: () => { S.overlay = { type: 'browser-access', sessionId: p.id }; renderOverlay(); } }, { label: 'Review messages…', run: () => browsers.inbox(p) }]); };
-  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(p)); };
+  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); if(p.kind==='browser')sources.shareMenu(p,e.clientX,e.clientY);else showMenu(e.clientX,e.clientY,moveMenu(p)); };
   root.addEventListener('dragover', (e) => {
     e.preventDefault(); e.stopPropagation();
     // Stopped for the same reason the drop below is: every tile is a direct
@@ -2554,7 +2625,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin }); else mountTerminal(p, rec);
+  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin, browserConnection:sessionBrowserConnection, context:p=>sources.linkedContext(p.id), contextChanged:(p,record)=>publishSessionContext(p,record), annotationImage:async image=>{const r=await api.browserAnnotationImage({action:'read',id:image.id});if(!r.ok)throw new Error(r.error);return {type:'image',data:r.data,mimeType:r.mimeType};} }); else mountTerminal(p, rec);
   if (isFilePanel(p) && p.kind !== 'browser') wireFileSelection(p, rec);
 }
 
@@ -4195,6 +4266,7 @@ function panelSnapshot() {
   // remember is five places to forget.
   const size = (p) => {
     const o = { spanX: p.spanX, spanY: p.spanY };
+    if(p.companionOf) { const index=S.panels.findIndex(x=>x.id===p.companionOf);if(index>=0)o.companionIndex=index; }
     if (isSessionPanel(p)) { o.imageAttachments = p.imageAttachments || []; }
     if (p.fontSize >= 10 && p.fontSize <= 18) o.fontSize = p.fontSize;
     if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
@@ -4271,6 +4343,7 @@ async function restorePanels(snaps) {
       }
     } catch (_) {}
   }
+  for(let i=0;i<snaps.length;i++){const p=restored[i],owner=Number.isInteger(snaps[i]?.companionIndex)?restored[snaps[i].companionIndex]:null;if(p&&isSessionPanel(p)&&owner&&owner!==p&&isSessionPanel(owner))p.companionOf=owner.id;}
   resolveOwners(restored, snaps); // owners by position, now that every id exists
   browsers.restore();
   S.activeId = S.panels[0] ? S.panels[0].id : null;
@@ -4523,6 +4596,7 @@ function statusLineFor(a) {
 }
 function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
 function renderLauncher() {
+  const companionOf = S.overlay.companionOf;
   const prevList = q('#lc-list');
   const prevScroll = prevList ? prevList.scrollTop : 0;
   const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
@@ -4559,8 +4633,8 @@ function renderLauncher() {
     const launch = () => {
       closeOverlay();
       withFolder(() => {
-        if (a.kind === 'claude') return startPanel({ kind: 'claude', title: 'Claude session', code: 'CC' });
-        startPanel({ kind: 'run', title: a.name, code: code2(a.name), command: a.bin });
+        const p = a.kind === 'claude' ? startPanel({ kind:'claude', title:'Claude session', code:'CC' }) : startPanel({ kind:'run', title:a.name, code:code2(a.name), command:a.bin });
+        attachCompanion(p,companionOf);
       }, a.name);
     };
     // Prototype (demo only): agents with an ACP mode default to the cowork
@@ -4586,6 +4660,7 @@ function renderLauncher() {
         seedTitleSource(np);
         S.panels.unshift(np); S.activeId = np.id;
         renderGrid(); renderRail(); renderHeader();
+        attachCompanion(np,companionOf);
         toast(a.name + ' \u2014 new chat session');
         return;
       }
@@ -4597,7 +4672,7 @@ function renderLauncher() {
     const row = document.createElement('div'); row.className = 'picker-row';
     row.innerHTML = `<span class="code" data-kind="${esc(h.chipKind || 'shell')}">${esc(h.code)}</span>
       <span class="col"><span class="name">${esc(h.name)}</span><span class="desc">${esc(h.sub)}</span></span>`;
-    row.onclick = () => { closeOverlay(); withFolder(() => launchHarness(h), 'the terminal'); };
+    row.onclick = () => { closeOverlay(); withFolder(async () => { const p=await launchHarness(h); attachCompanion(p,companionOf); }, 'the terminal'); };
     list.appendChild(row);
   }
   // add section: every not-yet-installed agent from the curated registry

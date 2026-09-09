@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
   await until(()=>run(`dainami.browserStatus().then(r=>r.views.find(v=>v.id===${JSON.stringify(id)})?.profileId===${JSON.stringify(work.id)})`));
   await until(()=>run('!document.querySelector("#profiles-done")'));
   await click('[data-browser-action="menu"]');await run(`document.querySelectorAll('.browser-menu button')[6].click()`);await until(()=>run('!!document.querySelector("#profile-import")'));
-  assert.match(await run('document.querySelector(".browser-profile-body").textContent'),/Direct Chrome cookie import is unavailable/);await shot('browser-import-glass');await click('#profiles-done');
+  assert.match(await run('document.querySelector(".browser-profile-body").textContent'),/not Chrome cookies or ongoing Chrome sync/);await shot('browser-import-glass');await click('#profiles-done');
   await click('[data-browser-action="menu"]');await run(`document.querySelectorAll('.browser-menu button')[8].click()`);await until(()=>run('!!document.querySelector("#profile-clear")'));
   await shot('browser-clear-data');await click('#clear-signins');await click('#profile-clear');await shot('browser-clear-confirm');await click('#profiles-done');
   await click('[data-browser-action="menu"]');await run(`document.querySelectorAll('.browser-menu button')[5].click()`);await until(()=>run('!!document.querySelector("#browser-control")'));await shot('browser-access');await click('#browser-access-cancel');

@@ -3,15 +3,19 @@ import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs
 import { createBrowserOverlays } from './browser-overlays.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
-  show, dialog, close, closePanel, toast, selection, settings, dictation }) {
+  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, addAgent, shareTab, panelIcon }) {
   let frame = 0, signature = '';
-  const annotations = createBrowserAnnotations({ api, esc, icon:helpIcon, selection, toast, dictation, focus, onChange:schedule, confirmDiscard:count=>api.browserConfirmDiscard(count) });
+  const annotations = createBrowserAnnotations({ api, esc, icon:helpIcon, selection, toast, dictation, focus, insertAnnotation, sessions, onChange:schedule, confirmDiscard:count=>api.browserConfirmDiscard(count) });
   const overlays = createBrowserOverlays({ api });
   const q = (s, el = document) => el.querySelector(s);
   const button = (icon, title, action) => `<button class="t-btn" title="${title}" aria-label="${title}" data-browser-action="${action}">${helpIcon(icon)}</button>`;
   function schedule() { if (!frame) frame = requestAnimationFrame(layout); }
   function layout() {
     frame = 0;
+    for (const [id,rec] of tiles) if(rec.browserViewport) {
+      const b=rec.head.querySelector('.t-mic'),active=annotations.isActive(id);
+      b?.classList.toggle('active',active);b?.setAttribute('aria-pressed',String(active));
+    }
     const hidden = !!state.overlay;
     const items = [];
     for (const [id, rec] of tiles) if (rec.browserViewport && rec.browserViewport.getClientRects().length) {
@@ -44,19 +48,33 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     q('#browser-new-url', modal).focus();
   }
   function tabs(p, rec) {
-    if (!isFile(p)) return;
+    if (!isFile(p) && !p.companionOf) return;
     if (!rec.companionTabs) { rec.companionTabs = document.createElement('div'); rec.companionTabs.className = 'companion-tabs'; rec.head.after(rec.companionTabs); }
     rec.companionTabs.hidden = state.view !== 'split';
     if (rec.companionTabs.hidden) return;
-    const siblings = state.panels.filter((x) => isFile(x) && (x.owner || null) === (p.owner || null));
-    rec.companionTabs.innerHTML = siblings.map((x) => `<button class="companion-tab${x.id === p.id ? ' selected' : ''}" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id === p.id}">${esc(x.title)}</button>`).join('') + '<button class="companion-add" title="Add browser" aria-label="Add browser">＋</button>';
-    rec.companionTabs.querySelectorAll('[data-view-id]').forEach((b) => b.onclick = () => focus(b.dataset.viewId));
-    q('.companion-add', rec.companionTabs).onclick = () => newBrowser(p.owner);
+    const owner=p.companionOf||p.owner;
+    const siblings = state.panels.filter(x => (isFile(x) && (x.owner||null)===(owner||null)) || (owner && x.companionOf===owner));
+    rec.companionTabs.innerHTML = siblings.map(x=>`<span class="companion-tab-item${x.id===p.id?' selected':''}"><button class="companion-tab" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id===p.id}">${panelIcon?.(x)||''}<span>${esc(x.title)}</span></button><button class="companion-close" data-close-id="${esc(x.id)}" aria-label="Close ${esc(x.title)}" title="Close tab">×</button></span>`).join('')+'<button class="companion-add" title="Add browser or agent" aria-label="Add browser or agent">＋</button>';
+    rec.companionTabs.querySelectorAll('[data-view-id]').forEach(b=>{
+      b.onclick=()=>focus(b.dataset.viewId);
+      b.oncontextmenu=e=>{e.preventDefault();const tab=siblings.find(x=>x.id===b.dataset.viewId);if(tab.kind==='browser')shareTab?.(tab,e.clientX,e.clientY);};
+    });
+    rec.companionTabs.querySelectorAll('[data-close-id]').forEach(b=>b.onclick=e=>{e.stopPropagation();closePanel(b.dataset.closeId);});
+    q('.companion-add',rec.companionTabs).onclick=e=>addMenu(owner,e.currentTarget);
+  }
+  function addMenu(owner,anchor) {
+    closeMenu(); menu=document.createElement('div');menu.className='browser-menu';menu.setAttribute('role','menu');
+    for(const [title,run] of [['Browser',()=>newBrowser(owner)],['Agent',()=>addAgent?.(owner)]]) {
+      const b=document.createElement('button');b.textContent=title;b.setAttribute('role','menuitem');b.onclick=()=>{closeMenu();run();};menu.appendChild(b);
+    }
+    const r=anchor.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(r.left,innerWidth-236))+'px';menu.style.top=Math.max(8,Math.min(r.bottom,innerHeight-110))+'px';
+    document.body.appendChild(menu);menu.onkeydown=e=>{if(e.key==='Escape')closeMenu();};menu.querySelector('button').focus();schedule();
+
   }
   function decorate() {
     for (const p of state.panels) { const rec = tiles.get(p.id); if (rec) tabs(p, rec); }
     const empty = q('.pane-files .pane-empty');
-    if (empty && !q('button', empty)) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = '+ Browser'; b.onclick = () => newBrowser(state.split.sessionId); empty.appendChild(b); }
+    if (empty && !q('button', empty)) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = '+ Add'; b.onclick = () => addMenu(state.split.sessionId,b); empty.appendChild(b); }
     api.browserSync(state.panels.filter((p) => isSession(p) && !p.exited).map((p) => ({ id: p.id, title: p.title }))).catch(() => {});
     schedule();
   }
@@ -64,7 +82,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     rec.root.classList.add('browser-tile'); rec.body.classList.add('browser-body');
     q('.t-zoom-out', rec.head).hidden = true; q('.t-zoom-in', rec.head).hidden = true;
     const annotate = q('.t-mic', rec.head); annotate.innerHTML = helpIcon('annotate'); annotate.title = 'Annotate'; annotate.setAttribute('aria-label', 'Annotate');
-    annotate.onclick = () => { annotations.start(p); annotate.classList.add('active'); };
+    annotate.onclick = () => { annotations.toggle(p); annotate.classList.toggle('active',annotations.isActive(p.id)); annotate.setAttribute('aria-pressed',String(annotations.isActive(p.id))); };
     rec.body.innerHTML = `<form class="browser-address">${button('back', 'Back', 'back')}${button('forward', 'Forward', 'forward')}${button('refresh', 'Reload', 'reload')}<input aria-label="Browser address" value="${esc(p.filePath || p.url)}" spellcheck="false">${button('more', 'Browser menu', 'menu')}</form><div class="browser-error" role="status" hidden></div><div class="browser-viewport"></div><div class="browser-selection" hidden><button class="btn btn--small">Selection · Add to session…</button></div>`;
     rec.browserViewport = q('.browser-viewport', rec.body);
     const disposeAnnotations = annotations.mount(p, rec.browserViewport);
@@ -108,7 +126,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   }
   function renderConnection() {
     const o = state.overlay, text = JSON.stringify({ mcpServers: { 'nami-browser': { type: 'http', url: o.url } } }, null, 2);
-    const modal = dialog('modal modal--browser', `<div class="modal-head"><span class="title">Access configured</span></div><div class="modal-body selection-sheet"><p>Connect your MCP client to use this permission. Configuring access does not connect the client automatically.</p><details><summary>Connection details</summary><p>Use this connection for this agent session. Anyone given its URL can use the selected views and peers.</p><label class="field-label">MCP URL<input readonly id="browser-mcp-url" value="${esc(o.url)}"></label><pre class="selection-preview">${esc(text)}</pre><p class="note">The commands below launch Claude or Codex with this connection for that run. For other HTTP MCP clients, use their per-session configuration. This connection lasts until Nami closes or access changes; restart the agent’s MCP connection after updating it.</p><div class="browser-client-commands"><button class="btn" id="browser-copy-claude">Copy Claude command</button><button class="btn" id="browser-copy-codex">Copy Codex command</button><button class="btn" id="browser-copy-json">Copy JSON</button></div></details></div><div class="modal-foot"><button class="btn" id="browser-copy-url">Copy URL</button><button class="btn btn--go" id="browser-connection-done">Done</button></div>`);
+    const modal = dialog('modal modal--browser', `<div class="modal-head"><span class="title">Access configured</span></div><div class="modal-body selection-sheet"><p>Connect your MCP client to use this permission. Configuring access does not connect the client automatically.</p><details><summary>Connection details</summary><p>Use this connection for this agent session. Anyone given its URL can use the selected views and peers.</p><label class="field-label">MCP URL<input readonly id="browser-mcp-url" value="${esc(o.url)}"></label><pre class="selection-preview">${esc(text)}</pre><p class="note">The commands below launch Claude or Codex with this connection for that run. For other HTTP MCP clients, use their per-session configuration. This connection lasts for this Nami session. Adding or removing shared tabs updates access without changing the connection. A client that was started without Nami Browser still needs setup.</p><div class="browser-client-commands"><button class="btn" id="browser-copy-claude">Copy Claude command</button><button class="btn" id="browser-copy-codex">Copy Codex command</button><button class="btn" id="browser-copy-json">Copy JSON</button></div></details></div><div class="modal-foot"><button class="btn" id="browser-copy-url">Copy URL</button><button class="btn btn--go" id="browser-connection-done">Done</button></div>`);
     const copy = (value) => api.copyText(value).then(() => toast('Copied.'));
     q('#browser-copy-url', modal).onclick = () => copy(o.url);
     q('#browser-copy-json', modal).onclick = () => copy(text);
@@ -128,7 +146,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       ['Reset zoom', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=1}).then(check)],
       ['Take screenshot…', () => api.browserAction({id:p.id,action:'capture'}).then(check)],
       ['Browser access…', () => show({type:'browser-access',sessionId:p.owner || state.split.sessionId})],
-      ['Import from Chrome…', () => show({type:'browser-profiles',panelId:p.id,section:'import'})],
+      ['Import saved passwords…', () => show({type:'browser-profiles',panelId:p.id,section:'import'})],
       ['Manage profiles…', () => show({type:'browser-profiles',panelId:p.id})],
       ['Clear browsing data…', () => show({type:'browser-profiles',panelId:p.id,section:'clear'})],
       ['Browser settings…', () => settings('browser')],
@@ -160,7 +178,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Nami profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p class="note">Tabs using the same profile share sign-ins. Agent access ends when you change or clear their profile.</p><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New profile</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove profile…</button></div><details${o.section==='import'?' open':''}><summary>Import from Chrome</summary><p class="note">One-time copy into Nami. Chrome stays unchanged.</p><p class="note">Direct Chrome cookie import is unavailable. Sign in on the website inside Nami, or import an explicitly exported password CSV.</p><button class="btn btn--small" id="profile-import">Choose password CSV…</button><p class="note">The original CSV remains where you exported it. Saved passwords are protected on this Mac. Filling a password in an agent-controlled page makes it available to that page and its automation.</p></details><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear selected data…</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`<label class="field-label">Nami profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p class="note">Tabs using the same profile share sign-ins. Agent access ends when you change or clear their profile.</p><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New profile</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove profile…</button></div><details${o.section==='import'?' open':''}><summary>Import saved passwords</summary><p class="note">Copy saved passwords from a Chrome CSV. Chrome stays unchanged.</p><p class="note">Sign in on websites inside Nami to retain their sign-ins in this profile. This imports saved passwords, not Chrome cookies or ongoing Chrome sync.</p><button class="btn btn--small" id="profile-import">Choose password CSV…</button><p class="note">The original CSV remains where you exported it. Saved passwords are protected on this Mac. Filling a password in an agent-controlled page makes it available to that page and its automation.</p></details><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear selected data…</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host);
     const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
     const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
@@ -195,7 +213,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if (event.type === 'state') { p.profileId=event.profileId; p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = event.url; q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
     if (event.type === 'new-tab') open(event.url, null, p.owner, null, false, event.profileId || p.profileId);
     if (event.type === 'error') { const e = q('.browser-error', rec.body); e.hidden = !event.error; e.textContent = event.error; }
-    if (event.type === 'selection') q('.t-mic', rec.head).classList.remove('active');
+    if (event.type === 'selection') q('.t-mic', rec.head).classList.toggle('active',annotations.isActive(p.id));
     if (event.type === 'text-selection') { rec.pendingSelection = event.selection; q('.browser-selection', rec.body).hidden = false; }
     if (event.type === 'annotation-end') q('.t-mic', rec.head).classList.remove('active');
     schedule();

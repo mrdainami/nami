@@ -16,7 +16,7 @@ export function browserSettingsContent(status, actions = {}) {
   <section class="bs-section" aria-labelledby="browser-profile-heading"><h3 class="field-label" id="browser-profile-heading">Browser profiles &amp; sign-ins</h3>
     <p class="bs-note">Tabs in the same profile share website sign-ins. These profiles are separate from your agent accounts.</p>
     ${profiles.length ? profiles.map((p) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(p.name || p.id)}</strong><small>${p.viewCount ? 'In use' : 'Browser profile'}${Number.isFinite(p.viewCount) ? ` · ${p.viewCount} ${p.viewCount === 1 ? 'tab' : 'tabs'}` : ''}</small></div></div>`).join('') : `<p class="bs-note">${status.profileLoadError ? 'Could not load profiles. Open Manage profiles to try again.' : 'You can sign into websites directly in a browser tab.'}</p>`}
-    <div class="bs-actions">${actions.onProfiles ? '<button class="btn btn--small" data-browser-settings="profiles">Manage profiles…</button>' : ''}${actions.onImport ? '<button class="btn btn--small" data-browser-settings="import">Import from Chrome…</button>' : ''}${actions.onClear ? '<button class="btn btn--small" data-browser-settings="clear">Clear browsing data…</button>' : ''}</div>
+    <div class="bs-actions">${actions.onProfiles ? '<button class="btn btn--small" data-browser-settings="profiles">Manage profiles…</button>' : ''}${actions.onImport ? '<button class="btn btn--small" data-browser-settings="import">Import saved passwords…</button>' : ''}${actions.onClear ? '<button class="btn btn--small" data-browser-settings="clear">Clear browsing data…</button>' : ''}</div>
   </section>`;
 }
 

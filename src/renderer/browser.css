@@ -68,3 +68,21 @@ body[data-theme="operator"] .browser-menu { box-shadow:none; }
 .modal--browser .modal-foot .browser-profile-done:first-child { margin-left:auto; margin-right:0; }
 .modal--insertion-history .note { font-size:12px; line-height:1.5; }
 .modal--insertion-history #history-done { margin-left:auto; }
+
+/* Compact source controls reserve space; they never cover terminal rows. */
+.companion-tab-item { display:flex; flex:none; min-width:0; max-width:210px; align-items:center; border-bottom:2px solid transparent; }
+.companion-tab-item.selected { border-bottom-color:var(--green); background:var(--hover); }
+.companion-tab { display:flex; gap:5px; align-items:center; min-width:0; border-bottom:0; }
+.companion-tab > span:last-child { overflow:hidden; text-overflow:ellipsis; }
+.companion-tab .code { width:17px; height:17px; min-width:17px; padding:1px; }
+.companion-tab .code svg { width:15px; height:15px; }
+.companion-close,.source-remove { border:0; background:transparent; color:var(--muted); padding:5px 7px; cursor:pointer; font:inherit; flex:none; }
+.companion-close:hover,.source-remove:hover { color:var(--ink); background:var(--hover); }
+.session-sources { display:flex; flex:none; gap:6px; overflow-x:auto; padding:7px 10px; min-width:0; max-width:100%; }
+.source-chip { display:flex; align-items:center; flex:none; max-width:280px; border:1px solid var(--dash); background:var(--field); border-radius:2px; color:var(--ink); }
+.source-inspect { display:flex; gap:5px; align-items:center; min-width:0; padding:5px 6px; border:0; color:inherit; background:transparent; font:inherit; font-size:11px; cursor:pointer; }
+.source-inspect > span { max-width:115px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.source-inspect small { font-size:10px; white-space:nowrap; color:var(--muted); }
+.source-inspect svg { width:13px; height:13px; flex:none; }
+.source-chip:focus-within { border-color:var(--green); }
+body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; }

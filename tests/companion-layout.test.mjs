@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitAfter, focusSplit } from '../src/renderer/desk-view.mjs';
+import { splitAfter, focusSplit, orphan } from '../src/renderer/desk-view.mjs';
 
 const panels = [{ id:'a',kind:'claude' }, { id:'b',kind:'run',companionOf:'a' }, { id:'web',kind:'browser',owner:'a' }];
 test('companion session occupies right pane without replacing source', () => {
@@ -14,4 +14,11 @@ test('same pane focus keeps expanded state; explicit opposite pane reveals it', 
   assert.equal(focusSplit(state,'a','agent').full,'agent');
   assert.equal(focusSplit(state,'web','agent').full,null);
   assert.equal(focusSplit(state,'web','files').full,'files');
+});
+test('closing source leaves its companion independently navigable', () => {
+  const remaining=panels.filter(p=>p.id!=='a').map(p=>({...p}));
+  orphan(remaining,'a');
+  assert.equal(remaining.find(p=>p.id==='b').companionOf,undefined);
+  const next=focusSplit({panels:remaining,sessionId:null,fileId:'web'},'b');
+  assert.equal(next.split.sessionId,'b');
 });

@@ -41,7 +41,7 @@ export function createBrowserOverlays({ api }) {
     else if(event.type==='submit') node.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
     else if(event.type==='focus') node.dispatchEvent(new FocusEvent('focusin',{bubbles:true}));
     else if (event.type === 'input' || event.type === 'change') { if ('value' in node) node.value = event.value; if (node.type === 'checkbox') node.checked = event.checked; node.dispatchEvent(new Event(event.type, { bubbles: true })); }
-    else if (event.type === 'keydown') node.dispatchEvent(new KeyboardEvent('keydown', { key: event.key, shiftKey: event.shiftKey, bubbles: true, cancelable: true }));
+    else if (event.type === 'keydown') node.dispatchEvent(new KeyboardEvent('keydown', { key: event.key, shiftKey: event.shiftKey, isComposing: event.isComposing, keyCode: event.keyCode, bubbles: true, cancelable: true }));
   });
   return { sync };
 }
