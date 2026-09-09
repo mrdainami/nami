@@ -10,10 +10,11 @@ app.setPath('userData', profile);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn) { for (let i = 0; i < 100; i++) { const value = await fn(); if (value) return value; await pause(40); } throw new Error('Annotation condition timed out'); }
 app.whenReady().then(async () => {
-  const selections = [], layouts = [], captures = [];
+  const selections = [], layouts = [], captures = [], textSelections = [];
   let win, server;
   try {
     ipcMain.on('browser:selection', (_event, value) => selections.push(value));
+    ipcMain.on('browser:text-selection', (_event, value) => textSelections.push(value));
     ipcMain.on('browser:annotation-layout', (_event, value) => layouts.push(value));
     ipcMain.on('browser:annotation-capture-ready', (_event, value) => captures.push(value));
     server = http.createServer((_req, res) => { res.end('<!doctype html><style>body{font:20px sans-serif;padding:30px}button{display:block;margin:30px 0}#text{width:400px}</style><div id="text">Select these words for feedback.</div><button id="button" onclick="this.textContent=\'Clicked\'">Original button</button><div style="height:1500px"></div>'); });
@@ -57,6 +58,24 @@ app.whenReady().then(async () => {
     await until(() => layouts.some((l) => l.selections.some((s) => s.selectionId === selections[0].selectionId && s.rect?.y < rect.y)));
     await evalPage('document.querySelector("button").textContent="Changed externally"');
     await until(() => layouts.some((l) => l.selections.some((s) => s.selectionId === selections[0].selectionId && s.stale)));
+    // Ordinary text selection is also a real tracked range, suitable for the
+    // bottom selection action and the native context-menu entry point.
+    wc.send('browser:annotate-mode', false);
+    await evalPage('window.scrollTo(0,0);window.getSelection().removeAllRanges()'); await pause(50);
+    const normal = await evalPage('JSON.stringify(document.querySelector("#text").getBoundingClientRect())').then(JSON.parse);
+    wc.sendInputEvent({type:'mouseDown',x:Math.round(normal.x+1),y:Math.round(normal.y+10),button:'left',clickCount:1});
+    for(let x=normal.x+10;x<normal.x+190;x+=10)wc.sendInputEvent({type:'mouseMove',x:Math.round(x),y:Math.round(normal.y+10),button:'left'});
+    wc.sendInputEvent({type:'mouseUp',x:Math.round(normal.x+190),y:Math.round(normal.y+10),button:'left',clickCount:1});
+    await until(()=>textSelections.length>0);
+    const plain=textSelections.at(-1);assert.ok(plain.selectionId);assert.ok(plain.documentId);assert.equal(plain.kind,'text');
+    wc.send('browser:annotation-capture',{requestId:'normal-selection',documentId:plain.documentId,selectionId:plain.selectionId});
+    await until(()=>captures.some(value=>value.requestId==='normal-selection'));
+    const captured=captures.find(value=>value.requestId==='normal-selection');
+    assert.equal(captured.selection.stale,false);assert.ok(captured.selection.rect.width>0);
+    wc.send('browser:annotation-capture-end',{requestId:'normal-selection'});
+    wc.send('browser:selection-request');
+    await until(()=>selections.length===4);
+    assert.equal(selections.at(-1).kind,'text');assert.ok(selections.at(-1).selectionId);
     assert.equal(await evalPage('document.querySelectorAll(".browser-annotation-bubble,.browser-annotation-pin,textarea").length'), 0);
     console.log('PASS: real Electron component/text/region selection, scroll, stale mutations, no click-through, no private page UI.');
   } catch (error) { console.error(error); process.exitCode = 1; }

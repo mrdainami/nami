@@ -44,14 +44,14 @@ function layout(hover) {
   ipcRenderer.send('browser:annotation-layout', { documentId, viewport: viewport(), selections: [...tracked.values()].map(geometry), ...(hover ? { hover } : {}) });
 }
 function schedule() { if (!frame) frame = requestAnimationFrame(() => { frame = 0; layout(); }); }
-function select(el, range, rect) {
+function select(el, range, rect, channel = 'browser:selection') {
   const kind = rect ? 'region' : range ? 'text' : 'component';
   const selectionId = documentId + ':' + (++sequence);
   const text = kind === 'text' ? range.toString().slice(0, 16000) : kind === 'region' ? '' : textOf(el);
   const item = { selectionId, kind, el, range, text, ...(rect ? { rect: { ...rect, x: rect.x + scrollX, y: rect.y + scrollY } } : {}) };
   tracked.set(selectionId, item);
   if (tracked.size > 200) tracked.delete(tracked.keys().next().value);
-  ipcRenderer.send('browser:selection', { ...geometry(item), documentId, kind, viewport: viewport(), text,
+  ipcRenderer.send(channel, { ...geometry(item), documentId, kind, viewport: viewport(), text,
     locator: kind === 'region' ? '' : locator(el), label: kind === 'region' ? 'Visual region' : kind === 'text' ? 'Selected text' : el?.tagName?.toLowerCase() || 'Page component', title: document.title });
   active = false; pointer = null; updateCursor(); schedule();
 }
@@ -74,6 +74,14 @@ ipcRenderer.on('browser:annotation-capture-end', (_e, value) => {
   if (value?.requestId !== captureId) return;
   captureId = null; updateCursor(); schedule();
 });
+function selectedText(channel = 'browser:selection') {
+  const selected = window.getSelection();
+  if (!selected?.toString().trim() || !selected.rangeCount) return;
+  const range = selected.getRangeAt(0).cloneRange(), node = range.commonAncestorContainer;
+  if (channel === 'browser:selection') showAnnotations = true;
+  select(node.nodeType === 1 ? node : node.parentElement, range, null, channel);
+}
+ipcRenderer.on('browser:selection-request', () => selectedText());
 ipcRenderer.on('browser:annotation-track', (_e, value) => {
   for (const id of Array.isArray(value?.remove) ? value.remove.slice(0, 200) : []) tracked.delete(id);
   schedule();
@@ -122,8 +130,7 @@ window.addEventListener('click', (event) => {
 window.addEventListener('mousedown', (event) => { if (active) { event.stopImmediatePropagation(); if (mode !== 'text') event.preventDefault(); } }, true);
 window.addEventListener('mouseup', (event) => {
   if (active || pointer || suppressClick) { event.stopImmediatePropagation(); return; }
-  const selected = window.getSelection();
-  if (selected?.toString().trim()) ipcRenderer.send('browser:text-selection', { text: selected.toString().slice(0, 16000), label: 'Selected text', documentId, viewport: viewport(), rect: selected.rangeCount ? rectangle(selected.getRangeAt(0).getBoundingClientRect()) : null });
+  selectedText('browser:text-selection');
 }, true);
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && showAnnotations) { event.preventDefault(); event.stopImmediatePropagation(); active = false; showAnnotations = false; pointer = null; suppressClick = false; updateCursor(); schedule(); ipcRenderer.send('browser:annotation-end'); }
