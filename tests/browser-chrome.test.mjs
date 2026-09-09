@@ -55,7 +55,17 @@ test('quiet new-tab page is blank, not a product tour', () => {
   assert.match(views, /browser-welcome\.html/);
   assert.match(views, /loadFile\(WELCOME\)/);
   assert.match(views, /setBackgroundColor\(dark \? '#1f1f1f' : '#fffdf6'\)/);
-  assert.match(views, /insertCSS\('html\{color-scheme:only dark\}/);
+  assert.match(views, /function paintBlank/);
+  assert.match(views, /browserNewTab/);
+  assert.match(views, /namiThemeIsDark/);
+  assert.doesNotMatch(views, /Quit Chrome completely and try again/);
+  assert.match(views, /Allow Keychain access/);
+  assert.match(css, /\.browser-profile-result:empty/);
+  assert.match(css, /\.browser-profile-result[^{]*\{[^}]*padding-top:\s*12px/);
+  assert.match(css, /\.browser-check[^{]*\{[^}]*grid-template-columns:\s*16px/);
+  assert.match(pane, /<span>Site data and sign-ins<\/span>/);
+  assert.match(pane, /Allow Keychain access if macOS asks/);
+  assert.doesNotMatch(pane, /Quit Chrome first/);
   assert.match(pane, /p\.url && p\.url !== 'about:blank'/);
 });
 
@@ -94,6 +104,10 @@ test('Settings → Browser is compact controls for download, popups, camera/mic 
     profiles: [{ id: 'default', name: 'Personal', downloadMode: 'ask', popupMode: 'block', permissions: { 'https://meet.example': { media: 'asked' } } }],
     cookieImport: { decrypt: 'unavailable', message: 'Chrome’s cookie encryption could not be copied. Import a password CSV instead.' },
   }, { onProfiles: true, onImport: true, onClear: true, onImportCookies: true });
+  assert.match(html, /id="browser-blank-light"/);
+  assert.match(html, /id="browser-blank-dark"/);
+  assert.match(html, /id="browser-blank-system"/);
+  assert.match(html, /System follows Nami/);
   assert.match(html, /id="browser-download-ask"/);
   assert.match(html, /id="browser-download-auto"/);
   assert.match(html, /id="browser-popups-block"/);

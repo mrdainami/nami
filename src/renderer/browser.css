@@ -16,9 +16,10 @@
 .browser-foot { flex: none; padding: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .browser-foot button { border: 0; background: transparent; font: inherit; font-size: 11px; color: var(--muted); padding: 3px 0; cursor: pointer; }
 .browser-foot button:hover { color: var(--ink); }
-.browser-check { display: flex !important; align-items: center; gap: 10px; padding: 10px 0; font-size: 12px; border-bottom: 1px solid var(--dash); }
-.browser-check input { width: 15px !important; height: 15px; flex: none; accent-color: var(--green); }
-.browser-check span { min-width: 0; overflow-wrap: anywhere; }
+.browser-check { display: grid !important; grid-template-columns: 16px minmax(0, 1fr); align-items: start; column-gap: 10px; padding: 12px 0 14px; font-size: 12px; border-bottom: 1px solid var(--dash); }
+.browser-check input { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; margin: 2px 0 0; position: static; flex: none; border: 1px solid var(--dash); background: var(--field); border-radius: 2px; accent-color: var(--green); }
+.browser-check input:checked { background: var(--green); border-color: var(--green); }
+.browser-check span { min-width: 0; overflow-wrap: anywhere; padding-top: 1px; }
 .browser-check small, .browser-settings-session small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
 .browser-peers { margin-top: 16px; font-size: 12px; }
 .browser-client-commands { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -53,10 +54,19 @@ body[data-glass] .companion-tab, body[data-soft] .companion-tab { border-radius:
 .browser-find { display:flex; gap:6px; padding:5px 0; flex:none; }
 .browser-find input { flex:1; min-width:0; font:inherit; font-size:12px; color:var(--ink); background:var(--field); border:1px solid var(--field-line); }
 .browser-profile-body { font-size:12px; }
-.browser-profile-body .note { font:inherit; font-size:12px; line-height:1.5; color:var(--muted); }
+.browser-profile-body .field-label { display:block; margin:0 0 8px; }
+.browser-profile-body .note { font:inherit; font-size:12px; line-height:1.5; color:var(--muted); margin:10px 0 14px; }
 .browser-profile-body details { margin-top:18px; }
-.browser-profile-body summary { cursor:pointer; padding:6px 0; }
-.browser-profile-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.browser-profile-body summary { cursor:pointer; padding:8px 0; }
+.browser-profile-body details[open] > summary { margin-bottom:8px; }
+.browser-profile-body .browser-check { display:grid !important; grid-template-columns:16px minmax(0,1fr); align-items:start; column-gap:10px; padding:12px 0 14px; margin:0; border-bottom:1px solid var(--dash); }
+.browser-profile-body .browser-check input { appearance:none; -webkit-appearance:none; width:14px; height:14px; margin:2px 0 0; position:static; flex:none; }
+.browser-profile-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 0; }
+.browser-profile-actions + .browser-profile-actions { margin-top:8px; }
+.browser-profile-actions .btn { margin:0; white-space:nowrap; }
+.browser-profile-clear { margin:12px 0 4px; }
+.browser-profile-result:empty { display:none; }
+.browser-profile-result { margin-top:16px; padding-top:12px; border-top:1px solid var(--dash); line-height:1.55; }
 .browser-profile-confirm { margin-top:12px; padding:10px; border:1px solid var(--dash); }
 .browser-credential { display:flex; align-items:center; gap:8px; padding:10px 0; }
 .browser-credential span { flex:1; min-width:0; overflow-wrap:anywhere; }
