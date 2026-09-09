@@ -34,9 +34,29 @@ export function createSessionContextRecorder({ identity = '', maxChars = 48000, 
     endTurn() { if (entries.length) entries.at(-1).closed = true; },
     identify(nextIdentity) { identity = String(nextIdentity); updatedAt = now(); version++; },
     reset(nextIdentity = '') { identity = String(nextIdentity); entries = []; truncated = false; updatedAt = now(); version++; },
-    snapshot() { return { identity, kind: 'chat', content: entries.map(entry => entry.role + ':\n' + entry.text).join('\n\n'), truncated, incomplete: true, updatedAt, version }; }
+    snapshot() { return pack(identity, entries, truncated, updatedAt, version); },
+    brief({ maxChars = 4000, maxEntries = 12 } = {}) {
+      maxEntries = bounds(maxEntries, 12, 1, 40);
+      const slice = entries.slice(-maxEntries);
+      return takeBrief(pack(identity, slice, truncated || slice.length < entries.length, updatedAt, version), { maxChars });
+    }
   };
 }
+function pack(identity, entries, truncated, updatedAt, version) {
+  return { identity, kind: 'chat', content: entries.map(entry => entry.role + ':\n' + entry.text).join('\n\n'), truncated, incomplete: true, updatedAt, version };
+}
+function takeBrief(snapshot = {}, { maxChars = 4000 } = {}) {
+  maxChars = bounds(maxChars, 4000, 80, 20000);
+  const kind = snapshot.kind === 'terminal' ? 'terminal' : 'chat';
+  const content = String(snapshot.content || '');
+  const clipped = content.length > maxChars;
+  return {
+    identity: snapshot.identity || '', kind, content: clipped ? content.slice(-maxChars) : content,
+    truncated: !!(snapshot.truncated || clipped), incomplete: true, updatedAt: snapshot.updatedAt, version: snapshot.version,
+    label: snapshot.label || (kind === 'terminal' ? 'Terminal snapshot · available scrollback only' : 'Visible chat')
+  };
+}
+export function brief(snapshot, opts) { return takeBrief(snapshot, opts); }
 export function terminalSnapshot(term, { maxChars = 48000, maxLines = 6000, now = Date.now } = {}) {
   maxChars = bounds(maxChars, 48000, 100, 200000); maxLines = bounds(maxLines, 6000, 1, 6000);
   const buffer = term?.buffer?.active;
