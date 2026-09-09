@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('dainami', {
   readFile: (file) => ipcRenderer.invoke('file:read', file),
   listDir: (dir, all) => ipcRenderer.invoke('dir:list', { dir, all: !!all }),
   rawFile: (file) => ipcRenderer.invoke('file:raw', file),
+  // Answers { ok, hash } — the hash of the bytes just written, which the
+  // panel keeps so the watcher event this save is about to cause is
+  // recognised as its own and dropped.
   saveFile: (args) => ipcRenderer.invoke('file:save', args),
   statPath: (args) => ipcRenderer.invoke('path:stat', args),
   revealFile: (file) => ipcRenderer.invoke('file:reveal', file),
@@ -119,6 +122,8 @@ contextBridge.exposeInMainWorld('dainami', {
   // The tree declares every folder it can see; main diffs that against the
   // watchers it has open and reports back { watching, overflow, failed }.
   dirWatch: (root) => ipcRenderer.invoke('dir:watch', { root }),
+  // { dir, files } — files is the absolute paths that moved, or null when the
+  // platform would not say. Same shape as before, one field wider.
   onDirChanged: (cb) => { const h = (_e, ev) => cb(ev); ipcRenderer.on('dir:changed', h); return () => ipcRenderer.removeListener('dir:changed', h); },
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
