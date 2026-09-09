@@ -152,3 +152,14 @@ test('each browser is asked for its own Keychain key, never Chrome\'s', () => {
     assert.equal(chromeKeychainPassword(channel, spy), 'key-for-Chrome');
   }
 });
+
+test('a permission denial is not a lock, so it never says to quit the browser', () => {
+  // EACCES is a sandbox or TCC denial. Quitting the browser cannot fix one, and
+  // saying so is the same wrong advice this change exists to remove.
+  const denied = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+  const busy = Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' });
+  assert.equal(readFailure(denied).locked, false);
+  assert.match(readFailure(denied).error, /permission denied/);
+  assert.equal(readFailure(busy).locked, true);
+  assert.equal(readFailure(new Error('database is locked')).locked, true);
+});

@@ -181,8 +181,11 @@ function readSqliteRows(file, sql) {
 function isLockError(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || '');
-  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
-    || /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(code + ' ' + message);
+  // EACCES and EPERM are deliberately absent. They mean the file cannot be read
+  // at all — a sandbox or TCC denial — and telling someone to quit their
+  // browser over one is the same wrong advice this whole change removes. They
+  // carry their own message instead. A Windows sharing violation is EBUSY.
+  return code === 'EBUSY' || /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(code + ' ' + message);
 }
 function readFailure(error) {
   return { locked: isLockError(error), error: String(error?.message || error || 'Could not read the file.') };
