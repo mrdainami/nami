@@ -56,22 +56,17 @@ function quietCard(row) {
 function unavailableBlock(rows) {
   if (!rows.length) return '';
   const label = rows.length === 1
-    ? `${rows[0].providerName || rows[0].name} has no quota on this Mac yet`
-    : `${rows.length} CLIs have no quota on this Mac yet`;
+    ? (rows[0].detail || `Sign in with ${rows[0].providerName || rows[0].name}`)
+    : `${rows.length} CLIs have nothing to show yet`;
   return `<details class="usage-unavailable"><summary>${esc(label)}</summary>${rows.map(quietCard).join('')}</details>`;
 }
 
 export function usageContent(result = {}) {
   const { groups, unavailable } = groupUsage(result.accounts);
-  return `<div class="usage-tools"><p class="bs-note">Reported allowance by installed CLI. Limits may be shared across models.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
+  return `<div class="usage-tools"><p class="bs-note">Allowance from CLIs installed on this Mac.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
     ${groups.map(cardHtml).join('')}
     ${unavailableBlock(unavailable)}
-    ${!groups.length && !unavailable.length ? '<p class="bs-note">No installed CLI reported a quota window.</p>' : ''}
-    <details class="bs-details usage-advanced" id="usage-advanced"><summary>Advanced</summary>
-      <p class="bs-note">Optional adapter for providers that do not keep a local quota on this Mac. Nami does not estimate remaining allowance from token counts.</p>
-      ${result.claudeCommand ? '<div class="bs-section"><h3 class="field-label">Claude status line</h3><p class="bs-note">Eligible plans can still report limits through Claude’s status line after an API response.</p><button class="btn btn--small" id="usage-copy-claude">Copy status-line command</button></div>' : ''}
-      ${result.feedDirectory ? `<div class="bs-section"><h3 class="field-label">JSON feed</h3><p class="bs-note">Write one JSON feed per account and refresh it within five minutes.</p><pre>${esc(result.feedDirectory)}/my-provider.json</pre><button class="btn btn--small" id="usage-copy-format">Copy feed format</button></div>` : ''}
-    </details>`;
+    ${!groups.length && !unavailable.length ? '<p class="bs-note">No coding CLI is installed yet.</p>' : ''}`;
 }
 
 export function usagePaneHtml() {
@@ -90,15 +85,7 @@ export async function wireUsagePane(modal, { api, toast }) {
     if (result?.error) throw new Error(result.error);
     if (!current()) return;
     host.innerHTML = usageContent(result);
-    const copy = async (text, message = 'Copied.') => {
-      try { const result = await api.copyText(text); if (result?.error) throw new Error(result.error); toast(message); }
-      catch (_) { toast('Could not copy. Try again.'); }
-    };
     host.querySelector('#usage-refresh').onclick = () => wireUsagePane(modal, { api, toast });
-    const claude = host.querySelector('#usage-copy-claude');
-    if (claude) claude.onclick = () => copy(result.claudeCommand);
-    const format = host.querySelector('#usage-copy-format');
-    if (format) format.onclick = () => copy(JSON.stringify({ name: 'My provider', source: 'Provider quota API', at: Date.now(), windows: [{ label: 'Weekly', remainingPercent: null, resetsAt: null }] }, null, 2), 'Copied. Use reported percentages and timestamps in milliseconds.');
   } catch (_) {
     if (!current()) return;
     host.innerHTML = '<p class="bs-note" role="alert">Could not read usage.</p><button class="btn btn--small">Retry</button>';

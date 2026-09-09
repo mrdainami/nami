@@ -71,17 +71,10 @@ test('a provider card collapses to the tightest window and expands for the rest'
 
 test('default usage screen has no status-line or JSON-feed homework', () => {
   const html = usageContent({
-    accounts: [{ id: 'grok', name: 'Grok', providerId: 'grok', providerName: 'Grok', status: 'unavailable', remaining: null, detail: 'No quota on this Mac yet' }],
-    claudeCommand: 'ELECTRON_RUN_AS_NODE=1 node usage-statusline.js /tmp/usage',
-    feedDirectory: '/tmp/usage',
+    accounts: [{ id: 'grok', name: 'Grok', providerId: 'grok', providerName: 'Grok', status: 'unavailable', remaining: null, detail: 'Sign in with Grok' }],
   });
-  const def = html.split('id="usage-advanced"')[0];
-  assert.match(def, /no quota on this Mac yet/i);
-  assert.match(def, /class="usage-unavailable"/);
-  assert.doesNotMatch(def, /Copy feed format|Copy status-line command|status-line|my-provider\.json|Connect the Claude/i);
-  assert.match(html, /id="usage-advanced"/);
-  assert.doesNotMatch(html, /id="usage-advanced"[^>]*\sopen/);
-  assert.match(html, /Copy feed format/);
+  assert.match(html, /sign in with grok/i);
+  assert.doesNotMatch(html, /Copy feed format|Copy status-line command|status-line|my-provider\.json|usage-advanced|Connect the Claude/i);
 });
 
 test('empty CLI cards collapse behind one closed line instead of filling the pane', () => {
@@ -95,17 +88,14 @@ test('empty CLI cards collapse behind one closed line instead of filling the pan
   const closed = html.match(/<details class="usage-unavailable">[\s\S]*?<\/details>/);
   assert.ok(closed);
   assert.doesNotMatch(closed[0], /\sopen/);
-  assert.match(closed[0], /2 CLIs have no quota on this Mac yet/);
+  assert.match(closed[0], /2 CLIs have nothing to show yet/);
   assert.match(html.slice(0, html.indexOf('usage-unavailable')), /Codex/);
 });
 
-test('browser settings distinguish configured permission from connection and escape profiles', () => {
-  const html = browserSettingsContent({ enabled: true, sessions: [{ id: 's', title: 'Codex', views: ['v'], peers: [] }], profiles: [{ id: 'p', name: '<private>', active: true }] }, { onProfiles() {} });
+test('browser settings lead with downloads and import, with no agent-access sheet', () => {
+  const html = browserSettingsContent({ enabled: true, sessions: [{ id: 's', title: 'Codex', views: ['v'], peers: [] }], profiles: [{ id: 'p', name: '<private>', active: true }] }, { onProfiles() {}, onImportCookies() {} });
   assert.match(html, /id="browser-download-heading"/);
-  assert.match(html, /id="browser-agent-details"/);
-  assert.doesNotMatch(html.split('id="browser-agent-details"')[0], /Agent browser access/);
-  assert.match(html, /Access configured/);
-  assert.match(html, /does not confirm that a client is connected/);
+  assert.match(html, /Import from Chrome/);
   assert.match(html, /&lt;private&gt;/);
-  assert.doesNotMatch(html, /data-browser-settings="import"/);
+  assert.doesNotMatch(html, /Agent browser access|Access configured|browser-agent-details|Enable local browser/);
 });

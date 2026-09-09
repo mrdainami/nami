@@ -24,8 +24,18 @@ function readJson(file) {
     return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
   } catch (_) { return null; }
 }
-function unavailable(agent) {
-  return [{ id: agent.id, name: agent.name, providerId: agent.id, providerName: agent.name, status: 'unavailable', remaining: null, detail: 'No quota on this Mac yet' }];
+function unavailable(agent, detail) {
+  return [{ id: agent.id, name: agent.name, providerId: agent.id, providerName: agent.name, status: 'unavailable', remaining: null, detail: detail || ('Sign in with ' + (agent.name || agent.id)) }];
+}
+function readJsonFile(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+async function httpJson(url, opts = {}, fetchFn) {
+  const fn = fetchFn || globalThis.fetch;
+  if (!fn) return null;
+  const res = await fn(url, { ...opts, signal: opts.signal || AbortSignal.timeout(8000) });
+  if (!res || !res.ok) return null;
+  return res.json();
 }
 function claudeWindowLabel(key) {
   if (key === 'five_hour') return '5 hours';
@@ -159,25 +169,119 @@ function queryCodex(command, envPath, spawnFn = spawn) {
     send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'nami-usage', version: '1.0.0' }, capabilities: {} } });
   });
 }
-async function readUsage({ agents, directory, envPath, home, now, spawnFn }) {
+function claudeToken(home) {
+  for (const file of [path.join(home, '.claude', '.credentials.json'), path.join(home, '.claude.json'), path.join(home, '.claude', 'credentials.json')]) {
+    const data = readJsonFile(file);
+    const token = data?.claudeAiOauth?.accessToken || data?.accessToken;
+    if (typeof token === 'string' && token) return token;
+  }
+  return null;
+}
+function claudeOauthUsage(data, now) {
+  const utilization = {};
+  for (const key of ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'spend_limit']) {
+    const w = data?.[key];
+    if (!w || typeof w !== 'object') continue;
+    utilization[key] = { utilization: w.used_percentage ?? w.utilization ?? w.usedPercent, resets_at: w.resets_at ?? w.resetsAt };
+  }
+  return claudeUsage({ cachedUsageUtilization: { utilization, fetchedAtMs: now } }, now);
+}
+async function fetchClaudeAccount(home, now, fetchFn) {
+  const token = claudeToken(home);
+  if (!token) return [];
+  const data = await httpJson('https://api.anthropic.com/api/oauth/usage', {
+    headers: { Authorization: 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20' },
+  }, fetchFn);
+  return data ? claudeOauthUsage(data, now) : [];
+}
+function grokSession(home) {
+  const j = readJsonFile(path.join(home, '.grok', 'auth.json'));
+  if (!j || typeof j !== 'object') return null;
+  const entries = Object.values(j).filter((v) => v && typeof v === 'object');
+  if (!entries.length) return null;
+  return entries.slice().sort((a, b) => (Date.parse(b.create_time) || 0) - (Date.parse(a.create_time) || 0))[0];
+}
+function grokUsage(data, now, agent) {
+  const used = typeof data?.creditUsagePercent === 'number' ? data.creditUsagePercent
+    : typeof data?.usagePercent === 'number' ? data.usagePercent
+    : typeof data?.used_percent === 'number' ? data.used_percent : null;
+  const left = percentage(used);
+  if (left === null) return [];
+  return [{ id: 'grok:credits', name: agent.name, remaining: Math.round(left * 10) / 10, providerId: 'grok', providerName: agent.name,
+    accountId: 'grok:account', accountName: agent.name, windowLabel: 'Credits', source: 'Grok', status: 'reported', checkedAt: now, detail: 'Reported by Grok' }];
+}
+async function fetchGrokAccount(home, now, agent, fetchFn) {
+  const session = grokSession(home);
+  const token = session && typeof session.key === 'string' ? session.key : null;
+  if (!token) return [];
+  const data = await httpJson('https://cli-chat-proxy.grok.com/v1/billing?format=credits', {
+    headers: { Authorization: 'Bearer ' + token, 'xai-grok-cli': '1' },
+  }, fetchFn);
+  return data ? grokUsage(data, now, agent) : [];
+}
+async function fetchKimiAccount(home, now, agent, fetchFn) {
+  const cred = readJsonFile(path.join(home, '.kimi-code', 'credentials', 'kimi-code.json'))
+    || readJsonFile(path.join(home, '.kimi-code', 'config.toml'));
+  const token = cred && typeof cred.access_token === 'string' ? cred.access_token : null;
+  if (!token) return [];
+  const data = await httpJson('https://api.kimi.com/coding/v1/usages', {
+    headers: { Authorization: 'Bearer ' + token },
+  }, fetchFn);
+  if (!data) return [];
+  const windows = Array.isArray(data.windows) ? data.windows : Array.isArray(data.usages) ? data.usages : [data];
+  return windows.flatMap((w, i) => {
+    const used = w.used_percentage ?? w.usedPercent ?? w.utilization;
+    const left = percentage(used); if (left === null) return [];
+    return [{ id: 'kimi:' + i, name: agent.name, remaining: Math.round(left * 10) / 10, providerId: 'kimi', providerName: agent.name,
+      accountId: 'kimi:account', windowLabel: String(w.label || w.name || 'Allowance'), source: 'Kimi', status: 'reported', checkedAt: now }];
+  });
+}
+async function fetchGeminiAccount(home, now, agent, fetchFn) {
+  const cred = readJsonFile(path.join(home, '.gemini', 'oauth_creds.json'))
+    || readJsonFile(path.join(home, '.gemini', 'google_accounts.json'));
+  const token = cred?.access_token || cred?.accessToken || cred?.token;
+  if (typeof token !== 'string' || !token) return [];
+  const data = await httpJson('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: '{}',
+  }, fetchFn);
+  return data ? geminiUsage(data, now, { id: agent.id, name: agent.name }) : [];
+}
+function signedInFile(home, rel) {
+  try { return fs.existsSync(path.join(home, ...rel.split('/'))); } catch { return false; }
+}
+async function rowsFor(agent, { home, directory, envPath, now, spawnFn, fetchFn }) {
+  if (agent.id === 'codex') return codexUsage(await queryCodex(agent.path, envPath, spawnFn || spawn), now);
+  if (agent.id === 'claude') {
+    const local = claudeRows(home, directory, now);
+    if (local.length) return local;
+    return fetchClaudeAccount(home, now, fetchFn);
+  }
+  if (agent.id === 'antigravity' || agent.id === 'gemini') {
+    const local = geminiRows(home, agent, now);
+    if (local.length) return local;
+    return fetchGeminiAccount(home, now, agent, fetchFn);
+  }
+  if (agent.id === 'grok') return fetchGrokAccount(home, now, agent, fetchFn);
+  if (agent.id === 'kimi') return fetchKimiAccount(home, now, agent, fetchFn);
+  return [];
+}
+function missingDetail(agent, home) {
+  if (agent.id === 'hermes') return signedInFile(home, '.hermes/auth.json') ? 'Hermes does not report a quota window.' : 'Sign in with Hermes';
+  if (agent.id === 'opencode') return signedInFile(home, '.local/share/opencode/auth.json') ? 'OpenCode does not report a quota window.' : 'Sign in with OpenCode';
+  return 'Sign in with ' + (agent.name || agent.id);
+}
+async function readUsage({ agents, directory, envPath, home, now, spawnFn, fetchFn }) {
   home = home || os.homedir();
   now = now ?? Date.now();
-  const accounts = [], feeds = new Map();
-  try {
-    for (const name of fs.readdirSync(directory).slice(0, 100)) if (/^[a-z0-9-]+\.json$/.test(name) && name !== 'claude.json') {
-      try { const file = path.join(directory, name); if (fs.statSync(file).size < 64000) feeds.set(name.slice(0, -5), customUsage(name.slice(0, -5), JSON.parse(fs.readFileSync(file, 'utf8')), now)); } catch (_) {}
-    }
-  } catch (_) {}
-  for (const agent of agents.filter((a) => a.found)) {
+  const accounts = [];
+  for (const agent of (agents || []).filter((a) => a.found)) {
     let rows = [];
-    if (agent.id === 'codex') rows = codexUsage(await queryCodex(agent.path, envPath, spawnFn || spawn), now);
-    if (agent.id === 'claude') rows = claudeRows(home, directory, now);
-    if (agent.id === 'antigravity' || agent.id === 'gemini') rows = geminiRows(home, agent, now);
-    if (!rows.length) rows = feeds.get(agent.id) || [];
-    feeds.delete(agent.id);
-    accounts.push(...(rows.length ? rows : unavailable(agent)));
+    try { rows = await rowsFor(agent, { home, directory, envPath, now, spawnFn, fetchFn }); }
+    catch (_) { rows = []; }
+    accounts.push(...(rows.length ? rows : unavailable(agent, missingDetail(agent, home))));
   }
-  for (const rows of feeds.values()) accounts.push(...rows);
   return { accounts };
 }
-module.exports = { codexUsage, feedUsage, customUsage, claudeUsage, geminiUsage, queryCodex, readUsage };
+module.exports = { codexUsage, feedUsage, customUsage, claudeUsage, geminiUsage, grokUsage, claudeOauthUsage, queryCodex, readUsage };

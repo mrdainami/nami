@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { codexUsage, feedUsage, customUsage, claudeUsage, geminiUsage, readUsage } = require('../src/main/usage.js');
+const { codexUsage, feedUsage, customUsage, claudeUsage, geminiUsage, grokUsage, claudeOauthUsage, readUsage } = require('../src/main/usage.js');
 
 function tmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -128,7 +128,21 @@ test('readUsage reports Gemini local quota from a fixture file', async () => {
   assert.equal(result.accounts[0].providerId, 'antigravity');
 });
 
-test('unavailable CLIs say no quota on this Mac yet and never invent 0', async () => {
+test('Claude oauth usage maps remaining from the live account endpoint', () => {
+  const rows = claudeOauthUsage({
+    five_hour: { used_percentage: 20, resets_at: '2030-01-01T00:00:00Z' },
+    seven_day: { used_percentage: 55, resets_at: '2030-01-08T00:00:00Z' },
+  }, Date.parse('2026-09-10T00:00:00Z'));
+  assert.deepEqual(rows.map((r) => r.remaining), [80, 45]);
+});
+
+test('Grok billing percent becomes remaining and never invents 0 from a missing body', () => {
+  const rows = grokUsage({ creditUsagePercent: 30 }, 1000, { name: 'Grok' });
+  assert.equal(rows[0].remaining, 70);
+  assert.equal(grokUsage({}, 1000, { name: 'Grok' }).length, 0);
+});
+
+test('unavailable CLIs ask to sign in and never invent 0', async () => {
   const home = tmpDir('nami-usage-empty-');
   const directory = tmpDir('nami-usage-feeds-');
   const result = await readUsage({
@@ -143,7 +157,7 @@ test('unavailable CLIs say no quota on this Mac yet and never invent 0', async (
   for (const row of result.accounts) {
     assert.equal(row.status, 'unavailable');
     assert.equal(row.remaining, null);
-    assert.match(row.detail, /no quota on this Mac yet/i);
+    assert.match(row.detail, /sign in with/i);
     assert.doesNotMatch(row.detail, /status-line|JSON|adapter|feed format|0%/i);
   }
 });
