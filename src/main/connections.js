@@ -31,6 +31,21 @@ function validServiceId(id) {
   return typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id);
 }
 
+// Per-session browser MCP (bearer URL). Not a catalog connection; never a
+// master key, never delivered into agent notebooks.
+function reservedServiceId(id) {
+  return id === 'nami-browser';
+}
+
+function publicMasters(masters) {
+  const out = {};
+  for (const id of Object.keys(masters || {})) {
+    if (reservedServiceId(id)) continue;
+    out[id] = masters[id];
+  }
+  return out;
+}
+
 function readJson(file, io) {
   if (!io.exists(file)) return null;
   try { return JSON.parse(io.read(file)); } catch (_) { return null; }
@@ -48,7 +63,7 @@ function readMaster({ scope, projectPath, homeDir, io = fsIo }) {
   const file = masterPath({ scope, projectPath, homeDir });
   if (!file) return {};
   const doc = readJson(file, io);
-  return (doc && doc.mcpServers) || {};
+  return publicMasters((doc && doc.mcpServers) || {});
 }
 
 // Keys ride inside entries — the same place every platform's own config keeps
@@ -64,10 +79,11 @@ function guardIgnore({ projectPath, io }) {
 }
 
 function upsertMaster({ scope, projectPath, homeDir, id, entry, io = fsIo }) {
+  if (reservedServiceId(id)) return { ok: false, error: 'Nami Browser is not a catalog connection.' };
   const file = masterPath({ scope, projectPath, homeDir });
   if (!file) return { ok: false, error: 'Open a folder first — a project connection lives in the project.' };
   const doc = readJson(file, io) || {};
-  doc.mcpServers = doc.mcpServers || {};
+  doc.mcpServers = publicMasters(doc.mcpServers || {});
   doc.mcpServers[id] = entry;
   writeJson(file, doc, io);
   if (scope === 'project') guardIgnore({ projectPath, io });
@@ -203,6 +219,7 @@ function notebookTargets({ scope, projectPath, homeDir }) {
 // One step per agent (json/block/manual), or one per entry (cli). Pure: the
 // executor that touches disk or spawns commands lives in connections-deliver.
 function deliveryPlan({ masters, scope, agentIds, projectPath, homeDir }) {
+  masters = publicMasters(masters);
   const targets = notebookTargets({ scope, projectPath, homeDir });
   const plan = [];
   for (const agent of agentIds) {
@@ -284,7 +301,7 @@ function coverage({ masters, notebooks }) {
 
 module.exports = {
   fsIo, masterPath, readMaster, upsertMaster, removeMaster,
-  validServiceId,
+  validServiceId, reservedServiceId, publicMasters,
   toOpencode, codexBlock, writeCodexBlock, presentInToml, presentInYaml,
   deliveryPlan, notebookTargets, readNotebooks, coverage,
   CODEX_START, CODEX_END,
