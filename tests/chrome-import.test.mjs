@@ -101,3 +101,28 @@ test('a read that fails reports why, and only a real lock says to quit Chrome', 
     assert.equal(logins.locked, false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('every Chromium browser on this platform is offered, not only Google Chrome', () => {
+  const home = tmpdir('chromium-home');
+  try {
+    const wanted = [
+      ['Library/Application Support/Google/Chrome', 'Chrome'],
+      ['Library/Application Support/Microsoft Edge', 'Edge'],
+      ['Library/Application Support/Chromium', 'Chromium'],
+      ['Library/Application Support/BraveSoftware/Brave-Browser', 'Brave'],
+      ['Library/Application Support/Arc/User Data', 'Arc'],
+      ['Library/Application Support/Vivaldi', 'Vivaldi'],
+      ['Library/Application Support/com.operasoftware.Opera', 'Opera'],
+    ];
+    for (const [rel] of wanted) {
+      const profile = path.join(home, rel, 'Default');
+      fs.mkdirSync(profile, { recursive: true });
+      fs.writeFileSync(path.join(profile, 'Cookies'), '');
+    }
+    const found = detectChromiumProfiles({ home, platform: 'darwin' });
+    const names = new Set(found.map((s) => s.browser));
+    for (const [, browser] of wanted) {
+      assert.ok(names.has(browser), 'no profile found for ' + browser);
+    }
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});

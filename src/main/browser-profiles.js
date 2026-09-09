@@ -72,18 +72,33 @@ function decryptChromeCookie(encrypted, key) {
   } catch { return null; }
 }
 function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
+  // Every browser here is Chromium underneath, which means one profile layout,
+  // one cookie schema and one reader. Listing only Google's own builds meant a
+  // Brave or Arc user was told no profile existed, when the same code would
+  // have read theirs unchanged.
   const roots = platform === 'darwin' ? [
     [path.join(home, 'Library/Application Support/Google/Chrome'), 'Chrome'],
     [path.join(home, 'Library/Application Support/Google/Chrome Beta'), 'Chrome Beta'],
     [path.join(home, 'Library/Application Support/Google/Chrome Canary'), 'Chrome Canary'],
     [path.join(home, 'Library/Application Support/Microsoft Edge'), 'Edge'],
     [path.join(home, 'Library/Application Support/Chromium'), 'Chromium'],
+    [path.join(home, 'Library/Application Support/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, 'Library/Application Support/Arc/User Data'), 'Arc'],
+    [path.join(home, 'Library/Application Support/Vivaldi'), 'Vivaldi'],
+    [path.join(home, 'Library/Application Support/com.operasoftware.Opera'), 'Opera'],
   ] : platform === 'win32' ? [
     [path.join(home, 'AppData/Local/Google/Chrome/User Data'), 'Chrome'],
     [path.join(home, 'AppData/Local/Microsoft/Edge/User Data'), 'Edge'],
+    [path.join(home, 'AppData/Local/BraveSoftware/Brave-Browser/User Data'), 'Brave'],
+    [path.join(home, 'AppData/Local/Vivaldi/User Data'), 'Vivaldi'],
+    [path.join(home, 'AppData/Roaming/Opera Software/Opera Stable'), 'Opera'],
   ] : [
     [path.join(home, '.config/google-chrome'), 'Chrome'],
     [path.join(home, '.config/microsoft-edge'), 'Edge'],
+    [path.join(home, '.config/chromium'), 'Chromium'],
+    [path.join(home, '.config/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, '.config/vivaldi'), 'Vivaldi'],
+    [path.join(home, '.config/opera'), 'Opera'],
   ];
   const found = [];
   for (const [root, browser] of roots) {
