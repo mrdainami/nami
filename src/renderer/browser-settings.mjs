@@ -22,7 +22,15 @@ export function browserSettingsContent(status, actions = {}) {
   const download = profile.downloadMode === 'auto' ? 'auto' : 'ask';
   const popup = profile.popupMode === 'oauth' ? 'oauth' : 'block';
   const sites = permissionRows(profiles);
-  return `<section class="bs-section" aria-labelledby="browser-download-heading">
+  const blank = status.newTab === 'dark' || status.newTab === 'light' ? status.newTab : 'system';
+  return `<section class="bs-section" aria-labelledby="browser-blank-heading">
+    <h3 class="field-label" id="browser-blank-heading">New tab</h3>
+    <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-light" value="light"${blank === 'light' ? ' checked' : ''}><span>Light</span></label>
+    <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-dark" value="dark"${blank === 'dark' ? ' checked' : ''}><span>Dark</span></label>
+    <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-system" value="system"${blank === 'system' ? ' checked' : ''}><span>System</span></label>
+    <p class="bs-note">System follows Nami’s dark themes, otherwise the Mac.</p>
+  </section>
+  <section class="bs-section" aria-labelledby="browser-download-heading">
     <h3 class="field-label" id="browser-download-heading">Downloads</h3>
     <label class="bs-toggle"><input type="radio" name="browser-download" id="browser-download-ask" value="ask"${download === 'ask' ? ' checked' : ''}><span>Ask where to save</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-download" id="browser-download-auto" value="auto"${download === 'auto' ? ' checked' : ''}><span>Save to Downloads</span></label>
@@ -55,6 +63,7 @@ export async function wireBrowserSettings(modal, options) {
     if (profileResult?.profiles) status.profiles = profileResult.profiles.map((profile) => ({ ...profile, viewCount: (status.views || []).filter((view) => view.profileId === profile.id).length }));
     if (profileResult?.error) status.profileLoadError = true;
     if (profileResult?.capabilities?.cookieImport) status.cookieImport = profileResult.capabilities.cookieImport;
+    if (profileResult?.capabilities?.newTab) status.newTab = profileResult.capabilities.newTab;
     host.innerHTML = browserSettingsContent(status, options);
     const profileId = status.profiles?.[0]?.id;
     const configure = async (patch) => {
@@ -62,6 +71,14 @@ export async function wireBrowserSettings(modal, options) {
       const result = await api.browserProfiles({ action: 'configure', profileId, ...patch });
       if (result?.error) throw new Error(result.error);
     };
+    host.querySelectorAll('[name="browser-blank"]').forEach((input) => {
+      input.onchange = async () => {
+        try {
+          const result = await api.browserProfiles({ action: 'new-tab', value: input.value });
+          if (result?.error) throw new Error(result.error);
+        } catch (error) { onError(error.message || 'Could not change new tab.'); }
+      };
+    });
     host.querySelectorAll('[name="browser-download"]').forEach((input) => { input.onchange = async () => { try { await configure({ downloadMode: input.value }); } catch (error) { onError(error.message || 'Could not change downloads.'); } }; });
     host.querySelectorAll('[name="browser-popups"]').forEach((input) => { input.onchange = async () => { try { await configure({ popupMode: input.value }); } catch (error) { onError(error.message || 'Could not change popups.'); } }; });
     host.querySelectorAll('[data-browser-permission]').forEach((input) => {

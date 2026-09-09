@@ -4,6 +4,12 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { browserUrl, isBlankTab, cleanSelection, Access } = require('../src/main/browser-policy.js');
 
+test('Chrome cookie blobs report v10 vs v20 without inventing a value', () => {
+  const { chromeBlobPrefix, decryptChromeCookie } = require('../src/main/browser-profiles.js');
+  assert.equal(chromeBlobPrefix(Buffer.from('v20xxxx')), 'v20');
+  assert.equal(chromeBlobPrefix(Buffer.from('v10xxxx')), 'v10');
+  assert.equal(decryptChromeCookie(Buffer.from('v20not-a-cookie'), Buffer.alloc(16)), null);
+});
 test('blank tabs are about:blank or the cream welcome file, never other file URLs', () => {
   assert.equal(isBlankTab('about:blank'), true);
   assert.equal(isBlankTab('file:///Users/cal/nami/src/renderer/browser-welcome.html'), true);

@@ -111,6 +111,19 @@ test('Chromium profile detection uses an injected home and never the real Chrome
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('Chrome cookie files at Default/Cookies are found when Network/Cookies is missing', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-chrome-legacy-'));
+  try {
+    const cookies = path.join(home, 'Library/Application Support/Google/Chrome/Default/Cookies');
+    fs.mkdirSync(path.dirname(cookies), { recursive: true });
+    fs.writeFileSync(cookies, '');
+    fs.writeFileSync(path.join(home, 'Library/Application Support/Google/Chrome/Local State'), JSON.stringify({ profile: { info_cache: { Default: { name: 'Calvin' } } } }));
+    const found = detectChromiumProfiles({ home, platform: 'darwin' });
+    assert.equal(found.length, 1);
+    assert.equal(found[0].cookies, cookies);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('v10 cookie decrypt works on a fixture blob and refuses v20', () => {
   const key = deriveChromeKey('fixture-password');
   const iv = Buffer.alloc(16, ' ');

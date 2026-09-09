@@ -57,11 +57,15 @@ function chromeExpiryUnix(expiresUtc) {
 function deriveChromeKey(password) {
   return crypto.pbkdf2Sync(String(password), 'saltysalt', 1003, 16, 'sha1');
 }
+function chromeBlobPrefix(encrypted) {
+  if (!encrypted || encrypted.length < 3) return '';
+  const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
+  return buf.subarray(0, 3).toString();
+}
 function decryptChromeCookie(encrypted, key) {
   if (!encrypted || encrypted.length < 4) return null;
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
-  const prefix = buf.subarray(0, 3).toString();
-  if (prefix !== 'v10') return null;
+  if (chromeBlobPrefix(buf) !== 'v10') return null;
   try {
     const decipher = crypto.createDecipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
     return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]).toString('utf8');
@@ -100,17 +104,8 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
   return found;
 }
 function readChromeCookieRows(file) {
-  const { DatabaseSync } = require('node:sqlite');
-  const tmp = file + '.nami-read-' + process.pid;
-  fs.copyFileSync(file, tmp);
-  try {
-    const db = new DatabaseSync(tmp, { readOnly: true });
-    let rows;
-    try { rows = db.prepare('SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies').all(); }
-    catch { rows = db.prepare('SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly FROM cookies').all(); }
-    db.close();
-    return rows;
-  } finally { fs.rmSync(tmp, { force: true }); }
+  try { return readSqliteRows(file, 'SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies'); }
+  catch { return readSqliteRows(file, 'SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly FROM cookies'); }
 }
 function cookieImportStatus(options) {
   const sources = detectChromiumProfiles(options);
@@ -118,14 +113,25 @@ function cookieImportStatus(options) {
 }
 function readSqliteRows(file, sql) {
   const { DatabaseSync } = require('node:sqlite');
+  const open = (target) => {
+    const db = new DatabaseSync(target, { readOnly: true });
+    try { return db.prepare(sql).all(); } finally { db.close(); }
+  };
   const tmp = file + '.nami-read-' + process.pid;
-  fs.copyFileSync(file, tmp);
   try {
-    const db = new DatabaseSync(tmp, { readOnly: true });
-    const rows = db.prepare(sql).all();
-    db.close();
-    return rows;
-  } finally { fs.rmSync(tmp, { force: true }); }
+    fs.copyFileSync(file, tmp);
+    for (const extra of ['-wal', '-shm']) {
+      try { if (fs.existsSync(file + extra)) fs.copyFileSync(file + extra, tmp + extra); } catch {}
+    }
+    try { return open(tmp); }
+    finally {
+      fs.rmSync(tmp, { force: true });
+      fs.rmSync(tmp + '-wal', { force: true });
+      fs.rmSync(tmp + '-shm', { force: true });
+    }
+  } catch {
+    return open(file);
+  }
 }
 function chromeTimeToMs(value) {
   const n = Number(value);
@@ -164,20 +170,22 @@ function chromeKeychainPassword(browser, execFileSync) {
   if (typeof execFileSync !== 'function') return null;
   const edge = browser === 'Edge';
   try {
-    return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
+    return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
   } catch { return null; }
 }
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
-  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, decryptUnavailable = false;
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, locked = false, decryptUnavailable = false;
   for (const source of sources || []) {
     let rows = [];
     try { rows = readChromeCookieRows(source.cookies); }
-    catch { decryptUnavailable = true; continue; }
+    catch { locked = true; decryptUnavailable = true; continue; }
     const password = passwordFor ? passwordFor(source) : null;
     const key = password ? deriveChromeKey(password) : null;
     const ready = [];
     for (const row of rows) {
       if (!includeGoogle && isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
+      const prefix = chromeBlobPrefix(row.encrypted_value);
+      if (prefix === 'v20') { skippedV20++; skippedEncrypted++; continue; }
       const value = row.value || (key ? decryptChromeCookie(row.encrypted_value, key) : null);
       if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
       ready.push({ ...row, value });
@@ -195,7 +203,7 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
     }
   }
   log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
-  return { imported, skippedGoogle, skippedEncrypted, decryptUnavailable };
+  return { imported, skippedGoogle, skippedEncrypted, skippedV20, locked, decryptUnavailable };
 }
 function parsePasswordCsv(text) {
   if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
@@ -314,5 +322,5 @@ module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
-  readChromeLogins, readChromeHistory, chromeTimeToMs,
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix,
 };

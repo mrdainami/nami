@@ -8,11 +8,54 @@ const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require(
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
+function blankMode(settings) {
+  const mode = settings?.browserNewTab;
+  return mode === 'dark' || mode === 'light' ? mode : 'system';
+}
+function namiThemeIsDark(settings) {
+  const theme = settings?.theme || '';
+  return theme === 'operator' || theme === 'graphite' || theme === 'dusk';
+}
+function blankIsDark(mode, settings) {
+  if (mode === 'dark') return true;
+  if (mode === 'light') return false;
+  if (namiThemeIsDark(settings)) return true;
+  try { return require('electron').nativeTheme.shouldUseDarkColors; } catch { return false; }
+}
+async function paintBlank(wc, dark) {
+  if (!wc || wc.isDestroyed()) return;
+  const css = dark
+    ? 'html{color-scheme:only dark}html,body{background:#1f1f1f !important}'
+    : 'html{color-scheme:only light}html,body{background:#fffdf6 !important}';
+  await wc.insertCSS(css).catch(() => {});
+}
+
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   // Status is polled frequently. Never turn a UI refresh into filesystem or
   // macOS privacy access; only startup and an explicit toggle touch settings.
   let browserEnabled = !!readSettings().browserEnabled;
   const views = new Map(), access = new Access(), partitions = new Map();
+  function applyBlankAppearance(mode) {
+    const settings = readSettings();
+    const dark = blankIsDark(mode, settings);
+    for (const e of views.values()) {
+      const wc = e.view?.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      try {
+        if (!isBlankTab(wc.getURL())) continue;
+      } catch { continue; }
+      e.view.setBackgroundColor(dark ? '#1f1f1f' : '#fffdf6');
+      paintBlank(wc, dark);
+    }
+  }
+  try {
+    require('electron').nativeTheme.on('updated', () => {
+      if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
+    });
+  } catch {}
+  ipcMain.on('theme:applied', () => {
+    if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
+  });
   const profiles = createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
   const contexts = new (require('./browser-context').SessionContextStore)();
   const { AnnotationImageStore, captureRect } = require('./browser-images');
@@ -83,8 +126,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else url = args.userNavigation ? userBrowserUrl(args.url) || 'about:blank' : browserUrl(args.url || 'about:blank');
     const view = new WebContentsView({ webPreferences: { session: record.session, preload: path.join(__dirname, 'browser-preload.js'),
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
-    const theme = (readSettings().theme || 'paper');
-    const dark = theme === 'operator' || theme === 'graphite' || theme === 'dusk';
+    const settings = readSettings();
+    const dark = blankIsDark(blankMode(settings), settings);
     view.setBackgroundColor(dark ? '#1f1f1f' : '#fffdf6');
     const e = { id: args.id, identity: randomUUID(), owner: args.owner, profileId, pendingCount, record, window: w, view, filePath: args.filePath, localUrl: args.filePath ? url : null };
     views.set(e.id, e); w.contentView.addChildView(view); view.setVisible(false);
@@ -122,7 +165,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
     if (url === 'about:blank' && !args.filePath) {
       await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
-      if (dark) await wc.insertCSS('html{color-scheme:only dark}html,body{background:#1f1f1f !important}').catch(() => {});
+      await paintBlank(wc, dark);
     } else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
     return e;
   }
@@ -329,40 +372,49 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
           : 'Chrome’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. Chrome is unchanged.';
         return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
       });
+    } else if (action === 'new-tab') {
+      const mode = args.value === 'dark' || args.value === 'light' ? args.value : 'system';
+      writeSettings({ browserNewTab: mode });
+      applyBlankAppearance(mode);
+      output.newTab = mode;
     } else if (action === 'import-browser') {
       output = await mutateProfile(profileId, async () => {
         const sources = detectChromiumProfiles();
         const source = sources[Number(args.sourceIndex)] || sources[0];
-        if (!source) return { message: 'No Chrome or Edge profile was found. Quit Chrome and try again.' };
+        if (!source) return { message: 'No Chrome or Edge profile was found.' };
         const { execFileSync } = require('node:child_process');
         const password = chromeKeychainPassword(source.browser, execFileSync);
         const key = password ? deriveChromeKey(password) : null;
         const record = getPartition(w, profileId);
         const parts = [];
-        let cookies = { imported: 0, decryptUnavailable: false, skippedEncrypted: 0 };
+        let cookies = { imported: 0, skippedV20: 0, locked: false };
         if (args.cookies !== false && source.cookies) {
           cookies = await importChromiumCookies({ session: record.session, sources: [source], passwordFor: () => password, includeGoogle: true });
-          parts.push(cookies.imported ? cookies.imported + ' cookies' : 'no cookies');
+          if (cookies.locked) parts.push('cookies locked');
+          else if (cookies.imported) parts.push(cookies.imported + ' cookies');
+          else if (cookies.skippedV20) parts.push('cookies encrypted by Chrome');
+          else parts.push('no cookies');
         }
         let passwords = { imported: 0 };
         if (args.passwords !== false && source.logins) {
           const parsed = readChromeLogins(source.logins, key);
-          if (parsed.locked) parts.push('passwords locked (quit Chrome)');
+          if (parsed.locked) parts.push('passwords locked');
           else { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
         }
         let history = { imported: 0 };
         if (args.history !== false && source.history) {
           const parsed = readChromeHistory(source.history);
-          if (parsed.locked) parts.push('history locked (quit Chrome)');
+          if (parsed.locked) parts.push('history locked');
           else { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
         }
-        const extra = cookies.decryptUnavailable || (!key && (args.cookies !== false || args.passwords !== false))
-          ? ' Quit Chrome completely and try again.'
-          : '';
+        let extra = '';
+        if (parts.some((p) => /locked/.test(p))) extra = ' Quit Chrome from the menu bar (Chrome → Quit) and try again.';
+        else if (cookies.skippedV20) extra = ' Chrome encrypts cookies on this Mac, so those could not be copied.';
+        else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
         return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
       });
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true } };
+    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);

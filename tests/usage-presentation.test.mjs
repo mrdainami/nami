@@ -94,6 +94,7 @@ test('empty CLI cards collapse behind one closed line instead of filling the pan
 
 test('browser settings lead with downloads and import, with no agent-access sheet', () => {
   const html = browserSettingsContent({ enabled: true, sessions: [{ id: 's', title: 'Codex', views: ['v'], peers: [] }], profiles: [{ id: 'p', name: '<private>', active: true }] }, { onProfiles() {}, onImportCookies() {} });
+  assert.match(html, /id="browser-blank-heading"/);
   assert.match(html, /id="browser-download-heading"/);
   assert.match(html, /Import from Chrome/);
   assert.match(html, /&lt;private&gt;/);
