@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createSessionSources, browserChipLabel, formatBrowserSnapshot, browserInspectActions } from '../src/renderer/session-sources.mjs';
+import { createSessionSources, browserChipLabel, formatBrowserSnapshot } from '../src/renderer/session-sources.mjs';
 const require = createRequire(import.meta.url);
 const { SessionContextStore } = require('../src/main/browser-context');
 const { AnnotationImageStore, captureRect } = require('../src/main/browser-images');
@@ -130,15 +130,10 @@ test('page snapshot is title, URL, and bounded visible text', () => {
   assert.equal(formatBrowserSnapshot({ url: 'https://www.stripe.com/pay' }), 'Watching stripe.com (https://www.stripe.com/pay)');
 });
 
-test('browser inspect offers Send page now and hides JSON setup sheets', () => {
-  const labels = browserInspectActions({
-    source: { id: 'tab', title: 'Stripe', url: 'https://stripe.com/' },
-    access: null,
-    mcpUnsupported: true,
-  }).map(a => a.label);
-  assert.ok(labels.includes('Send page now'));
-  assert.ok(labels.some(l => /HTTP MCP unsupported/.test(l)));
-  assert.equal(labels.some(l => /Copy JSON|Copy Claude|Browser setup|mcpServers|Refresh into input/i.test(l)), false);
+test('browser chip is title and close, with no plumbing inspect menu', () => {
+  const src = fs.readFileSync(new URL('../src/renderer/session-sources.mjs', import.meta.url), 'utf8');
+  assert.match(src, /if \(type === 'browser'\) \{ focus\?\.\(source\.id\); return; \}/);
+  assert.doesNotMatch(src, /No successful browser access recorded|Send page now|browserInspectActions/);
 });
 
 function fakeEl(tag = 'div') {
@@ -185,7 +180,7 @@ function mountSources({ status, snapshot, capabilities, insert } = {}) {
   const root = fakeEl('div'), body = fakeEl('div');
   const rec = { root, body, acpCapabilities: capabilities ? () => capabilities : undefined };
   const tiles = new Map([['sess', rec]]);
-  const menus = [], inserted = [], toasts = [];
+  const menus = [], inserted = [], toasts = [], focused = [];
   globalThis.document = { createElement: fakeEl };
   globalThis.window = { addEventListener() {} };
   const api = {
@@ -201,41 +196,40 @@ function mountSources({ status, snapshot, capabilities, insert } = {}) {
     icon: () => '<svg></svg>', isSession: p => p.kind !== 'browser', menu: (_x, _y, items) => menus.push(items),
     toast: m => toasts.push(m), settings: () => { throw new Error('setup sheet must stay off the chip menu'); },
     publish: async () => ({ ok: true, source: { id: 'other', identity: 'c1' } }), insert: async (id, text) => { inserted.push({ id, text }); },
+    focus: id => focused.push(id),
   });
-  return { sources, rec, menus, inserted, toasts, api };
+  return { sources, rec, menus, inserted, toasts, focused, api };
 }
 
-test('granted tab paints Watching with --green, never Setup required, and Send page now inserts the snapshot', async () => {
+test('granted tab paints title plus close, focuses the tab, and never opens a plumbing menu', async () => {
   const view = { id: 'tab', title: 'Stripe Checkout', url: 'https://stripe.com/checkout' };
-  const { sources, rec, menus, inserted } = mountSources({
+  const { sources, rec, menus, focused } = mountSources({
     status: { sessions: [{ id: 'sess', views: ['tab'], sources: [], activities: [] }], views: [view] },
     snapshot: { title: 'Stripe Checkout', url: view.url, text: 'Pay $20' },
   });
   await sources.refresh();
-  assert.match(rec.sourceStrip.innerHTML, /Watching/);
   assert.match(rec.sourceStrip.innerHTML, /Stripe Checkout/);
+  assert.match(rec.sourceStrip.innerHTML, /Watching · Stripe Checkout/);
   assert.match(rec.sourceStrip.innerHTML, /var\(--green\)/);
-  assert.doesNotMatch(rec.sourceStrip.innerHTML, /Setup required|Copy JSON|Shared · initialized/);
+  assert.match(rec.sourceStrip.innerHTML, /source-remove/);
+  assert.doesNotMatch(rec.sourceStrip.innerHTML, /<small|Setup required|Copy JSON|Send page now|No successful browser access/);
   rec.sourceStrip.querySelectorAll('[data-source]')[0].onclick();
-  const labels = menus.at(-1).map(a => a.label);
-  assert.ok(labels.includes('Send page now'));
-  assert.equal(labels.some(l => /Copy JSON|Copy Claude|Browser setup/i.test(l)), false);
-  await menus.at(-1).find(a => a.label === 'Send page now').run();
-  assert.match(inserted[0].text, /Watching Stripe Checkout/);
-  assert.match(inserted[0].text, /https:\/\/stripe.com\/checkout/);
-  assert.match(inserted[0].text, /Pay \$20/);
+  assert.deepEqual(focused, ['tab']);
+  assert.equal(menus.length, 0);
 });
 
 test('chat linked context includes the granted page even when HTTP MCP is unsupported', async () => {
   const view = { id: 'tab', title: 'Docs', url: 'https://example.test/docs', text: 'Already captured heading' };
-  const { sources, rec, menus } = mountSources({
+  const { sources, rec, menus, focused } = mountSources({
     status: { sessions: [{ id: 'sess', views: ['tab'], sources: [], activities: [{ tabId: 'tab', error: 'tool failed', at: Date.now() }] }], views: [view] },
     capabilities: { mcpHttp: false, mcpUnsupported: true, connected: true },
   });
   await sources.refresh();
-  assert.match(rec.sourceStrip.innerHTML, /Access failed/);
+  assert.match(rec.sourceStrip.innerHTML, /Docs/);
+  assert.doesNotMatch(rec.sourceStrip.innerHTML, /Access failed|HTTP MCP unsupported/);
   rec.sourceStrip.querySelectorAll('[data-source]')[0].onclick();
-  assert.ok(menus.at(-1).some(a => /HTTP MCP unsupported/.test(a.label)));
+  assert.deepEqual(focused, ['tab']);
+  assert.equal(menus.length, 0);
   const text = await sources.linkedContext('sess');
   assert.match(text, /Watching Docs/);
   assert.match(text, /https:\/\/example.test\/docs/);

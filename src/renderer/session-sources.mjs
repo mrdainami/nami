@@ -18,15 +18,6 @@ export function formatBrowserSnapshot({ title, url, text, capturedAt } = {}) {
   const body = String(text || '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, PAGE_TEXT);
   return body ? head + '\n' + body : head;
 }
-export function browserInspectActions({ source, access, mcpUnsupported }) {
-  const actions = [
-    { label: source.url || source.title, off: true },
-    { label: access?.lastSuccessfulAt ? 'Last accessed ' + new Date(access.lastSuccessfulAt).toLocaleString() : 'No successful browser access recorded', off: true },
-  ];
-  if (mcpUnsupported) actions.push({ label: 'HTTP MCP unsupported. Page snapshots still attach on send.', off: true });
-  actions.push({ label: 'Send page now' });
-  return actions;
-}
 export async function captureBrowserPage(api, view) {
   const page = { title: view?.title || '', url: view?.url || '', text: typeof view?.text === 'string' ? view.text : '', capturedAt: Date.now() };
   if (!api?.browserAction || !view?.id) return page;
@@ -41,7 +32,7 @@ export async function captureBrowserPage(api, view) {
   } catch (_) {}
   return page;
 }
-export function createSessionSources({ api, state, tiles, esc, icon, isSession, menu, toast, settings, publish, insert }) {
+export function createSessionSources({ api, state, tiles, esc, icon, isSession, menu, toast, settings, publish, insert, focus }) {
   let status = {sessions:[],views:[]}, pending = null;
   const sourceIds = s => (s?.sources||[]).map(x=>typeof x==='string'?x:x.id);
   const sessions = () => state.panels.filter(p => isSession(p) && !p.exited);
@@ -120,19 +111,14 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
     } catch(error) { toast(error.message||'Could not send the page.'); }
   }
   function inspect(session, type, source, anchor) {
+    if (type === 'browser') { focus?.(source.id); return; }
     const r=anchor.getBoundingClientRect();
-    const shared=status.sessions.find(s=>s.id===session.id);
-    const access=shared?.activities?.find(a=>a.tabId===source.id);
-    const mcpUnsupported=!!tiles.get(session.id)?.acpCapabilities?.()?.mcpUnsupported;
-    const actions=type==='browser'
-      ? browserInspectActions({source,access,mcpUnsupported}).map(a=>a.label==='Send page now'?{...a,run:()=>refreshInto(session.id)}:a)
-      : [
-        {label:'Session context · '+source.title,off:true},
-        {label:source.capturedAt?'Snapshot updated '+new Date(source.capturedAt).toLocaleString():'Snapshot not yet available',off:true},
-        {label:'Refresh into input',run:()=>refreshInto(session.id)},
-        {label:'Reads available messages or a terminal snapshot',off:true},
-      ];
-    menu(r.left,r.bottom,actions);
+    menu(r.left,r.bottom,[
+      {label:'Session context · '+source.title,off:true},
+      {label:source.capturedAt?'Snapshot updated '+new Date(source.capturedAt).toLocaleString():'Snapshot not yet available',off:true},
+      {label:'Refresh into input',run:()=>refreshInto(session.id)},
+      {label:'Reads available messages or a terminal snapshot',off:true},
+    ]);
   }
   function paint() {
     for(const p of sessions()) {
@@ -154,8 +140,9 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
         const label=type==='session'?'Context':browserChipLabel(access);
         const watching=type==='browser'&&label==='Watching';
         const name=type==='browser'?pageTitle(source):source.title||source.url||'Browser';
-        const title=watching?`Watching · ${name}`:label;
-        return `<span class="source-chip"${watching?' style="border-color:var(--green)"':''}><button class="source-inspect" data-source="${esc(source.id)}" data-source-type="${type}" title="${esc(title)}">${icon(type==='browser'?'browser':'link')}<span>${esc(name)}</span><small${watching?' style="color:var(--green)"':''}>${esc(label)}</small></button><button class="source-remove" data-remove="${esc(source.id)}" data-source-type="${type}" aria-label="Stop sharing ${esc(name)}" title="Stop sharing">×</button></span>`;
+        const title=type==='browser'?`Watching · ${name}`:label;
+        const extra=type==='session'?`<small>${esc(label)}</small>`:'';
+        return `<span class="source-chip"${watching?' style="border-color:var(--green)"':''}><button class="source-inspect" data-source="${esc(source.id)}" data-source-type="${type}" title="${esc(title)}">${icon(type==='browser'?'browser':'link')}<span>${esc(name)}</span>${extra}</button><button class="source-remove" data-remove="${esc(source.id)}" data-source-type="${type}" aria-label="Stop sharing ${esc(name)}" title="Stop sharing">×</button></span>`;
       }).join('');
       rec.sourceStrip.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{const row=rows.find(r=>r.source.id===b.dataset.source&&r.type===b.dataset.sourceType);inspect(p,row.type,row.source,b);});
       rec.sourceStrip.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{
