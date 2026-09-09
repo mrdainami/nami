@@ -4,7 +4,7 @@ const { WebSocketServer } = require('ws');
 const { randomBytes } = require('node:crypto');
 const { browserUrl } = require('./browser-policy');
 
-async function createCdpBridge({ entries, create, close }) {
+async function createCdpBridge({ entries, create, close, onCommand }) {
   const secret = randomBytes(24).toString('hex');
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0, maxPayload: 1024 * 1024,
     verifyClient: ({ req }) => req.url === '/' + secret && !req.headers.origin });
@@ -48,7 +48,8 @@ async function createCdpBridge({ entries, create, close }) {
       if (method === 'Page.navigate') params = { ...params, url: browserUrl(params.url) };
       // Browser-managed paths and downloads never become arbitrary file IO.
       if (['DOM.setFileInputFiles', 'Page.setDownloadBehavior'].includes(method)) throw new Error('File access is not enabled.');
-      return e.view.webContents.debugger.sendCommand(method, params, children.has(sid) ? sid : undefined);
+      const result = await e.view.webContents.debugger.sendCommand(method, params, children.has(sid) ? sid : undefined);
+      onCommand?.(e.id, method); return result;
     }
     switch (method) {
       case 'Browser.getVersion': return { protocolVersion: '1.3', product: 'Chrome/' + process.versions.chrome, revision: '', userAgent: 'NamiBrowser' };

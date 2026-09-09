@@ -9,9 +9,13 @@ const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require(
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   const views = new Map(), access = new Access(), partitions = new Map();
   const profiles = require('./browser-profiles').createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
+  const contexts = new (require('./browser-context').SessionContextStore)();
+  const { AnnotationImageStore, captureRect } = require('./browser-images');
+  const images = new AnnotationImageStore(path.join(app.getPath('userData'), 'annotation-images'));
+  const captures = new Map();
   const profileLocks = new Set();
   let mutations = Promise.resolve(), pendingIdentityChanges = 0;
-  let gateway;
+  let gateway, gatewayStarting;
   const send = (e, type, data) => { if (!e.window.isDestroyed() && !e.window.webContents.isDestroyed()) e.window.webContents.send('browser:event', { id: e.id, type, ...data }); };
   const mainWindow = (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
@@ -75,6 +79,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       send(e, 'state', { filePath: e.filePath, profileId: e.profileId, zoom: wc.getZoomFactor(), url: e.filePath || wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
     };
     for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
+    wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentId = null; e.selections = new Map(); } });
     wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
     wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
@@ -98,7 +103,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const profileMutation = channel === 'browser:profiles' && !['list', 'credentials'].includes(args.action || 'list');
       const navigation = channel === 'browser:action' && args.action === 'navigate';
       const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'delete-credential'].includes(args.action)) || (navigation && find(w, args.id).record.local);
-      const serialized = profileMutation || navigation || ['browser:create', 'browser:close', 'browser:grant', 'browser:enable', 'browser:sync'].includes(channel);
+      const serialized = profileMutation || navigation || ['browser:create', 'browser:close', 'browser:grant', 'browser:enable', 'browser:sync', 'browser:connection'].includes(channel);
       // A grant chosen before an identity change must not be replayed against
       // the same tab ID after that change. Ask the user to review it again.
       if (channel === 'browser:grant' && pendingIdentityChanges) throw new Error('Browser profiles are being updated. Review browser access again when the update finishes.');
@@ -148,6 +153,25 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     else if (action === 'find') { const query = String(value || '').slice(0, 2000); if (query) wc.findInPage(query); }
     else if (action === 'stop-find') wc.stopFindInPage('clearSelection');
     else if (action === 'zoom') { wc.setZoomFactor(Math.min(3, Math.max(0.5, Number(value) || 1))); return { zoom: wc.getZoomFactor() }; }
+    else if (action === 'capture-annotation' || action === 'capture-selection') {
+      const selection = e.selections?.get(value?.selectionId);
+      if (!selection || !e.documentId || value.documentId !== e.documentId || selection.documentId !== e.documentId) throw new Error('This selection is no longer on the current page. Select it again.');
+      let rect;
+      const requestId = randomUUID(), documentId = e.documentId;
+      try {
+        const prepared = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => { captures.delete(requestId); reject(new Error('Could not prepare this selection for capture. Try again.')); }, 2500);
+          captures.set(requestId, { wc, documentId, resolve: (value) => { clearTimeout(timeout); resolve(value); } });
+          wc.send('browser:annotation-capture', { requestId, documentId, selectionId: selection.selectionId });
+        });
+        if (e.documentId !== documentId || wc.isDestroyed()) throw new Error('The page changed before capture. Select the area again.');
+        if (!prepared.selection || prepared.selection.stale) throw new Error('The selected area changed. Select it again.');
+        rect = captureRect(prepared.selection.rect, prepared.viewport, e.view.getBounds());
+        const picture = await wc.capturePage(rect);
+        if (picture.isEmpty() || e.documentId !== documentId) throw new Error('The selected image is unavailable. Select the area again.');
+        return { image: images.add(w.webContents.id, picture, { tabId: id, url: e.filePath || wc.getURL(), capturedAt: Date.now() }) };
+      } finally { captures.delete(requestId); if (!wc.isDestroyed()) wc.send('browser:annotation-capture-end', { requestId }); }
+    }
     else if (action === 'capture') {
       const picture = await wc.capturePage();
       const result = await dialog.showSaveDialog(w, { title: 'Save browser screenshot', defaultPath: 'nami-browser.png', filters: [{ name: 'PNG image', extensions: ['png'] }] });
@@ -163,9 +187,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   }
   async function revokeViews(ids) {
     for (const [id, s] of access.sessions) if ([...s.views].some((viewId) => ids.has(viewId))) {
-      s.views.clear(); s.peers = [];
-      await gateway?.revoke(id);
-      s.views.clear(); s.peers = [];
+      for (const viewId of ids) s.views.delete(viewId);
+      await gateway?.refresh(id);
       const window = BrowserWindow.getAllWindows().find((w) => w.webContents.id === s.windowId);
       window?.webContents.send('browser:event', { type: 'access-revoked', sessionId: id, reason: 'Browser profile changed. Grant access again when ready.' });
     }
@@ -250,47 +273,97 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);
-    for (const [id, s] of access.sessions) if (s.windowId === w.webContents.id && !sessions.some((s) => s.id === id)) { await gateway?.revoke(id); access.sessions.delete(id); }
+    for (const [id, s] of access.sessions) if (s.windowId === w.webContents.id && !sessions.some((s) => s.id === id)) { await gateway?.revoke(id); contexts.remove(id); images.removeRecipient(id); access.sessions.delete(id); }
     return {};
   });
   guarded('browser:status', async (w) => {
-    const sessions = [...access.sessions].filter(([, s]) => s.windowId === w.webContents.id).map(([id, s]) => ({ id, title: s.title, views: [...s.views], connected: !!gateway?.isConnected(id), peers: [...(s.peers || [])] }));
+    const sessions = [...access.sessions].filter(([, s]) => s.windowId === w.webContents.id).map(([id, s]) => ({ id, title: s.title, views: [...s.views], connected: !!gateway?.isConnected(id), ...gateway?.status(id), sources: contexts.list(id), peers: [...(s.peers || [])] }));
     return { enabled: !!readSettings().browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
   });
   guarded('browser:enable', async (_w, { enabled }) => {
     const result = writeSettings({ browserEnabled: !!enabled });
     if (!result.ok) throw new Error(result.error);
-    if (!enabled) { for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } await gateway?.close(); gateway = null; for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } }
+    if (!enabled) { if (gatewayStarting) await gatewayStarting; contexts.clearGrants(); for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } await gateway?.close(); gateway = null; for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } }
     return {};
   });
-  guarded('browser:grant', async (w, { id, viewIds = [], peers = [], expectedIdentities }) => {
+  async function ensureGateway() {
+    if (gatewayStarting) return gatewayStarting;
+    if (!gateway) gatewayStarting = require('./browser-mcp').createBrowserMcp({ access, views, create, remove, send, contexts, images,
+      onActivity: (sessionId, activity) => {
+        const s = access.sessions.get(sessionId);
+        const target = s && BrowserWindow.getAllWindows().find(w => w.webContents.id === s.windowId);
+        target?.webContents.send('browser:event', { type: 'activity', sessionId, activity });
+      },
+      notifyMessage: (windowId, message) => {
+        const target = BrowserWindow.getAllWindows().find(w => w.webContents.id === windowId);
+        target?.webContents.send('browser:event', { type: 'message', ...message });
+      } }).then(service => { gateway = service; return service; }).finally(() => { gatewayStarting = null; });
+    return gateway || gatewayStarting;
+  }
+  async function connectionFor(id) {
+    if (!readSettings().browserEnabled) return null;
+    access.get(id); const service = await ensureGateway();
+    if (!readSettings().browserEnabled) return null;
+    return service.connection(id);
+  }
+  guarded('browser:connection', async (w, { id }) => { access.get(id, w.webContents.id); const connection = await connectionFor(id); return connection || { enabled: false }; });
+  guarded('browser:grant', async (w, { id, viewIds = [], peers = [], sourceIds, expectedIdentities }) => {
     if (!readSettings().browserEnabled) throw new Error('Enable the browser connection in Settings first.');
+    access.get(id, w.webContents.id);
+    if (![viewIds, peers, sourceIds || []].every(ids => Array.isArray(ids) && ids.length <= 100)) throw new Error('Too many shared sources.');
     for (const vid of viewIds) {
       const entry = find(w, vid);
       if (profileLocks.has(entry.profileId)) throw new Error('Browser profile is being updated.');
       if (expectedIdentities && expectedIdentities[vid] !== entry.identity) throw new Error('A browser profile changed. Reopen Browser access and review the selected tabs.');
     }
     for (const peer of peers) access.get(peer, w.webContents.id);
-    await gateway?.revoke(id);
-    access.grant(id, w.webContents.id, viewIds); access.get(id).peers = peers.filter((p) => p !== id);
-    if (!viewIds.length && !access.get(id).peers.length) return { revoked: true };
-    if (!gateway) gateway = await require('./browser-mcp').createBrowserMcp({ access, views, create, remove, send,
-      notifyMessage: (windowId, message) => {
-        const target = BrowserWindow.getAllWindows().find((w) => w.webContents.id === windowId);
-        target?.webContents.send('browser:event', { type: 'message', ...message });
-      } });
-    return await gateway.connection(id);
+    const service = await ensureGateway();
+    // Validate source grants before mutating the working connection.
+    if (sourceIds) for (const sourceId of sourceIds) { const source = contexts.sources.get(sourceId); if (!source || source.windowId !== w.webContents.id || sourceId === id) throw new Error('Session context is unavailable.'); }
+    await service.refresh(id, () => {
+      access.grant(id, w.webContents.id, viewIds); access.get(id).peers = peers.filter(p => p !== id);
+      if (sourceIds) contexts.grant(id, w.webContents.id, sourceIds);
+    });
+    return service.connection(id);
+  });
+  guarded('browser:context', (w, args) => {
+    if (args.action === 'update') { access.get(args.id, w.webContents.id); return { source: contexts.update({ ...args, windowId: w.webContents.id }) }; }
+    if (args.action === 'read') { access.get(args.recipientId, w.webContents.id); return { source: contexts.read(args.recipientId, args.sourceId) }; }
+    throw new Error('Unknown context action.');
+  });
+  guarded('browser:annotation-image', (w, { action, id, recipientIds = [] }) => {
+    if (action === 'read') { const entry = images.get(id, w.webContents.id); return { data: fs.readFileSync(entry.path).toString('base64'), mimeType: entry.mimeType }; }
+    if (action === 'discard') images.discard(id, w.webContents.id);
+    else if (action === 'grant') {
+      if (!Array.isArray(recipientIds) || recipientIds.length > 100) throw new Error('Too many image recipients.');
+      for (const recipient of recipientIds) access.get(recipient, w.webContents.id);
+      images.grant(id, w.webContents.id, recipientIds); images.get(id).inserted = true;
+    } else throw new Error('Unknown annotation image action.');
+    return {};
+  });
+  ipcMain.on('browser:annotation-capture-ready', (event, value) => {
+    const pending = captures.get(value?.requestId);
+    if (!pending || pending.wc !== event.sender || event.senderFrame !== event.sender.mainFrame || pending.documentId !== value.documentId) return;
+    captures.delete(value.requestId); pending.resolve(value);
   });
   ipcMain.on('browser:annotation-layout', (event, value) => {
     const e = [...views.values()].find((e) => e.view.webContents === event.sender);
     if (!e || event.senderFrame !== event.sender.mainFrame) return;
-    const layout = cleanAnnotationLayout(value); if (layout) send(e, 'annotation-layout', { layout });
+    const layout = cleanAnnotationLayout(value); if (layout) { e.documentId = layout.documentId; send(e, 'annotation-layout', { layout }); }
   });
   for (const [channel, type] of [['browser:selection', 'selection'], ['browser:text-selection', 'text-selection'], ['browser:annotation-end', 'annotation-end'], ['browser:focus', 'focus']]) {
     ipcMain.on(channel, (event, value) => {
       const e = [...views.values()].find((e) => e.view.webContents === event.sender);
       if (!e || event.senderFrame !== event.sender.mainFrame) return;
-      try { send(e, type, { selection: ['annotation-end', 'focus'].includes(type) ? null : cleanSelection(value, e.filePath || event.sender.getURL()) }); } catch (_) {}
+      try {
+        const selection = ['annotation-end', 'focus'].includes(type) ? null : cleanSelection(value, e.filePath || event.sender.getURL());
+        if (selection?.selectionId && selection.documentId) {
+          e.documentId = selection.documentId; e.selections ||= new Map();
+          if (e.selections.size >= 200) e.selections.delete(e.selections.keys().next().value);
+          e.selections.set(selection.selectionId, selection);
+        }
+        send(e, type, { selection });
+      } catch (_) {}
     });
   }
   function bindWindow(w) {
@@ -298,17 +371,19 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     w.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
       if (!mainFrame || inPlace) return;
       for (const [id, s] of access.sessions) if (s.windowId === windowId) gateway?.revoke(id);
-      access.removeWindow(windowId);
+      for (const [id, session] of access.sessions) if (session.windowId === windowId) contexts.remove(id);
+      images.removeWindow(windowId); access.removeWindow(windowId);
       for (const e of [...views.values()]) if (e.window === w) remove(e.id, { notify: false, confirmed: true });
     });
     w.once('closed', () => {
       for (const [id, s] of access.sessions) if (s.windowId === windowId) gateway?.revoke(id);
       for (const e of [...views.values()]) if (e.window === w) remove(e.id, { confirmed: true });
-      access.removeWindow(windowId);
+      for (const [id, session] of access.sessions) if (session.windowId === windowId) contexts.remove(id);
+      images.removeWindow(windowId); access.removeWindow(windowId);
       // Persistent browser sessions are shared only within their named profile.
     });
     w.webContents.once('destroyed', () => { for (const e of [...views.values()]) if (e.window === w) remove(e.id, { confirmed: true }); });
   }
-  return { bindWindow, views, access, close: async () => { await gateway?.close(); for (const id of [...views.keys()]) await remove(id, { confirmed: true }); } };
+  return { bindWindow, views, access, contexts, images, connectionFor, registerSession: ({ id, windowId, title }) => access.register(id, windowId, title), close: async () => { await gateway?.close(); for (const id of [...views.keys()]) await remove(id, { confirmed: true }); } };
 }
 module.exports = { wireBrowserViews };

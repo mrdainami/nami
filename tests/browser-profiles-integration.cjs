@@ -51,8 +51,9 @@ app.whenReady().then(async () => {
     const renewed = await renewal;
     await Promise.all([pendingTool, switching]);
     assert.equal(browser.access.get('s1').views.size, 0);
-    assert.equal((await fetch(grant.url, { method: 'POST' })).status, 404);
-    assert.equal((await fetch(renewed.url, { method: 'POST' })).status, 404);
+    assert.match((await rpc(grant.url, 'tools/call', { name: 'browser_snapshot' })).error.message, /No browser tabs/);
+    assert.match((await rpc(renewed.url, 'tools/call', { name: 'browser_snapshot' })).error.message, /No browser tabs/);
+    assert.equal(renewed.url, grant.url, 'permission edits preserve the endpoint while revoking old identity');
     assert.equal(browser.views.get('personal').profileId, work.id);
     await assert.rejects(invoke('browser:grant', { id: 's1', viewIds: ['personal'], expectedIdentities: { personal: oldIdentity } }), /profile changed/);
     assert.equal((await browser.views.get('personal').view.webContents.session.cookies.get({ url })).length, 0);
@@ -95,7 +96,7 @@ app.whenReady().then(async () => {
     await invoke('browser:profiles', { action: 'clear', profileId: work.id, siteData: true, credentials: true, confirmed: true });
     assert.equal(browser.views.size, 0);
     assert.equal(browser.access.get('s1').views.size, 0);
-    assert.equal((await fetch(shared.url, { method: 'POST' })).status, 404);
+    assert.match((await rpc(shared.url, 'tools/call', { name: 'browser_snapshot' })).error.message, /No browser tabs/);
     await invoke('browser:create', { id: 'cleared', profileId: work.id, url });
     assert.equal((await browser.views.get('cleared').view.webContents.session.cookies.get({ url })).length, 0);
     await invoke('browser:profiles', { action: 'remove', profileId: work.id, confirmed: true });
@@ -142,7 +143,7 @@ app.whenReady().then(async () => {
     assert.equal(converted.view.webContents.getURL(), url + '/');
     assert.equal((await converted.view.webContents.session.cookies.get({ url, name: 'shared-profile' }))[0].value, 'fake-signed-in');
     assert.equal(browser.access.get('s1').views.size, 0);
-    assert.equal((await fetch(localGrant.url, { method: 'POST' })).status, 404);
+    assert.match((await rpc(localGrant.url, 'tools/call', { name: 'browser_snapshot' })).error.message, /No browser tabs/);
     assert.equal(events.some(e => e.id === 'local-a' && e.type === 'closed'), false);
     assert.ok(events.some(e => e.id === 'local-a' && e.type === 'profile-changed'));
     assert.equal(b.session.storagePath, null);
