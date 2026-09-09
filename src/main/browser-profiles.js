@@ -111,11 +111,32 @@ function cookieImportStatus(options) {
   const sources = detectChromiumProfiles(options);
   return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
 }
+// Chrome counts time in microseconds since 1601, so a cookie expiry is a
+// 17-digit integer — bigger than Number.MAX_SAFE_INTEGER. node:sqlite will not
+// guess: it throws ERR_OUT_OF_RANGE rather than hand back a number it cannot
+// represent, and it throws on the whole statement, before the first row. That
+// is why cookies and history imported nothing while passwords (all TEXT and
+// BLOB, no timestamps in the query) came through perfectly.
+//
+// So read integers as BigInt and convert once, here. Microsecond precision is
+// not something a cookie expiry needs, and converting at the boundary is
+// cheaper and safer than auditing every consumer for BigInt arithmetic.
+function normaliseRow(row) {
+  for (const key of Object.keys(row)) if (typeof row[key] === 'bigint') row[key] = Number(row[key]);
+  return row;
+}
 function readSqliteRows(file, sql) {
   const { DatabaseSync } = require('node:sqlite');
-  const open = (target) => {
-    const db = new DatabaseSync(target, { readOnly: true });
-    try { return db.prepare(sql).all(); } finally { db.close(); }
+  // The temp copy is disposable, so it opens read-write: a read-only
+  // connection cannot replay a -wal, which meant the copy path failed on any
+  // Mac where Chrome was mid-write and fell back to the live file for no gain.
+  const open = (target, readOnly) => {
+    const db = new DatabaseSync(target, { readOnly });
+    try {
+      const statement = db.prepare(sql);
+      statement.setReadBigInts(true);
+      return statement.all().map(normaliseRow);
+    } finally { db.close(); }
   };
   const tmp = file + '.nami-read-' + process.pid;
   try {
@@ -123,15 +144,27 @@ function readSqliteRows(file, sql) {
     for (const extra of ['-wal', '-shm']) {
       try { if (fs.existsSync(file + extra)) fs.copyFileSync(file + extra, tmp + extra); } catch {}
     }
-    try { return open(tmp); }
+    try { return open(tmp, false); }
     finally {
       fs.rmSync(tmp, { force: true });
       fs.rmSync(tmp + '-wal', { force: true });
       fs.rmSync(tmp + '-shm', { force: true });
     }
   } catch {
-    return open(file);
+    return open(file, true);
   }
+}
+// A lock is what the message used to blame for everything, so name it
+// precisely: the profile is genuinely held open somewhere else. Anything else
+// keeps its own reason and its own sentence.
+function isLockError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+    || /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(code + ' ' + message);
+}
+function readFailure(error) {
+  return { locked: isLockError(error), error: String(error?.message || error || 'Could not read the file.') };
 }
 function chromeTimeToMs(value) {
   const n = Number(value);
@@ -141,7 +174,7 @@ function chromeTimeToMs(value) {
 function readChromeLogins(file, key) {
   let rows = [];
   try { rows = readSqliteRows(file, 'SELECT origin_url, username_value, password_value FROM logins'); }
-  catch { return { entries: [], skipped: 0, locked: true }; }
+  catch (error) { return { entries: [], skipped: 0, ...readFailure(error) }; }
   const entries = []; let skipped = 0;
   for (const row of rows) {
     const password = key ? decryptChromeCookie(row.password_value, key) : (typeof row.password_value === 'string' ? row.password_value : null);
@@ -155,7 +188,7 @@ function readChromeLogins(file, key) {
 function readChromeHistory(file) {
   let rows = [];
   try { rows = readSqliteRows(file, 'SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 5000'); }
-  catch { return { entries: [], locked: true }; }
+  catch (error) { return { entries: [], ...readFailure(error) }; }
   return {
     locked: false,
     entries: rows.flatMap((row) => {
@@ -174,11 +207,11 @@ function chromeKeychainPassword(browser, execFileSync) {
   } catch { return null; }
 }
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
-  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, locked = false, decryptUnavailable = false;
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, locked = false, decryptUnavailable = false, error = null;
   for (const source of sources || []) {
     let rows = [];
     try { rows = readChromeCookieRows(source.cookies); }
-    catch { locked = true; decryptUnavailable = true; continue; }
+    catch (failure) { const f = readFailure(failure); locked = locked || f.locked; error = error || f.error; continue; }
     const password = passwordFor ? passwordFor(source) : null;
     const key = password ? deriveChromeKey(password) : null;
     const ready = [];
@@ -203,7 +236,7 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
     }
   }
   log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
-  return { imported, skippedGoogle, skippedEncrypted, skippedV20, locked, decryptUnavailable };
+  return { imported, skippedGoogle, skippedEncrypted, skippedV20, locked, decryptUnavailable, error };
 }
 function parsePasswordCsv(text) {
   if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
