@@ -120,8 +120,10 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
     wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
-    if (url === 'about:blank' && !args.filePath) await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
-    else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
+    if (url === 'about:blank' && !args.filePath) {
+      await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
+      if (dark) await wc.insertCSS('html{color-scheme:only dark}html,body{background:#1f1f1f !important}').catch(() => {});
+    } else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
     return e;
   }
   async function remove(id, { notify = true, confirmed = false } = {}) {
