@@ -73,7 +73,7 @@ export function splitAfter(state, action) {
   const panels = state.panels || [];
   const last = Object.assign({}, state.last || {});
   const sessions = panels.filter(isSession);
-  const filesOf = (sid) => panels.filter((f) => isFile(f) && f.owner === sid);
+  const filesOf = (sid) => panels.filter((f) => (isFile(f) && f.owner === sid) || (sid && f.companionOf === sid));
   const firstFile = (sid) => { const r = last[sid] && filesOf(sid).find((f) => f.id === last[sid]); return (r || filesOf(sid)[0] || null); };
   let sessionId = state.sessionId, fileId = state.fileId;
   const t = action && action.type;
@@ -83,6 +83,9 @@ export function splitAfter(state, action) {
     sessionId = s ? s.id : (sessions[0] ? sessions[0].id : null);
     const f = a && isFile(a) && s ? a : firstFile(sessionId);
     fileId = f ? f.id : null;
+  } else if (t === 'select-companion') {
+    const p = byId(panels, action.id), owner = p && byId(panels, p.companionOf);
+    if (owner && isSession(owner)) { sessionId = owner.id; fileId = p.id; }
   } else if (t === 'select-session') {
     if (byId(panels, action.id)) { sessionId = action.id; const f = firstFile(sessionId); fileId = f ? f.id : null; }
   } else if (t === 'select-file' || t === 'open') {
@@ -95,12 +98,24 @@ export function splitAfter(state, action) {
   if (sessionId && !byId(panels, sessionId)) sessionId = sessions[0] ? sessions[0].id : null;
   if (!sessionId && sessions[0] && !fileId) sessionId = sessions[0].id;
   const shown = byId(panels, fileId);
-  if (!shown || !isFile(shown) || (sessionId ? shown.owner !== sessionId : liveOwner(panels, shown))) {
+  const companion = shown && sessionId && shown.companionOf === sessionId;
+  if (!companion && (!shown || !isFile(shown) || (sessionId ? shown.owner !== sessionId : liveOwner(panels, shown)))) {
     const f = sessionId ? firstFile(sessionId) : null;
     fileId = f ? f.id : null;
   }
   if (sessionId) { if (fileId) last[sessionId] = fileId; else delete last[sessionId]; }
   return { panels, sessionId, fileId, last };
+}
+
+// Focusing a visible pane must not undo its expansion. Only explicit navigation
+// to another pane reveals the split again; text insertion need not navigate.
+export function focusSplit(state, id, full = null) {
+  if (id === state.sessionId || id === state.fileId) {
+    const pane = id === state.fileId ? 'files' : 'agent';
+    return { split:state, full:full && full !== pane ? null : full };
+  }
+  const p = byId(state.panels || [], id);
+  return { split:splitAfter(state, {type:p?.companionOf ? 'select-companion' : isSession(p) ? 'select-session' : 'select-file',id}), full:null };
 }
 
 // ---- across a restart --------------------------------------------------------

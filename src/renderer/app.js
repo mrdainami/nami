@@ -31,7 +31,7 @@ import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-gr
 import { isOutsideProject } from './path-guard.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
-import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
+import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, focusSplit, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
 
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 import { createBrowserPane } from './browser-pane.mjs';
@@ -2784,7 +2784,7 @@ async function insertSessionText(id, text, { focus = true } = {}) {
   if (rec.aiInput) {
     rec.aiInput.value = appendDraft(rec.aiInput.value, text);
     rec.aiInput.dispatchEvent(new Event('input', { bubbles: true }));
-    if (focus) { focusPanel(id); rec.aiInput.focus(); }
+    if (focus) { focusPanel(id, false, { preserveLayout:true }); if (S.activeId === id) rec.aiInput.focus(); }
     return true;
   }
   if (!rec.term) { toast('That session is no longer available.'); return false; }
@@ -2793,7 +2793,7 @@ async function insertSessionText(id, text, { focus = true } = {}) {
   try {
     const result = await api.termWrite({ id, data });
     if (!result?.ok) throw new Error('write failed');
-    if (focus) { focusPanel(id); rec.term.scrollToBottom(); rec.term.focus(); }
+    if (focus) { focusPanel(id, false, { preserveLayout:true }); if (S.activeId === id) { rec.term.scrollToBottom(); rec.term.focus(); } }
     return true;
   } catch (_) { toast('Could not insert into that terminal.'); return false; }
 }
@@ -4102,7 +4102,7 @@ async function pasteDictation(p) {
 }
 function injectToSession(p, text) {
   if (!text) return;
-  focusPanel(p.id, false);
+  focusPanel(p.id, false, { preserveLayout:true });
   if (p.kind === 'acp') {
     const t = tileEls.get(p.id); if (!t || !t.aiInput) return;
     t.aiInput.value += (t.aiInput.value && !t.aiInput.value.endsWith(' ') ? ' ' : '') + text;
@@ -4393,11 +4393,12 @@ function pinFilePanel(p, opts = {}) {
   if (S.view === 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'open', id: p.id });
   renderGrid(); renderRail(); renderHeader(); savePanels();
 }
-function focusPanel(id, scroll = true) {
+function focusPanel(id, scroll = true, { preserveLayout = false } = {}) {
+  if (preserveLayout && S.activeId !== id) return;
   S.activeId = id;
   if (S.view === 'split') {
     const p = S.panels.find((x) => x.id === id);
-    if (p) { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: isSessionPanel(p) ? 'select-session' : 'select-file', id }); S.splitFull = null; renderGrid(); }
+    if (p && !preserveLayout) { const next = focusSplit({ ...S.split, panels:S.panels }, id, S.splitFull); const changed = next.split.sessionId !== S.split.sessionId || next.split.fileId !== S.split.fileId || next.full !== S.splitFull; S.split = next.split; S.splitFull = next.full; if (changed) renderGrid(); }
   }
   renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
