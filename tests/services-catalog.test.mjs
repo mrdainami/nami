@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { KNOWN_SERVICES, serviceById } = require('../src/main/services-catalog.js');
+const { KNOWN_SERVICES, serviceById, GUIDED_FINISH } = require('../src/main/services-catalog.js');
 
 test('registry carries the launch set with everything the connect flow needs', () => {
   const ids = KNOWN_SERVICES.map((s) => s.id);
@@ -46,4 +46,20 @@ test('kie (install kind) points config at the built server with the key in env',
   assert.equal(c.command, 'node');
   assert.ok(c.args[0].endsWith('dist/index.js'));
   assert.equal(c.env.KIE_API_KEY, 'kie_1');
+});
+
+test('Nami Browser is not a catalog entry', () => {
+  assert.equal(serviceById('nami-browser'), null);
+  assert.ok(!KNOWN_SERVICES.some((s) => s.id === 'nami-browser' || /nami-browser/i.test(s.name)));
+});
+
+test('guided finish contract: write connections.json mcpServers, then Nami delivers', () => {
+  assert.match(GUIDED_FINISH, /connections\.json/);
+  assert.match(GUIDED_FINISH, /mcpServers/);
+  assert.match(GUIDED_FINISH, /Nami copies it to every installed agent's own config/);
+  assert.doesNotMatch(GUIDED_FINISH, /nami-browser/);
+  for (const s of KNOWN_SERVICES.filter((x) => x.kind === 'guided')) {
+    assert.ok(s.guide, `${s.id} needs a guide for the sheet`);
+    assert.equal(s.keys.length, 0);
+  }
 });
