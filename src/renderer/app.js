@@ -572,6 +572,22 @@ function showScene(name) {
     renderGrid(); renderRail(); renderHeader();
     return;
   }
+  // doc:disk — a file tile with unsaved edits and the changed-on-disk bar
+  // raised over them, which is the one state nothing in the app can be clicked
+  // into on demand: it needs an agent to rewrite the file at the right moment.
+  if (what === 'doc' && step === 'disk') {
+    const np = {
+      id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'NOTES.md',
+      filePath: ((S.project && S.project.path) || '/Users/calvin/work/atlas') + '/NOTES.md',
+      status: 'live', dirty: true,
+      text: '# Release notes\n\n- Follow a file on disk while it is open on the desk\n- Name the files behind a folder change\n\nStill to write: the part about what happens\nwhen two people have the same file open.\n',
+    };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    const rec = tileEls.get(np.id);
+    if (rec && rec.raiseDiskBar) rec.raiseDiskBar(np.text + '\n## Written by the agent while you were typing\n');
+    return;
+  }
   // open:<abs path> — pin any file as a tile, which is how a new viewer kind
   // gets screenshotted without a folder open and a tree to click through.
   if (what === 'open' && step) return openFile(step, { pin: true });
