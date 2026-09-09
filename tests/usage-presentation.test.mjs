@@ -49,7 +49,7 @@ test('malformed percentages and source labels cannot become active markup', () =
   assert.match(html, /&lt;script&gt;/);
 });
 
-test('a provider card collapses to the tightest window and expands for the rest', () => {
+test('a provider card leads with its tightest window and shows the others beside it', () => {
   const rows = codexUsage({ rateLimitsByLimitId: {
     codex: {
       primary: { usedPercent: 70, windowDurationMins: 300, resetsAt: 2000 },
@@ -58,15 +58,27 @@ test('a provider card collapses to the tightest window and expands for the rest'
   } }, 1000000);
   const html = usageContent({ accounts: rows });
   assert.match(html, /class="usage-card"/);
-  const more = html.match(/<details class="usage-more"[^>]*>[\s\S]*?<\/details>/);
-  assert.ok(more, 'extra windows belong in a closed details');
-  assert.doesNotMatch(more[0], /\sopen/);
-  assert.match(more[0], /90% left/);
-  assert.doesNotMatch(more[0], /30% left/);
-  const head = html.slice(0, html.indexOf('class="usage-more"'));
+  assert.doesNotMatch(html, /<details/);
+  assert.match(html, /class="usage-windows"/);
+  assert.match(html, /90% left/);
+  const head = html.slice(0, html.indexOf('class="usage-windows"'));
   assert.match(head, /Codex/);
   assert.match(head, /30% left/);
   assert.doesNotMatch(head, /90% left/);
+  assert.equal((html.match(/aria-valuenow=/g) || []).length, 2);
+});
+
+test('a spend limit and an expired window fold away behind a summary that names them', () => {
+  const html = usageContent({ accounts: [
+    { id: 'a', providerId: 'claude', providerName: 'Claude', accountId: 'claude:account', windowKey: 'five_hour', windowLabel: 'Session · 5 hours', remaining: 30, status: 'reported' },
+    { id: 'b', providerId: 'claude', providerName: 'Claude', accountId: 'claude:account', windowKey: 'seven_day_opus', windowLabel: 'Opus · 7 days', remaining: 80, status: 'reported' },
+    { id: 'c', providerId: 'claude', providerName: 'Claude', accountId: 'claude:account', windowKey: 'spend_limit', windowLabel: 'Spend limit', remaining: 95, status: 'reported' },
+  ] });
+  const folded = html.match(/<details class="usage-more">[\s\S]*?<\/details>/);
+  assert.ok(folded);
+  assert.doesNotMatch(folded[0], /\sopen/);
+  assert.match(folded[0], /<summary>Spend limit<\/summary>/);
+  assert.match(html.slice(0, html.indexOf('usage-more')), /Opus · 7 days/);
 });
 
 test('default usage screen has no status-line or JSON-feed homework', () => {
