@@ -14,6 +14,6 @@ test('HTML browser actions exist in the tree, peek head, and pinned editor', () 
 });
 
 test('opening a dirty HTML panel saves before invoking the browser channel', () => {
-  assert.match(app, /if \(p && p\.dirty\)[\s\S]{0,180}await saveEditor\(p\)[\s\S]{0,180}api\.openFileInBrowser/);
+  assert.match(app, /if \(p && p\.dirty\)[\s\S]{0,180}await saveEditor\(p\)[\s\S]{0,180}browsers\.open/);
   assert.match(app, /Save &amp; open ↗/);
 });

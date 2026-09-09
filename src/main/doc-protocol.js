@@ -72,4 +72,24 @@ function isInside(root, child) {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-module.exports = { buildDocUrl, parseDocUrl, resolveWithinRoot, isInside };
+// A minimal content type from the extension — enough for a browser to render a
+// document and its own assets. Unknown types are served as octet-stream, which a
+// page never asks for as an image or stylesheet, so an accidental download of
+// something odd stays inert.
+function docContentType(file) {
+  const e = (file.split('.').pop() || '').toLowerCase();
+  // The text types carry a charset or an em-dash arrives as mojibake — the file
+  // is read as bytes and the browser guesses latin-1 without this.
+  return ({
+    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8', svg: 'image/svg+xml; charset=utf-8',
+    png: 'image/png', jpg: 'image/jpeg',
+    jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+    ico: 'image/x-icon', bmp: 'image/bmp', woff: 'font/woff', woff2: 'font/woff2',
+    ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', webm: 'video/webm',
+    mp3: 'audio/mpeg', wav: 'audio/wav',
+  })[e] || 'application/octet-stream';
+}
+
+module.exports = { docContentType, buildDocUrl, parseDocUrl, resolveWithinRoot, isInside };

@@ -1,0 +1,12 @@
+# Local review builds must not reuse the signed app's macOS permission identity.
+extends: ./electron-builder.yml
+appId: ai.dainami.nami.review
+productName: Nami Review
+extraMetadata:
+  name: nami-review
+directories:
+  output: release-review
+mac:
+  identity: null
+dmg:
+  sign: false

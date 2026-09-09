@@ -30,12 +30,14 @@ const MUST_SHIP = [
 ];
 
 function bundles() {
-  const rel = path.join(ROOT, 'release');
-  if (!fs.existsSync(rel)) return [];
-  return fs.readdirSync(rel)
+  return [['release', 'Nami.app'], ['release-review', 'Nami Review.app']].flatMap(([directory, name]) => {
+    const rel = path.join(ROOT, directory);
+    if (!fs.existsSync(rel)) return [];
+    return fs.readdirSync(rel)
     .filter((d) => d.startsWith('mac'))
-    .map((d) => path.join(rel, d, 'Nami.app', 'Contents', 'Resources', 'app.asar'))
+    .map((d) => path.join(rel, d, name, 'Contents', 'Resources', 'app.asar'))
     .filter((p) => fs.existsSync(p));
+  });
 }
 
 const found = bundles();

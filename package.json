@@ -22,6 +22,9 @@
     "fetch-model": "node scripts/fetch-model.mjs",
     "prepack": "npm run fetch-model",
     "pack": "electron-builder --dir",
+    "pack:review": "electron-builder --config electron-builder.review.yml --dir --mac --arm64 --publish never",
+    "prepack:review": "npm run fetch-model",
+    "postpack:review": "codesign --force --deep --sign - \"release-review/mac-arm64/Nami Review.app\"",
     "check-bundle": "node scripts/check-bundle.mjs",
     "//dist": "predist matters: npm runs pre<name> for any script, so `pack` picked up the weights via prepack while `dist` — the one that builds what users install — quietly shipped without them.",
     "predist": "npm run fetch-model",
@@ -33,10 +36,13 @@
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
     "@lydell/node-pty": "^1.2.0-beta.14",
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "@playwright/mcp": "0.0.80",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron-updater": "^6.8.9",
-    "onnxruntime-node": "1.21.0"
+    "onnxruntime-node": "1.21.0",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@milkdown/crepe": "^7.22.1",

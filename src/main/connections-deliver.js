@@ -5,7 +5,7 @@
 // and the coverage pills tell the user the truth afterwards.
 
 const { upsertMcpJson, upsertOpencode } = require('./mcp-config');
-const { writeCodexBlock, fsIo } = require('./connections');
+const { writeCodexBlock, fsIo, reservedServiceId, publicMasters } = require('./connections');
 
 // execCmd(argv) -> Promise<{ok, error?}> — injected so tests never spawn.
 async function runPlan({ plan, io = fsIo, execCmd }) {
@@ -14,12 +14,13 @@ async function runPlan({ plan, io = fsIo, execCmd }) {
     try {
       if (step.kind === 'json') {
         for (const id of Object.keys(step.entries)) {
+          if (reservedServiceId(id)) continue;
           if (step.section === 'mcp') upsertOpencode({ file: step.file, id, entry: step.entries[id], io });
           else upsertMcpJson({ file: step.file, id, entry: step.entries[id], io });
         }
         results.push({ agent: step.agent, ok: true, wrote: step.file });
       } else if (step.kind === 'block') {
-        const res = writeCodexBlock({ file: step.file, masters: step.masters, io });
+        const res = writeCodexBlock({ file: step.file, masters: publicMasters(step.masters), io });
         results.push({ agent: step.agent, ok: res.ok, wrote: res.ok ? step.file : undefined, error: res.error, skipped: res.skipped });
       } else if (step.kind === 'cli') {
         const res = await execCmd(step.argv);

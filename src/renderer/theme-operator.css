@@ -452,7 +452,8 @@ body[data-theme="operator"] .ctx-item:hover { background: var(--hover); }
 
 body[data-theme="operator"] .nav-file { border-radius: 6px; }
 body[data-theme="operator"] .nav-card .count,
-body[data-theme="operator"] .viewsw { border-radius: 6px; }
+body[data-theme="operator"] .viewsw,
+body[data-theme="operator"] .paneview .pane-switch { border-radius: 6px; }
 
 body[data-theme="operator"] .image-attachment { border-radius: 6px; }
 body[data-theme="operator"] .image-insert, body[data-theme="operator"] .image-remove { border-radius: 6px; }
