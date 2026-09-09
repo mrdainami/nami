@@ -10,11 +10,12 @@ app.setPath('userData', profile);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn) { for (let i = 0; i < 100; i++) { const value = await fn(); if (value) return value; await pause(40); } throw new Error('Annotation condition timed out'); }
 app.whenReady().then(async () => {
-  const selections = [], layouts = [];
+  const selections = [], layouts = [], captures = [];
   let win, server;
   try {
     ipcMain.on('browser:selection', (_event, value) => selections.push(value));
     ipcMain.on('browser:annotation-layout', (_event, value) => layouts.push(value));
+    ipcMain.on('browser:annotation-capture-ready', (_event, value) => captures.push(value));
     server = http.createServer((_req, res) => { res.end('<!doctype html><style>body{font:20px sans-serif;padding:30px}button{display:block;margin:30px 0}#text{width:400px}</style><div id="text">Select these words for feedback.</div><button id="button" onclick="this.textContent=\'Clicked\'">Original button</button><div style="height:1500px"></div>'); });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     win = new BrowserWindow({ width: 700, height: 600, webPreferences: { sandbox: true, contextIsolation: true, preload: path.join(__dirname, '../src/main/browser-preload.js') } });
@@ -23,11 +24,13 @@ app.whenReady().then(async () => {
     const evalPage = (js) => wc.executeJavaScript(js);
     const rect = await evalPage('JSON.stringify(document.querySelector("button").getBoundingClientRect())').then(JSON.parse);
     wc.send('browser:annotate-mode', { active: true, mode: 'component' }); await pause(50);
+    assert.equal(await evalPage('getComputedStyle(document.querySelector("button")).cursor'), 'crosshair');
     for (const type of ['mouseDown', 'mouseUp']) wc.sendInputEvent({ type, x: Math.round(rect.x + 10), y: Math.round(rect.y + 10), button: 'left', clickCount: 1 });
     await until(() => selections.length === 1);
     assert.equal(selections[0].locator, '#button'); assert.equal(await evalPage('document.querySelector("button").textContent'), 'Original button');
     assert.equal(await evalPage('typeof window.dainami'), 'undefined');
     wc.send('browser:annotate-mode', { active: true, mode: 'text' }); await pause(50);
+    assert.equal(await evalPage('getComputedStyle(document.querySelector("#text")).cursor'), 'text');
     const text = await evalPage('JSON.stringify(document.querySelector("#text").getBoundingClientRect())').then(JSON.parse);
     wc.sendInputEvent({ type: 'mouseDown', x: Math.round(text.x + 1), y: Math.round(text.y + 10), button: 'left', clickCount: 1 });
     for (let x = text.x + 10; x < text.x + 190; x += 10) wc.sendInputEvent({ type: 'mouseMove', x: Math.round(x), y: Math.round(text.y + 10), button: 'left' });
@@ -40,6 +43,16 @@ app.whenReady().then(async () => {
     wc.sendInputEvent({ type: 'mouseUp', x: 180, y: 260, button: 'left', clickCount: 1 });
     await until(() => selections.length === 3);
     assert.equal(selections[2].kind, 'region'); assert.equal(selections[2].rect.width, 140);
+    wc.send('browser:annotation-capture', { requestId:'capture-1', documentId:selections[2].documentId, selectionId:selections[2].selectionId });
+    await until(() => captures.length === 1);
+    assert.equal(captures[0].selection.stale, false, 'helper style changes cannot stale the region');
+    assert.equal(captures[0].selection.rect.width, 140);
+    assert.equal(await evalPage('getComputedStyle(document.querySelector("#text"),"::selection").backgroundColor'), 'rgba(0, 0, 0, 0)');
+    wc.send('browser:annotation-capture-end', { requestId:'capture-1' });
+    wc.send('browser:annotate-mode', { active: true, mode: 'region' }); await pause(50);
+    assert.equal(await evalPage('getComputedStyle(document.body).cursor'), 'crosshair');
+    wc.sendInputEvent({type:'keyDown',keyCode:'ESCAPE'}); await pause(50);
+    assert.notEqual(await evalPage('getComputedStyle(document.body).cursor'), 'crosshair');
     await evalPage('window.scrollTo(0,50)');
     await until(() => layouts.some((l) => l.selections.some((s) => s.selectionId === selections[0].selectionId && s.rect?.y < rect.y)));
     await evalPage('document.querySelector("button").textContent="Changed externally"');

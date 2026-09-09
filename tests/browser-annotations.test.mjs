@@ -70,6 +70,6 @@ test('region selection reports honest visual geometry and suppresses trailing pa
   h.dispatch('pointerup', { clientX: 80, clientY: 100 });
   const selected = h.sent.find(([name]) => name === 'browser:selection')[1];
   assert.equal(selected.kind, 'region'); assert.equal(selected.rect.width, 70); assert.equal(selected.locator, '');
-  assert.match(selected.label, /no image attached/);
+  assert.equal(selected.label, 'Visual region');
   assert.equal(h.dispatch('click').prevented, true);
 });
