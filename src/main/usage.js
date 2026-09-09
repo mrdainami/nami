@@ -9,7 +9,10 @@ function codexUsage(data, now = Date.now()) {
     const w = bucket?.[window], left = percentage(w?.usedPercent);
     if (left === null) return [];
     const expired = Number.isFinite(w.resetsAt) && w.resetsAt * 1000 <= now;
-    return [{ id: 'codex:' + key + ':' + window, name: 'Codex · ' + (key === 'codex' && !bucket.limitName ? '' : (bucket.limitName || key) + ' · ') + (w.windowDurationMins ? (w.windowDurationMins % 1440 === 0 ? w.windowDurationMins / 1440 + ' days' : w.windowDurationMins / 60 + 'h') : window), remaining: expired ? null : Math.round(left * 10) / 10,
+    const windowLabel = w.windowDurationMins ? (w.windowDurationMins % 1440 === 0 ? w.windowDurationMins / 1440 + ' days' : w.windowDurationMins / 60 + 'h') : window;
+    return [{ id: 'codex:' + key + ':' + window, name: 'Codex · ' + (key === 'codex' && !bucket.limitName ? '' : (bucket.limitName || key) + ' · ') + windowLabel, remaining: expired ? null : Math.round(left * 10) / 10,
+      providerId: 'codex', providerName: 'Codex', accountId: 'codex:configured', accountName: 'Configured CLI account', windowLabel,
+      scopeLabel: key === 'codex' && !bucket.limitName ? 'Shared account allowance' : String(bucket.limitName || key), source: 'Codex', status: expired ? 'stale' : 'reported', resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null,
       checkedAt: now, detail: expired ? 'Window reset; refresh for the new allowance.' : 'Reported by Codex' + (w.resetsAt ? ' · resets ' + new Date(w.resetsAt * 1000).toLocaleString() : '') }];
   }));
 }
@@ -18,6 +21,7 @@ function feedUsage(data, now = Date.now()) {
     const left = percentage(w?.used_percentage); if (left === null) return [];
     const stale = !Number.isFinite(data.at) || now - data.at > 5 * 60 * 1000 || data.at > now + 60000 || (Number.isFinite(w.resets_at) && w.resets_at * 1000 <= now);
     return [{ id: 'claude:' + key, name: 'Claude · ' + key.replaceAll('_', ' '), remaining: stale ? null : Math.round(left * 10) / 10, checkedAt: data.at,
+      providerId: 'claude', providerName: 'Claude', accountId: 'claude:status-line', accountName: 'Status-line account', windowLabel: key.replaceAll('_', ' '), source: 'Claude status line', status: stale ? 'stale' : 'reported', resetsAt: Number.isFinite(w.resets_at) ? w.resets_at * 1000 : null,
       detail: stale ? 'Last report is stale. Use Claude to refresh its status line.' : 'Claude status line' + (w.resets_at ? ' · resets ' + new Date(w.resets_at * 1000).toLocaleString() : '') }];
   });
 }
@@ -28,6 +32,7 @@ function customUsage(id, data, now = Date.now()) {
     const valid = typeof w.remainingPercent === 'number' && Number.isFinite(w.remainingPercent) && w.remainingPercent >= 0 && w.remainingPercent <= 100;
     const expired = Number.isFinite(w.resetsAt) && w.resetsAt <= now;
     return { id: id + ':feed:' + i, name: String(data.name || id).slice(0, 100) + ' · ' + String(w.label || 'Allowance').slice(0, 100),
+      providerId: id, providerName: String(data.name || id).slice(0, 100), accountId: id + ':feed', accountName: 'Feed: ' + id, windowLabel: String(w.label || 'Allowance').slice(0, 100), source: String(data.source || 'User-configured adapter').slice(0, 200), status: stale || expired ? 'stale' : valid ? 'reported' : 'unknown', resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt : null,
       remaining: valid && !stale && !expired ? Math.round(w.remainingPercent * 10) / 10 : null,
       checkedAt: stale ? null : data.at, detail: 'Custom feed · ' + String(data.source || 'User-configured adapter').slice(0, 200) + (stale || expired ? ' · report expired; refresh the adapter.' : '') };
   });
@@ -69,7 +74,7 @@ async function readUsage({ agents, directory, envPath }) {
     }
     if (!rows.length) rows = feeds.get(agent.id) || [];
     feeds.delete(agent.id);
-    accounts.push(...(rows.length ? rows : [{ id: agent.id, name: agent.name, remaining: null, detail: agent.id === 'claude' ? 'Connect the Claude status-line feed to report eligible subscription limits.' : agent.id === 'codex' ? 'The configured Codex account did not return a quota window.' : 'This provider has no connected quota adapter.' }]));
+    accounts.push(...(rows.length ? rows : [{ id: agent.id, name: agent.name, providerId: agent.id, providerName: agent.name, status: 'unavailable', remaining: null, detail: agent.id === 'claude' ? 'Connect the Claude status-line feed to report eligible subscription limits.' : agent.id === 'codex' ? 'The configured Codex account did not return a quota window.' : 'This provider has no connected quota adapter.' }]));
   }
   for (const rows of feeds.values()) accounts.push(...rows);
   return { accounts };

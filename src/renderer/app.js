@@ -1,3 +1,4 @@
+import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
 // can focus, reorder, and expand. Workspace is a live explorer + paper editor. Vanilla DOM; tiles
@@ -262,7 +263,7 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, settings: openSettings, closePanel });
+  selection: openSelectionDraft, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
 // panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
 
 // w<winId> makes the name unique across every open window: main keys its session
@@ -875,7 +876,7 @@ function buildShell() {
           <div class="footer">
             <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
             <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
-            <button class="footer-shortcuts" id="btn-shortcuts"><span aria-hidden="true">⌘</span> Shortcuts</button>
+            <button class="btn btn--small footer-shortcuts" id="btn-shortcuts">${helpIcon('shortcuts')} Shortcuts</button>
           </div>
         </div>
       </div>
@@ -2758,7 +2759,7 @@ function renderSelectionDraft() {
   const o = S.overlay;
   const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
   const modal = overlay('modal modal--selection', `<div class="modal-head"><span class="title">Insert selection into session</span></div>
-    <div class="modal-body selection-sheet"><div class="field-label">Sessions</div><div class="selection-recipients">${sessions.map((s) => `<label><input type="checkbox" data-selection-session="${esc(s.id)}"${(o.destinations || [o.destination]).includes(s.id) ? ' checked' : ''}${o.inserted?.includes(s.id) ? ' disabled' : ''}>${esc(s.title)}${o.inserted?.includes(s.id) ? ' · inserted' : ''}</label>`).join('')}</div>
+    <div class="modal-body selection-sheet"><div class="field-label">Sessions</div><div class="selection-recipients">${sessions.map((s) => `<label><input type="checkbox" data-selection-session="${esc(s.id)}"${(o.destinations || [o.destination]).includes(s.id) ? ' checked' : ''}${o.inserted?.includes(s.id) ? ' disabled' : ''}>${esc(s.title)} · ${tileEls.get(s.id)?.aiInput ? 'chat input' : 'terminal input'}${o.inserted?.includes(s.id) ? ' · inserted' : ''}</label>`).join('')}</div>
     <div class="context-reference">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
     <label>Optional note<textarea id="selection-note" rows="3">${esc(o.note)}</textarea></label></div>
     <div class="modal-foot"><span class="note">Inserts into the session input without submitting.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Insert into session</button></div>`);
@@ -2771,8 +2772,8 @@ function renderSelectionDraft() {
     const ids = (o.destinations || [o.destination]).filter((id) => !o.inserted?.includes(id));
     if (!ids.length) { toast('Choose a session.'); q('#selection-add', modal).disabled = false; return; }
     o.inserted ||= [];
-    for (const id of ids) if (await insertSessionText(id, text, { focus: ids.length === 1 })) { o.inserted.push(id); rememberContext(id, o.selection); }
-    if (ids.every((id) => o.inserted.includes(id))) closeOverlay(); else renderSelectionDraft();
+    for (const id of ids) if (await insertSessionText(id, text, { focus: ids.length === 1 })) { o.inserted.push(id); rememberContext(id, { reference: o.selection.reference, text, insertedAt: Date.now() }); }
+    if (ids.every((id) => o.inserted.includes(id))) { o.selection.onInserted?.(); closeOverlay(); } else renderOverlay();
   };
   q('#selection-note', modal).focus();
 }
@@ -3986,6 +3987,7 @@ async function saveCard(p) {
 // ---- dictation (in-app mic + clipboard paste) ------------------------------
 // Which engine transcribes is main's business (see stt.js). The renderer only
 // records, decodes to the 16 kHz mono float every engine can read, and asks.
+let annotationRecording = null;
 let recording = null; // { panelId, recorder, stream }
 
 // S.sttInfo mirrors stt.status(): { active, chosen, ready, providers[] }.
@@ -4021,6 +4023,39 @@ async function transcribeBlob(blob) {
   const pcm = await decodePcm(blob);
   return api.transcribe({ pcm, sampleRate: 16000, bytes, mime: blob.type || 'audio/webm' });
 }
+function startAnnotationDictation({ onState, onText, onError }) {
+  let cancelled = false, recorder = null, stream = null;
+  const release = () => stream?.getTracks().forEach(track => track.stop());
+  const handle = {
+    cancel() { cancelled = true; if(annotationRecording===handle)annotationRecording=null; if (recorder?.state === 'recording') recorder.stop(); release(); onState('idle'); },
+    stop() { if (recorder?.state === 'recording') recorder.stop(); },
+  };
+  if(annotationRecording){queueMicrotask(()=>onError('Finish the current comment recording first.'));return handle;}
+  annotationRecording=handle;
+  (async () => {
+    await Promise.resolve();
+    if(cancelled)return;
+    try {
+      if (recording) throw new Error('Stop session dictation before recording a comment.');
+      if (!S.stt) throw new Error('Choose a speech provider in Settings → Voice first.');
+      onState('starting'); stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      if (cancelled) { release(); return; }
+      recorder = new MediaRecorder(stream); const chunks = [];
+      recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+      recorder.onerror = () => { release(); if (!cancelled) { onState('idle'); onError('Microphone recording failed.'); } };
+      recorder.onstop = async () => {
+        release(); if (cancelled) return; onState('transcribing');
+        try { const result = await transcribeBlob(new Blob(chunks, {type:recorder.mimeType || 'audio/webm'}));
+          if (cancelled) return; if (!result?.ok || !result.text) throw new Error(result?.error || 'No speech detected.');
+          onText(result.text);
+        } catch (error) { if (!cancelled) onError(error.message); }
+        finally { if(annotationRecording===handle)annotationRecording=null; if (!cancelled) onState('idle'); }
+      };
+      recorder.start(); onState('recording');
+    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(error.message); } }
+  })();
+  return handle;
+}
 function micBtn(p) {
   const t = tileEls.get(p.id); if (!t) return null;
   return q('.t-mic', t.head);
@@ -4036,6 +4071,7 @@ function setMicState(p, state) {
   b.title = state === 'recording' ? 'Stop & transcribe' : state === 'transcribing' ? 'Transcribing…' : 'Dictate into this session';
 }
 async function toggleMic(p) {
+  if(annotationRecording){toast('Finish or cancel comment dictation first.');return;}
   if (recording && recording.panelId === p.id) { stopMic(); return; }
   if (recording) stopMic();
   // nothing set up: send them somewhere they can fix it, rather than a dead end
@@ -4169,7 +4205,7 @@ function panelSnapshot() {
   const owners = ownerIndexes(S.panels);
   const own = (p) => (owners[p.id] === undefined ? {} : { ownerIndex: owners[p.id] });
   return S.panels.map((p) => {
-    if (p.kind === 'browser') return { kind: 'browser', url: p.url, filePath: p.filePath, title: p.title, ...own(p), ...size(p) };
+    if (p.kind === 'browser') return { kind: 'browser', url: p.url, profileId:p.profileId, filePath: p.filePath, title: p.title, ...own(p), ...size(p) };
     if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...own(p), ...size(p) };
     if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...own(p), ...size(p) };
     if (p.kind === 'card') return { kind: 'card', item: p.item, ...own(p), ...size(p) };
@@ -4213,7 +4249,7 @@ async function restorePanels(snaps) {
       // Reading the size back off that is exact whatever the kind, and does not
       // depend on five different functions agreeing to return their panel.
       const before = S.panels.length;
-      if (s.kind === 'browser') browsers.open(s.url, s.filePath, null, null, true);
+      if (s.kind === 'browser') browsers.open(s.url, s.filePath, null, null, true, s.profileId);
       else if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
@@ -4369,6 +4405,8 @@ function focusPanel(id, scroll = true) {
 }
 function closePanel(id, opts = {}) {
   const p = S.panels.find((x) => x.id === id); if (!p) return;
+  if ((p.kind==='browser'||isSessionPanel(p)) && !opts.browserConfirmed && browsers.hasPending(p)) { browsers.canClose(p).then(ok=>{if(ok)closePanel(id,{...opts,browserConfirmed:true});}); return; }
+  if (p.kind === 'browser') browsers.removeNotes(id); else if(isSessionPanel(p)&&browsers.hasPending(p)) browsers.clearNotes(p);
   if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !opts.silent && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
   else if (!isFilePanel(p)) {
     api.termKill({ id });
@@ -5381,6 +5419,8 @@ function renderOverlay() {
   if (o.type === 'browser-note') return browsers.renderNote();
   if (o.type === 'browser-access') return browsers.renderAccess();
   if (o.type === 'browser-connection') return browsers.renderConnection();
+  if (o.type === 'insertion-history') return renderInsertionHistory();
+  if (o.type === 'browser-profiles') return browsers.renderProfiles();
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
@@ -6410,6 +6450,7 @@ async function switchToFolder(info) {
 // Save → clear → restore, in that order. The save has to name the *outgoing*
 // folder explicitly: savePanels() reads S.project, which is about to change.
 async function swapDesk(info) {
+  for (const p of S.panels) if (p.kind === 'browser' && browsers.hasPending(p) && !await browsers.canClose(p)) return;
   const from = S.project ? S.project.path : null;
   clearTimeout(saveTimer); // a pending debounce would land under the new folder
   await flushPanels(from);
@@ -6699,22 +6740,16 @@ function rememberContext(id, context) {
   const rec = tileEls.get(id), p = S.panels.find((p) => p.id === id); if (!rec || !p) return;
   p.contextNotes ||= []; p.contextNotes.push(context); p.contextNotes = p.contextNotes.slice(-20);
   if (!rec.contextStrip) { rec.contextStrip = document.createElement('div'); rec.contextStrip.className = 'browser-note-strip'; rec.root.appendChild(rec.contextStrip); }
-  rec.contextStrip.innerHTML = `<span>${p.contextNotes.length} context ${p.contextNotes.length === 1 ? 'item' : 'items'}</span><button class="btn btn--small">Review</button><button class="btn btn--small">Hide</button>`;
+  rec.contextStrip.innerHTML = `<span>${p.contextNotes.length} inserted ${p.contextNotes.length === 1 ? 'item' : 'items'}</span><button class="btn btn--small">Review</button><button class="btn btn--small">Clear history</button>`;
   const [review, hide] = rec.contextStrip.querySelectorAll('button');
-  review.onclick = () => openSelectionDraft({ owner: id }, { reference: 'Attached context', text: p.contextNotes.map((n) => n.reference + '\n' + n.text).join('\n\n') });
+  review.onclick = () => { S.overlay = { type: 'insertion-history', panelId: id }; renderOverlay(); };
   hide.onclick = () => { p.contextNotes = []; rec.contextStrip.remove(); rec.contextStrip = null; };
 }
-function usagePaneHtml() { return '<div id="usage-body"><p class="note">Checking available account usage…</p></div>'; }
-async function wireUsagePane(modal) {
-  const host = q('#usage-body', modal);
-  let result;
-  try { result = await api.usageRead(); } catch (_) { if (host?.isConnected) { host.innerHTML = '<p class="note">Could not read usage.</p><button class="btn">Retry</button>'; host.querySelector('button').onclick = () => wireUsagePane(modal); } return; }
-  if (!host?.isConnected) return;
-  host.innerHTML = '<p class="note">Account limits can be shared across models. Unavailable does not mean zero.</p>' + (result.accounts || []).map((a) => `<div class="usage-account"><div class="usage-account-head"><strong>${esc(a.name)}</strong><span>${a.remaining == null ? 'Unavailable' : a.remaining + '% left'}</span></div>${a.remaining == null ? '' : `<div class="usage-meter"><span style="width:${a.remaining}%"></span></div>`}<p class="note">${esc(a.detail)}${a.checkedAt ? ' · ' + new Date(a.checkedAt).toLocaleTimeString() : ''}</p></div>`).join('') + '<button class="btn" id="usage-refresh">Refresh</button><details class="browser-peers"><summary>Connect Claude usage</summary><p class="note">Claude Code can report eligible subscription limits through its status line after an API response. Add this command in Claude’s status-line settings, or integrate it into your existing status-line script. Nami does not replace your configuration.</p><button class="btn" id="usage-copy-claude">Copy status-line command</button></details>';
-  q('#usage-copy-claude', host).onclick = () => api.copyText(result.claudeCommand).then(() => toast('Copied.'));
-  const setup = document.createElement('details'); setup.className = 'browser-peers';
-  setup.innerHTML = '<summary>Connect another provider</summary><p class="note">A provider adapter can write its reported quota to a JSON file here. Use one file per account; refresh reports within five minutes. Nami reads the feed when you open Usage or press Refresh.</p><pre class="selection-preview">' + esc(result.feedDirectory + '/my-provider.json') + '</pre><button class="btn">Copy feed format</button>';
-  setup.querySelector('button').onclick = () => api.copyText(JSON.stringify({ name: 'My provider', source: 'Provider quota API', at: Date.now(), windows: [{ label: 'Weekly', remainingPercent: null, resetsAt: null }] }, null, 2)).then(() => toast('Copied. Timestamps use milliseconds; replace null with reported values.'));
-  host.appendChild(setup);
-  q('#usage-refresh', host).onclick = () => wireUsagePane(modal);
+function renderInsertionHistory() {
+  const id = S.overlay.panelId, p = S.panels.find(p => p.id === id);
+  const entries = p?.contextNotes || [];
+  const modal = overlay('modal modal--selection modal--insertion-history', `<div class="modal-head"><span class="title">Inserted items</span></div><div class="modal-body selection-sheet"><p class="note">One-time insertions into ${esc(p?.title || 'this session')}. This history does not update the source or undo messages.</p>${entries.map((n, i) => `<section><div class="context-reference">${esc(n.reference)}</div><pre class="selection-preview">${esc(n.text)}</pre><button class="btn btn--small" data-insert-again="${i}">Insert again…</button></section>`).join('') || '<p>No inserted items.</p>'}</div><div class="modal-foot"><button class="btn btn--go" id="history-done">Done</button></div>`);
+  q('#history-done', modal).onclick = closeOverlay;
+  modal.querySelectorAll('[data-insert-again]').forEach(b => b.onclick = () => openSelectionDraft({owner:id}, {reference:'Previously inserted item', text:entries[Number(b.dataset.insertAgain)].text}));
 }
+function wireUsagePane(modal) { return wireUsageContent(modal, { api, toast }); }

@@ -44,3 +44,27 @@ body[data-glass] .companion-tab, body[data-soft] .companion-tab { border-radius:
 .usage-account-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .usage-meter { height: 4px; background: var(--dash); margin: 10px 0; }
 .usage-meter span { display: block; height: 100%; background: var(--green); }
+.browser-menu { position:fixed; z-index:1200; width:220px; max-width:calc(100vw - 16px); padding:5px; background:var(--menu-sheet); color:var(--ink); border:1px solid var(--dash); box-shadow:4px 5px 0 var(--shadow-mid); backdrop-filter:blur(16px) saturate(1.2); }
+.browser-menu button { display:block; width:100%; text-align:left; padding:8px 10px; background:transparent; color:inherit; border:0; font:inherit; font-size:12px; cursor:pointer; }
+.browser-menu button:hover,.browser-menu button:focus-visible { background:var(--hover); outline:1px solid var(--green); }
+.browser-find { display:flex; gap:6px; padding:5px 0; flex:none; }
+.browser-find input { flex:1; min-width:0; font:inherit; font-size:12px; color:var(--ink); background:var(--field); border:1px solid var(--field-line); }
+.browser-profile-body { font-size:12px; }
+.browser-profile-body .note { font:inherit; font-size:12px; line-height:1.5; color:var(--muted); }
+.browser-profile-body details { margin-top:18px; }
+.browser-profile-body summary { cursor:pointer; padding:6px 0; }
+.browser-profile-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.browser-profile-confirm { margin-top:12px; padding:10px; border:1px solid var(--dash); }
+.browser-credential { display:flex; align-items:center; gap:8px; padding:10px 0; }
+.browser-credential span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.browser-credential small { display:block; color:var(--muted); }
+.browser-address .t-btn { flex:none; }
+body[data-glass] .browser-menu,body[data-soft] .browser-menu { border-radius:10px; box-shadow:none; }
+body[data-theme="operator"] .browser-menu { box-shadow:none; }
+.browser-menu { background:rgb(from var(--menu-sheet) r g b / 1); }
+.selection-recipients input { accent-color:var(--green); }
+[data-native-mirrored] { opacity:0 !important; }
+.browser-body { padding-bottom:10px !important; }
+.modal--browser .modal-foot .browser-profile-done:first-child { margin-left:auto; margin-right:0; }
+.modal--insertion-history .note { font-size:12px; line-height:1.5; }
+.modal--insertion-history #history-done { margin-left:auto; }

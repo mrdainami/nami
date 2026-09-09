@@ -1,0 +1,30 @@
+/* Trusted overlay composition mirrors these surfaces above the native page. */
+.browser-viewport { position: relative; }
+.browser-annotations { position: absolute; inset: 0; pointer-events: none; overflow: hidden; color: var(--ink); font: inherit; }
+.browser-annotation-surface { pointer-events: auto; }
+.browser-annotation-toolbar, .browser-annotation-bubble { position: absolute; background: var(--menu-sheet); backdrop-filter: blur(16px) saturate(1.2); border: 1px solid var(--dash); border-radius: 2px; box-sizing: border-box; }
+.browser-annotation-toolbar { z-index: 3; top: 6px; left: 6px; right: 6px; display: flex; align-items: center; gap: 5px; padding: 5px; flex-wrap: wrap; }
+.browser-annotation-toolbar[hidden] { display: none; }
+.browser-annotation-toolbar select { min-width: 0; max-width: 110px; font: inherit; font-size: 11px; background: var(--field); color: var(--ink); border: 1px solid var(--field-line); padding: 4px; }
+.browser-annotation-toolbar .btn { white-space: normal; }
+.browser-annotation-toolbar .t-btn { flex: none; }
+.browser-annotation-bubble { z-index: 4; display: flex; flex-direction: column; overflow: hidden; padding: 9px; box-shadow: 3px 4px 0 var(--shadow-mid); }
+.browser-annotation-caption { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.browser-annotation-caption .t-btn { flex: none; }
+.browser-annotation-bubble textarea { display: block; box-sizing: border-box; width: 100%; flex: 1 1 60px; min-height: 32px; max-height: 120px; resize: none; margin: 5px 0; padding: 7px; color: var(--ink); background: var(--field); border: 1px dashed var(--field-line); font: inherit; font-size: 12px; line-height: 1.5; }
+.browser-annotation-bubble textarea:focus { border-style: solid; outline-color: var(--green); }
+.browser-annotation-actions { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.browser-annotation-actions > .t-btn:first-child { margin-right: auto; }
+.browser-annotation-status { flex: none; font-size: 11px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.browser-annotation-status:empty { display: none; }
+.browser-annotation-pin { position: absolute; z-index: 2; width: 23px; height: 23px; padding: 0; border: 1px solid var(--paper); border-radius: 50%; font: inherit; font-size: 11px; font-weight: bold; color: var(--paper); background: var(--green); cursor: pointer; }
+.browser-annotation-highlight { position: absolute; box-sizing: border-box; outline: 1px solid var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); pointer-events: none; }
+.browser-annotation-highlight.is-editing { outline-style: dashed; }
+body[data-glass] .browser-annotation-toolbar, body[data-glass] .browser-annotation-bubble, body[data-soft] .browser-annotation-toolbar, body[data-soft] .browser-annotation-bubble { border-radius: 9px; box-shadow: none; }
+body[data-theme="operator"] .browser-annotation-bubble, body[data-theme="graphite"] .browser-annotation-bubble { box-shadow: none; }
+/* Native child views cannot blur a different webContents underneath them.
+   Keep the theme's menu colour, but make its alpha opaque for legibility. */
+.browser-annotation-toolbar, .browser-annotation-bubble { background: rgb(from var(--menu-sheet) r g b / 1); }
+.browser-annotation-bubble .t-btn, .browser-annotation-toolbar .t-btn { color: var(--ink); }
+
+.browser-annotation-tools { display: inline-flex; gap: 4px; flex: none; margin-left: auto; }
