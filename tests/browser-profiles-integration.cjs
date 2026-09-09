@@ -13,14 +13,16 @@ app.whenReady().then(async () => {
   try {
     const handlers = new Map();
     const ipc = { handle: (name, handler) => handlers.set(name, handler), on: () => {} };
-    let settings = { browserEnabled: true };
-    browser = require('../src/main/browser-views').wireBrowserViews(ipc, { readSettings: () => settings, writeSettings: (next) => { settings = { ...settings, ...next }; return { ok: true }; } });
+    let settings = { browserEnabled: true }, settingsReads = 0, denySettingsWrite = false;
+    browser = require('../src/main/browser-views').wireBrowserViews(ipc, { readSettings: () => { settingsReads++; return settings; }, writeSettings: (next) => { if (denySettingsWrite) return { ok: false, error: 'Fixture settings permission denied' }; settings = { ...settings, ...next }; return { ok: true }; } });
     win = new BrowserWindow({ show: false });
     await win.loadURL('data:text/html,<p>Trusted Nami test window</p>');
     const invoke = async (name, args = {}) => {
       const value = await handlers.get(name)({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, args);
       if (!value.ok) throw new Error(value.error); return value;
     };
+    for (let poll = 0; poll < 20; poll++) assert.equal((await invoke('browser:status')).enabled, true);
+    assert.equal(settingsReads, 1, 'status polling reads settings only at initialization');
     let delayResponse = false;
     server = http.createServer((_req, res) => { const respond = () => res.end('<!doctype html><title>Profile fixture</title><form><input name="username"><input type="password"><button>Submit</button></form>'); if (delayResponse) setTimeout(respond, 250); else respond(); });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -171,6 +173,26 @@ app.whenReady().then(async () => {
     assert.equal(browser.contexts.read('s1', 'source').content, 'Context for conversation-B');
     assert.equal((await invoke('browser:connection', { id: 's1' })).url, contextConnection.url);
     console.log('PASS: source identity change during engine drain rejects atomically, new sources require selected identity, existing source grants survive tab edits.');
+    assert.equal(settingsReads, 1, 'connections, grants and status must use in-memory browser settings');
+    denySettingsWrite = true;
+    await assert.rejects(invoke('browser:enable', { enabled: false }), /permission denied/);
+    assert.equal((await invoke('browser:status')).enabled, true, 'failed write cannot change enabled state');
+    assert.equal((await invoke('browser:connection', { id: 's1' })).url, contextConnection.url);
+    denySettingsWrite = false;
+    await invoke('browser:enable', { enabled: false });
+    assert.equal((await invoke('browser:status')).enabled, false);
+    assert.equal((await invoke('browser:connection', { id: 's1' })).enabled, false);
+    assert.deepEqual(browser.contexts.list('s1'), []);
+    await assert.rejects(invoke('browser:grant', { id: 's1', viewIds: [] }), /Enable the browser connection/);
+    denySettingsWrite = true;
+    await assert.rejects(invoke('browser:enable', { enabled: true }), /permission denied/);
+    assert.equal((await invoke('browser:status')).enabled, false);
+    denySettingsWrite = false;
+    await invoke('browser:enable', { enabled: true });
+    assert.equal((await invoke('browser:status')).enabled, true);
+    assert.equal(settingsReads, 1);
+    console.log('PASS: repeated status/connection/grant queries perform no settings reads; explicit toggles cache only successful writes and disable revokes live access.');
+
 
 
   } catch (error) { console.error(error); process.exitCode = 1; }

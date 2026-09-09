@@ -7,6 +7,9 @@ const { browserUrl, userBrowserUrl, cleanSelection, cleanAnnotationLayout, Acces
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
+  // Status is polled frequently. Never turn a UI refresh into filesystem or
+  // macOS privacy access; only startup and an explicit toggle touch settings.
+  let browserEnabled = !!readSettings().browserEnabled;
   const views = new Map(), access = new Access(), partitions = new Map();
   const profiles = require('./browser-profiles').createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
   const contexts = new (require('./browser-context').SessionContextStore)();
@@ -278,11 +281,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   });
   guarded('browser:status', async (w) => {
     const sessions = [...access.sessions].filter(([, s]) => s.windowId === w.webContents.id).map(([id, s]) => ({ id, title: s.title, views: [...s.views], connected: !!gateway?.isConnected(id), ...gateway?.status(id), sources: contexts.list(id), peers: [...(s.peers || [])] }));
-    return { enabled: !!readSettings().browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
+    return { enabled: browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
   });
   guarded('browser:enable', async (_w, { enabled }) => {
     const result = writeSettings({ browserEnabled: !!enabled });
     if (!result.ok) throw new Error(result.error);
+    browserEnabled = !!enabled;
     if (!enabled) { if (gatewayStarting) await gatewayStarting; contexts.clearGrants(); for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } await gateway?.close(); gateway = null; for (const s of access.sessions.values()) { s.views.clear(); s.peers = []; } }
     return {};
   });
@@ -301,14 +305,14 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     return gateway || gatewayStarting;
   }
   async function connectionFor(id) {
-    if (!readSettings().browserEnabled) return null;
+    if (!browserEnabled) return null;
     access.get(id); const service = await ensureGateway();
-    if (!readSettings().browserEnabled) return null;
+    if (!browserEnabled) return null;
     return service.connection(id);
   }
   guarded('browser:connection', async (w, { id }) => { access.get(id, w.webContents.id); const connection = await connectionFor(id); return connection || { enabled: false }; });
   guarded('browser:grant', async (w, { id, viewIds = [], peers = [], sourceIds, expectedIdentities, expectedSourceIdentities }) => {
-    if (!readSettings().browserEnabled) throw new Error('Enable the browser connection in Settings first.');
+    if (!browserEnabled) throw new Error('Enable the browser connection in Settings first.');
     access.get(id, w.webContents.id);
     if (![viewIds, peers, sourceIds || []].every(ids => Array.isArray(ids) && ids.length <= 100)) throw new Error('Too many shared sources.');
     for (const vid of viewIds) {
