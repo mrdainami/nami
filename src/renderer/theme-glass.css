@@ -744,8 +744,10 @@ body[data-glass] .nav-file { border-radius: 17px; background: var(--gl-pane); }
 body[data-glass] .nav-file.sel { background: var(--gl-pane-strong); border-color: var(--ink); }
 body[data-glass] .nav-card .count { border-radius: 17px; }
 body[data-glass] .viewsw { border-radius: 17px; }
+body[data-glass] .paneview .pane-switch { border-radius: 17px; border-color: var(--gl-rim); }
+body[data-glass] .paneview .pane-switch button { background: var(--gl-pane); }
 body[data-glass] .viewsw .view-choice.active,
-body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #fff; }
+body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #fff; background: var(--green); }
 
 body[data-glass] .image-attachment { border-radius: 12px; }
 body[data-glass] .image-insert, body[data-glass] .image-remove { border-radius: 12px; }

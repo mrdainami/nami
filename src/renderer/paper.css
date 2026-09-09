@@ -2376,9 +2376,10 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 .cw-u.cw-md th, .cw-u.cw-md tr:nth-child(even) td { background: var(--paper); }
 
 /* Split gives each pane a useful width before falling back to a pane switch. */
-.pane-switch { display: none; flex: none; gap: 0; margin-bottom: 10px; }
+.pane-switch { display: none; flex: none; gap: 0; margin-bottom: 10px; border: 1px solid var(--dash-dark); border-radius: 2px; overflow: hidden; }
 .paneview .pane-switch button { flex: 1; padding: 8px; font: inherit; font-size: 11px;
-  border: 1px solid var(--dash-dark); background: var(--paper); color: var(--ink); cursor: pointer; }
+  border: 0; background: var(--paper); color: var(--ink); cursor: pointer; }
+.paneview .pane-switch button + button { border-left: 1px solid var(--dash-dark); }
 .paneview .pane-switch button[aria-pressed="true"] { background: var(--green); color: var(--paper); }
 .paneview .pane-switch button:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .paneview .pane-switch button:disabled { opacity: .5; cursor: default; }
