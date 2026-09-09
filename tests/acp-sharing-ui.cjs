@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
           if(payload.method==='session/new')result={sessionId:id+'-conversation'};
           if(payload.method==='session/list')result={sessions:[{sessionId:'resumed-conversation',title:'Past conversation'}]};
           setTimeout(()=>{if(payload.method==='session/prompt'){
-            for(const [sessionUpdate,text]of [['agent_message_chunk','Visible response'],['agent_thought_chunk','INTERNAL PRIVATE THOUGHT']])messages.forEach(cb=>cb({id,msg:{method:'session/update',params:{update:{sessionUpdate,content:{type:'text',text}}}}}));
+            for(const [sessionUpdate,text]of [['agent_message_chunk','Visible response'],['agent_thought_chunk','INTERNAL PRIVATE THOUGHT']])messages.forEach(cb=>cb({id,msg:{method:'session/update',params:{sessionId:id+'-conversation',update:{sessionUpdate,content:{type:'text',text}}}}}));
           }messages.forEach(cb=>cb({id,msg:{id:payload.id,result}}));},5);return {ok:true};}};
       const {mountChatPane}=await import(${JSON.stringify(pathToFileURL(path.join(__dirname, '../src/renderer/acp-pane.mjs')).href)});
       window.imageRec={body:document.querySelector('#chat')};window.fallbackRec={body:document.querySelector('#fallback')};

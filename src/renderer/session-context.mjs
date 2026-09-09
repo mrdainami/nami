@@ -32,6 +32,7 @@ export function createSessionContextRecorder({ identity = '', maxChars = 48000, 
       return changed;
     },
     endTurn() { if (entries.length) entries.at(-1).closed = true; },
+    identify(nextIdentity) { identity = String(nextIdentity); updatedAt = now(); version++; },
     reset(nextIdentity = '') { identity = String(nextIdentity); entries = []; truncated = false; updatedAt = now(); version++; },
     snapshot() { return { identity, kind: 'chat', content: entries.map(entry => entry.role + ':\n' + entry.text).join('\n\n'), truncated, incomplete: true, updatedAt, version }; }
   };

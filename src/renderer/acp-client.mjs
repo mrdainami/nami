@@ -13,7 +13,8 @@ export function createAcpClient(transport, handlers) {
   const h = handlers || {};
   let nextId = 1;
   const pending = new Map();
-  let sessionId = null, capabilities = {}, requestedMcp = [], configuredMcp = [];
+  let sessionId = null, loadingSessionId = null, startingSession = false, startingUpdates = [];
+  let capabilities = {}, requestedMcp = [], configuredMcp = [];
   const eligibleMcp = (servers) => (Array.isArray(servers) ? servers : []).filter((server) => {
     if (server?.type === 'http') return capabilities.mcpCapabilities?.http === true;
     if (server?.type === 'sse') return capabilities.mcpCapabilities?.sse === true;
@@ -44,7 +45,11 @@ export function createAcpClient(transport, handlers) {
     }
     // notifications + requests from the agent
     if (msg.method === 'session/update') {
-      const u = (msg.params && (msg.params.update || msg.params)) || {};
+      const incomingSessionId = msg.params?.sessionId;
+      if (typeof incomingSessionId !== 'string') return;
+      if (startingSession) { if (startingUpdates.length < 200) startingUpdates.push(msg); return; }
+      if (incomingSessionId !== (loadingSessionId || sessionId)) return;
+      const u = msg.params.update || {};
       if (h.onUpdate) h.onUpdate(u);
       return;
     }
@@ -77,9 +82,13 @@ export function createAcpClient(transport, handlers) {
       });
       capabilities = init.agentCapabilities || {};
       requestedMcp = mcpServers; configuredMcp = eligibleMcp(requestedMcp);
-      const sess = await call('session/new', { cwd, mcpServers: configuredMcp });
-      sessionId = sess.sessionId;
-      return { init, session: sess };
+      startingSession = true;
+      try {
+        const sess = await call('session/new', { cwd, mcpServers: configuredMcp });
+        sessionId = sess.sessionId;
+        for (const message of startingUpdates) if (message.params.sessionId === sessionId) h.onUpdate?.(message.params.update || {});
+        return { init, session: sess };
+      } finally { startingSession = false; startingUpdates = []; }
     },
     prompt(text, { images = [] } = {}) {
       if (images.length && capabilities.promptCapabilities?.image !== true) return Promise.reject(new Error('This agent does not support image prompts. Use a file reference instead.'));
@@ -93,9 +102,13 @@ export function createAcpClient(transport, handlers) {
       if (capabilities.loadSession !== true) throw new Error('This agent does not support loading sessions.');
       requestedMcp = options.mcpServers || requestedMcp;
       configuredMcp = eligibleMcp(requestedMcp);
-      const r = await call('session/load', { sessionId: sid, cwd, mcpServers: configuredMcp });
-      sessionId = sid;
-      return r;
+      if (loadingSessionId) throw new Error('Another session is already loading.');
+      loadingSessionId = sid;
+      try {
+        if (options.beforeLoad) await options.beforeLoad();
+        const r = await call('session/load', { sessionId: sid, cwd, mcpServers: configuredMcp });
+        sessionId = sid; return r;
+      } finally { loadingSessionId = null; }
     },
     cancel() { transport.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); },
     kill() { transport.kill(); },

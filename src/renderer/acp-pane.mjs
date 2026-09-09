@@ -50,8 +50,9 @@ export function mountChatPane(p, rec, hooks) {
     if (!hooks.contextChanged || disposed) return;
     if (contextTimer && !immediate) return;
     if (contextTimer) clearTimeout(contextTimer);
-    const publish = () => { contextTimer = null; if (!disposed) Promise.resolve(hooks.contextChanged(p, contextRecord.snapshot())).catch(() => {}); };
-    if (immediate) publish(); else contextTimer = setTimeout(publish, 80);
+    const publish = () => { contextTimer = null; return disposed ? Promise.resolve() : Promise.resolve().then(() => hooks.contextChanged(p, contextRecord.snapshot())).catch(() => {}); };
+    if (immediate) return publish();
+    contextTimer = setTimeout(publish, 80);
   }
   async function mcpOptions() {
     if (!hooks.browserConnection) return {};
@@ -240,10 +241,11 @@ export function mountChatPane(p, rec, hooks) {
           const options = await mcpOptions();
           if (disposed) return;
           loading = true;
-          contextRecord.reset(row.value); publishContext(true);
-          transcript.clear();
-          transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
-          await client.loadSession(row.value, p.cwd, options);
+          await client.loadSession(row.value, p.cwd, { ...options, beforeLoad: async () => {
+            contextRecord.reset(row.value); await publishContext(true);
+            transcript.clear();
+            transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
+          } });
           publishContext(true);
           p.acpSid = row.value;
           watchTitle();
@@ -329,7 +331,7 @@ export function mountChatPane(p, rec, hooks) {
       const { session } = await client.connect(p.cwd, await mcpOptions());
       state.connected = true;
       p.acpSid = session.sessionId;
-      contextRecord.reset(session.sessionId); publishContext(true);
+      contextRecord.identify(session.sessionId); publishContext(true);
       if (hooks.capabilities) hooks.capabilities(p, rec.acpCapabilities());
       watchTitle();
       state.modes = session.modes || null;

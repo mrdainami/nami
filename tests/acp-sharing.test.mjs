@@ -39,3 +39,27 @@ test('transport exit rejects pending prompts so a draft can be recovered', async
   f.transport.send = () => {};
   const prompt = f.client.prompt('Pending'); f.exit(); await assert.rejects(prompt, /stopped before responding/);
 });
+
+test('session updates cannot cross new/load conversation identities', async () => {
+  let receive, response; const seen = [];
+  const transport = { send(message) { response = message; }, onMessage(cb) { receive = cb; }, onError() {}, onExit() {}, kill() {} };
+  const client = createAcpClient(transport, { onUpdate: update => seen.push(update.content.text) });
+  const reply = result => receive({ id: response.id, result });
+  const update = (sessionId, text) => receive({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } } });
+  const connecting = client.connect('/project');
+  reply({ agentCapabilities: { loadSession: true } }); await Promise.resolve();
+  update('old-unrelated', 'must not leak while creating'); update('fresh', 'new session early update');
+  reply({ sessionId: 'fresh' }); await connecting;
+  assert.deepEqual(seen, ['new session early update']);
+  let releasePublication;
+  const loading = client.loadSession('resumed', '/project', { beforeLoad: () => new Promise(resolve => { releasePublication = resolve; }) });
+  assert.equal(response.method, 'session/new', 'load waits for source identity publication');
+  update('fresh', 'late old output during identity publication');
+  releasePublication(); await Promise.resolve();
+  assert.equal(response.method, 'session/load');
+  update('fresh', 'late old output during load'); update('resumed', 'replayed target message');
+  update(undefined, 'unattributed message');
+  reply({}); await loading;
+  update('fresh', 'late old output after load'); update('resumed', 'current message');
+  assert.deepEqual(seen, ['new session early update', 'replayed target message', 'current message']);
+});
