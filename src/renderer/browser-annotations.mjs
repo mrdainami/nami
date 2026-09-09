@@ -96,6 +96,9 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
   async function approveDiscard(count) { return !count || (confirmDiscard ? await confirmDiscard(count) : false); }
   function positionBubble(rec) {
     if (!rec.bubble || !editing) return;
+    rec.bubble.classList.toggle('is-compact', rec.host.clientHeight < 240);
+    rec.bubble.style.maxHeight = Math.max(64, rec.host.clientHeight - 16) + 'px';
+    rec.bubble.style.setProperty('--annotation-recipient-height', Math.max(16, Math.min(40, rec.host.clientHeight - 160)) + 'px');
     const geometry = scaled(rec, editing);
     const size = { width: 280, height: rec.bubble.offsetHeight || 190 };
     const position = annotationPosition(geometry.rect, { width: rec.host.clientWidth, height: rec.host.clientHeight }, size);
@@ -111,7 +114,7 @@ export function createBrowserAnnotations({ api, esc, icon, selection, insertAnno
     const bubble = document.createElement('section');
     bubble.className = 'browser-annotation-bubble browser-annotation-surface';
     bubble.setAttribute('aria-label', 'Annotation comment');
-    bubble.innerHTML = `<div class="browser-annotation-caption">${esc(selectionLabel(value))}<button class="t-btn" data-comment="cancel" aria-label="Cancel comment" title="Cancel">${icon('close')}</button></div>${insertAnnotation ? '<div class="browser-annotation-image" aria-live="polite"></div>' : ''}<textarea id="browser-comment" aria-label="Annotation comment" placeholder="Add a comment…" rows="3" maxlength="16000">${esc(editing.note)}</textarea>${insertAnnotation ? '<div class="browser-annotation-destinations"></div>' : ''}<div class="browser-annotation-status" role="status"></div><div class="browser-annotation-actions"><button class="t-btn" data-comment="mic" aria-label="Dictate comment" title="Dictate comment">${icon('voice')}</button>${value.id ? '<button class="btn btn--small" data-comment="delete">Delete</button>' : ''}<button class="btn btn--small btn--go" data-comment="save">${insertAnnotation ? 'Add to session' : 'Save note'}</button></div>`;
+    bubble.innerHTML = `<div class="browser-annotation-caption">${esc(selectionLabel(value))}<button class="t-btn" data-comment="cancel" aria-label="Cancel comment" title="Cancel">${icon('close')}</button></div><div class="browser-annotation-content">${insertAnnotation ? '<div class="browser-annotation-image" aria-live="polite"></div>' : ''}<textarea id="browser-comment" aria-label="Annotation comment" placeholder="Add a comment…" rows="3" maxlength="16000">${esc(editing.note)}</textarea><div class="browser-annotation-status" role="status"></div></div>${insertAnnotation ? '<div class="browser-annotation-destinations"></div>' : ''}<div class="browser-annotation-actions"><button class="t-btn" data-comment="mic" aria-label="Dictate comment" title="Dictate comment">${icon('voice')}</button>${value.id ? '<button class="btn btn--small" data-comment="delete">Delete</button>' : ''}<button class="btn btn--small btn--go" data-comment="save">${insertAnnotation ? 'Add to session' : 'Save note'}</button></div>`;
     rec.bubble = bubble; rec.host.appendChild(bubble); positionBubble(rec);
     const input = q('textarea', bubble);
     input.oninput = () => { if (editing) { editing.note = input.value; editing.inserted = false; } touch(); };

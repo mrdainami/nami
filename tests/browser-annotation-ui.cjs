@@ -81,6 +81,14 @@ app.whenReady().then(async () => {
     assert.equal(await run('a.isActive("tab")'), false);
     assert.equal(await run('a.pendingCount("tab")'), 1);
     assert.match(await run('a.store.list(p).at(-1).note'), /Preserved on Escape/);
+    win.webContents.setZoomFactor(1.75);
+    await run(`document.querySelector('#host').style.height='160px';document.querySelector('#host').style.width='300px';a.edit(p,{...value,selectionId:'compact',rect:{x:260,y:140,width:35,height:20}});`);
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    const compactBounds = () => run(`(()=>{const bubble=document.querySelector('.browser-annotation-bubble'),r=bubble.getBoundingClientRect(),host=document.querySelector('#host').getBoundingClientRect();return {compact:bubble.classList.contains('is-compact'),inside:r.bottom<=host.bottom+1&&r.right<=host.right+1,controls:[...bubble.querySelectorAll('[data-comment=save],[data-comment=mic],.browser-annotation-destinations summary')].every(el=>{const b=el.getBoundingClientRect();return b.top>=r.top&&b.bottom<=r.bottom+1;}),scrollable:getComputedStyle(bubble.querySelector('.browser-annotation-content')).overflowY==='auto'};})()`);
+    assert.deepEqual(await compactBounds(),{compact:true,inside:true,controls:true,scrollable:true},'short browser viewport must keep destination, mic and insert action visible');
+    await click('.browser-annotation-destinations summary');
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    assert.equal((await compactBounds()).controls,true,'expanded recipients must not push the action row outside the bubble');
     await run('a.dispose()');
     console.log('PASS: trusted annotation lifecycle, direct Enter/IME insertion, screenshot preview/retry, recipient partial failure without duplication, toggle/Escape, microphone cancellation.');
   } catch (e) { console.error(e); process.exitCode = 1; }
