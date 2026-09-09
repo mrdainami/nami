@@ -360,16 +360,21 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const record = getPartition(w, profileId);
         const sources = detectChromiumProfiles();
-        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chrome or Edge profile was found.' };
+        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chromium browser profile was found.' };
+        // One profile, named. This used to hand every detected source to the
+        // importer at once, which merged whatever the machine happened to have
+        // into a single Nami profile — a blast radius that grew the moment more
+        // browsers were detected. Pick the one asked for, or the first.
+        const source = sources[Number(args.sourceIndex)] || sources[0];
         const { execFileSync } = require('node:child_process');
         const result = await importChromiumCookies({
           session: record.session,
-          sources,
-          passwordFor: (source) => chromeKeychainPassword(source.browser, execFileSync),
+          sources: [source],
+          passwordFor: () => chromeKeychainPassword(source.browser, execFileSync),
         });
         const message = result.imported
-          ? 'Copied ' + result.imported + ' cookies into this Nami profile. Google cookies skipped. Chrome is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
-          : 'Chrome’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. Chrome is unchanged.';
+          ? 'Copied ' + result.imported + ' cookies from ' + source.browser + ' into this Nami profile. Google cookies skipped. ' + source.browser + ' is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
+          : source.browser + '’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. ' + source.browser + ' is unchanged.';
         return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
       });
     } else if (action === 'new-tab') {
