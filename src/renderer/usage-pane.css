@@ -4,7 +4,6 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink);
-  background: var(--paper);
   min-width: 0;
 }
 .usage-settings .bs-note,
@@ -50,6 +49,9 @@
 .usage-advanced > summary { cursor: pointer; padding: 5px 0; color: var(--ink); overflow-wrap: anywhere; }
 .usage-advanced > summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .usage-advanced[open] > summary { background: var(--green); color: var(--paper); margin-bottom: 6px; }
+.usage-unavailable { margin-top: 18px; font-size: 11px; }
+.usage-unavailable > summary { cursor: pointer; padding: 5px 0; color: var(--muted); overflow-wrap: anywhere; }
+.usage-unavailable > summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .usage-advanced pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-width: 100%; font-family: 'Courier Prime', ui-monospace, monospace; }
 @media (max-width: 480px) {
   .usage-card-head, .usage-window-head { flex-wrap: wrap; }

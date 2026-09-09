@@ -53,11 +53,19 @@ function quietCard(row) {
   return `<section class="usage-card usage-card--quiet"><div class="usage-card-head"><strong>${esc(row.providerName || row.name)}</strong><span class="usage-value">${esc(row.detail || 'No quota on this Mac yet')}</span></div></section>`;
 }
 
+function unavailableBlock(rows) {
+  if (!rows.length) return '';
+  const label = rows.length === 1
+    ? `${rows[0].providerName || rows[0].name} has no quota on this Mac yet`
+    : `${rows.length} CLIs have no quota on this Mac yet`;
+  return `<details class="usage-unavailable"><summary>${esc(label)}</summary>${rows.map(quietCard).join('')}</details>`;
+}
+
 export function usageContent(result = {}) {
   const { groups, unavailable } = groupUsage(result.accounts);
   return `<div class="usage-tools"><p class="bs-note">Reported allowance by installed CLI. Limits may be shared across models.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
     ${groups.map(cardHtml).join('')}
-    ${unavailable.map(quietCard).join('')}
+    ${unavailableBlock(unavailable)}
     ${!groups.length && !unavailable.length ? '<p class="bs-note">No installed CLI reported a quota window.</p>' : ''}
     <details class="bs-details usage-advanced" id="usage-advanced"><summary>Advanced</summary>
       <p class="bs-note">Optional adapter for providers that do not keep a local quota on this Mac. Nami does not estimate remaining allowance from token counts.</p>

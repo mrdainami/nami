@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { groupUsage, usageContent } from '../src/renderer/usage-pane.mjs';
 import { browserSettingsContent } from '../src/renderer/browser-settings.mjs';
 const require = createRequire(import.meta.url);
 const { codexUsage, customUsage } = require('../src/main/usage.js');
 
+test('usage pane does not paint a nested paper slab', () => {
+  const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/renderer/usage-pane.css'), 'utf8');
+  const block = css.match(/\.usage-settings\s*\{[^}]*\}/)[0];
+  assert.doesNotMatch(block, /background:\s*var\(--paper\)/);
+});
 test('shared and model buckets stay separate windows of one known account', () => {
   const rows = codexUsage({ rateLimitsByLimitId: {
     codex: { primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 2000 } },
@@ -69,14 +77,33 @@ test('default usage screen has no status-line or JSON-feed homework', () => {
   });
   const def = html.split('id="usage-advanced"')[0];
   assert.match(def, /no quota on this Mac yet/i);
+  assert.match(def, /class="usage-unavailable"/);
   assert.doesNotMatch(def, /Copy feed format|Copy status-line command|status-line|my-provider\.json|Connect the Claude/i);
   assert.match(html, /id="usage-advanced"/);
   assert.doesNotMatch(html, /id="usage-advanced"[^>]*\sopen/);
   assert.match(html, /Copy feed format/);
 });
 
+test('empty CLI cards collapse behind one closed line instead of filling the pane', () => {
+  const html = usageContent({
+    accounts: [
+      { id: 'codex', accountId: 'codex', providerId: 'codex', providerName: 'Codex', remaining: 40, windowLabel: '5 hours', status: 'reported' },
+      { id: 'grok', name: 'Grok', providerId: 'grok', providerName: 'Grok', status: 'unavailable', remaining: null, detail: 'No quota on this Mac yet' },
+      { id: 'hermes', name: 'Hermes', providerId: 'hermes', providerName: 'Hermes', status: 'unavailable', remaining: null, detail: 'No quota on this Mac yet' },
+    ],
+  });
+  const closed = html.match(/<details class="usage-unavailable">[\s\S]*?<\/details>/);
+  assert.ok(closed);
+  assert.doesNotMatch(closed[0], /\sopen/);
+  assert.match(closed[0], /2 CLIs have no quota on this Mac yet/);
+  assert.match(html.slice(0, html.indexOf('usage-unavailable')), /Codex/);
+});
+
 test('browser settings distinguish configured permission from connection and escape profiles', () => {
   const html = browserSettingsContent({ enabled: true, sessions: [{ id: 's', title: 'Codex', views: ['v'], peers: [] }], profiles: [{ id: 'p', name: '<private>', active: true }] }, { onProfiles() {} });
+  assert.match(html, /id="browser-download-heading"/);
+  assert.match(html, /id="browser-agent-details"/);
+  assert.doesNotMatch(html.split('id="browser-agent-details"')[0], /Agent browser access/);
   assert.match(html, /Access configured/);
   assert.match(html, /does not confirm that a client is connected/);
   assert.match(html, /&lt;private&gt;/);

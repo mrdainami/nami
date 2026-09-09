@@ -25,13 +25,7 @@ export function browserSettingsContent(status, actions = {}) {
   const cookieNote = status.cookieImport?.message || (status.cookieImport?.decrypt === 'unavailable'
     ? 'Chrome’s cookie encryption could not be copied. Import a password CSV instead.'
     : 'One-time copy into the current Nami profile. Google cookies are skipped. Chrome is unchanged.');
-  return `<section class="bs-section" aria-labelledby="browser-agent-heading">
-    <h3 class="field-label" id="browser-agent-heading">Agent browser access</h3>
-    <label class="bs-toggle"><input type="checkbox" id="browser-enabled"${status.enabled ? ' checked' : ''}><span>Enable local browser connection<small>Access must be granted separately for each session.</small></span></label>
-    ${sessions.map((s) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(s.title)}</strong><small>${s.views?.length ? `${s.views.length} permitted ${s.views.length === 1 ? 'tab' : 'tabs'} · Access configured` : 'No browser access'}</small></div><button class="btn btn--small" data-browser-session="${esc(s.id)}">Configure…</button></div>`).join('') || '<p class="bs-note">Open an agent session to configure access.</p>'}
-    <p class="bs-note">Configuring access does not confirm that a client is connected.</p>
-  </section>
-  <section class="bs-section" aria-labelledby="browser-download-heading">
+  return `<section class="bs-section" aria-labelledby="browser-download-heading">
     <h3 class="field-label" id="browser-download-heading">Downloads</h3>
     <label class="bs-toggle"><input type="radio" name="browser-download" id="browser-download-ask" value="ask"${download === 'ask' ? ' checked' : ''}><span>Ask where to save</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-download" id="browser-download-auto" value="auto"${download === 'auto' ? ' checked' : ''}><span>Save to Downloads</span></label>
@@ -51,7 +45,16 @@ export function browserSettingsContent(status, actions = {}) {
     ${profiles.length ? profiles.map((p) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(p.name || p.id)}</strong><small>${p.viewCount ? `${p.viewCount} ${p.viewCount === 1 ? 'tab' : 'tabs'}` : 'Browser profile'}</small></div></div>`).join('') : `<p class="bs-note">${status.profileLoadError ? 'Could not load profiles.' : 'Sign into websites in a tab.'}</p>`}
     <p class="bs-note">${esc(cookieNote)}</p>
     <div class="bs-actions">${actions.onProfiles ? '<button class="btn btn--small" data-browser-settings="profiles">Manage profiles…</button>' : ''}${actions.onImportCookies ? '<button class="btn btn--small" data-browser-settings="cookies">Import from Chrome…</button>' : ''}${actions.onClear ? '<button class="btn btn--small" data-browser-settings="clear">Clear browsing data…</button>' : ''}</div>
-  </section>`;
+  </section>
+  <details class="bs-details" id="browser-agent-details">
+    <summary>Agent access</summary>
+    <section class="bs-section" aria-labelledby="browser-agent-heading">
+      <h3 class="field-label" id="browser-agent-heading">Agent browser access</h3>
+      <label class="bs-toggle"><input type="checkbox" id="browser-enabled"${status.enabled ? ' checked' : ''}><span>Enable local browser connection<small>Access must be granted separately for each session.</small></span></label>
+      ${sessions.map((s) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(s.title)}</strong><small>${s.views?.length ? `${s.views.length} permitted ${s.views.length === 1 ? 'tab' : 'tabs'} · Access configured` : 'No browser access'}</small></div><button class="btn btn--small" data-browser-session="${esc(s.id)}">Configure…</button></div>`).join('') || '<p class="bs-note">Open an agent session to configure access.</p>'}
+      <p class="bs-note">Configuring access does not confirm that a client is connected.</p>
+    </section>
+  </details>`;
 }
 
 export async function wireBrowserSettings(modal, options) {
