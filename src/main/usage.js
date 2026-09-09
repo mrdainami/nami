@@ -169,12 +169,31 @@ function queryCodex(command, envPath, spawnFn = spawn) {
     send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'nami-usage', version: '1.0.0' }, capabilities: {} } });
   });
 }
+function claudeTokenFromKeychain() {
+  const { execFileSync } = require('node:child_process');
+  let user = '';
+  try { user = os.userInfo().username; } catch { user = process.env.USER || ''; }
+  const tries = [];
+  if (user) tries.push(['find-generic-password', '-w', '-s', 'Claude Code-credentials', '-a', user]);
+  tries.push(['find-generic-password', '-w', '-s', 'Claude Code-credentials']);
+  for (const args of tries) {
+    try {
+      const raw = String(execFileSync('security', args, { encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] })).trim();
+      if (!raw) continue;
+      const data = JSON.parse(raw);
+      const token = data?.claudeAiOauth?.accessToken;
+      if (typeof token === 'string' && token) return token;
+    } catch {}
+  }
+  return null;
+}
 function claudeToken(home) {
   for (const file of [path.join(home, '.claude', '.credentials.json'), path.join(home, '.claude.json'), path.join(home, '.claude', 'credentials.json')]) {
     const data = readJsonFile(file);
     const token = data?.claudeAiOauth?.accessToken || data?.accessToken;
     if (typeof token === 'string' && token) return token;
   }
+  if (home === os.homedir()) return claudeTokenFromKeychain();
   return null;
 }
 function claudeOauthUsage(data, now) {
@@ -190,7 +209,7 @@ async function fetchClaudeAccount(home, now, fetchFn) {
   const token = claudeToken(home);
   if (!token) return [];
   const data = await httpJson('https://api.anthropic.com/api/oauth/usage', {
-    headers: { Authorization: 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20' },
+    headers: { Authorization: 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.1.0' },
   }, fetchFn);
   return data ? claudeOauthUsage(data, now) : [];
 }
@@ -201,50 +220,91 @@ function grokSession(home) {
   if (!entries.length) return null;
   return entries.slice().sort((a, b) => (Date.parse(b.create_time) || 0) - (Date.parse(a.create_time) || 0))[0];
 }
+function moneyVal(value) {
+  const raw = value && typeof value === 'object' && 'val' in value ? value.val : value;
+  const n = typeof raw === 'string' ? Number(raw) : raw;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+}
 function grokUsage(data, now, agent) {
-  const used = typeof data?.creditUsagePercent === 'number' ? data.creditUsagePercent
-    : typeof data?.usagePercent === 'number' ? data.usagePercent
-    : typeof data?.used_percent === 'number' ? data.used_percent : null;
+  const cfg = data?.config && typeof data.config === 'object' ? data.config : data;
+  let used = typeof cfg?.creditUsagePercent === 'number' ? cfg.creditUsagePercent
+    : typeof cfg?.usagePercent === 'number' ? cfg.usagePercent
+    : typeof cfg?.used_percent === 'number' ? cfg.used_percent : null;
+  if (used === null) {
+    const limit = moneyVal(cfg?.monthlyLimit);
+    const spent = moneyVal(cfg?.used);
+    if (limit && limit > 0 && spent !== null) used = (spent / limit) * 100;
+  }
   const left = percentage(used);
   if (left === null) return [];
   return [{ id: 'grok:credits', name: agent.name, remaining: Math.round(left * 10) / 10, providerId: 'grok', providerName: agent.name,
     accountId: 'grok:account', accountName: agent.name, windowLabel: 'Credits', source: 'Grok', status: 'reported', checkedAt: now, detail: 'Reported by Grok' }];
 }
+function grokHeaders(session) {
+  const headers = { Authorization: 'Bearer ' + session.key, 'X-XAI-Token-Auth': 'xai-grok-cli', Accept: 'application/json' };
+  if (typeof session.user_id === 'string' && session.user_id) headers['x-userid'] = session.user_id;
+  return headers;
+}
 async function fetchGrokAccount(home, now, agent, fetchFn) {
   const session = grokSession(home);
-  const token = session && typeof session.key === 'string' ? session.key : null;
-  if (!token) return [];
-  const data = await httpJson('https://cli-chat-proxy.grok.com/v1/billing?format=credits', {
-    headers: { Authorization: 'Bearer ' + token, 'xai-grok-cli': '1' },
-  }, fetchFn);
-  return data ? grokUsage(data, now, agent) : [];
+  if (!session || typeof session.key !== 'string') return [];
+  const headers = grokHeaders(session);
+  const credits = await httpJson('https://cli-chat-proxy.grok.com/v1/billing?format=credits', { headers }, fetchFn);
+  let rows = credits ? grokUsage(credits, now, agent) : [];
+  if (rows.length) return rows;
+  const billing = await httpJson('https://cli-chat-proxy.grok.com/v1/billing', { headers }, fetchFn);
+  return billing ? grokUsage(billing, now, agent) : [];
 }
-async function fetchKimiAccount(home, now, agent, fetchFn) {
-  const cred = readJsonFile(path.join(home, '.kimi-code', 'credentials', 'kimi-code.json'))
-    || readJsonFile(path.join(home, '.kimi-code', 'config.toml'));
-  const token = cred && typeof cred.access_token === 'string' ? cred.access_token : null;
-  if (!token) return [];
-  const data = await httpJson('https://api.kimi.com/coding/v1/usages', {
-    headers: { Authorization: 'Bearer ' + token },
-  }, fetchFn);
-  if (!data) return [];
-  const windows = Array.isArray(data.windows) ? data.windows : Array.isArray(data.usages) ? data.usages : [data];
+function kimiToken(home) {
+  const cred = readJsonFile(path.join(home, '.kimi-code', 'credentials', 'kimi-code.json'));
+  if (cred && typeof cred.access_token === 'string' && cred.access_token) return cred.access_token;
+  try {
+    const toml = fs.readFileSync(path.join(home, '.kimi-code', 'config.toml'), 'utf8');
+    const match = toml.match(/api_key\s*=\s*"([^"]+)"/) || toml.match(/api_key\s*=\s*'([^']+)'/);
+    return match ? match[1] : null;
+  } catch { return null; }
+}
+function kimiWindows(data, now, agent) {
+  if (data?.usage && data.usage.limit != null) {
+    const limit = Number(data.usage.limit), spent = Number(data.usage.used);
+    if (limit > 0 && Number.isFinite(spent)) {
+      const left = percentage((spent / limit) * 100);
+      if (left !== null) return [{ id: 'kimi:weekly', name: agent.name, remaining: Math.round(left * 10) / 10, providerId: 'kimi', providerName: agent.name,
+        accountId: 'kimi:account', accountName: agent.name, windowLabel: 'Weekly', source: 'Kimi', status: 'reported', checkedAt: now, detail: 'Reported by Kimi' }];
+    }
+  }
+  const windows = Array.isArray(data.windows) ? data.windows : Array.isArray(data.usages) ? data.usages : Array.isArray(data.limits) ? data.limits : [data];
   return windows.flatMap((w, i) => {
-    const used = w.used_percentage ?? w.usedPercent ?? w.utilization;
+    const detail = w.detail || w;
+    const used = detail.used_percentage ?? detail.usedPercent ?? detail.utilization;
     const left = percentage(used); if (left === null) return [];
     return [{ id: 'kimi:' + i, name: agent.name, remaining: Math.round(left * 10) / 10, providerId: 'kimi', providerName: agent.name,
-      accountId: 'kimi:account', windowLabel: String(w.label || w.name || 'Allowance'), source: 'Kimi', status: 'reported', checkedAt: now }];
+      accountId: 'kimi:account', windowLabel: String(detail.label || detail.name || w.timeUnit || 'Allowance'), source: 'Kimi', status: 'reported', checkedAt: now }];
   });
+}
+async function fetchKimiAccount(home, now, agent, fetchFn) {
+  const token = kimiToken(home);
+  if (!token) return [];
+  const data = await httpJson('https://api.kimi.com/coding/v1/usages', {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+  }, fetchFn);
+  return data ? kimiWindows(data, now, agent) : [];
 }
 async function fetchGeminiAccount(home, now, agent, fetchFn) {
   const cred = readJsonFile(path.join(home, '.gemini', 'oauth_creds.json'))
     || readJsonFile(path.join(home, '.gemini', 'google_accounts.json'));
-  const token = cred?.access_token || cred?.accessToken || cred?.token;
+  const token = cred?.access_token || cred?.accessToken || cred?.token || cred?.access;
   if (typeof token !== 'string' || !token) return [];
+  const assist = await httpJson('https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ metadata: { ideType: 'GEMINI_CLI', pluginType: 'GEMINI' } }),
+  }, fetchFn);
+  const project = assist?.cloudaicompanionProject;
   const data = await httpJson('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(project ? { project } : {}),
   }, fetchFn);
   return data ? geminiUsage(data, now, { id: agent.id, name: agent.name }) : [];
 }
@@ -270,6 +330,10 @@ async function rowsFor(agent, { home, directory, envPath, now, spawnFn, fetchFn 
 function missingDetail(agent, home) {
   if (agent.id === 'hermes') return signedInFile(home, '.hermes/auth.json') ? 'Hermes does not report a quota window.' : 'Sign in with Hermes';
   if (agent.id === 'opencode') return signedInFile(home, '.local/share/opencode/auth.json') ? 'OpenCode does not report a quota window.' : 'Sign in with OpenCode';
+  if (agent.id === 'claude' && (claudeToken(home))) return 'Could not read Claude usage.';
+  if (agent.id === 'grok' && grokSession(home)) return 'Could not read Grok usage.';
+  if (agent.id === 'kimi' && kimiToken(home)) return signedInFile(home, '.kimi-code/credentials/kimi-code.json') ? 'Could not read Kimi usage.' : 'Kimi does not report a quota window for this login.';
+  if ((agent.id === 'antigravity' || agent.id === 'gemini') && signedInFile(home, '.gemini/oauth_creds.json')) return 'Could not read Antigravity usage.';
   return 'Sign in with ' + (agent.name || agent.id);
 }
 async function readUsage({ agents, directory, envPath, home, now, spawnFn, fetchFn }) {

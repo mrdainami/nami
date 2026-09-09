@@ -139,7 +139,96 @@ test('Claude oauth usage maps remaining from the live account endpoint', () => {
 test('Grok billing percent becomes remaining and never invents 0 from a missing body', () => {
   const rows = grokUsage({ creditUsagePercent: 30 }, 1000, { name: 'Grok' });
   assert.equal(rows[0].remaining, 70);
+  assert.equal(grokUsage({ config: { creditUsagePercent: 10 } }, 1000, { name: 'Grok' })[0].remaining, 90);
+  assert.equal(grokUsage({ config: { monthlyLimit: { val: '100' }, used: { val: '25' } } }, 1000, { name: 'Grok' })[0].remaining, 75);
   assert.equal(grokUsage({}, 1000, { name: 'Grok' }).length, 0);
+});
+
+test('Grok billing request uses the CLI auth header and user id', async () => {
+  const home = tmpDir('nami-usage-grok-');
+  const directory = tmpDir('nami-usage-feeds-');
+  fs.mkdirSync(path.join(home, '.grok'));
+  fs.writeFileSync(path.join(home, '.grok', 'auth.json'), JSON.stringify({
+    'https://auth.x.ai::client': { key: 'tok', user_id: 'user-1', create_time: '2026-01-01T00:00:00Z' },
+  }));
+  const calls = [];
+  const fetchFn = async (url, opts) => {
+    calls.push({ url, headers: opts.headers });
+    return { ok: true, json: async () => ({ config: { creditUsagePercent: 40 } }) };
+  };
+  const result = await readUsage({
+    agents: [{ id: 'grok', name: 'Grok', found: true, path: '/bin/grok' }],
+    directory, home, now: 1000, fetchFn,
+  });
+  assert.equal(result.accounts[0].remaining, 60);
+  assert.equal(calls[0].headers['X-XAI-Token-Auth'], 'xai-grok-cli');
+  assert.equal(calls[0].headers['x-userid'], 'user-1');
+});
+
+test('Claude oauth usage sends the Claude Code user agent', async () => {
+  const home = tmpDir('nami-usage-claude-');
+  const directory = tmpDir('nami-usage-feeds-');
+  fs.mkdirSync(path.join(home, '.claude'));
+  fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok' } }));
+  const calls = [];
+  const fetchFn = async (url, opts) => {
+    calls.push({ url, headers: opts.headers });
+    return { ok: true, json: async () => ({ five_hour: { used_percentage: 10, resets_at: '2030-01-01T00:00:00Z' } }) };
+  };
+  const result = await readUsage({
+    agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
+    directory, home, now: Date.parse('2026-09-10T00:00:00Z'), fetchFn,
+  });
+  assert.equal(result.accounts[0].remaining, 90);
+  assert.match(calls[0].headers['User-Agent'], /claude-code/);
+});
+
+test('Gemini quota request sends the Code Assist project', async () => {
+  const home = tmpDir('nami-usage-gemini-live-');
+  const directory = tmpDir('nami-usage-feeds-');
+  fs.mkdirSync(path.join(home, '.gemini'));
+  fs.writeFileSync(path.join(home, '.gemini', 'oauth_creds.json'), JSON.stringify({ access_token: 'tok', refresh_token: 'rtok', expiry_date: Date.now() + 60_000 }));
+  const bodies = [];
+  const fetchFn = async (url, opts) => {
+    bodies.push({ url, body: opts.body });
+    if (String(url).includes('loadCodeAssist')) return { ok: true, json: async () => ({ cloudaicompanionProject: 'proj-1' }) };
+    return { ok: true, json: async () => ({ buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.8, resetTime: '2026-09-11T00:00:00Z' }] }) };
+  };
+  const result = await readUsage({
+    agents: [{ id: 'antigravity', name: 'Antigravity', found: true, path: '/bin/agy' }],
+    directory, home, now: Date.parse('2026-09-10T00:00:00Z'), fetchFn,
+  });
+  assert.equal(result.accounts[0].remaining, 80);
+  assert.match(bodies[0].url, /loadCodeAssist/);
+  assert.equal(JSON.parse(bodies[1].body).project, 'proj-1');
+});
+
+test('signed-in CLIs without a live window do not ask to sign in', async () => {
+  const home = tmpDir('nami-usage-signed-');
+  const directory = tmpDir('nami-usage-feeds-');
+  fs.mkdirSync(path.join(home, '.grok'));
+  fs.writeFileSync(path.join(home, '.grok', 'auth.json'), JSON.stringify({ x: { key: 'tok', create_time: '2026-01-01' } }));
+  fs.mkdirSync(path.join(home, '.claude'));
+  fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok' } }));
+  fs.mkdirSync(path.join(home, '.gemini'));
+  fs.writeFileSync(path.join(home, '.gemini', 'oauth_creds.json'), JSON.stringify({ access_token: 'tok' }));
+  fs.mkdirSync(path.join(home, '.local/share/opencode'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.local/share/opencode/auth.json'), JSON.stringify({ opencode: { type: 'key' } }));
+  const fetchFn = async () => ({ ok: false, json: async () => ({}) });
+  const result = await readUsage({
+    agents: [
+      { id: 'grok', name: 'Grok', found: true, path: '/bin/grok' },
+      { id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' },
+      { id: 'antigravity', name: 'Antigravity', found: true, path: '/bin/agy' },
+      { id: 'opencode', name: 'OpenCode', found: true, path: '/bin/opencode' },
+    ],
+    directory, home, now: 1000, fetchFn,
+  });
+  assert.equal(result.accounts.length, 4);
+  for (const row of result.accounts) {
+    assert.equal(row.status, 'unavailable');
+    assert.doesNotMatch(row.detail, /sign in with/i);
+  }
 });
 
 test('unavailable CLIs ask to sign in and never invent 0', async () => {
