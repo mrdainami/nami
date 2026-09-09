@@ -381,35 +381,48 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const sources = detectChromiumProfiles();
         const source = sources[Number(args.sourceIndex)] || sources[0];
-        if (!source) return { message: 'No Chrome or Edge profile was found.' };
+        if (!source) return { message: 'No Chrome, Edge, Brave, Arc, Vivaldi or Opera profile was found.' };
         const { execFileSync } = require('node:child_process');
         const password = chromeKeychainPassword(source.browser, execFileSync);
         const key = password ? deriveChromeKey(password) : null;
         const record = getPartition(w, profileId);
         const parts = [];
+        // A failure carries its own reason. The old code reduced every one of
+        // them to `locked`, so a read that threw for an unrelated reason still
+        // told you to quit the browser — advice that could not work, and that
+        // hid the real fault for as long as anyone believed it.
+        let locked = false;
+        const reasons = [];
+        const note = (label, result) => {
+          if (!result.locked && !result.error) return false;
+          locked = locked || !!result.locked;
+          if (result.error) reasons.push(label + ': ' + result.error);
+          parts.push(label + (result.locked ? ' locked' : ' could not be read'));
+          return true;
+        };
         let cookies = { imported: 0, skippedV20: 0, locked: false };
         if (args.cookies !== false && source.cookies) {
           cookies = await importChromiumCookies({ session: record.session, sources: [source], passwordFor: () => password, includeGoogle: true });
-          if (cookies.locked) parts.push('cookies locked');
-          else if (cookies.imported) parts.push(cookies.imported + ' cookies');
-          else if (cookies.skippedV20) parts.push('cookies encrypted by Chrome');
-          else parts.push('no cookies');
+          if (!note('cookies', cookies)) {
+            if (cookies.imported) parts.push(cookies.imported + ' cookies');
+            else if (cookies.skippedV20) parts.push('cookies encrypted by ' + source.browser);
+            else parts.push('no cookies');
+          }
         }
         let passwords = { imported: 0 };
         if (args.passwords !== false && source.logins) {
           const parsed = readChromeLogins(source.logins, key);
-          if (parsed.locked) parts.push('passwords locked');
-          else { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
+          if (!note('passwords', parsed)) { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
         }
         let history = { imported: 0 };
         if (args.history !== false && source.history) {
           const parsed = readChromeHistory(source.history);
-          if (parsed.locked) parts.push('history locked');
-          else { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
+          if (!note('history', parsed)) { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
         }
         let extra = '';
-        if (parts.some((p) => /locked/.test(p))) extra = ' Quit Chrome from the menu bar (Chrome → Quit) and try again.';
-        else if (cookies.skippedV20) extra = ' Chrome encrypts cookies on this Mac, so those could not be copied.';
+        if (locked) extra = ' Quit ' + source.browser + ' from the menu bar and try again.';
+        else if (reasons.length) extra = ' ' + reasons[0];
+        else if (cookies.skippedV20) extra = ' ' + source.browser + ' encrypts these cookies on this Mac, so they could not be copied.';
         else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
         return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
       });
