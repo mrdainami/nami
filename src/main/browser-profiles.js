@@ -70,6 +70,8 @@ function decryptChromeCookie(encrypted, key) {
 function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
   const roots = platform === 'darwin' ? [
     [path.join(home, 'Library/Application Support/Google/Chrome'), 'Chrome'],
+    [path.join(home, 'Library/Application Support/Google/Chrome Beta'), 'Chrome Beta'],
+    [path.join(home, 'Library/Application Support/Google/Chrome Canary'), 'Chrome Canary'],
     [path.join(home, 'Library/Application Support/Microsoft Edge'), 'Edge'],
     [path.join(home, 'Library/Application Support/Chromium'), 'Chromium'],
   ] : platform === 'win32' ? [

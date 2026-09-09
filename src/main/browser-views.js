@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
@@ -83,7 +83,9 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else url = args.userNavigation ? userBrowserUrl(args.url) || 'about:blank' : browserUrl(args.url || 'about:blank');
     const view = new WebContentsView({ webPreferences: { session: record.session, preload: path.join(__dirname, 'browser-preload.js'),
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
-    view.setBackgroundColor('#fffdf6');
+    const theme = (readSettings().theme || 'paper');
+    const dark = theme === 'operator' || theme === 'graphite' || theme === 'dusk';
+    view.setBackgroundColor(dark ? '#1f1f1f' : '#fffdf6');
     const e = { id: args.id, identity: randomUUID(), owner: args.owner, profileId, pendingCount, record, window: w, view, filePath: args.filePath, localUrl: args.filePath ? url : null };
     views.set(e.id, e); w.contentView.addChildView(view); view.setVisible(false);
     const wc = view.webContents;
@@ -313,7 +315,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const record = getPartition(w, profileId);
         const sources = detectChromiumProfiles();
-        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chrome or Edge profile was found. Import a password CSV and sign in inside Nami. Chrome is unchanged.' };
+        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chrome or Edge profile was found.' };
         const { execFileSync } = require('node:child_process');
         const result = await importChromiumCookies({
           session: record.session,
@@ -329,7 +331,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const sources = detectChromiumProfiles();
         const source = sources[Number(args.sourceIndex)] || sources[0];
-        if (!source) return { message: 'No Chrome or Edge profile was found. Close Chrome and try again, or sign in inside Nami.' };
+        if (!source) return { message: 'No Chrome or Edge profile was found. Quit Chrome and try again.' };
         const { execFileSync } = require('node:child_process');
         const password = chromeKeychainPassword(source.browser, execFileSync);
         const key = password ? deriveChromeKey(password) : null;
@@ -353,12 +355,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
           else { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
         }
         const extra = cookies.decryptUnavailable || (!key && (args.cookies !== false || args.passwords !== false))
-          ? ' Some encrypted items could not be copied. Quit Chrome completely and allow Keychain access, then try again. Some sites (especially Google) may still ask you to sign in.'
-          : ' Some sites may still ask you to sign in.';
-        return { ...cookies, passwords: passwords.imported, history: history.imported, message: 'Imported ' + parts.join(', ') + ' into this Nami browser. Chrome is unchanged.' + extra };
+          ? ' Quit Chrome completely and try again.'
+          : '';
+        return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
       });
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), directChrome: false, cookies: true, history: false } };
+    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);

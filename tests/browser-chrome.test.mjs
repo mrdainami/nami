@@ -50,9 +50,10 @@ test('quiet new-tab page is blank, not a product tour', () => {
   assert.doesNotMatch(welcome, /A page beside|Try this button|product tour|Open a website/i);
   assert.match(welcome, /<title>New tab<\/title>/i);
   assert.match(welcome, /#fffdf6/);
+  assert.match(welcome, /#1f1f1f/);
   assert.match(views, /browser-welcome\.html/);
   assert.match(views, /loadFile\(WELCOME\)/);
-  assert.match(views, /setBackgroundColor\('#fffdf6'\)/);
+  assert.match(views, /setBackgroundColor\(dark \? '#1f1f1f' : '#fffdf6'\)/);
   assert.match(pane, /p\.url && p\.url !== 'about:blank'/);
 });
 
@@ -98,8 +99,7 @@ test('Settings → Browser is compact controls for download, popups, camera/mic 
   assert.match(html, /meet\.example/);
   assert.match(html, /data-browser-settings="cookies"/);
   assert.match(html, /Import from Chrome/);
-  assert.match(html, /id="browser-agent-details"/);
-  assert.ok(html.indexOf('browser-download-heading') < html.indexOf('browser-agent-details'));
+  assert.doesNotMatch(html, /browser-agent-details|Agent browser access|Enable local browser/);
   assert.doesNotMatch(html, /This imports saved passwords, not Chrome cookies/);
 });
 
