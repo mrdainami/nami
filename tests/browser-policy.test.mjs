@@ -2,8 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { browserUrl, cleanSelection, Access } = require('../src/main/browser-policy.js');
+const { browserUrl, isBlankTab, cleanSelection, Access } = require('../src/main/browser-policy.js');
 
+test('blank tabs are about:blank or the cream welcome file, never other file URLs', () => {
+  assert.equal(isBlankTab('about:blank'), true);
+  assert.equal(isBlankTab('file:///Users/cal/nami/src/renderer/browser-welcome.html'), true);
+  assert.equal(isBlankTab('file:///tmp/browser-welcome.html'), true);
+  assert.equal(isBlankTab(''), false);
+  assert.equal(isBlankTab('https://example.com'), false);
+  assert.equal(isBlankTab('file:///etc/passwd'), false);
+  assert.equal(isBlankTab('file:///tmp/notes.html'), false);
+});
 test('browser URLs accept web pages but never privileged schemes or credentials', () => {
   assert.equal(browserUrl('localhost:3000'), 'http://localhost:3000/');
   assert.equal(browserUrl('https://example.com/a'), 'https://example.com/a');

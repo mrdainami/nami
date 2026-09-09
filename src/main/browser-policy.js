@@ -7,6 +7,17 @@ function browserUrl(value) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Enter an http:// or https:// address.');
   return url.href;
 }
+// New-tab pages are cream HTML, not Chromium's black about:blank. The file URL
+// is an implementation detail and must never appear in the address bar.
+function isBlankTab(value) {
+  const text = String(value || '').trim();
+  if (text === 'about:blank') return true;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'file:') return false;
+    return decodeURIComponent(url.pathname).split(/[\\/]/).pop() === 'browser-welcome.html';
+  } catch { return false; }
+}
 // Only human address-bar input is normalized. Agent navigation stays strict.
 function userBrowserUrl(value) {
   const text = String(value || '').trim();
@@ -60,4 +71,4 @@ class Access {
   allows(id, view) { return !!this.sessions.get(id)?.views.has(view); }
   removeWindow(id) { for (const [key, s] of this.sessions) if (s.windowId === id) this.sessions.delete(key); }
 }
-module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, cleanSelection, Access, clean };
+module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, isBlankTab, cleanSelection, Access, clean };

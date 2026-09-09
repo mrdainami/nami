@@ -269,7 +269,7 @@ const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, he
   selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), shareTab: (p,x,y)=>sources.shareMenu(p,x,y), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
 const sources = createSessionSources({ api, state:S, tiles:tileEls, esc, icon:helpIcon, isSession:isSessionPanel, menu:showMenu, toast,
   settings:id=>{S.overlay={type:'browser-access',sessionId:id};renderOverlay();}, publish:publishSessionContext,
-  insert:(id,text)=>insertSessionText(id,text,{focus:false}) });
+  insert:(id,text)=>insertSessionText(id,text,{focus:false}), focus:id=>focusPanel(id) });
 const contextTimers = new Map();
 async function publishSessionContext(p, provided) {
   const rec=tileEls.get(p.id); if(!rec || p.exited)return;
@@ -534,7 +534,7 @@ function showScene(name) {
     const sess = S.panels.find(isSessionPanel);
     if (S.demo && step === 'multi' && sess) S.panels.push({ ...sess, id: uid('p_'), title: 'Codex session', code: 'CX', sceneStatic: true });
     if (sess) S.activeId = sess.id;
-    browsers.open('about:blank', new URL('./browser-welcome.html', import.meta.url).pathname, sess?.id);
+    browsers.open('about:blank', null, sess?.id);
     setView('split', false); return;
   }
   if (what === 'settings') return openSettings(step || 'voice');
@@ -4462,7 +4462,13 @@ function focusPanel(id, scroll = true, { preserveLayout = false } = {}) {
   S.activeId = id;
   if (S.view === 'split') {
     const p = S.panels.find((x) => x.id === id);
-    if (p && !preserveLayout) { const next = focusSplit({ ...S.split, panels:S.panels }, id, S.splitFull); const changed = next.split.sessionId !== S.split.sessionId || next.split.fileId !== S.split.fileId || next.full !== S.splitFull; S.split = next.split; S.splitFull = next.full; if (changed) renderGrid(); }
+    if (p && !preserveLayout) {
+      const next = focusSplit({ ...S.split, panels:S.panels }, id, S.splitFull);
+      const changed = next.split.sessionId !== S.split.sessionId || next.split.fileId !== S.split.fileId || next.full !== S.splitFull;
+      S.split = next.split; S.splitFull = next.full;
+      if (changed) renderGrid();
+      else { const pv = q('.paneview'); if (pv) syncSplitLayout(pv); }
+    }
   }
   renderRail();
   for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);

@@ -3,9 +3,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { browserUrl, userBrowserUrl, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
+const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
+const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   // Status is polled frequently. Never turn a UI refresh into filesystem or
@@ -82,13 +83,14 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else url = args.userNavigation ? userBrowserUrl(args.url) || 'about:blank' : browserUrl(args.url || 'about:blank');
     const view = new WebContentsView({ webPreferences: { session: record.session, preload: path.join(__dirname, 'browser-preload.js'),
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+    view.setBackgroundColor('#fffdf6');
     const e = { id: args.id, identity: randomUUID(), owner: args.owner, profileId, pendingCount, record, window: w, view, filePath: args.filePath, localUrl: args.filePath ? url : null };
     views.set(e.id, e); w.contentView.addChildView(view); view.setVisible(false);
     const wc = view.webContents;
     wc.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && (input.meta || input.control) && !input.alt && String(input.key).toLowerCase() === 'l') { event.preventDefault(); w.webContents.focus(); send(e, 'address-focus', {}); }
     });
-    const allowed = (value) => { try { browserUrl(value); return true; } catch (_) { const p = parseDocUrl(value); return !!(p && e.localUrl && record.roots.has(p.root)); } };
+    const allowed = (value) => { if (isBlankTab(value)) return true; try { browserUrl(value); return true; } catch (_) { const p = parseDocUrl(value); return !!(p && e.localUrl && record.roots.has(p.root)); } };
     const checkNavigation = (event, target) => {
       if (!allowed(target)) { event.preventDefault(); return; }
       // Local documents never acquire a named profile's signed-in identity
@@ -107,7 +109,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     const update = () => {
       const local = parseDocUrl(wc.getURL());
       e.filePath = local ? resolveWithinRoot(local.root, local.rel) : null;
-      send(e, 'state', { filePath: e.filePath, profileId: e.profileId, zoom: wc.getZoomFactor(), url: e.filePath || wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
+      const blank = !e.filePath && isBlankTab(wc.getURL());
+      send(e, 'state', { filePath: e.filePath, profileId: e.profileId, zoom: wc.getZoomFactor(), url: e.filePath || (blank ? 'about:blank' : wc.getURL()), title: blank ? 'New tab' : wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
     };
     for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
     wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
@@ -115,7 +118,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
     wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
-    await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
+    if (url === 'about:blank' && !args.filePath) await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
+    else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
     return e;
   }
   async function remove(id, { notify = true, confirmed = false } = {}) {
