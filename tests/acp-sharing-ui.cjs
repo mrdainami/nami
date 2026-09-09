@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
           }messages.forEach(cb=>cb({id,msg:{id:payload.id,result}}));},5);return {ok:true};}};
       const {mountChatPane}=await import(${JSON.stringify(pathToFileURL(path.join(__dirname, '../src/renderer/acp-pane.mjs')).href)});
       window.imageRec={body:document.querySelector('#chat')};window.fallbackRec={body:document.querySelector('#fallback')};
-      const hooks={open(){},toast(){},contextChanged:(p,record)=>contexts.push({id:p.id,...record}),context:async()=>{contextReads++;return 'Fresh linked source snapshot';},browserConnection:async()=>({url:'http://127.0.0.1:4000/mcp/scoped'}),annotationImage:async()=>{if(failImage)throw new Error('Capture temporarily unavailable');return {type:'image',data:'aW1n',mimeType:'image/png'};}};
+      const hooks={open(){},toast(){},contextChanged:(p,record)=>{if(window.failContext==='reject')return Promise.reject(new Error('Context transport failed'));if(window.failContext==='response')return {ok:false,error:'Context identity update failed'};contexts.push({id:p.id,...record});return {ok:true};},context:async()=>{contextReads++;return 'Fresh linked source snapshot';},browserConnection:async()=>({url:'http://127.0.0.1:4000/mcp/scoped'}),annotationImage:async()=>{if(failImage)throw new Error('Capture temporarily unavailable');return {type:'image',data:'aW1n',mimeType:'image/png'};}};
       mountChatPane({id:'image',agentId:'codex',title:'Image agent',cwd:'/tmp'},imageRec,hooks);
       mountChatPane({id:'fallback',agentId:'codex',title:'Text agent',cwd:'/tmp'},fallbackRec,hooks);
     })()`);
@@ -58,9 +58,18 @@ app.whenReady().then(async () => {
     await run('const input=document.querySelector("#chat .cw-in");input.value="/resume";input.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));');
     await until(() => run('!!document.querySelector("#chat .cw-pop .sel")'));
     await run('document.querySelector("#chat .cw-pop .sel").click()');
-    await until(() => run('imageRec.sessionContext().identity==="resumed-conversation"'));
+    await until(() => run('imageRec.sessionContext().identity==="resumed-conversation" && !document.querySelector("#chat .cw-send").hidden'));
     assert.equal(await run('requests.find(r=>r.panelId==="image"&&r.method==="session/load").params.mcpServers[0].name'), 'nami-browser');
     assert.equal(await run('imageRec.sessionContext().content'), '');
+    for (const failure of ['response', 'reject']) {
+      const before = await run('requests.filter(r=>r.method==="session/load").length');
+      await run(`window.failContext=${JSON.stringify(failure)};document.querySelector('#chat .cw-in').value='/resume';document.querySelector('#chat .cw-in').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
+      await until(() => run('!!document.querySelector("#chat .cw-pop .sel")'));
+      await run('document.querySelector("#chat .cw-pop .sel").click()');
+      await until(() => run('imageRec.sessionContext().identity.startsWith("unavailable:") && !document.querySelector("#chat .cw-send").hidden'));
+      assert.equal(await run('requests.filter(r=>r.method==="session/load").length'), before, 'failed identity publication must prevent replay');
+      await run('window.failContext=null');
+    }
     await run('imageRec.disposeRo();fallbackRec.disposeRo()');
     console.log('PASS: actual ACP pane draft insertion without send, negotiated MCP/image blocks, labelled file fallback, preparation failure preserves draft/image, fresh context hook, visible-only recorder and resume identity reset.');
   } catch (error) { console.error(error); if(win)console.error(await win.webContents.executeJavaScript('document.body.textContent')); process.exitCode = 1; }

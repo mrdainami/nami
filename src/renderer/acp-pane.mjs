@@ -46,11 +46,18 @@ export function mountChatPane(p, rec, hooks) {
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
   const contextRecord = createSessionContextRecorder({ identity: p.acpSid || 'pending:' + p.id });
   let disposed = false, contextTimer = null, promptEpoch = 0;
-  function publishContext(immediate = false) {
+  function publishContext(immediate = false, required = false) {
     if (!hooks.contextChanged || disposed) return;
     if (contextTimer && !immediate) return;
     if (contextTimer) clearTimeout(contextTimer);
-    const publish = () => { contextTimer = null; return disposed ? Promise.resolve() : Promise.resolve().then(() => hooks.contextChanged(p, contextRecord.snapshot())).catch(() => {}); };
+    const publish = () => {
+      contextTimer = null;
+      if (disposed) return Promise.resolve();
+      const result = Promise.resolve().then(() => hooks.contextChanged(p, contextRecord.snapshot())).then(r => {
+        if (r?.ok === false) throw new Error(r.error || 'Could not update shared session context.');
+      });
+      return required ? result : result.catch(() => {});
+    };
     if (immediate) return publish();
     contextTimer = setTimeout(publish, 80);
   }
@@ -242,7 +249,7 @@ export function mountChatPane(p, rec, hooks) {
           if (disposed) return;
           loading = true;
           await client.loadSession(row.value, p.cwd, { ...options, beforeLoad: async () => {
-            contextRecord.reset(row.value); await publishContext(true);
+            contextRecord.reset(row.value); await publishContext(true, true);
             transcript.clear();
             transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
           } });
