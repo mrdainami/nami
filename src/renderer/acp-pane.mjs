@@ -7,6 +7,8 @@ import { createTranscript } from './acp-render.mjs';
 import { createComposer } from './acp-composer.mjs';
 import { createCommandRouter } from './acp-commands.mjs';
 import { chipHtml, iconKeyFor } from './icons.mjs';
+import { createSessionContextRecorder } from './session-context.mjs';
+import { appendDraft } from './session-draft.mjs';
 
 const CLAUDE_ADAPTER = decodeURIComponent(new URL('../../acp-tools/node_modules/.bin/claude-agent-acp', location.href).pathname);
 // One launch line per agent — probed on this machine (tools/acp-probe.mjs)
@@ -42,6 +44,22 @@ export function mountChatPane(p, rec, hooks) {
   }).observe(scrollHost, { childList: true });
 
   const state = { commands: [], configOptions: [], modes: null, busy: false, connected: false };
+  const contextRecord = createSessionContextRecorder({ identity: p.acpSid || 'pending:' + p.id });
+  let disposed = false, contextTimer = null, promptEpoch = 0;
+  function publishContext(immediate = false) {
+    if (!hooks.contextChanged || disposed) return;
+    if (contextTimer && !immediate) return;
+    if (contextTimer) clearTimeout(contextTimer);
+    const publish = () => { contextTimer = null; if (!disposed) Promise.resolve(hooks.contextChanged(p, contextRecord.snapshot())).catch(() => {}); };
+    if (immediate) publish(); else contextTimer = setTimeout(publish, 80);
+  }
+  async function mcpOptions() {
+    if (!hooks.browserConnection) return {};
+    try {
+      const connection = await hooks.browserConnection(p);
+      return { mcpServers: connection?.mcpServers || (connection?.url ? [{ name: 'nami-browser', type: 'http', url: connection.url, headers: [] }] : []) };
+    } catch (_) { return {}; }
+  }
 
   async function openSmart(path) {
     const tries = [path, path.normalize('NFD'), path.normalize('NFC'),
@@ -103,41 +121,63 @@ export function mountChatPane(p, rec, hooks) {
     } catch (_) { hooks.toast('Could not switch mode'); }
   }
 
-  async function sendPrompt(text, view) {
-    if (state.busy) return;
+  async function sendPrompt(text, view = {}) {
+    if (state.busy) return false;
     if (!state.connected) {
       transcript.error('The agent isn’t connected yet. Wait a moment, or close this pane and start a new session.');
-      return;
+      return false;
     }
-    transcript.userTurn(view && view.display !== undefined ? view.display : text, view && view.files);
     state.busy = true; composer.setBusy(true); transcript.setBusy(true);
     p.working = true; if (hooks.status) hooks.status(p);
+    let sent = false;
+    const epoch = ++promptEpoch;
     try {
-      const r = await client.prompt(text);
+      const images = [];
+      for (const image of view.images || []) {
+        const block = hooks.annotationImage ? await hooks.annotationImage(image, p) : image;
+        if (!block || block.type !== 'image' || !block.data) throw new Error('The annotation image could not be loaded. Your draft is kept for retry.');
+        images.push(block);
+      }
+      const linked = hooks.context ? await hooks.context(p) : '';
+      if (disposed || epoch !== promptEpoch) return false;
+      const context = typeof linked === 'string' ? linked : linked?.content || '';
+      const prompt = context ? text + '\n\nLinked session context (snapshot, may be incomplete):\n' + context.slice(0, 100000) : text;
+      transcript.userTurn(view.display !== undefined ? view.display : text, view.files);
+      contextRecord.user(view.display !== undefined ? view.display : text); publishContext();
+      const r = await client.prompt(prompt, { images });
+      sent = true;
       if (r && r.stopReason === 'refusal') transcript.note('The agent declined that request.');
     } catch (err) {
       transcript.error((err && err.message) || 'That didn’t go through — try again.');
+    } finally {
+      state.busy = false; composer.setBusy(false); transcript.setBusy(false);
+      p.working = false; if (hooks.status) hooks.status(p);
+      transcript.turnEnd(); contextRecord.endTurn(); publishContext(true);
+      if (hooks.settled) hooks.settled(p);
     }
-    state.busy = false; composer.setBusy(false); transcript.setBusy(false);
-    p.working = false; if (hooks.status) hooks.status(p);
-    transcript.turnEnd();
-    if (hooks.settled) hooks.settled(p);
+    return sent;
   }
 
   const composer = createComposer(compHost, {
     onSend: (text, attachments) => {
       let full = text;
-      const paths = (attachments || []).filter((a) => a && a.path).map((a) => a.path);
+      const paths = (attachments || []).filter((a) => a && a.path && !a.annotationImage).map((a) => a.path);
+      const images = (attachments || []).filter((a) => a?.annotationImage).map((a) => a.annotationImage);
       const skills = (attachments || []).filter((a) => a && a.skill).map((a) => a.skill);
       if (skills.length) full += '\n\nUse the ' + skills.join(', ') + ' skill' + (skills.length > 1 ? 's' : '') + ' for this.';
-      if (paths.length) full += '\n\nFiles: ' + paths.map((x) => '"' + x + '"').join(' ');
+      if (paths.length) full += '\n\nFile references: ' + paths.map((x) => '"' + x + '"').join(' ');
       // the first real message names a card the way the first typed line names
       // a terminal tile (feedSessionName in app.js); the attachments are not prose
       if (hooks.prompt) hooks.prompt(p, text);
-      sendPrompt(full, { display: text, files: paths });
+      sendPrompt(full, { display: text, files: [...paths, ...images.map(image => image.path).filter(Boolean)], images }).then((sent) => {
+        if (sent || disposed) return;
+        composer.input.value = composer.input.value ? appendDraft(text, composer.input.value) : text;
+        composer.input.dispatchEvent(new Event('input', { bubbles: true }));
+        for (const attachment of attachments || []) composer.attach(attachment.label || attachment.path || attachment.skill || 'Annotation image', attachment);
+      });
     },
     onCommand: (name) => route(name),
-    onStop: () => { if (state.connected) client.cancel(); },
+    onStop: () => { promptEpoch++; if (state.connected) client.cancel(); },
     onModeCycle: cycleMode,
     onModelPick: () => route('model'),
     getBuiltins: () => {
@@ -161,6 +201,21 @@ export function mountChatPane(p, rec, hooks) {
   });
   rec.aiInput = composer.input;
   rec.acpAttach = (label, meta) => composer.attach(label, meta);
+  rec.acpCapabilities = () => ({ connected: state.connected, ...client.capabilities });
+  rec.sessionContext = () => contextRecord.snapshot();
+  rec.insertSessionDraft = ({ text = '', images = [] } = {}) => {
+    if (disposed) return { ok: false, error: 'That chat session is closed.' };
+    if (images.length > 12) return { ok: false, error: 'Insert at most 12 images at a time.' };
+    const imageMode = images.length ? state.connected && client.capabilities.image ? 'image' : 'file-reference' : 'none';
+    if (imageMode === 'file-reference' && images.some(image => !image.path)) return { ok: false, error: 'This agent needs an image file reference, but the capture is unavailable.' };
+    composer.input.value = appendDraft(composer.input.value, String(text));
+    composer.input.dispatchEvent(new Event('input', { bubbles: true }));
+    for (const image of images) {
+      const label = imageMode === 'image' ? 'Annotation image' : 'File reference · annotation';
+      composer.attach(label, imageMode === 'image' ? { label, annotationImage: image } : { label, path: image.path });
+    }
+    return { ok: true, imageMode };
+  };
   composer.setSkills((window.__namiSkills || []).length ? window.__namiSkills : [
     { name: 'collector', description: 'pulls structured data off pages' },
     { name: 'engineer', description: 'edits the repo, runs tests, opens a PR' },
@@ -177,16 +232,26 @@ export function mountChatPane(p, rec, hooks) {
       }));
       if (!rows.length) { transcript.note('No past sessions here yet.'); return; }
       composer.openSelect('Past sessions', rows, async (row) => {
+        if (!client.capabilities.loadSession) { transcript.error('This agent does not support loading past sessions.'); return; }
+        if (state.busy) { transcript.error('Wait for the current response before switching sessions.'); return; }
+        state.busy = true; composer.setBusy(true);
+        let loading = false;
         try {
+          const options = await mcpOptions();
+          if (disposed) return;
+          loading = true;
+          contextRecord.reset(row.value); publishContext(true);
           transcript.clear();
           transcript.note('Picking up \u201c' + row.name + '\u201d\u2026');
-          await client.loadSession(row.value, p.cwd);
+          await client.loadSession(row.value, p.cwd, options);
+          publishContext(true);
           p.acpSid = row.value;
           watchTitle();
           if (hooks.rename) hooks.rename(p, row.name);
         } catch (err) {
+          if (loading) { contextRecord.reset('unavailable:' + p.id + ':' + Date.now()); publishContext(true); }
           transcript.error('Couldn\u2019t pick that session up \u2014 ' + ((err && err.message) || 'try another.'));
-        }
+        } finally { state.busy = false; composer.setBusy(false); }
       });
     } catch (err) {
       transcript.note('This agent can\u2019t list past sessions' + ((err && err.message) ? ' \u2014 ' + err.message : '') + '.');
@@ -208,19 +273,20 @@ export function mountChatPane(p, rec, hooks) {
   });
 
   // ---- transport over the preload bridge -----------------------------------
-  const msgCbs = [];
+  const msgCbs = [], exitCbs = [];
   const offMsg = api.onAcpMsg(({ id, msg }) => { if (id === p.id) msgCbs.forEach((cb) => cb(msg)); });
   const offErr = api.onAcpErr(({ id, text }) => { if (id === p.id && text.trim()) console.warn('[acp]', text.trim()); });
   const offExit = api.onAcpExit(({ id, code }) => {
     if (id !== p.id) return;
     state.connected = false;
+    exitCbs.forEach(cb => cb(code));
     transcript.error('The agent stopped (exit ' + code + '). Close this pane and start a new session.');
   });
   const transport = {
     send: (o) => api.acpSend({ id: p.id, payload: o }),
     onMessage: (cb) => msgCbs.push(cb),
     onError: () => {},
-    onExit: () => {},
+    onExit: (cb) => exitCbs.push(cb),
     kill: () => api.acpKill({ id: p.id }),
   };
 
@@ -230,6 +296,7 @@ export function mountChatPane(p, rec, hooks) {
       // some agents echo your prompt back mid-turn; we already drew it
       if (ev.type === 'user' && state.busy) return;
       transcript.apply(ev);
+      if (contextRecord.event(ev)) publishContext();
     },
     onPermission: (params, reply) => {
       if (hooks.wake) hooks.wake(p);
@@ -247,8 +314,8 @@ export function mountChatPane(p, rec, hooks) {
     },
   });
 
-  rec.disposeRo = () => { offMsg && offMsg(); offErr && offErr(); offExit && offExit(); api.acpKill({ id: p.id }); };
-  rec.cwFeed = (ev) => transcript.apply(ev); // scenes/screenshots replay events without an agent
+  rec.disposeRo = () => { disposed = true; clearTimeout(contextTimer); offMsg && offMsg(); offErr && offErr(); offExit && offExit(); api.acpKill({ id: p.id }); };
+  rec.cwFeed = (ev) => { transcript.apply(ev); if (contextRecord.event(ev)) publishContext(); }; // scenes/screenshots replay events without an agent
   if (p.sceneStatic) return;
 
   // The agent names the conversation in its own store a turn or two in; main
@@ -259,9 +326,11 @@ export function mountChatPane(p, rec, hooks) {
     const started = await api.acpStart({ id: p.id, cwd: p.cwd, command: launch.command, args: launch.args });
     if (!started.ok) { transcript.error((p.title || 'The agent') + ' could not start' + (started.error ? ' — ' + started.error : '')); return; }
     try {
-      const { session } = await client.connect(p.cwd);
+      const { session } = await client.connect(p.cwd, await mcpOptions());
       state.connected = true;
       p.acpSid = session.sessionId;
+      contextRecord.reset(session.sessionId); publishContext(true);
+      if (hooks.capabilities) hooks.capabilities(p, rec.acpCapabilities());
       watchTitle();
       state.modes = session.modes || null;
       state.configOptions = session.configOptions || [];

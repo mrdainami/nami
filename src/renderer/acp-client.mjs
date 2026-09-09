@@ -13,12 +13,23 @@ export function createAcpClient(transport, handlers) {
   const h = handlers || {};
   let nextId = 1;
   const pending = new Map();
-  let sessionId = null;
+  let sessionId = null, capabilities = {}, requestedMcp = [], configuredMcp = [];
+  const eligibleMcp = (servers) => (Array.isArray(servers) ? servers : []).filter((server) => {
+    if (server?.type === 'http') return capabilities.mcpCapabilities?.http === true;
+    if (server?.type === 'sse') return capabilities.mcpCapabilities?.sse === true;
+    return typeof server?.command === 'string';
+  }).map((server) => ({ ...server, ...(server.type ? { headers: server.headers || [] } : { args: server.args || [], env: server.env || [] }) }));
 
   function call(method, params) {
     const id = nextId++;
-    transport.send({ jsonrpc: '2.0', id, method, params });
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      try {
+        Promise.resolve(transport.send({ jsonrpc: '2.0', id, method, params })).then((result) => {
+          if (result?.ok === false && pending.has(id)) { pending.delete(id); reject(new Error(result.error || 'The agent could not receive this request.')); }
+        }, (error) => { pending.delete(id); reject(error); });
+      } catch (error) { pending.delete(id); reject(error); }
+    });
   }
   function respond(id, result) { transport.send({ jsonrpc: '2.0', id, result }); }
   function respondError(id, code, message) { transport.send({ jsonrpc: '2.0', id, error: { code, message } }); }
@@ -56,32 +67,40 @@ export function createAcpClient(transport, handlers) {
     if (msg.id !== undefined) respondError(msg.id, -32601, 'not supported');
   });
   transport.onError((text) => { if (h.onStderr) h.onStderr(text); });
-  transport.onExit((code) => { if (h.onExit) h.onExit(code); });
+  transport.onExit((code) => { for (const request of pending.values()) request.reject(new Error('The agent stopped before responding.')); pending.clear(); if (h.onExit) h.onExit(code); });
 
   return {
-    async connect(cwd) {
+    async connect(cwd, { mcpServers = [] } = {}) {
       const init = await call('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} } },
       });
-      const sess = await call('session/new', { cwd, mcpServers: [] });
+      capabilities = init.agentCapabilities || {};
+      requestedMcp = mcpServers; configuredMcp = eligibleMcp(requestedMcp);
+      const sess = await call('session/new', { cwd, mcpServers: configuredMcp });
       sessionId = sess.sessionId;
       return { init, session: sess };
     },
-    prompt(text) {
-      return call('session/prompt', { sessionId, prompt: [{ type: 'text', text }] });
+    prompt(text, { images = [] } = {}) {
+      if (images.length && capabilities.promptCapabilities?.image !== true) return Promise.reject(new Error('This agent does not support image prompts. Use a file reference instead.'));
+      if (images.length > 12 || images.reduce((size, image) => size + (image?.data?.length || 0), 0) > 32 * 1024 * 1024 || images.some(image => image?.type !== 'image' || typeof image.data !== 'string' || image.data.length > 16 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data) || image.data.length % 4 !== 0 || !/^image\/(png|jpeg|webp|gif)$/.test(image.mimeType))) return Promise.reject(new Error('Invalid image attachment.'));
+      return call('session/prompt', { sessionId, prompt: [{ type: 'text', text: String(text) }, ...images.map(({ data, mimeType }) => ({ type: 'image', data, mimeType }))] });
     },
     setMode(modeId) { return call('session/set_mode', { sessionId, modeId }); },
     setConfigOption(configId, value) { return call('session/set_config_option', { sessionId, configId, value }); },
     listSessions(cwd) { return call('session/list', { cwd }); },
-    async loadSession(sid, cwd) {
-      const r = await call('session/load', { sessionId: sid, cwd, mcpServers: [] });
+    async loadSession(sid, cwd, options = {}) {
+      if (capabilities.loadSession !== true) throw new Error('This agent does not support loading sessions.');
+      requestedMcp = options.mcpServers || requestedMcp;
+      configuredMcp = eligibleMcp(requestedMcp);
+      const r = await call('session/load', { sessionId: sid, cwd, mcpServers: configuredMcp });
       sessionId = sid;
       return r;
     },
     cancel() { transport.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); },
     kill() { transport.kill(); },
     get sessionId() { return sessionId; },
+    get capabilities() { return { image: capabilities.promptCapabilities?.image === true, mcpHttp: capabilities.mcpCapabilities?.http === true, mcpSse: capabilities.mcpCapabilities?.sse === true, loadSession: capabilities.loadSession === true, configuredMcp: configuredMcp.map(({ name, type }) => ({ name, type: type || 'stdio' })) }; },
     _send(obj) { transport.send(obj); },
   };
 }
