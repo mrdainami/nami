@@ -77,7 +77,7 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
     await refresh();
     if (await update(id,s=>({viewIds:[...new Set([...(s.views||[]),panel.id])]}))) {
       const target=sessions().find(p=>p.id===id);
-      toast('Shared with '+(target?.title||'session')+'. Check its source chip for connection status.');
+      toast('Watching in '+(target?.title||'session')+'.');
     }
   }
   async function shareContext(source, id) {

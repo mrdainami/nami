@@ -1,5 +1,7 @@
 import { createSessionSources } from './session-sources.mjs';
 import { terminalSnapshot } from './session-context.mjs';
+import { seedCompanion } from './companion-seed.mjs';
+import { createMcpSetup, CONNECT_OVERLAYS } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
@@ -304,7 +306,13 @@ function attachCompanion(p,owner) {
   S.split=splitAfter({...S.split,panels:S.panels},{type:'select-companion',id:p.id});S.splitFull=null;
   renderGrid();renderRail();savePanels();
   const source=S.panels.find(x=>x.id===owner);
-  if(source) sources.shareContext(source,p.id).then(ok=>{if(ok && tileEls.get(p.id)?.insertSessionDraft)sources.refreshInto(p.id);});
+  if(source) sources.shareContext(source,p.id).then(ok=>{
+    if(!ok) return;
+    const rec=tileEls.get(p.id), ownerRec=tileEls.get(owner);
+    const snapshot=ownerRec?.sessionContext?.() || (ownerRec?.term && terminalSnapshot(ownerRec.term));
+    if(rec?.insertSessionDraft) seedCompanion({ title: source.title, snapshot }, rec);
+    else sources.refreshInto(p.id);
+  });
 }
 async function insertAnnotation(payload,destinations) {
   const inserted=[],failed=[];
@@ -5492,6 +5500,7 @@ function renderOverlay() {
   }
   if (!['settings', 'quickstart'].includes(o.type)) helpReturnFocus = null;
   if (o.type === 'browser-new') return browsers.renderNew();
+  if (CONNECT_OVERLAYS.has(o.type)) return mcpSetup().render();
   if (o.type === 'browser-note') return browsers.renderNote();
   if (o.type === 'browser-access') return browsers.renderAccess();
   if (o.type === 'browser-connection') return browsers.renderConnection();
@@ -5505,11 +5514,6 @@ function renderOverlay() {
   if (o.type === 'agent-remove') return renderAgentRemove();
   if (o.type === 'agents') return renderAgentPickerSheet();
   if (o.type === 'create') return renderCreateSheet();
-  if (o.type === 'connect') return renderConnectCatalog();
-  if (o.type === 'connect-form') return renderConnectForm();
-  if (o.type === 'connect-done') return renderConnectDone();
-  if (o.type === 'connect-custom') return renderConnectCustom();
-  if (o.type === 'connect-own') return renderConnectOwn();
   if (o.type === 'improve-item') return renderImproveItem();
   if (o.type === 'fs-name') return renderFsName();
   if (o.type === 'switch-folder') return renderSwitchChoice();
@@ -6061,7 +6065,16 @@ function requestClosePeek() {
 // ---- connect a service ------------------------------------------------------
 // Three small sheets: pick a card, paste one key, see it proven. Copy follows
 // the approved mockup and never assumes which agent the user runs.
-function openConnect() { S.overlay = { type: 'connect' }; renderOverlay(); refreshServices(); refreshAgents(); }
+let mcpUi;
+function mcpSetup() {
+  if (!mcpUi) mcpUi = createMcpSetup({
+    state: S, overlay, q, esc, api, toast, closeOverlay, renderOverlay,
+    refreshServices, refreshAgents, loadLibrary, installedAgentIds,
+    chosenAgent, agentOptionsHtml, agentSession, bestAgent, startPanel, shortHome, agentNameOf,
+  });
+  return mcpUi;
+}
+function openConnect() { mcpSetup().openConnect(); }
 function renderConnectCatalog() {
   const cat = S.services.catalog;
   const connectedIds = new Set(S.services.connected.map((s) => s.id));
@@ -6106,10 +6119,7 @@ function renderConnectCatalog() {
 }
 // The "already have it" door: an address, a command line, or a .mcpb bundle.
 // All three end as one master entry, then copied into each CLI notebook we can write.
-function openConnectOwn() {
-  S.overlay = { type: 'connect-own', name: '', address: '', scope: 'project', values: {}, bundle: null };
-  renderOverlay(); if (!S.agents) refreshAgents();
-}
+function openConnectOwn() { return mcpSetup().openConnectOwn(); }
 function renderConnectOwn() {
   const o = S.overlay;
   const b = o.bundle;
@@ -6266,21 +6276,7 @@ function renderConnectDone() {
   q('#sv-done', modal).onclick = closeOverlay;
   q('#sv-more', modal).onclick = openConnect;
 }
-function openServiceDetails(sv) {
-  const cat = S.services.catalog.find((s) => s.id === sv.id);
-  const modal = overlay('setup-box', `
-    <div class="setup-head"><span class="code" data-kind="service">${esc((cat && cat.code) || 'SV')}</span>
-      <span class="col"><span class="name">${esc(sv.name)}</span>
-      <span class="desc"><span class="ok">●</span> connected · ${esc(sv.platforms.join(' + '))} · ${esc(sv.scopes.map((s) => s === 'project' ? 'this project' : 'your Mac').join(', '))}</span></span></div>
-    <div class="setup-actions">
-      <button class="btn" id="sv-disc">Disconnect</button>
-      <button class="btn btn--go" id="sv-ok">Done</button></div>`);
-  q('#sv-ok', modal).onclick = closeOverlay;
-  q('#sv-disc', modal).onclick = async () => {
-    await api.disconnectService({ id: sv.id, projectPath: S.project && S.project.path });
-    refreshServices(); closeOverlay(); toast(sv.name + ' disconnected.');
-  };
-}
+function openServiceDetails(sv) { return mcpSetup().openServiceDetails(sv); }
 // The factory is the user's own agent, whichever one they have installed.
 function bestAgent() {
   const ready = (S.agents || []).filter((a) => a.found);
@@ -6303,7 +6299,7 @@ function agentSession(worker, opts) {
     titleSource: 'flow',
     command: worker.kind === 'claude' ? undefined : worker.bin }, opts));
 }
-function openConnectCustom() { S.overlay = { type: 'connect-custom', text: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
+function openConnectCustom() { return mcpSetup().openConnectCustom(); }
 function renderConnectCustom() {
   const o = S.overlay;
   const worker = chosenAgent(o);

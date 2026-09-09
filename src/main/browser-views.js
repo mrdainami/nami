@@ -210,6 +210,10 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       return { canceled: result.canceled };
     }
     else if (action === 'cancel-annotation') wc.send('browser:annotate-mode', false);
+    else if (action === 'snapshot') {
+      const text = await wc.executeJavaScript("(document.body && document.body.innerText || '').slice(0, 16000)", true).catch(() => '');
+      return { title: wc.getTitle(), url: e.filePath || wc.getURL(), text: String(text || '') };
+    }
     return {};
   });
   async function revokeProfile(profileId) {
