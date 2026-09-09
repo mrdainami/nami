@@ -323,6 +323,12 @@ body[data-theme="operator"] .md-read blockquote { border-left-color: var(--op-ac
 body[data-theme="operator"] .ed-area, body[data-theme="operator"] .card-body,
 body[data-theme="operator"] .card-raw .raw-area { background: none; caret-color: var(--op-accent); }
 body[data-theme="operator"] .ed-bar { border-top: 1px solid var(--dash); background: var(--paper-2); }
+/* The amber family is red here, so this bar reads as an alarm rather than a
+   note. That is the right weight: something changed under a document you
+   have not saved. Mono and letter-spaced, like every other operator label. */
+body[data-theme="operator"] .disk-bar { border-bottom: 1px solid var(--amber-line); background: var(--amber-bg); }
+body[data-theme="operator"] .disk-bar .dk-msg { font-family: var(--op-mono); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10.5px; }
+body[data-theme="operator"] .disk-bar .btn { border-radius: 5px; box-shadow: none; }
 body[data-theme="operator"] .card-links { background: var(--paper-2); border-radius: 0 0 8px 8px; }
 body[data-theme="operator"] .card-tab { border-radius: 5px; }
 body[data-theme="operator"] .card-tab.active { background: var(--hover); }
