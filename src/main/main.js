@@ -119,6 +119,7 @@ if (SHOT_PATH) {
 const { createReviewProfile } = require('./review-profile');
 const reviewProfile = createReviewProfile({
   argv: process.argv, normalPath: app.getPath('userData'), packaged: app.isPackaged,
+  reviewBuild: require('../../package.json').name === 'nami-review',
 });
 app.setPath('userData', reviewProfile.path);
 const REVIEW = reviewProfile.review;
