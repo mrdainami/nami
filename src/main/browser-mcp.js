@@ -43,11 +43,11 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
     })();
     return schemaPromise;
   }
-  function activity(route, tabId, tool, error) {
+  function activity(route, tabId, tool, error, captured) {
     const e = views.get(tabId);
     if (!e || !access.allows(route.id, tabId)) return;
     const previous = route.activity?.[tabId], at = Date.now();
-    const value = { tabId, lastSuccessfulAt: error ? previous?.lastSuccessfulAt || null : at, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL(), at, tool, ...(error ? { error } : {}) };
+    const value = { tabId, lastSuccessfulAt: error ? previous?.lastSuccessfulAt || null : at, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL(), at, tool, ...captured, ...(error ? { error } : {}) };
     route.activity ||= {}; route.activity[tabId] = value; onActivity?.(route.id, value);
   }
   async function stopEngine(route) {
@@ -97,6 +97,7 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
     }
     if (message.method !== 'tools/call') throw new Error('Unsupported MCP method.');
     const { name, arguments: args = {} } = message.params || {};
+    if (route.updating || route.revoked) throw new Error('Nami Browser access is being updated. Try again.');
     if (name === 'nami_sessions') return result((s.peers || []).filter((id) => access.sessions.has(id)).map((id) => ({ id, title: access.get(id).title })));
     if (name === 'nami_inbox') { const messages = s.inbox.splice(0); return result(messages); }
     if (name === 'nami_send_message') {
@@ -108,7 +109,6 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
       notifyMessage?.(target.windowId, { sessionId: args.to, message: msg });
       return result({ delivered: true });
     }
-    if (route.updating || route.revoked) throw new Error('Nami Browser access is being updated. Try again.');
     if (name === 'nami_browser_tabs') return result([...s.views].flatMap(id => { const e = views.get(id); return e ? [{ id, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() }] : []; }));
     if (name === 'nami_read_annotation_image') {
       if (!images) throw new Error('Annotation images are unavailable.');
@@ -121,14 +121,17 @@ async function createBrowserMcp({ access, views, create, remove, send, notifyMes
     if (name === 'nami_browser_screenshot') {
       const e = views.get(args.tabId);
       if (!e || !access.allows(route.id, e.id)) throw new Error('This Nami Browser tab is not shared with the session.');
+      const captured = { title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL(), capturedAt: Date.now() };
+      const documentId = e.documentId, documentEpoch = e.documentEpoch;
       let picture;
       try { picture = await e.view.webContents.capturePage(); }
       catch (_) { const message = 'The browser image is unavailable. Reveal the tab in Nami and try again.'; activity(route, e.id, name, message); throw new Error(message); }
       if (route.revoked || route.updating || !access.allows(route.id, e.id)) throw new Error('Browser access changed during capture.');
+      if (views.get(e.id) !== e || e.documentId !== documentId || e.documentEpoch !== documentEpoch || e.view.webContents.isDestroyed() || (e.filePath || e.view.webContents.getURL()) !== captured.url) throw new Error('The browser page changed during capture. Try the screenshot again.');
       if (picture.isEmpty()) throw new Error('The browser image is unavailable. Reveal the tab and try again.');
       const bytes = picture.toPNG();
       if (bytes.length > 20 * 1024 * 1024) throw new Error('Browser image is too large. Reduce the view size.');
-      activity(route, e.id, name);
+      activity(route, e.id, name, undefined, captured);
       return { content: [{ type: 'text', text: JSON.stringify(route.activity[e.id]) }, { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }] };
     }
     if ((name==='browser_navigate'||(name==='browser_tabs'&&args.action==='new')) && [...s.views].every(id=>views.get(id)?.record?.local)) throw new Error('Open the website in Nami and grant its browser tab access first. Local HTML permission does not include signed-in browser profiles.');

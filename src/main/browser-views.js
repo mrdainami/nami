@@ -79,7 +79,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       send(e, 'state', { filePath: e.filePath, profileId: e.profileId, zoom: wc.getZoomFactor(), url: e.filePath || wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
     };
     for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
-    wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentId = null; e.selections = new Map(); } });
+    wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
     wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
     wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));

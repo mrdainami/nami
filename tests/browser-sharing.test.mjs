@@ -50,3 +50,62 @@ test('annotation image IDs never read arbitrary files and retain granted referen
     assert.throws(() => store.read(a.id, 'recipient'), /unavailable/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('visible-only chat context stays explicitly incomplete, even below size limits', () => {
+  const store = new SessionContextStore();
+  const update = value => store.update({ id: 'chat', identity: 'conversation', windowId: 1, kind: 'chat', content: 'Observed since connection', ...value });
+  update({}); store.grant('reader', 1, ['chat']);
+  assert.equal(store.read('reader', 'chat').incompleteHistory, true);
+  update({ incompleteHistory: true });
+  assert.equal(store.list('reader')[0].incompleteHistory, true);
+  update({ incompleteHistory: false });
+  assert.equal(store.read('reader', 'chat').incompleteHistory, false);
+  update({ incompleteHistory: false, truncated: true });
+  assert.equal(store.read('reader', 'chat').incompleteHistory, true);
+});
+
+test('screenshot refuses pixels if its document changes while capture is pending', async () => {
+  const { createBrowserMcp } = require('../src/main/browser-mcp');
+  const { Access } = require('../src/main/browser-policy');
+  const access = new Access(); access.register('reader', 1); access.grant('reader', 1, ['view']);
+  const picture = { isEmpty: () => false, toPNG: () => Buffer.from('image') };
+  const view = { id: 'view', documentId: 'one', documentEpoch: 1, view: { webContents: { getTitle: () => 'Page', getURL: () => 'https://example.test/', isDestroyed: () => false, capturePage: async () => { view.documentEpoch++; return picture; } } } };
+  const gateway = await createBrowserMcp({ access, views: new Map([['view', view]]) });
+  try {
+    const { url } = await gateway.connection('reader');
+    const output = await fetch(url, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'nami_browser_screenshot', arguments: { tabId: 'view' } } }) }).then(r => r.json());
+    assert.match(output.error.message, /page changed during capture/);
+    assert.deepEqual(gateway.status('reader').activities, []);
+  } finally { await gateway.close(); }
+});
+
+test('queued peer calls cannot use old permissions while a browser operation drains', async () => {
+  const { createBrowserMcp } = require('../src/main/browser-mcp');
+  const { Access } = require('../src/main/browser-policy');
+  const access = new Access(); access.register('reader', 1); access.register('peer', 1);
+  access.grant('reader', 1, ['view']); access.get('reader').peers = ['peer'];
+  let captured, finish;
+  const started = new Promise(resolve => captured = resolve);
+  const capture = new Promise(resolve => finish = resolve);
+  const view = { id: 'view', view: { webContents: { getTitle: () => 'Page', getURL: () => 'https://example.test/', isDestroyed: () => false, capturePage: () => { captured(); return capture; } } } };
+  const gateway = await createBrowserMcp({ access, views: new Map([['view', view]]) });
+  try {
+    const { url } = await gateway.connection('reader');
+    let id = 0;
+    const rpc = params => fetch(url, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params }) }).then(r => r.json());
+    const screenshot = rpc({ name: 'nami_browser_screenshot', arguments: { tabId: 'view' } });
+    await started;
+    const refresh = gateway.refresh('reader', () => { access.get('reader').peers = []; });
+    const message = rpc({ name: 'nami_send_message', arguments: { to: 'peer', text: 'Old permission must not deliver this.' } });
+    const list = rpc({ name: 'nami_sessions' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    finish({ isEmpty: () => false, toPNG: () => Buffer.from('image') });
+    const [shotResult, messageResult, listResult] = await Promise.all([screenshot, message, list]);
+    await refresh;
+    assert.match(shotResult.error.message, /access changed/);
+    assert.ok(messageResult.error);
+    assert.equal(access.get('peer').inbox.length, 0);
+    if (listResult.result) assert.deepEqual(JSON.parse(listResult.result.content[0].text), []);
+    else assert.match(listResult.error.message, /being updated/);
+  } finally { finish?.({ isEmpty: () => false, toPNG: () => Buffer.from('image') }); await gateway.close(); }
+});
