@@ -1,5 +1,46 @@
 // Live permissions have a visible home on both terminal and chat panels.
 // A source chip is never evidence that the model has read its content.
+const PAGE_TEXT = 16000;
+export function pageTitle(source) {
+  if (source?.title && source.title !== source.url) return source.title;
+  try { return new URL(source.url).hostname.replace(/^www\./, ''); } catch { return source?.url || source?.title || 'Browser'; }
+}
+export function browserChipLabel(access) {
+  if (access?.error) return 'Access failed';
+  const at = Number(access?.lastSuccessfulAt || access?.at);
+  if (Number.isFinite(at) && at > 0) return 'Last accessed ' + new Date(at).toLocaleTimeString();
+  return 'Watching';
+}
+export function formatBrowserSnapshot({ title, url, text, capturedAt } = {}) {
+  const name = title || pageTitle({ url, title }) || 'Browser';
+  const when = capturedAt ? new Date(capturedAt).toLocaleTimeString() : '';
+  const head = `Watching ${name}${url ? ` (${url})` : ''}${when ? `, ${when}` : ''}`;
+  const body = String(text || '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, PAGE_TEXT);
+  return body ? head + '\n' + body : head;
+}
+export function browserInspectActions({ source, access, mcpUnsupported }) {
+  const actions = [
+    { label: source.url || source.title, off: true },
+    { label: access?.lastSuccessfulAt ? 'Last accessed ' + new Date(access.lastSuccessfulAt).toLocaleString() : 'No successful browser access recorded', off: true },
+  ];
+  if (mcpUnsupported) actions.push({ label: 'HTTP MCP unsupported. Page snapshots still attach on send.', off: true });
+  actions.push({ label: 'Send page now' });
+  return actions;
+}
+export async function captureBrowserPage(api, view) {
+  const page = { title: view?.title || '', url: view?.url || '', text: typeof view?.text === 'string' ? view.text : '', capturedAt: Date.now() };
+  if (!api?.browserAction || !view?.id) return page;
+  try {
+    const r = await api.browserAction({ id: view.id, action: 'snapshot' });
+    if (r && r.ok !== false) {
+      if (r.title) page.title = r.title;
+      if (r.url) page.url = r.url;
+      if (typeof r.text === 'string') page.text = r.text;
+      if (r.image?.data && r.image.mimeType) page.image = { type: 'image', data: r.image.data, mimeType: r.image.mimeType };
+    }
+  } catch (_) {}
+  return page;
+}
 export function createSessionSources({ api, state, tiles, esc, icon, isSession, menu, toast, settings, publish, insert }) {
   let status = {sessions:[],views:[]}, pending = null;
   const sourceIds = s => (s?.sources||[]).map(x=>typeof x==='string'?x:x.id);
@@ -52,7 +93,14 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
   }
   async function linkedContext(id) {
     await refresh();
-    const s=status.sessions.find(s=>s.id===id), chunks=[];
+    const s=status.sessions.find(s=>s.id===id), chunks=[], images=[];
+    for (const viewId of s?.views||[]) {
+      const view=status.views.find(v=>v.id===viewId);
+      if(!view) continue;
+      const page=await captureBrowserPage(api, view);
+      chunks.push(formatBrowserSnapshot(page));
+      if(page.image) images.push(page.image);
+    }
     for (const sourceId of sourceIds(s)) {
       const source=state.panels.find(p=>p.id===sourceId);
       if(source) await publish(source);
@@ -61,28 +109,29 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
       const c=r.source||r.context||r;
       chunks.push(`Context from ${c.title||source?.title||sourceId} (${c.kind==='terminal'?'terminal snapshot':'visible chat'}, ${new Date(c.capturedAt||c.updatedAt||c.at).toLocaleTimeString()}${c.truncated||c.incompleteHistory?', incomplete history':''})\n${c.content||''}`);
     }
-    return chunks.join('\n\n');
+    const content=chunks.join('\n\n');
+    return images.length ? { content, images } : content;
   }
   async function refreshInto(id) {
     try {
-      const text=await linkedContext(id);
+      const linked=await linkedContext(id);
+      const text=typeof linked==='string'?linked:linked?.content||'';
       if(text) await insert(id,text); else toast('No readable source context.');
-    } catch(error) { toast(error.message||'Could not refresh source context.'); }
+    } catch(error) { toast(error.message||'Could not send the page.'); }
   }
   function inspect(session, type, source, anchor) {
     const r=anchor.getBoundingClientRect();
     const shared=status.sessions.find(s=>s.id===session.id);
     const access=shared?.activities?.find(a=>a.tabId===source.id);
-    const actions=type==='browser' ? [
-      {label:source.url||source.title,off:true},
-      {label:access?.lastSuccessfulAt?'Last accessed '+new Date(access.lastSuccessfulAt).toLocaleString():'No successful browser access recorded',off:true},
-      {label:'Browser setup / connection…',run:()=>settings(session.id)},
-    ] : [
-      {label:'Session context · '+source.title,off:true},
-      {label:source.capturedAt?'Snapshot updated '+new Date(source.capturedAt).toLocaleString():'Snapshot not yet available',off:true},
-      {label:'Refresh into input',run:()=>refreshInto(session.id)},
-      {label:'Reads available messages or a terminal snapshot',off:true},
-    ];
+    const mcpUnsupported=!!tiles.get(session.id)?.acpCapabilities?.()?.mcpUnsupported;
+    const actions=type==='browser'
+      ? browserInspectActions({source,access,mcpUnsupported}).map(a=>a.label==='Send page now'?{...a,run:()=>refreshInto(session.id)}:a)
+      : [
+        {label:'Session context · '+source.title,off:true},
+        {label:source.capturedAt?'Snapshot updated '+new Date(source.capturedAt).toLocaleString():'Snapshot not yet available',off:true},
+        {label:'Refresh into input',run:()=>refreshInto(session.id)},
+        {label:'Reads available messages or a terminal snapshot',off:true},
+      ];
     menu(r.left,r.bottom,actions);
   }
   function paint() {
@@ -97,13 +146,16 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
         const composer=rec.body.querySelector('.cw-composer-host');
         if(composer)composer.before(rec.sourceStrip);else rec.root.appendChild(rec.sourceStrip);
       }
-      const connected=s.initialized||s.connected;
-      const sig=JSON.stringify([rows,connected,s.activities]);if(rec.sourceStrip.dataset.signature===sig)continue;
+      const mcpUnsupported=!!rec.acpCapabilities?.()?.mcpUnsupported;
+      const sig=JSON.stringify([rows,s.activities,mcpUnsupported]);if(rec.sourceStrip.dataset.signature===sig)continue;
       rec.sourceStrip.dataset.signature=sig;
       rec.sourceStrip.innerHTML=rows.map(({type,source})=>{
         const access=s.activities?.find(a=>a.tabId===source.id);
-        const label=type==='session'?'Context':access?.error?'Access failed':access?'Last accessed '+new Date(access.at||access).toLocaleTimeString():connected?'Shared · initialized':'Setup required';
-        return `<span class="source-chip"><button class="source-inspect" data-source="${esc(source.id)}" data-source-type="${type}" title="${esc(label)}">${icon(type==='browser'?'browser':'link')}<span>${esc(source.title||source.url||'Browser')}</span><small>${esc(label)}</small></button><button class="source-remove" data-remove="${esc(source.id)}" data-source-type="${type}" aria-label="Stop sharing ${esc(source.title||'source')}" title="Stop sharing">×</button></span>`;
+        const label=type==='session'?'Context':browserChipLabel(access);
+        const watching=type==='browser'&&label==='Watching';
+        const name=type==='browser'?pageTitle(source):source.title||source.url||'Browser';
+        const title=watching?`Watching · ${name}`:label;
+        return `<span class="source-chip"${watching?' style="border-color:var(--green)"':''}><button class="source-inspect" data-source="${esc(source.id)}" data-source-type="${type}" title="${esc(title)}">${icon(type==='browser'?'browser':'link')}<span>${esc(name)}</span><small${watching?' style="color:var(--green)"':''}>${esc(label)}</small></button><button class="source-remove" data-remove="${esc(source.id)}" data-source-type="${type}" aria-label="Stop sharing ${esc(name)}" title="Stop sharing">×</button></span>`;
       }).join('');
       rec.sourceStrip.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{const row=rows.find(r=>r.source.id===b.dataset.source&&r.type===b.dataset.sourceType);inspect(p,row.type,row.source,b);});
       rec.sourceStrip.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{
@@ -114,6 +166,7 @@ export function createSessionSources({ api, state, tiles, esc, icon, isSession, 
     }
   }
   const interval=setInterval(refresh,2000);
+  interval.unref?.();
   window.addEventListener('beforeunload',()=>clearInterval(interval),{once:true});
   api.onBrowserEvent(()=>refresh());
   return {refresh,paint,shareMenu,shareTab,shareContext,linkedContext,refreshInto};
