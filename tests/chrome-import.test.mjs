@@ -102,20 +102,24 @@ test('a read that fails reports why, and only a real lock says to quit Chrome', 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('every Chromium browser on this platform is offered, not only Google Chrome', () => {
+test('every Chromium browser on this platform is offered, each with its own layout', () => {
   const home = tmpdir('chromium-home');
   try {
+    // Opera is the one that matters here: its data root IS its profile, with no
+    // Default/ under it. A fixture that fabricates Default/ everywhere tests the
+    // assumption rather than the disk, and would pass while a real Opera user
+    // was told no profile existed.
     const wanted = [
-      ['Library/Application Support/Google/Chrome', 'Chrome'],
-      ['Library/Application Support/Microsoft Edge', 'Edge'],
-      ['Library/Application Support/Chromium', 'Chromium'],
-      ['Library/Application Support/BraveSoftware/Brave-Browser', 'Brave'],
-      ['Library/Application Support/Arc/User Data', 'Arc'],
-      ['Library/Application Support/Vivaldi', 'Vivaldi'],
-      ['Library/Application Support/com.operasoftware.Opera', 'Opera'],
+      ['Library/Application Support/Google/Chrome', 'Chrome', 'Default'],
+      ['Library/Application Support/Microsoft Edge', 'Edge', 'Default'],
+      ['Library/Application Support/Chromium', 'Chromium', 'Default'],
+      ['Library/Application Support/BraveSoftware/Brave-Browser', 'Brave', 'Default'],
+      ['Library/Application Support/Arc/User Data', 'Arc', 'Default'],
+      ['Library/Application Support/Vivaldi', 'Vivaldi', 'Default'],
+      ['Library/Application Support/com.operasoftware.Opera', 'Opera', '.'],
     ];
-    for (const [rel] of wanted) {
-      const profile = path.join(home, rel, 'Default');
+    for (const [rel, , dir] of wanted) {
+      const profile = path.join(home, rel, dir);
       fs.mkdirSync(profile, { recursive: true });
       fs.writeFileSync(path.join(profile, 'Cookies'), '');
     }
@@ -124,6 +128,9 @@ test('every Chromium browser on this platform is offered, not only Google Chrome
     for (const [, browser] of wanted) {
       assert.ok(names.has(browser), 'no profile found for ' + browser);
     }
+    // One row per profile: a root that also holds databases must not be listed
+    // twice once its named subfolders have been walked.
+    assert.equal(found.length, new Set(found.map((s) => s.directory)).size);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 

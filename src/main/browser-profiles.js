@@ -105,7 +105,12 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
     if (!exists(root)) continue;
     let info = {};
     try { info = JSON.parse(readFile(path.join(root, 'Local State'))).profile?.info_cache || {}; } catch {}
-    const dirs = Object.keys(info).length ? Object.keys(info) : ['Default'];
+    // '.' is not decoration: Opera's data root IS its profile — there is no
+    // Default/ under it — so a list that only ever looks one level down finds
+    // nothing and reports a browser it has just offered as missing. Roots that
+    // do use subfolders keep theirs; the root entry then holds no databases and
+    // is dropped by the check below at no cost.
+    const dirs = (Object.keys(info).length ? Object.keys(info) : ['Default']).concat('.');
     for (const dir of dirs) {
       const directory = path.join(root, dir);
       const cookies = exists(path.join(directory, 'Network/Cookies')) ? path.join(directory, 'Network/Cookies')
@@ -113,7 +118,8 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
       const logins = exists(path.join(directory, 'Login Data')) ? path.join(directory, 'Login Data') : '';
       const history = exists(path.join(directory, 'History')) ? path.join(directory, 'History') : '';
       if (!cookies && !logins && !history) continue;
-      found.push({ browser, name: info[dir]?.name || dir, directory, cookies, logins, history });
+      if (found.some((f) => f.directory === directory)) continue;
+      found.push({ browser, name: dir === '.' ? browser : (info[dir]?.name || dir), directory, cookies, logins, history });
     }
   }
   return found;
