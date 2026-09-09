@@ -1,5 +1,3 @@
-import { createSessionSources } from './session-sources.mjs';
-import { terminalSnapshot } from './session-context.mjs';
 import { createMcpSetup, CONNECT_OVERLAYS } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
@@ -266,30 +264,7 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), shareTab: (p,x,y)=>sources.shareMenu(p,x,y), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
-const sources = createSessionSources({ api, state:S, tiles:tileEls, esc, icon:helpIcon, isSession:isSessionPanel, menu:showMenu, toast,
-  settings:id=>{S.overlay={type:'browser-access',sessionId:id};renderOverlay();}, publish:publishSessionContext,
-  insert:(id,text)=>insertSessionText(id,text,{focus:false}), focus:id=>focusPanel(id) });
-const contextTimers = new Map();
-async function publishSessionContext(p, provided) {
-  const rec=tileEls.get(p.id); if(!rec || p.exited)return;
-  let snapshot=provided || rec.sessionContext?.();
-  if(!snapshot && rec.term) snapshot=terminalSnapshot(rec.term);
-  if(!snapshot)return;
-  await api.browserSync(S.panels.filter(isSessionPanel).filter(x=>!x.exited).map(x=>({id:x.id,title:x.title})));
-  const result=await api.browserContext({action:'update',id:p.id,identity:snapshot.identity||p.sid||p.acpSid||p.id,title:p.title,
-    kind:rec.term?'terminal':'chat',content:snapshot.content||'',truncated:!!snapshot.truncated,incompleteHistory:snapshot.incomplete!==false});
-  if(!result?.ok)throw new Error(result?.error||'Could not update session context.');
-  return result;
-}
-function queueSessionContext(p) {
-  if(contextTimers.has(p.id))return;
-  contextTimers.set(p.id,setTimeout(()=>{contextTimers.delete(p.id);publishSessionContext(p).catch(()=>{});},500));
-}
-async function sessionBrowserConnection(p) {
-  await api.browserSync(S.panels.filter(isSessionPanel).filter(x=>!x.exited).map(x=>({id:x.id,title:x.title})));
-  return api.browserConnection({id:p.id});
-}
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
 function attachCompanion(p,owner) {
   if(!p||!owner)return;
   p.companionOf=owner;
@@ -452,7 +427,7 @@ function dropPathOnPanel(p, path, isDir) {
   });
 
   api.onTermData(({ id, data }) => {
-    const t = tileEls.get(id); if (t && t.term) t.term.write(data,()=>{const p=S.panels.find(p=>p.id===id);if(p)queueSessionContext(p);});
+    const t = tileEls.get(id); if (t && t.term) t.term.write(data);
     // when a byte last moved — the auto-takeover's "is the terminal mid-task"
     const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
   });
@@ -464,7 +439,6 @@ function dropPathOnPanel(p, path, isDir) {
     if (!p || !sid || p.acpSid) return;
     p.acpSid = sid;
     savePanels();
-    publishSessionContext(p).catch(()=>{});
   });
 
   // A one-shot command Nami ran on the user's behalf has landed. The shell is
@@ -503,7 +477,6 @@ function dropPathOnPanel(p, path, isDir) {
     const p = S.panels.find((x) => x.id === id); if (!p || !sid || p.sid === sid) return;
     p.sid = sid;
     savePanels();
-    publishSessionContext(p).catch(()=>{});
   });
 
   api.onMenuCommand((cmd) => runMenuCommand(cmd));
@@ -2582,8 +2555,8 @@ function mountTile(p) {
   // drag reorder
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
-  if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }, { label: 'Browser access…', run: () => { S.overlay = { type: 'browser-access', sessionId: p.id }; renderOverlay(); } }, { label: 'Review messages…', run: () => browsers.inbox(p) }]); };
-  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); if(p.kind==='browser')sources.shareMenu(p,e.clientX,e.clientY);else showMenu(e.clientX,e.clientY,moveMenu(p)); };
+  if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }]); };
+  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); if (p.kind !== 'browser') showMenu(e.clientX, e.clientY, moveMenu(p)); };
   root.addEventListener('dragover', (e) => {
     e.preventDefault(); e.stopPropagation();
     // Stopped for the same reason the drop below is: every tile is a direct
@@ -2616,7 +2589,7 @@ function mountTile(p) {
     reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
   });
 
-  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin, browserConnection:sessionBrowserConnection, context:p=>sources.linkedContext(p.id), contextChanged:(p,record)=>publishSessionContext(p,record), annotationImage:async image=>{const r=await api.browserAnnotationImage({action:'read',id:image.id});if(!r.ok)throw new Error(r.error);return {type:'image',data:r.data,mimeType:r.mimeType};} }); else mountTerminal(p, rec);
+  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin, annotationImage:async image=>{const r=await api.browserAnnotationImage({action:'read',id:image.id});if(!r.ok)throw new Error(r.error);return {type:'image',data:r.data,mimeType:r.mimeType};} }); else mountTerminal(p, rec);
   if (isFilePanel(p) && p.kind !== 'browser') wireFileSelection(p, rec);
 }
 
@@ -5491,8 +5464,7 @@ function renderOverlay() {
   if (o.type === 'browser-new') return browsers.renderNew();
   if (CONNECT_OVERLAYS.has(o.type)) return mcpSetup().render();
   if (o.type === 'browser-note') return browsers.renderNote();
-  if (o.type === 'browser-access') return browsers.renderAccess();
-  if (o.type === 'browser-connection') return browsers.renderConnection();
+
   if (o.type === 'insertion-history') return renderInsertionHistory();
   if (o.type === 'browser-profiles') return browsers.renderProfiles();
   if (o.type === 'browser-import') return browsers.renderImport();

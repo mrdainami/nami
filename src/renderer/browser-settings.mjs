@@ -17,14 +17,11 @@ function permissionRows(profiles) {
 }
 
 export function browserSettingsContent(status, actions = {}) {
-  const sessions = status.sessions || [], profiles = status.profiles || [];
+  const profiles = status.profiles || [];
   const profile = profiles[0] || {};
   const download = profile.downloadMode === 'auto' ? 'auto' : 'ask';
   const popup = profile.popupMode === 'oauth' ? 'oauth' : 'block';
   const sites = permissionRows(profiles);
-  const cookieNote = status.cookieImport?.message || (status.cookieImport?.decrypt === 'unavailable'
-    ? 'Chrome’s cookie encryption could not be copied. Import a password CSV instead.'
-    : 'One-time copy into the current Nami profile. Google cookies are skipped. Chrome is unchanged.');
   return `<section class="bs-section" aria-labelledby="browser-download-heading">
     <h3 class="field-label" id="browser-download-heading">Downloads</h3>
     <label class="bs-toggle"><input type="radio" name="browser-download" id="browser-download-ask" value="ask"${download === 'ask' ? ' checked' : ''}><span>Ask where to save</span></label>
@@ -32,33 +29,21 @@ export function browserSettingsContent(status, actions = {}) {
   </section>
   <section class="bs-section" aria-labelledby="browser-popup-heading">
     <h3 class="field-label" id="browser-popup-heading">Popups</h3>
-    <p class="bs-note">http(s) links open as a new tab.</p>
     <label class="bs-toggle"><input type="radio" name="browser-popups" id="browser-popups-block" value="block"${popup === 'block' ? ' checked' : ''}><span>Block other popups</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-popups" id="browser-popups-oauth" value="oauth"${popup === 'oauth' ? ' checked' : ''}><span>Allow OAuth-style popups</span></label>
   </section>
   <section class="bs-section" aria-labelledby="browser-media-heading">
     <h3 class="field-label" id="browser-media-heading">Camera &amp; microphone</h3>
-    <p class="bs-note">Denied until you allow a site. Remembered per origin.</p>
-    ${sites.length ? sites.map((row) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(row.origin)}</strong><small>${esc(row.permission)}${row.value === 'asked' ? ' · asked' : ''}</small></div><label class="bs-toggle"><input type="checkbox" data-browser-permission="${esc(row.origin)}" data-permission="${esc(row.permission)}" data-profile="${esc(row.profileId)}"${row.value === 'allow' ? ' checked' : ''}><span>Allow</span></label></div>`).join('') : '<p class="bs-note">No sites have asked yet.</p>'}
+    ${sites.length ? sites.map((row) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(row.origin)}</strong><small>${esc(row.permission)}</small></div><label class="bs-toggle"><input type="checkbox" data-browser-permission="${esc(row.origin)}" data-permission="${esc(row.permission)}" data-profile="${esc(row.profileId)}"${row.value === 'allow' ? ' checked' : ''}><span>Allow</span></label></div>`).join('') : '<p class="bs-note">No sites have asked yet.</p>'}
   </section>
   <section class="bs-section" aria-labelledby="browser-profile-heading"><h3 class="field-label" id="browser-profile-heading">Profiles</h3>
     ${profiles.length ? profiles.map((p) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(p.name || p.id)}</strong><small>${p.viewCount ? `${p.viewCount} ${p.viewCount === 1 ? 'tab' : 'tabs'}` : 'Browser profile'}</small></div></div>`).join('') : `<p class="bs-note">${status.profileLoadError ? 'Could not load profiles.' : 'Sign into websites in a tab.'}</p>`}
-    <p class="bs-note">${esc(cookieNote)}</p>
     <div class="bs-actions">${actions.onProfiles ? '<button class="btn btn--small" data-browser-settings="profiles">Manage profiles…</button>' : ''}${actions.onImportCookies ? '<button class="btn btn--small" data-browser-settings="cookies">Import from Chrome…</button>' : ''}${actions.onClear ? '<button class="btn btn--small" data-browser-settings="clear">Clear browsing data…</button>' : ''}</div>
-  </section>
-  <details class="bs-details" id="browser-agent-details">
-    <summary>Agent access</summary>
-    <section class="bs-section" aria-labelledby="browser-agent-heading">
-      <h3 class="field-label" id="browser-agent-heading">Agent browser access</h3>
-      <label class="bs-toggle"><input type="checkbox" id="browser-enabled"${status.enabled ? ' checked' : ''}><span>Enable local browser connection<small>Access must be granted separately for each session.</small></span></label>
-      ${sessions.map((s) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(s.title)}</strong><small>${s.views?.length ? `${s.views.length} permitted ${s.views.length === 1 ? 'tab' : 'tabs'} · Access configured` : 'No browser access'}</small></div><button class="btn btn--small" data-browser-session="${esc(s.id)}">Configure…</button></div>`).join('') || '<p class="bs-note">Open an agent session to configure access.</p>'}
-      <p class="bs-note">Configuring access does not confirm that a client is connected.</p>
-    </section>
-  </details>`;
+  </section>`;
 }
 
 export async function wireBrowserSettings(modal, options) {
-  const { api, onAccess, onError = () => {} } = options;
+  const { api, onError = () => {} } = options;
   const host = modal.querySelector('#browser-settings-body');
   if (!host) return;
   const token = {}; host._browserSettingsRequest = token;
@@ -77,17 +62,6 @@ export async function wireBrowserSettings(modal, options) {
       const result = await api.browserProfiles({ action: 'configure', profileId, ...patch });
       if (result?.error) throw new Error(result.error);
     };
-    const toggle = host.querySelector('#browser-enabled');
-    toggle.onchange = async () => {
-      const requested = toggle.checked; toggle.disabled = true;
-      try {
-        const result = await api.browserEnable(requested);
-        if (result?.error) throw new Error(result.error);
-        if (current()) await wireBrowserSettings(modal, options);
-      } catch (error) {
-        if (current()) { toggle.checked = !requested; toggle.disabled = false; onError(error.message || 'Could not change browser access.'); }
-      }
-    };
     host.querySelectorAll('[name="browser-download"]').forEach((input) => { input.onchange = async () => { try { await configure({ downloadMode: input.value }); } catch (error) { onError(error.message || 'Could not change downloads.'); } }; });
     host.querySelectorAll('[name="browser-popups"]').forEach((input) => { input.onchange = async () => { try { await configure({ popupMode: input.value }); } catch (error) { onError(error.message || 'Could not change popups.'); } }; });
     host.querySelectorAll('[data-browser-permission]').forEach((input) => {
@@ -96,7 +70,6 @@ export async function wireBrowserSettings(modal, options) {
         catch (error) { input.checked = !input.checked; onError(error.message || 'Could not change site permission.'); }
       };
     });
-    host.querySelectorAll('[data-browser-session]').forEach((button) => { button.onclick = () => onAccess(button.dataset.browserSession); });
     for (const [key, callback] of [['profiles', options.onProfiles], ['import', options.onImport], ['cookies', options.onImportCookies], ['clear', options.onClear]]) {
       const button = host.querySelector(`[data-browser-settings="${key}"]`);
       if (button) button.onclick = async () => { try { await callback(); } catch (error) { onError(error.message || 'Could not open browser settings.'); } };

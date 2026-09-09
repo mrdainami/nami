@@ -38,13 +38,11 @@ test('HTTP MCP stays configured when advertised and is not marked unsupported', 
   assert.equal(f.client.capabilities.mcpHttp, true);
 });
 
-test('chat still prepends linked snapshots when HTTP MCP is unsupported', async () => {
+test('chat send does not attach a shared-browser snapshot', () => {
   const pane = fs.readFileSync(new URL('../src/renderer/acp-pane.mjs', import.meta.url), 'utf8');
-  assert.match(pane, /hooks\.context \? await hooks\.context\(p\)/);
-  assert.match(pane, /mcpUnsupported/);
-  assert.match(pane, /still attach as snapshots/);
   const send = pane.slice(pane.indexOf('async function sendPrompt'), pane.indexOf('const composer = createComposer'));
-  assert.doesNotMatch(send, /mcpHttp|mcpUnsupported/, 'send must not skip snapshots just because tools are unsupported');
+  assert.doesNotMatch(send, /Linked session context/);
+  assert.doesNotMatch(pane, /Shared browser pages still attach/);
 });
 
 test('image-capable ACP agents receive real image content, not a path pretending to be an image', async () => {

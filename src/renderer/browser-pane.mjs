@@ -3,7 +3,7 @@ import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs
 import { createBrowserOverlays } from './browser-overlays.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
-  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, shareTab, panelIcon }) {
+  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, panelIcon }) {
   let frame = 0, signature = '';
   const annotations = createBrowserAnnotations({ api, esc, icon:helpIcon, selection, toast, dictation, focus, insertAnnotation, sessions, onChange:schedule, confirmDiscard:count=>api.browserConfirmDiscard(count) });
   const overlays = createBrowserOverlays({ api });
@@ -61,7 +61,6 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     rec.companionTabs.innerHTML = siblings.map(x=>`<span class="companion-tab-item${x.id===p.id?' selected':''}"><button class="companion-tab" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id===p.id}">${panelIcon?.(x)||''}<span>${esc(x.title)}</span></button><button class="companion-close" data-close-id="${esc(x.id)}" aria-label="Close ${esc(x.title)}" title="Close tab">×</button></span>`).join('')+'<button class="companion-add" title="New browser tab" aria-label="New browser tab">＋</button>';
     rec.companionTabs.querySelectorAll('[data-view-id]').forEach(b=>{
       b.onclick=()=>focus(b.dataset.viewId);
-      b.oncontextmenu=e=>{e.preventDefault();const tab=siblings.find(x=>x.id===b.dataset.viewId);if(tab.kind==='browser')shareTab?.(tab,e.clientX,e.clientY);};
     });
     rec.companionTabs.querySelectorAll('[data-close-id]').forEach(b=>b.onclick=e=>{e.stopPropagation();closePanel(b.dataset.closeId);});
     q('.companion-add',rec.companionTabs).onclick=()=>newBrowser(owner);
@@ -97,39 +96,6 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   function renderNote() { const o=state.overlay, p=state.panels.find(p=>p.id===o.panelId); close(); if(p) annotations.edit(p,o.selection); }
   function reviewNotes(p) { annotations.review(p); }
   function clearNotes(p) { annotations.clear(p); }
-  async function renderAccess() {
-    const o = state.overlay;
-    const modal = dialog('modal modal--browser', '<div class="modal-head"><span class="title">Browser access</span></div><div class="modal-body" id="browser-access-body">Loading…</div><div class="modal-foot"><button class="btn" id="browser-access-cancel">Cancel</button><button class="btn" id="browser-access-revoke">Revoke access</button><button class="btn btn--go" id="browser-access-save" disabled>Save access</button></div>');
-    q('#browser-access-cancel', modal).onclick = close;
-    const r = await api.browserStatus(); if (state.overlay !== o) return;
-    if (!check(r)) return;
-    const owner = r.sessions.find((s) => s.id === o.sessionId) || r.sessions[0];
-    if (!owner) { q('#browser-access-body', modal).textContent = 'Open an agent session first.'; return; }
-    o.sessionId = owner.id;
-    q('#browser-access-body', modal).innerHTML = `<label class="field-label">Session<select id="browser-access-session">${r.sessions.map((s) => `<option value="${esc(s.id)}"${s.id === owner.id ? ' selected' : ''}>${esc(s.title)}</option>`).join('')}</select></label><div class="field-label">Browser views</div>${r.views.map((v) => `<label class="browser-check"><input type="checkbox" data-grant-view="${esc(v.id)}"${owner.views.includes(v.id) ? ' checked' : ''}><span>${esc(v.title || v.url)}<small>${esc(v.url)}</small></span></label>`).join('')}<label class="browser-check"><input type="checkbox" id="browser-control"${owner.views.length ? ' checked' : ''}${r.enabled ? '' : ' disabled'}><span>Allow browser control on selected views</span></label><button class="shortcuts-link" id="browser-access-settings">${r.enabled ? 'Browser setup' : 'Enable in Settings → Browser'}</button><details class="browser-peers"><summary>Allow messages to other sessions</summary>${r.sessions.filter((s) => s.id !== owner.id).map((s) => `<label class="browser-check"><input type="checkbox" data-grant-peer="${esc(s.id)}"${owner.peers.includes(s.id) ? ' checked' : ''}>${esc(s.title)}</label>`).join('')}</details>`;
-    q('#browser-access-session', modal).onchange = (e) => show({ type: 'browser-access', sessionId: e.target.value });
-    q('#browser-access-settings', modal).onclick = () => settings('browser');
-    q('#browser-access-revoke', modal).onclick = async () => { const result = await api.browserGrant({id:owner.id,viewIds:[],peers:[]}); if (check(result)) { close(); toast('Browser access revoked.'); } };
-    const apply = q('#browser-access-save', modal); apply.disabled = !r.enabled;
-    apply.onclick = async () => {
-      const ids = [...modal.querySelectorAll('[data-grant-view]:checked')].map((b) => b.dataset.grantView);
-      const peers = [...modal.querySelectorAll('[data-grant-peer]:checked')].map((b) => b.dataset.grantPeer);
-      const granted = await api.browserGrant({ id: owner.id, viewIds: q('#browser-control', modal).checked ? ids : [], peers, expectedIdentities:Object.fromEntries(r.views.map(v=>[v.id,v.identity])) });
-      if (!check(granted)) return;
-      if (!granted.url) { close(); toast('Browser access revoked.'); return; }
-      show({ type: 'browser-connection', url: granted.url, sessionId: owner.id, views: ids });
-    };
-  }
-  function renderConnection() {
-    const o = state.overlay, text = JSON.stringify({ mcpServers: { 'nami-browser': { type: 'http', url: o.url } } }, null, 2);
-    const modal = dialog('modal modal--browser', `<div class="modal-head"><span class="title">Access configured</span></div><div class="modal-body selection-sheet"><p>Connect your MCP client to use this permission. Configuring access does not connect the client automatically.</p><details><summary>Connection details</summary><p>Use this connection for this agent session. Anyone given its URL can use the selected views and peers.</p><label class="field-label">MCP URL<input readonly id="browser-mcp-url" value="${esc(o.url)}"></label><pre class="selection-preview">${esc(text)}</pre><p class="note">The commands below launch Claude or Codex with this connection for that run. For other HTTP MCP clients, use their per-session configuration. This connection lasts for this Nami session. Adding or removing shared tabs updates access without changing the connection. A client that was started without Nami Browser still needs setup.</p><div class="browser-client-commands"><button class="btn" id="browser-copy-claude">Copy Claude command</button><button class="btn" id="browser-copy-codex">Copy Codex command</button><button class="btn" id="browser-copy-json">Copy JSON</button></div></details></div><div class="modal-foot"><button class="btn" id="browser-copy-url">Copy URL</button><button class="btn btn--go" id="browser-connection-done">Done</button></div>`);
-    const copy = (value) => api.copyText(value).then(() => toast('Copied.'));
-    q('#browser-copy-url', modal).onclick = () => copy(o.url);
-    q('#browser-copy-json', modal).onclick = () => copy(text);
-    q('#browser-copy-claude', modal).onclick = () => copy("claude --mcp-config '" + JSON.stringify({ mcpServers: { 'nami-browser': { type: 'http', url: o.url } } }) + "'");
-    q('#browser-copy-codex', modal).onclick = () => copy("codex -c 'mcp_servers.nami_browser.url=\"" + o.url + "\"'");
-    q('#browser-connection-done', modal).onclick = close;
-  }
   let menu = null;
   function closeMenu() { menu?.remove(); menu = null; schedule(); }
   function openMenu(p, anchor) {
@@ -141,7 +107,6 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       ['Zoom out', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=Math.max(0.5,(p.pageZoom||1)-0.1)}).then(check)],
       ['Reset zoom', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=1}).then(check)],
       ['Take screenshot…', () => api.browserAction({id:p.id,action:'capture'}).then(check)],
-      ['Browser access…', () => show({type:'browser-access',sessionId:p.owner || state.split.sessionId})],
       ['Import from Chrome…', () => show({type:'browser-import',panelId:p.id})],
       ['Manage profiles…', () => show({type:'browser-profiles',panelId:p.id})],
       ['Clear browsing data…', () => show({type:'browser-profiles',panelId:p.id,section:'clear'})],
@@ -174,18 +139,18 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Nami profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p class="note">Tabs using the same profile share sign-ins. Agent access ends when you change or clear their profile.</p><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New profile</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove profile…</button></div><details${o.section==='cookies'?' open':''}><summary>Import cookies from Chrome or Edge</summary><p class="note">One-time copy into this Nami profile. Google cookies are skipped. Chrome stays unchanged. This is not Chrome Sync.</p><p class="note">${esc(r.capabilities?.cookieImport?.available ? (r.capabilities.cookieImport.browsers || []).map(s=>s.browser+' · '+s.name).join(', ') : 'No Chrome or Edge profile was found on this Mac.')}</p><button class="btn btn--small" id="profile-import-cookies">Import cookies…</button></details><details${o.section==='import'?' open':''}><summary>Import saved passwords</summary><p class="note">Copy saved passwords from a Chrome CSV. Chrome stays unchanged.</p><p class="note">If cookies cannot be copied, import a password CSV and sign in inside Nami.</p><button class="btn btn--small" id="profile-import">Choose password CSV…</button><p class="note">The original CSV remains where you exported it. Saved passwords are protected on this Mac. Filling a password in an agent-controlled page makes it available to that page and its automation.</p></details><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear selected data…</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions" style="margin-top:12px"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host);
     const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
     const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
     q('#profile-choice',host).onchange=e=>show({...o,profileId:e.target.value});
     const nameForm=(action)=>{result.innerHTML=`<label class="field-label">Profile name<input id="profile-name" value="${action==='rename'?esc(chosen.name):''}"></label><button class="btn btn--small" id="profile-name-save">Save</button>`;q('#profile-name-save',result).onclick=async()=>{const out=await run({action,name:q('#profile-name',result).value});if(out)show({...o});};q('input',result).focus();};
     q('#profile-new',host).onclick=()=>nameForm('create');q('#profile-rename',host).onclick=()=>nameForm('rename');
-    if(view)q('#profile-switch',host).onclick=()=>ask('Switch this tab to '+chosen.name+' and revoke its agent access?',async()=>{if(await run({action:'switch',id:view.id})){close();toast('Profile changed. Reconfigure browser access when ready.');}});
-    q('#profile-remove',host).onclick=()=>ask('Close this profile’s tabs, discard their pending notes, and permanently remove its Nami sign-ins and passwords? Chrome stays unchanged.',async()=>{if(await run({action:'remove',confirmed:true}))show({...o});});
+    if(view)q('#profile-switch',host).onclick=()=>ask('Use '+chosen.name+' for this tab?',async()=>{if(await run({action:'switch',id:view.id})){close();toast('Profile changed.');}});
+    q('#profile-remove',host).onclick=()=>ask('Remove '+chosen.name+' and close its tabs?',async()=>{if(await run({action:'remove',confirmed:true}))show({...o});});
     q('#profile-import-cookies',host).onclick=()=>show({type:'browser-import',profileId:chosen.id,panelId:o.panelId});
-    q('#profile-import',host).onclick=()=>ask('Import a password CSV into '+chosen.name+'? Existing agent access to this profile will be revoked.',async()=>{const out=await run({action:'import-passwords'});if(out)result.textContent=out.canceled?'Import cancelled.':out.message||('Imported '+(out.imported??0)+' passwords'+(out.skipped?', skipped '+out.skipped+' invalid rows':'')+'.');});
-    q('#profile-clear',host).onclick=()=>{const siteData=q('#clear-signins',host).checked,credentials=q('#clear-passwords',host).checked;if(!siteData&&!credentials){result.textContent='Choose data to clear.';return;}ask('Clear selected data from '+chosen.name+'? Clearing sign-ins closes all its Nami tabs and discards their pending notes. Chrome stays unchanged.',async()=>{if(await run({action:'clear',siteData,credentials,confirmed:true})){result.textContent='Selected Nami data cleared. Agent access revoked.';}});};
+    q('#profile-import',host).onclick=()=>ask('Import a password CSV into '+chosen.name+'?',async()=>{const out=await run({action:'import-passwords'});if(out)result.textContent=out.canceled?'Cancelled.':out.message||('Imported '+(out.imported??0)+' passwords.');});
+    q('#profile-clear',host).onclick=()=>{const siteData=q('#clear-signins',host).checked,credentials=q('#clear-passwords',host).checked;if(!siteData&&!credentials){result.textContent='Choose data to clear.';return;}ask('Clear selected data from '+chosen.name+'?',async()=>{if(await run({action:'clear',siteData,credentials,confirmed:true})){result.textContent='Cleared.';}});};
     const canFill=!!view && chosen.id===view.profileId;
     q('#profile-import',host).disabled=!r.capabilities?.passwordCsv; if(!r.capabilities?.passwordCsv) q('#profile-import',host).title='Unlock macOS Keychain to import saved passwords.';
     let currentOrigin=''; try{currentOrigin=new URL(view?.url).origin;}catch{}
@@ -205,9 +170,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const host=q('.browser-profile-body',modal);
     const dest=r.profiles.find(p=>p.id===(o.profileId))||r.profiles[0];
     if(!dest){host.textContent='Create a Nami profile first.';return;}
-    host.innerHTML=`<p class="note">Choose data to bring over to Nami’s browser.</p>
-      <label class="field-label">From<select id="import-source">${sources.map((s,i)=>`<option value="${i}">${esc(s.browser)} · ${esc(s.name)}</option>`).join('')||'<option value="">No Chrome or Edge profile found</option>'}</select></label>
-      <p class="note">Quit Chrome completely before importing.</p>
+    host.innerHTML=`<label class="field-label">From<select id="import-source">${sources.map((s,i)=>`<option value="${i}">${esc(s.browser)} · ${esc(s.name)}</option>`).join('')||'<option value="">No Chrome profile found</option>'}</select></label>
+      <p class="note">Quit Chrome first.</p>
       <label class="browser-check"><input type="checkbox" id="import-passwords" checked><span>Saved passwords</span></label>
       <label class="browser-check"><input type="checkbox" id="import-cookies" checked><span>Cookies</span></label>
       <label class="browser-check"><input type="checkbox" id="import-history" checked><span>Browsing history</span></label>
@@ -223,13 +187,13 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     };
   }
   function settingsHtml() { return browserSettingsHtml(); }
-  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onAccess:sessionId=>show({type:'browser-access',sessionId}), onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
+  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
   api.onBrowserEvent((event) => {
     let p = state.panels.find((p) => p.id === event.id), rec = tiles.get(event.id);
     if (event.type === 'created') { if (!p) open(event.url, null, event.owner, event.id, false, event.profileId); return; }
     if (event.type === 'closed') { if (p) { annotations.store.stale(p.id); closePanel(p.id, {browserConfirmed:true}); } return; }
-    if (event.type === 'message') { const target = state.panels.find((p) => p.id === event.sessionId); if (target) { target.browserMessages ||= []; target.browserMessages.push(event.message); target.browserMessages = target.browserMessages.slice(-100); toast('Message for ' + target.title + '. Right-click its header to review.'); } return; }
-    if(event.type==='access-revoked'){toast(event.reason || 'Browser access revoked.');return;}
+    if (event.type === 'message') return;
+    if(event.type==='access-revoked') return;
     if (!p || !rec) return;
     annotations.handleEvent(event);
     if(event.type==='profile-changed'){signature='';schedule();}
@@ -245,5 +209,5 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if (!p.browserMessages?.length) { toast('No messages for this session.'); return; }
     selection({ owner: p.id }, { reference: 'Messages for ' + p.title, text: p.browserMessages.map((m) => 'From ' + m.title + '\n' + m.text).join('\n\n') });
   }
-  return { open, mount, restore, decorate, schedule, clearNotes, newBrowser, renderNew, renderNote, renderAccess, renderConnection, settingsHtml, wireSettings, renderProfiles, renderImport, inbox, hasPending:p=>annotations.hasPending(p), canClose:p=>annotations.canClose(p), removeNotes:id=>annotations.removeTab(id) };
+  return { open, mount, restore, decorate, schedule, clearNotes, newBrowser, renderNew, renderNote, settingsHtml, wireSettings, renderProfiles, renderImport, inbox, hasPending:p=>annotations.hasPending(p), canClose:p=>annotations.canClose(p), removeNotes:id=>annotations.removeTab(id) };
 }

@@ -45,7 +45,6 @@ const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./u
 const { parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { browserFileUrl } = require('./browser-file');
 const { wireBrowserViews } = require('./browser-views');
-const { browserLaunchArgs } = require('./browser-launch');
 const stt = require('./stt');
 
 // nami-doc:// — how a viewed HTML page and its neighbouring images are served.
@@ -577,10 +576,7 @@ ipcMain.handle('usage:read', async (e) => {
     const envPath = await Promise.race([userPath(), new Promise((resolve) => { timer = setTimeout(() => resolve(process.env.PATH || ''), 2000); })]);
     clearTimeout(timer);
     const agents = await detectAgents({ exec: (bin) => knownBin(bin) || findOnDisk(bin, { env: { ...process.env, PATH: envPath } }) });
-    const result = await require('./usage').readUsage({ agents, directory: path.join(app.getPath('userData'), 'usage'), envPath });
-    const script = path.join(__dirname, 'usage-statusline.js');
-    const command = 'ELECTRON_RUN_AS_NODE=1 ' + shellQuote(process.execPath) + ' ' + shellQuote(script) + ' ' + shellQuote(path.join(app.getPath('userData'), 'usage'));
-    return { ...result, claudeCommand: command, feedDirectory: path.join(app.getPath('userData'), 'usage') };
+    return require('./usage').readUsage({ agents, directory: path.join(app.getPath('userData'), 'usage'), envPath });
   })().finally(() => { usagePending = null; });
   return usagePending;
 });
@@ -1352,11 +1348,6 @@ function sessionEnv(path) {
 ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, acpSid, name, watchDone }) => {
   const wc = e.sender;
   browserViews.registerSession({id,windowId:wc.id,title:name||command||kind||'Session'});
-  let browserConnection = null;
-  if (kind === 'claude' || (kind === 'run' && agentForCommand(command) === 'codex')) {
-    try { browserConnection = await browserViews.connectionFor(id); }
-    catch { sendWc(wc,'browser:event',{type:'connection-error',sessionId:id,error:'Nami Browser setup failed. The agent can still start.'}); }
-  }
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   // Primed at startup, so by the time anyone opens a tile this is already
   // settled; the await only ever bites on a session created within the first
@@ -1383,7 +1374,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (transcript) claudeWatch = { transcript, sid, cwd };
     // Extra args ride along — the agents picker launches claude as the agent
     // with `--agent <slug>` (probe-backed; see agent-launch.mjs).
-    const extraArgs = [...(Array.isArray(args) ? args : []), ...browserLaunchArgs('claude',browserConnection)];
+    const extraArgs = Array.isArray(args) ? args : [];
     if (claudeExe) { file = claudeExe; spawnArgs = [...claudeArgs, ...extraArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
@@ -1426,7 +1417,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
         if (resume) { typed = resolveRunCommand(withSpawnFlags(resume)); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
-    if (!watchDone && agent === 'codex') typed += ' ' + browserLaunchArgs('codex',browserConnection).map(shellQuote).join(' ');
+
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     else afterStart = typed;
   } else {
