@@ -1635,6 +1635,14 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
    yellow and white on it comes out around 2.6:1. */
 .disk-bar .btn { flex: none; font-size: 10.5px; padding: 4px 9px; color: var(--amber-ink); border-color: var(--amber-btn-line); }
 .disk-bar .dk-reload { font-weight: 700; }
+/* `hidden` is the weakest thing in the cascade: the UA stylesheet's
+   `[hidden] { display: none }` loses to any author `display:` rule, so the
+   flex above kept the bar on screen for the whole life of the tile and
+   `hidden = true` did nothing at all. Reload and Keep mine both ran; neither
+   could make the bar go away, which read as frozen. Every other component here
+   that toggles this way carries the same companion rule — .companion-tabs,
+   .browser-error, .image-strip, .selection-actions. */
+.disk-bar[hidden] { display: none; }
 
 /* ---- rendered markdown (editor Read tab) ---- */
 /* The document fills the tile — the tile's own size is the reading measure,
@@ -2208,6 +2216,12 @@ body[data-platform="win32"] .topbar { padding-right: 150px; }
 @keyframes cw-blink { 50% { opacity: 0; } }
 .cw-comp { border-top: 1px dashed var(--dash); padding: 9px 12px; position: relative; }
 .cw-att { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 7px; }
+/* Same trap as .disk-bar: the row is born hidden and emptied back to hidden,
+   but `display: flex` outranks the UA's [hidden] rule, so it never collapsed
+   and left its padding under every composer whether or not anything was
+   attached. tests/theme-doc-parity.test.mjs now asks this of every component
+   that is authored hidden. */
+.cw-att[hidden] { display: none; }
 .cw-att .chip { font-size: 11px; color: var(--mode-plan); background: var(--paper-2); border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; cursor: pointer; }
 .cw-inrow { display: flex; gap: 8px; align-items: center; }
 .cw-in { flex: 1; font-family: inherit; font-size: 12.5px; color: var(--ink); background: var(--field); border: 1px solid var(--dash-dark); border-radius: 9px; padding: 8px 11px; outline: none; }

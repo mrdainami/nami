@@ -91,3 +91,42 @@ test('the disk bar wraps rather than overflowing at split-view width', () => {
   assert.ok(bar, '.disk-bar has a rule in paper.css');
   assert.match(bar.body, /flex-wrap:\s*wrap/, 'flex-wrap: wrap is not optional here');
 });
+
+// `hidden` is the weakest rule in the cascade. The UA stylesheet's
+// `[hidden] { display: none }` loses to any author `display:` on the same
+// element, so a component authored hidden and styled `display: flex` simply
+// never hides. Not a theory: the changed-on-disk bar shipped that way and sat
+// on screen for the whole life of a tile, with two buttons that ran and looked
+// like they did nothing.
+//
+// The at-risk set is written down in the markup itself — an element that is
+// born `hidden` is one the renderer means to toggle — so it is read from there
+// rather than kept as a list somebody has to remember to update.
+test('a component authored hidden is given a rule that can hide it', () => {
+  const RENDERER = path.join(ROOT, 'src/renderer');
+  const born = new Set();
+  for (const file of fs.readdirSync(RENDERER).filter((f) => /\.(js|mjs)$/.test(f))) {
+    const src = fs.readFileSync(path.join(RENDERER, file), 'utf8');
+    for (const m of src.matchAll(/class="([^"]+)"[^<>]*?\shidden[\s>]/g)) {
+      for (const name of m[1].split(/\s+/)) if (name) born.add(name);
+    }
+  }
+  assert.ok(born.size, 'no hidden-at-birth components found — has the markup moved?');
+
+  const missing = [];
+  for (const file of fs.readdirSync(RENDERER).filter((f) => f.endsWith('.css'))) {
+    const parsed = rules(fs.readFileSync(path.join(RENDERER, file), 'utf8'));
+    const shown = new Set(), hides = new Set();
+    for (const r of parsed) {
+      for (const sel of r.selector.split(',')) {
+        const one = sel.trim();
+        const bare = one.match(/^\.([\w-]+)$/);
+        if (bare && /(^|;|\s)display:\s*(flex|grid|block|inline-flex|inline-block)/.test(r.body)) shown.add(bare[1]);
+        const off = one.match(/\.([\w-]+)\[hidden\]/);
+        if (off) hides.add(off[1]);
+      }
+    }
+    for (const name of shown) if (born.has(name) && !hides.has(name)) missing.push(file + ' \u2192 .' + name);
+  }
+  assert.deepEqual(missing, [], 'styled with display: but nothing makes hidden win: ' + missing.join(', '));
+});
