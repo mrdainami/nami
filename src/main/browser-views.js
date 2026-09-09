@@ -83,7 +83,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
     wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
-    wc.on('context-menu', (_event, params) => { if (params.selectionText) send(e, 'selection', { selection: cleanSelection({ text: params.selectionText, label: 'Selected text' }, e.filePath || wc.getURL()) }); });
+    wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
     await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
     return e;
   }
@@ -307,7 +307,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     return service.connection(id);
   }
   guarded('browser:connection', async (w, { id }) => { access.get(id, w.webContents.id); const connection = await connectionFor(id); return connection || { enabled: false }; });
-  guarded('browser:grant', async (w, { id, viewIds = [], peers = [], sourceIds, expectedIdentities }) => {
+  guarded('browser:grant', async (w, { id, viewIds = [], peers = [], sourceIds, expectedIdentities, expectedSourceIdentities }) => {
     if (!readSettings().browserEnabled) throw new Error('Enable the browser connection in Settings first.');
     access.get(id, w.webContents.id);
     if (![viewIds, peers, sourceIds || []].every(ids => Array.isArray(ids) && ids.length <= 100)) throw new Error('Too many shared sources.');
@@ -318,11 +318,23 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     }
     for (const peer of peers) access.get(peer, w.webContents.id);
     const service = await ensureGateway();
-    // Validate source grants before mutating the working connection.
-    if (sourceIds) for (const sourceId of sourceIds) { const source = contexts.sources.get(sourceId); if (!source || source.windowId !== w.webContents.id || sourceId === id) throw new Error('Session context is unavailable.'); }
+    // A source may resume another conversation while the browser engine drains.
+    // Pin the identity selected by the user and recheck before any grant edit.
+    const selectedSources = new Map(), existingSources = new Map(contexts.list(id).map(source => [source.id, source.identity]));
+    if (sourceIds) for (const sourceId of sourceIds) {
+      const source = contexts.sources.get(sourceId);
+      if (!source || source.windowId !== w.webContents.id || sourceId === id) throw new Error('Session context is unavailable.');
+      const identity = expectedSourceIdentities?.[sourceId] || existingSources.get(sourceId);
+      if (!identity || identity !== source.identity) throw new Error('The source conversation changed. Review session context before sharing it.');
+      selectedSources.set(sourceId, identity);
+    }
     await service.refresh(id, () => {
-      access.grant(id, w.webContents.id, viewIds); access.get(id).peers = peers.filter(p => p !== id);
+      for (const [sourceId, identity] of selectedSources) {
+        const source = contexts.sources.get(sourceId);
+        if (!source || source.windowId !== w.webContents.id || source.identity !== identity) throw new Error('The source conversation changed. Review session context before sharing it.');
+      }
       if (sourceIds) contexts.grant(id, w.webContents.id, sourceIds);
+      access.grant(id, w.webContents.id, viewIds); access.get(id).peers = peers.filter(p => p !== id);
     });
     return service.connection(id);
   });

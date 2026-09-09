@@ -148,6 +148,30 @@ app.whenReady().then(async () => {
     assert.ok(events.some(e => e.id === 'local-a' && e.type === 'profile-changed'));
     assert.equal(b.session.storagePath, null);
     console.log('PASS: local external links stay isolated; address navigation joins persistent profile, revokes prior identity and preserves pending note panel.');
+    // A resume can publish a new context identity while a browser operation is
+    // draining. The pending grant must not silently approve the new source.
+    await invoke('browser:sync', { sessions: [{ id: 's1' }, { id: 'source' }] });
+    const publish = identity => invoke('browser:context', { action: 'update', id: 'source', identity, kind: 'chat', content: 'Context for ' + identity });
+    await publish('conversation-A');
+    const contextConnection = await invoke('browser:grant', { id: 's1', viewIds: ['web-peer'] });
+    await assert.rejects(invoke('browser:grant', { id: 's1', viewIds: ['web-peer'], sourceIds: ['source'] }), /source conversation changed/);
+    const running = rpc(contextConnection.url, 'tools/call', { name: 'browser_evaluate', arguments: { function: 'async () => { window.contextDrainStarted = true; await new Promise(resolve => setTimeout(resolve, 350)); return "old result"; }' } });
+    for (let n = 0; n < 100 && !await peer.executeJavaScript('!!window.contextDrainStarted'); n++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(await peer.executeJavaScript('!!window.contextDrainStarted'), true);
+    const sharing = invoke('browser:grant', { id: 's1', viewIds: ['local-a'], sourceIds: ['source'], expectedSourceIdentities: { source: 'conversation-A' } });
+    const denied = assert.rejects(sharing, /source conversation changed/);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await publish('conversation-B');
+    await denied; await running;
+    assert.deepEqual([...browser.access.get('s1').views], ['web-peer'], 'failed context approval cannot broaden browser grants');
+    assert.deepEqual(browser.contexts.list('s1'), []);
+    await invoke('browser:grant', { id: 's1', viewIds: ['web-peer'], sourceIds: ['source'], expectedSourceIdentities: { source: 'conversation-B' } });
+    // Existing grants do not require re-approval merely to edit browser tabs.
+    await invoke('browser:grant', { id: 's1', viewIds: [], sourceIds: ['source'] });
+    assert.equal(browser.contexts.read('s1', 'source').content, 'Context for conversation-B');
+    assert.equal((await invoke('browser:connection', { id: 's1' })).url, contextConnection.url);
+    console.log('PASS: source identity change during engine drain rejects atomically, new sources require selected identity, existing source grants survive tab edits.');
+
 
   } catch (error) { console.error(error); process.exitCode = 1; }
   finally { await browser?.close(); win?.destroy(); server?.close(); fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0); }
