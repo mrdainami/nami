@@ -30,6 +30,7 @@ import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-w
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 import { isOutsideProject } from './path-guard.mjs';
+import { decideReload, hashText, changeRange, shiftOffset } from './file-sync.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
 import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, focusSplit, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
@@ -952,12 +953,16 @@ function buildShell() {
   window.addEventListener('resize', () => { syncDeskColumns(); positionThemePop(); });
 
   // A folder changed on disk — usually because a session just wrote to it.
-  if (api.onDirChanged) api.onDirChanged(({ dir }) => onDirChanged(dir));
+  if (api.onDirChanged) api.onDirChanged(({ dir, files }) => onDirChanged(dir, files));
   // Safety net for what the watchers cannot catch: network volumes, FSEvents
   // gaps. Costs one pass at the exact moment you have come back to look at it.
   window.addEventListener('focus', () => {
     if (!S.project || S.treeEdit) return;
-    for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir);
+    for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir, []);
+    // Once, not once per folder: the open files are one list, and re-reading
+    // each of them for every expanded folder would turn a window focus into
+    // dozens of reads of the same file.
+    void followFileChanges(null);
   });
 
   // OS file drops: never let Electron navigate away on a stray drop.
@@ -1589,7 +1594,11 @@ function watchProject() {
 //
 // Anything deeper than that changes no number anybody can see, and returns
 // without a readdir.
-async function onDirChanged(dir) {
+async function onDirChanged(dir, files) {
+  // Two jobs now. The tree's is below; this one is the files themselves, and it
+  // runs first because it does not care whether the folder is open in the
+  // sidebar — a tile follows its file wherever that file lives.
+  void followFileChanges(files);
   if (!S.project || !dir) return;
   if (S.treeEdit && dirName(S.treeEdit.path) === dir) return;  // mid-rename; the commit re-lists
   const parent = dir === S.project.path ? null : dirName(dir);
@@ -1610,6 +1619,59 @@ async function relistDir(dir) {
   const fresh = rows.map((n) => n.path).filter((p) => !before.has(p));
   if (fresh.length) markFresh(fresh);
   return true;
+}
+// A file open on the desk follows the file on disk.
+//
+// The watcher names what moved; every open tile holding one of those paths
+// re-reads it and asks decideReload what to do — merge it, ask about it, or
+// leave it alone (src/renderer/file-sync.mjs holds the rules and the reasons).
+// A null `files` means the platform would not say which file it was, so every
+// open file is re-checked: a missed reload is a tile quietly lying about a
+// document, and one extra read of a file you have open costs nothing you can
+// feel. An empty list names nothing and does nothing.
+//
+// One read per panel at a time. A build writing the same file forty times in a
+// burst would otherwise stack forty reads against one tile and apply them in
+// whatever order they came back.
+const followInFlight = new Set();
+async function followFileChanges(files) {
+  const named = files == null ? null : new Set(files);
+  const open = S.panels.filter((p) => p.filePath && (p.kind === 'editor' || p.kind === 'viewer'));
+  // The peek sheet is a panel that never joined S.panels — it is the most
+  // likely thing to be looking at while an agent writes, so it follows too.
+  const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (peek && peek.filePath && !open.includes(peek)) open.push(peek);
+  for (const p of open) {
+    if (named && !named.has(p.filePath)) continue;
+    if (followInFlight.has(p.id)) continue;
+    followInFlight.add(p.id);
+    try { await followOneFile(p); } finally { followInFlight.delete(p.id); }
+  }
+}
+// The tile that shows `p` — a pinned one, or the peek sheet, which mounts the
+// same editor into a rec of its own.
+function fileRecFor(p) {
+  const rec = tileEls.get(p.id);
+  if (rec) return rec;
+  return peekRec && S.overlay && S.overlay.type === 'peek' && S.overlay.panel === p ? peekRec : null;
+}
+async function followOneFile(p) {
+  const rec = fileRecFor(p);
+  if (!rec || !rec.reloadFromDisk) return;
+  // A viewer has no buffer and nothing unsaved: there is no decision to make,
+  // only a cache to bust.
+  if (p.kind === 'viewer') { rec.reloadFromDisk(); return; }
+  const res = await api.rawFile(p.filePath);
+  // Gone, binary, or too big to read. The tile keeps what it has rather than
+  // emptying out over a failed read — the same instinct as the zero-byte rule.
+  if (!res || !res.ok || typeof res.text !== 'string') return;
+  const d = decideReload({ text: p.text || '', dirty: !!p.dirty, lastHash: p.lastHash || null, diskText: res.text });
+  // 'refuse' is silent on purpose: nothing was lost and nothing needs deciding.
+  // Telling somebody their file briefly read as empty is noise about a write
+  // that has almost certainly already finished.
+  if (d.action === 'drop' || d.action === 'refuse') return;
+  if (d.action === 'merge') { rec.reloadFromDisk(d.text); return; }
+  if (d.action === 'ask' && rec.raiseDiskBar) rec.raiseDiskBar(d.diskText);
 }
 function treeMenu(n, parentDir) {
   const root = S.project.path;
@@ -3410,7 +3472,15 @@ function mountEditor(p, rec) {
   const tabs = rich
     ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button><button class="card-tab ed-tab" data-m="markdown">Markdown</button></div>`
     : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
-  wrap.innerHTML = `${tabs}
+  // The changed-on-disk bar sits above the tabs, between the tile's head and
+  // the document, because it is about the whole file rather than about the
+  // pane you happen to be looking at. It only ever appears over unsaved edits:
+  // a clean panel merges without a word.
+  wrap.innerHTML = `<div class="disk-bar" hidden>
+      <span class="dk-msg">Changed on disk</span>
+      <span class="dk-acts"><button class="btn dk-reload">Reload</button><button class="btn dk-keep">Keep mine</button></span>
+    </div>
+    ${tabs}
     <div class="ed-read md-read"></div>
     ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
@@ -3632,6 +3702,50 @@ function mountEditor(p, rec) {
     if (richEditor) richEditor.destroy();
     richEditor = null;
   };
+
+  // ---- following the file on disk -------------------------------------------
+  // A rewrite lands here rather than through a close-and-reopen, so the panel
+  // keeps its scroll, its undo stack, and — as far as one splice can promise —
+  // its caret. Only ever reached for a clean panel, or for one whose owner
+  // pressed Reload; a dirty panel raises the bar instead and is never
+  // overwritten without being asked.
+  const diskBar = q('.disk-bar', wrap);
+  const hideDiskBar = () => { p.diskText = null; if (diskBar) diskBar.hidden = true; };
+  rec.raiseDiskBar = (next) => {
+    p.diskText = next;
+    if (diskBar) diskBar.hidden = false;
+  };
+  if (p.diskText != null && diskBar) diskBar.hidden = false;   // survives a re-mount
+  rec.reloadFromDisk = (next) => {
+    if (disposed || typeof next !== 'string') return;
+    const range = changeRange(ta.value, next);
+    const focused = document.activeElement === ta;
+    const selStart = ta.selectionStart, selEnd = ta.selectionEnd;
+    const top = ta.scrollTop;
+    p.text = next;
+    p.lastHash = hashText(next);
+    ta.value = next;
+    // Offsets move with the splice, so text arriving further down the file
+    // leaves the caret exactly where it was sitting.
+    if (focused) { ta.selectionStart = shiftOffset(selStart, range); ta.selectionEnd = shiftOffset(selEnd, range); }
+    ta.scrollTop = top;
+    p.dirty = false;
+    hideDiskBar();
+    richStale = true;
+    renderFmStrip();
+    // The rich pane is replaced wholesale, which is right: a clean panel has
+    // nothing in it to preserve, and Milkdown owns its own document.
+    if (p.edMode === 'edit' && rich) void ensureRichEditor();
+    else applyMode();
+    sync();
+    refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+  };
+  if (diskBar) {
+    q('.dk-reload', wrap).onclick = () => { const next = p.diskText; hideDiskBar(); rec.reloadFromDisk(next); };
+    // Keep mine remembers the bytes it declined, so the next event about the
+    // same unchanged file is recognised and dropped rather than asking again.
+    q('.dk-keep', wrap).onclick = () => { if (p.diskText != null) p.lastHash = hashText(p.diskText); hideDiskBar(); };
+  }
   // A link in a rendered doc is a link: plain click, no modifier. The terminal
   // needs Cmd because a click there belongs to whatever is running; a document
   // has no competing meaning for it.
@@ -3757,6 +3871,11 @@ function mountEditor(p, rec) {
 async function saveEditor(p) {
   const res = await api.saveFile({ file: p.filePath, text: p.text });
   if (res && res.ok) {
+    // The echo guard. Our own write is about to come back off the watcher, and
+    // without this the panel treats it as somebody else's change — which on a
+    // buffer typed into since the save would raise a bar over our own save.
+    p.lastHash = res.hash || hashText(p.text || '');
+    p.diskText = null;
     p.dirty = false; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
     toast('Saved ' + baseNameOf(p.filePath));
     return true;
@@ -3787,6 +3906,18 @@ function mountViewer(p, rec) {
     `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">Finder</button></div>`);
   rec.body.appendChild(wrap);
   wrap.querySelectorAll('.vw-reveal, .vw-finder, .ed-path').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); if (b.classList.contains('ed-path')) b.title = 'Reveal in Finder'; });
+  // A rewritten PNG keeps its cached bitmap forever otherwise: the src is the
+  // same URL, so nothing re-fetches and the tile shows yesterday's image. The
+  // counter is the whole mechanism. A viewer has no buffer and nothing unsaved,
+  // so there is no decision to make here — only a cache to break.
+  rec.reloadFromDisk = () => {
+    const el = wrap.querySelector('img, video, audio, iframe');
+    if (!el) return;
+    p.vwVersion = (p.vwVersion || 0) + 1;
+    const base = el.classList.contains('vw-html') ? docUrl(p.filePath) : url;
+    el.src = base + (base.includes('?') ? '&' : '?') + 'v=' + p.vwVersion;
+    if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.load();
+  };
   const media = wrap.querySelector('img, video, audio');
   if (media) media.addEventListener('error', () => {
     const stage = wrap.querySelector('.vw-stage, .vw-pdf');
@@ -4377,7 +4508,10 @@ async function buildFilePanel(filePath) {
   if (kind !== 'text' && kind !== 'html') return viewerPanel(filePath, kind);
   const res = await api.rawFile(filePath);
   if (!res.ok) return viewerPanel(filePath, 'other', res.error || 'Could not open');
-  return { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, dirty: false, status: 'live', cwd: S.project && S.project.path };
+  // lastHash from the read, not from a save: the first watcher event a file
+  // provokes is often the one that opened it, and a panel should know its own
+  // bytes from the moment it has them.
+  return { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, lastHash: hashText(res.text), dirty: false, status: 'live', cwd: S.project && S.project.path };
 }
 // A path that came from rendered content (a markdown link, a token printed in
 // the terminal) can point anywhere on disk. Opening one inside the project is
@@ -5440,6 +5574,10 @@ function renderImproveItem() {
 // ---- overlays --------------------------------------------------------------
 let lastOverlayType = null; // same-type re-renders skip the entrance animation
 let overlayDispose = null;
+// The peek sheet mounts an editor into a rec that never joins tileEls, so a
+// file changing on disk while it is floating would otherwise have nowhere to
+// land. Cleared with the overlay, like overlayDispose.
+let peekRec = null;
 let helpReturnFocus = null;
 let helpFocusKey = null;
 function rememberHelpFocus() {
@@ -5452,6 +5590,7 @@ function renderOverlay() {
   helpFocusKey = focused && els.overlayRoot.contains(focused)
     ? { id: focused.id, section: focused.dataset.sec } : null;
   if (overlayDispose) { overlayDispose(); overlayDispose = null; }
+  peekRec = null;
   els.overlayRoot.innerHTML = ''; const o = S.overlay;
   overlayStill = !!o && o.type === lastOverlayType;
   lastOverlayType = o ? o.type : null;
@@ -6007,6 +6146,7 @@ function renderPeek() {
   else if (p.kind === 'card') mountCard(p, rec);
   else mountViewer(p, rec);
   overlayDispose = rec.disposeEditor || null;
+  peekRec = rec;
   if (browser) bindBrowserButton(q('.pk-browser', box), p);
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;
