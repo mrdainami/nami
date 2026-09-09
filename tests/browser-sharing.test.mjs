@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createSessionSources, browserChipLabel, formatBrowserSnapshot, browserInspectActions } from '../src/renderer/session-sources.mjs';
 const require = createRequire(import.meta.url);
 const { SessionContextStore } = require('../src/main/browser-context');
 const { AnnotationImageStore, captureRect } = require('../src/main/browser-images');
@@ -109,3 +110,135 @@ test('queued peer calls cannot use old permissions while a browser operation dra
     else assert.match(listResult.error.message, /being updated/);
   } finally { finish?.({ isEmpty: () => false, toPNG: () => Buffer.from('image') }); await gateway.close(); }
 });
+
+test('browser chip labels watching, last accessed, and access failed — never setup required', () => {
+  assert.equal(browserChipLabel(null), 'Watching');
+  assert.equal(browserChipLabel(undefined), 'Watching');
+  assert.equal(browserChipLabel({}), 'Watching');
+  assert.match(browserChipLabel({ lastSuccessfulAt: Date.UTC(2026, 0, 1, 15, 4, 5) }), /^Last accessed /);
+  assert.match(browserChipLabel({ at: Date.UTC(2026, 0, 1, 15, 4, 5) }), /^Last accessed /);
+  assert.equal(browserChipLabel({ error: 'tab closed', lastSuccessfulAt: 1 }), 'Access failed');
+  assert.doesNotMatch(browserChipLabel(null) + browserChipLabel({ at: 1 }), /Setup required/);
+});
+
+test('page snapshot is title, URL, and bounded visible text', () => {
+  const text = formatBrowserSnapshot({ title: 'Stripe', url: 'https://stripe.com/docs', text: 'Pay ' + 'x'.repeat(20000), capturedAt: Date.UTC(2026, 0, 1, 12) });
+  assert.match(text, /Watching Stripe/);
+  assert.match(text, /https:\/\/stripe\.com\/docs/);
+  assert.match(text, /Pay x/);
+  assert.ok(text.length < 18000, 'visible page text stays bounded');
+  assert.equal(formatBrowserSnapshot({ url: 'https://www.stripe.com/pay' }), 'Watching stripe.com (https://www.stripe.com/pay)');
+});
+
+test('browser inspect offers Send page now and hides JSON setup sheets', () => {
+  const labels = browserInspectActions({
+    source: { id: 'tab', title: 'Stripe', url: 'https://stripe.com/' },
+    access: null,
+    mcpUnsupported: true,
+  }).map(a => a.label);
+  assert.ok(labels.includes('Send page now'));
+  assert.ok(labels.some(l => /HTTP MCP unsupported/.test(l)));
+  assert.equal(labels.some(l => /Copy JSON|Copy Claude|Browser setup|mcpServers|Refresh into input/i.test(l)), false);
+});
+
+function fakeEl(tag = 'div') {
+  const node = {
+    tagName: String(tag).toUpperCase(), className: '', style: {}, dataset: {}, children: [], parentElement: null,
+    _html: '', onclick: null, disabled: false, attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+      if (name.startsWith('data-')) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value;
+      if (name === 'style') this.style.cssText = value;
+    },
+    appendChild(child) { child.parentElement = this; this.children.push(child); return child; },
+    before(child) {
+      const siblings = this.parentElement.children, i = siblings.indexOf(this);
+      child.parentElement = this.parentElement; siblings.splice(i, 0, child);
+    },
+    remove() { if (!this.parentElement) return; this.parentElement.children = this.parentElement.children.filter(c => c !== this); this.parentElement = null; },
+    querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
+    querySelectorAll(sel) {
+      const all = []; const walk = n => { for (const c of n.children) { all.push(c); walk(c); } }; walk(this);
+      if (sel.startsWith('.')) return all.filter(n => String(n.className).split(/\s+/).includes(sel.slice(1)));
+      if (sel.startsWith('[')) {
+        const attr = sel.slice(1, -1);
+        return all.filter(n => n.attributes[attr] != null || n.dataset[attr.replace(/^data-/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase())] != null);
+      }
+      return all.filter(n => n.tagName === sel.toUpperCase());
+    },
+    getBoundingClientRect() { return { left: 12, bottom: 40, top: 0, right: 80 }; },
+    set innerHTML(html) {
+      this._html = html; this.children = [];
+      for (const m of String(html).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)) {
+        const b = fakeEl('button');
+        for (const a of m[1].matchAll(/([:\w-]+)="([^"]*)"/g)) b.setAttribute(a[1], a[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&#39;/g, "'"));
+        b._html = m[2]; this.appendChild(b);
+      }
+    },
+    get innerHTML() { return this._html; },
+    get textContent() { return String(this._html || '').replace(/<[^>]+>/g, ''); },
+  };
+  return node;
+}
+
+function mountSources({ status, snapshot, capabilities, insert } = {}) {
+  const root = fakeEl('div'), body = fakeEl('div');
+  const rec = { root, body, acpCapabilities: capabilities ? () => capabilities : undefined };
+  const tiles = new Map([['sess', rec]]);
+  const menus = [], inserted = [], toasts = [];
+  globalThis.document = { createElement: fakeEl };
+  globalThis.window = { addEventListener() {} };
+  const api = {
+    browserStatus: async () => ({ ok: true, enabled: true, ...status }),
+    browserSync: async () => ({ ok: true }),
+    browserContext: async () => ({ ok: true, source: { title: 'Other', kind: 'terminal', content: 'scrollback', capturedAt: Date.now() } }),
+    browserAction: async ({ action }) => action === 'snapshot' ? (snapshot || {}) : {},
+    onBrowserEvent() {},
+  };
+  const sources = createSessionSources({
+    api, state: { panels: [{ id: 'sess', title: 'Claude', kind: 'run' }, { id: 'tab', title: 'Stripe', kind: 'browser', url: 'https://stripe.com/' }] },
+    tiles, esc: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+    icon: () => '<svg></svg>', isSession: p => p.kind !== 'browser', menu: (_x, _y, items) => menus.push(items),
+    toast: m => toasts.push(m), settings: () => { throw new Error('setup sheet must stay off the chip menu'); },
+    publish: async () => ({ ok: true, source: { id: 'other', identity: 'c1' } }), insert: async (id, text) => { inserted.push({ id, text }); },
+  });
+  return { sources, rec, menus, inserted, toasts, api };
+}
+
+test('granted tab paints Watching with --green, never Setup required, and Send page now inserts the snapshot', async () => {
+  const view = { id: 'tab', title: 'Stripe Checkout', url: 'https://stripe.com/checkout' };
+  const { sources, rec, menus, inserted } = mountSources({
+    status: { sessions: [{ id: 'sess', views: ['tab'], sources: [], activities: [] }], views: [view] },
+    snapshot: { title: 'Stripe Checkout', url: view.url, text: 'Pay $20' },
+  });
+  await sources.refresh();
+  assert.match(rec.sourceStrip.innerHTML, /Watching/);
+  assert.match(rec.sourceStrip.innerHTML, /Stripe Checkout/);
+  assert.match(rec.sourceStrip.innerHTML, /var\(--green\)/);
+  assert.doesNotMatch(rec.sourceStrip.innerHTML, /Setup required|Copy JSON|Shared · initialized/);
+  rec.sourceStrip.querySelectorAll('[data-source]')[0].onclick();
+  const labels = menus.at(-1).map(a => a.label);
+  assert.ok(labels.includes('Send page now'));
+  assert.equal(labels.some(l => /Copy JSON|Copy Claude|Browser setup/i.test(l)), false);
+  await menus.at(-1).find(a => a.label === 'Send page now').run();
+  assert.match(inserted[0].text, /Watching Stripe Checkout/);
+  assert.match(inserted[0].text, /https:\/\/stripe.com\/checkout/);
+  assert.match(inserted[0].text, /Pay \$20/);
+});
+
+test('chat linked context includes the granted page even when HTTP MCP is unsupported', async () => {
+  const view = { id: 'tab', title: 'Docs', url: 'https://example.test/docs', text: 'Already captured heading' };
+  const { sources, rec, menus } = mountSources({
+    status: { sessions: [{ id: 'sess', views: ['tab'], sources: [], activities: [{ tabId: 'tab', error: 'tool failed', at: Date.now() }] }], views: [view] },
+    capabilities: { mcpHttp: false, mcpUnsupported: true, connected: true },
+  });
+  await sources.refresh();
+  assert.match(rec.sourceStrip.innerHTML, /Access failed/);
+  rec.sourceStrip.querySelectorAll('[data-source]')[0].onclick();
+  assert.ok(menus.at(-1).some(a => /HTTP MCP unsupported/.test(a.label)));
+  const text = await sources.linkedContext('sess');
+  assert.match(text, /Watching Docs/);
+  assert.match(text, /https:\/\/example.test\/docs/);
+  assert.match(text, /Already captured heading/);
+});
+

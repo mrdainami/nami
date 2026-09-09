@@ -113,7 +113,7 @@ export function createAcpClient(transport, handlers) {
     cancel() { transport.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); },
     kill() { transport.kill(); },
     get sessionId() { return sessionId; },
-    get capabilities() { return { image: capabilities.promptCapabilities?.image === true, mcpHttp: capabilities.mcpCapabilities?.http === true, mcpSse: capabilities.mcpCapabilities?.sse === true, loadSession: capabilities.loadSession === true, configuredMcp: configuredMcp.map(({ name, type }) => ({ name, type: type || 'stdio' })) }; },
+    get capabilities() { return { image: capabilities.promptCapabilities?.image === true, mcpHttp: capabilities.mcpCapabilities?.http === true, mcpSse: capabilities.mcpCapabilities?.sse === true, loadSession: capabilities.loadSession === true, configuredMcp: configuredMcp.map(({ name, type }) => ({ name, type: type || 'stdio' })), mcpUnsupported: requestedMcp.some((server) => server?.type === 'http') && capabilities.mcpCapabilities?.http !== true }; },
     _send(obj) { transport.send(obj); },
   };
 }

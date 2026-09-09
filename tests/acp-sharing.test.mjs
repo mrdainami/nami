@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createAcpClient } from '../src/renderer/acp-client.mjs';
 function fixture(capabilities = {}) {
   let receive, exit; const calls = [];
@@ -22,9 +23,28 @@ test('ACP passes only advertised MCP transports to new and loaded sessions', asy
 test('unsupported agents receive no HTTP MCP descriptor or image prompt', async () => {
   const f = fixture(); await f.client.connect('/project', { mcpServers: [server] });
   assert.deepEqual(f.calls.find(c => c.method === 'session/new').params.mcpServers, []);
+  assert.equal(f.client.capabilities.mcpHttp, false);
+  assert.equal(f.client.capabilities.mcpUnsupported, true, 'dropping HTTP MCP must be visible in connection state');
+  assert.equal(JSON.stringify(f.client.capabilities).includes('/mcp/session'), false);
   await assert.rejects(f.client.prompt('look', { images: [{ type: 'image', data: 'aW1n', mimeType: 'image/png' }] }), /does not support image/);
   await assert.rejects(f.client.loadSession('old', '/project'), /does not support loading/);
   assert.equal(f.calls.some(c => c.method === 'session/prompt' || c.method === 'session/load'), false);
+});
+
+test('HTTP MCP stays configured when advertised and is not marked unsupported', async () => {
+  const f = fixture({ mcpCapabilities: { http: true } });
+  await f.client.connect('/project', { mcpServers: [server] });
+  assert.equal(f.client.capabilities.mcpUnsupported, false);
+  assert.equal(f.client.capabilities.mcpHttp, true);
+});
+
+test('chat still prepends linked snapshots when HTTP MCP is unsupported', async () => {
+  const pane = fs.readFileSync(new URL('../src/renderer/acp-pane.mjs', import.meta.url), 'utf8');
+  assert.match(pane, /hooks\.context \? await hooks\.context\(p\)/);
+  assert.match(pane, /mcpUnsupported/);
+  assert.match(pane, /still attach as snapshots/);
+  const send = pane.slice(pane.indexOf('async function sendPrompt'), pane.indexOf('const composer = createComposer'));
+  assert.doesNotMatch(send, /mcpHttp|mcpUnsupported/, 'send must not skip snapshots just because tools are unsupported');
 });
 
 test('image-capable ACP agents receive real image content, not a path pretending to be an image', async () => {

@@ -149,6 +149,9 @@ export function mountChatPane(p, rec, hooks) {
       const linked = hooks.context ? await hooks.context(p) : '';
       if (disposed || epoch !== promptEpoch) return false;
       const context = typeof linked === 'string' ? linked : linked?.content || '';
+      if (client.capabilities.image && linked && typeof linked === 'object') {
+        for (const image of linked.images || []) if (image?.type === 'image' && image.data) images.push(image);
+      }
       const prompt = context ? text + '\n\nLinked session context (snapshot, may be incomplete):\n' + context.slice(0, 100000) : text;
       transcript.userTurn(view.display !== undefined ? view.display : text, view.files);
       contextRecord.user(view.display !== undefined ? view.display : text); publishContext();
@@ -340,6 +343,7 @@ export function mountChatPane(p, rec, hooks) {
       p.acpSid = session.sessionId;
       contextRecord.identify(session.sessionId); publishContext(true);
       if (hooks.capabilities) hooks.capabilities(p, rec.acpCapabilities());
+      if (client.capabilities.mcpUnsupported) transcript.note('This agent does not support HTTP MCP. Shared browser pages still attach as snapshots on send.');
       watchTitle();
       state.modes = session.modes || null;
       state.configOptions = session.configOptions || [];
