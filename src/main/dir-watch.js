@@ -14,6 +14,11 @@
 // Measured with 200 files landing in node_modules: 205 events, 202 of them
 // dropped by the path test below before any work happened. Filter and coalesce.
 //
+// Two readers now, not one. The tree wants the folder; a file open on the desk
+// wants to know whether it was the file that moved, so every flush carries the
+// names as well — coalesced into a Set, absolute, and null when the platform
+// declined to say which. See src/renderer/file-sync.mjs for what happens next.
+//
 // fs.watch is injectable so the tests never touch a real disk.
 //
 // Note this is the opposite call from watchTitle's poll in main.js, and
@@ -48,7 +53,10 @@ function createDirWatch({
 } = {}) {
   let handle = null;
   let root = null;
-  const pending = new Map();   // dir -> { trail, ceil }
+  // dir -> { trail, ceil, files }. `files` is a Set of absolute paths, or null
+  // for "the platform would not say" — see hit() for why null is not an empty
+  // set. It is what lets an open tile decide whether the change was its file.
+  const pending = new Map();
 
   // Whole segments, not a string prefix: a folder called distribution/ is not
   // dist/, and node_modules/junk/n7.js is node_modules however deep it sits.
@@ -67,13 +75,22 @@ function createDirWatch({
     return cut <= 0 ? root : path.join(root, s.slice(0, cut));
   }
 
+  // The thing that moved, absolute — which is the shape an open panel stores
+  // its file as, so the renderer can match without rebuilding a path.
+  function fileOf(rel) {
+    if (rel == null) return null;
+    const s = String(rel).replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!s) return null;
+    return path.join(root, s);
+  }
+
   function flush(dir) {
     const p = pending.get(dir);
     if (!p) return;
     if (p.trail) clearTimeoutFn(p.trail);
     if (p.ceil) clearTimeoutFn(p.ceil);
     pending.delete(dir);
-    onChange(dir);
+    onChange(dir, p.files ? Array.from(p.files) : null);
   }
 
   function hit(rel) {
@@ -85,12 +102,18 @@ function createDirWatch({
     const dir = dirOf(rel);
     let p = pending.get(dir);
     if (!p) {
-      p = { trail: null, ceil: null };
+      p = { trail: null, ceil: null, files: new Set() };
       pending.set(dir, p);
       // Set once on the first event of a burst and never reset — that is what
       // makes it a ceiling rather than a second debounce.
       p.ceil = setTimeoutFn(() => flush(dir), maxWaitMs);
     }
+    // null poisons the whole flush rather than dropping one name into a list
+    // that then reads as complete. A half-list is the one answer that lets an
+    // open tile conclude "not mine" about the file that did change.
+    const file = fileOf(rel);
+    if (!file) p.files = null;
+    else if (p.files) p.files.add(file);
     if (p.trail) clearTimeoutFn(p.trail);
     p.trail = setTimeoutFn(() => flush(dir), debounceMs);
   }

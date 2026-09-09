@@ -48,14 +48,15 @@ function harness(opts = {}) {
   const watch = fakeWatch();
   const { setT, clearT } = fakeClock();
   const changed = [];
+  const events = [];            // the same flushes, with the file names attached
   const w = createDirWatch({
     watch,
-    onChange: (dir) => changed.push(dir),
+    onChange: (dir, files) => { changed.push(dir); events.push({ dir, files }); },
     setTimeoutFn: setT,
     clearTimeoutFn: clearT,
     ...opts,
   });
-  return { w, watch, changed, advance: setT.advance };
+  return { w, watch, changed, events, advance: setT.advance };
 }
 
 // ---- one watcher, on the root ----------------------------------------------
@@ -149,6 +150,82 @@ test('a null filename reports the root — correctness beats quiet', () => {
   watch.fire(null);
   advance(1000);
   assert.deepEqual(changed, ['/p']);
+});
+
+// ---- which files changed ----------------------------------------------------
+// The tree only ever needed the folder. A file open on the desk needs to know
+// whether it was the one that moved, and re-reading every open panel on every
+// event is how a build turns into a hundred pointless reads.
+
+test('a flush names the file that moved, as a path the renderer can match', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('src/ui/parts/a.js');
+  advance(1000);
+  assert.deepEqual(events, [{ dir: '/p/src/ui/parts', files: ['/p/src/ui/parts/a.js'] }],
+    'absolute, because that is what an open panel stores');
+});
+
+test('several files in one folder coalesce into one flush naming all of them', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('notes.md');
+  watch.fire('todo.md');
+  advance(1000);
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].files.sort(), ['/p/notes.md', '/p/todo.md']);
+});
+
+test('the same file written twice inside the window is named once', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('notes.md');
+  watch.fire('notes.md');
+  advance(1000);
+  assert.deepEqual(events[0].files, ['/p/notes.md'], 'a Set, not a log');
+});
+
+test('a null filename says "unknown" rather than naming nothing', () => {
+  // The platform would not tell us what moved. Naming no files would read as
+  // "nothing you have open changed", which is the one answer that is certainly
+  // wrong — so the renderer is told to re-check every panel instead.
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire(null);
+  advance(1000);
+  assert.deepEqual(events, [{ dir: '/p', files: null }]);
+});
+
+test('one unknown event inside a burst leaves the whole flush unknown', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('notes.md');
+  watch.fire(null);
+  watch.fire('todo.md');
+  advance(1000);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].files, null, 'a partial list is worse than no list');
+});
+
+test('each folder carries only its own files', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('ui/a.js');
+  watch.fire('api/b.js');
+  advance(1000);
+  const byDir = Object.fromEntries(events.map((e) => [e.dir, e.files]));
+  assert.deepEqual(byDir, { '/p/ui': ['/p/ui/a.js'], '/p/api': ['/p/api/b.js'] });
+});
+
+test('a fresh burst starts a fresh file list', () => {
+  const { w, watch, events, advance } = harness();
+  w.watchRoot('/p');
+  watch.fire('a.md');
+  advance(1000);
+  watch.fire('b.md');
+  advance(1000);
+  assert.deepEqual(events.map((e) => e.files), [['/p/a.md'], ['/p/b.md']],
+    'the second flush does not still carry the first one\'s file');
 });
 
 // ---- the ignore list, on the path not the name ------------------------------
