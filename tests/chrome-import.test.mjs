@@ -19,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs } = require('../src/main/browser-profiles');
+const { readChromeCookieRows, readChromeHistory, readChromeLogins, detectChromiumProfiles, chromeTimeToMs, chromeKeychainPassword, readFailure } = require('../src/main/browser-profiles');
 
 // Real values, copied from a live Chrome profile. Both are > 2^53.
 const EXPIRES_UTC = 13433531963056867;
@@ -125,4 +125,23 @@ test('every Chromium browser on this platform is offered, not only Google Chrome
       assert.ok(names.has(browser), 'no profile found for ' + browser);
     }
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('each browser is asked for its own Keychain key, never Chrome\'s', () => {
+  const asked = [];
+  const spy = (_cmd, args) => { asked.push(args[args.indexOf('-s') + 1]); return 'key-for-' + args[args.indexOf('-a') + 1]; };
+  // Handing Brave's cookies Chrome's key is worse than finding no key at all:
+  // the key is truthy, so the "allow Keychain access" hint is suppressed, and
+  // every blob then fails its padding check and is silently counted as skipped.
+  assert.equal(chromeKeychainPassword('Brave', spy), 'key-for-Brave');
+  assert.equal(chromeKeychainPassword('Vivaldi', spy), 'key-for-Vivaldi');
+  assert.equal(chromeKeychainPassword('Opera', spy), 'key-for-Opera');
+  assert.equal(chromeKeychainPassword('Arc', spy), 'key-for-Arc');
+  assert.equal(chromeKeychainPassword('Chromium', spy), 'key-for-Chromium');
+  assert.equal(chromeKeychainPassword('Edge', spy), 'key-for-Microsoft Edge');
+  assert.deepEqual(asked, ['Brave Safe Storage', 'Vivaldi Safe Storage', 'Opera Safe Storage', 'Arc Safe Storage', 'Chromium Safe Storage', 'Microsoft Edge Safe Storage']);
+  // Chrome's own channels share Google Chrome's item, which is the default.
+  for (const channel of ['Chrome', 'Chrome Beta', 'Chrome Canary']) {
+    assert.equal(chromeKeychainPassword(channel, spy), 'key-for-Chrome');
+  }
 });

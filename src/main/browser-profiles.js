@@ -214,11 +214,28 @@ function readChromeHistory(file) {
     }),
   };
 }
+// Each Chromium build keeps its own storage key under its own Keychain item —
+// "Brave Safe Storage", "Opera Safe Storage" and the rest all sit as separate
+// items on a Mac with several installed. Handing Brave's cookies Chrome's key
+// is worse than having no key at all: the key is truthy, so the "allow
+// Keychain access" hint is suppressed, every v10 blob then fails its padding
+// check inside decryptChromeCookie, and the import reports a cheerful zero.
+//
+// The Chrome channels are deliberately absent from this map: Beta and Canary
+// share Google Chrome's item, which is what the default already gives them.
+const SAFE_STORAGE = {
+  Edge: 'Microsoft Edge',
+  Brave: 'Brave',
+  Vivaldi: 'Vivaldi',
+  Opera: 'Opera',
+  Arc: 'Arc',
+  Chromium: 'Chromium',
+};
 function chromeKeychainPassword(browser, execFileSync) {
   if (typeof execFileSync !== 'function') return null;
-  const edge = browser === 'Edge';
+  const label = SAFE_STORAGE[browser] || 'Chrome';
   try {
-    return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
+    return String(execFileSync('security', ['find-generic-password', '-w', '-s', label + ' Safe Storage', '-a', label], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
   } catch { return null; }
 }
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
@@ -370,5 +387,5 @@ module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
-  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix,
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure,
 };
