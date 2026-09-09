@@ -1,8 +1,154 @@
 // Profile metadata and an OS-protected credential vault. No secrets cross IPC.
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
 const { randomUUID } = require('node:crypto');
 const { browserUrl, clean } = require('./browser-policy');
+
+const GOOGLE_LABELS = new Set(['google', 'googleapis', 'googleusercontent', 'googlevideo', 'googleadservices', 'googlesyndication', 'gmail', 'youtube', 'ytimg', 'youtu', 'gstatic', 'ggpht', 'android', 'chrome', 'chromium', 'doubleclick', 'blogger', 'googlecode', 'withgoogle', 'googlemail']);
+function registrableLabel(host) {
+  const parts = String(host || '').replace(/^\./, '').toLowerCase().split('.').filter(Boolean);
+  if (parts.length >= 3 && ['co', 'com', 'org', 'net', 'ac', 'gov'].includes(parts[parts.length - 2])) return parts[parts.length - 3];
+  return parts.length >= 2 ? parts[parts.length - 2] : (parts[0] || '');
+}
+function isGoogleHost(host) {
+  const h = String(host || '').replace(/^\./, '').toLowerCase();
+  if (!h) return false;
+  if (h === 'youtu.be' || h.endsWith('.youtu.be')) return true;
+  return GOOGLE_LABELS.has(registrableLabel(h));
+}
+function filterImportableCookies(cookies = []) {
+  const keep = []; let skippedGoogle = 0;
+  for (const cookie of cookies) {
+    if (isGoogleHost(cookie.host_key || cookie.domain || cookie.host)) skippedGoogle++;
+    else keep.push(cookie);
+  }
+  return { keep, skippedGoogle };
+}
+function uniqueDownloadPath(dir, name, exists = fs.existsSync) {
+  const safe = path.basename(String(name || 'download').replace(/[\x00-\x1f]/g, '')) || 'download';
+  let dest = path.join(dir, safe), n = 0;
+  const ext = path.extname(safe), stem = ext ? safe.slice(0, -ext.length) : safe;
+  while (exists(dest)) dest = path.join(dir, `${stem} (${++n})${ext}`);
+  return dest;
+}
+function popupDecision(target, policy = 'block') {
+  let url;
+  try { url = new URL(target); } catch { return { action: 'deny' }; }
+  if (url.protocol === 'http:' || url.protocol === 'https:') return { action: 'deny', newTab: url.href };
+  if (policy === 'oauth' && url.protocol === 'about:' && url.pathname === 'blank') return { action: 'allow' };
+  return { action: 'deny' };
+}
+function permissionAllowed(stored, permission) {
+  const key = permission === 'camera' || permission === 'microphone' || permission === 'media' ? 'media' : permission;
+  return stored?.[key] === 'allow';
+}
+function cookieUrl(cookie) {
+  const host = String(cookie.host_key || '').replace(/^\./, '');
+  const pathName = cookie.path || '/';
+  return `${cookie.is_secure ? 'https' : 'http'}://${host}${pathName.startsWith('/') ? pathName : '/' + pathName}`;
+}
+function chromeExpiryUnix(expiresUtc) {
+  const value = Number(expiresUtc);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.floor(value / 1_000_000 - 11_644_473_600);
+}
+function deriveChromeKey(password) {
+  return crypto.pbkdf2Sync(String(password), 'saltysalt', 1003, 16, 'sha1');
+}
+function decryptChromeCookie(encrypted, key) {
+  if (!encrypted || encrypted.length < 4) return null;
+  const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
+  const prefix = buf.subarray(0, 3).toString();
+  if (prefix !== 'v10') return null;
+  try {
+    const decipher = crypto.createDecipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
+    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]).toString('utf8');
+  } catch { return null; }
+}
+function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
+  const roots = platform === 'darwin' ? [
+    [path.join(home, 'Library/Application Support/Google/Chrome'), 'Chrome'],
+    [path.join(home, 'Library/Application Support/Microsoft Edge'), 'Edge'],
+    [path.join(home, 'Library/Application Support/Chromium'), 'Chromium'],
+  ] : platform === 'win32' ? [
+    [path.join(home, 'AppData/Local/Google/Chrome/User Data'), 'Chrome'],
+    [path.join(home, 'AppData/Local/Microsoft/Edge/User Data'), 'Edge'],
+  ] : [
+    [path.join(home, '.config/google-chrome'), 'Chrome'],
+    [path.join(home, '.config/microsoft-edge'), 'Edge'],
+  ];
+  const found = [];
+  for (const [root, browser] of roots) {
+    if (!exists(root)) continue;
+    let info = {};
+    try { info = JSON.parse(readFile(path.join(root, 'Local State'))).profile?.info_cache || {}; } catch {}
+    const dirs = Object.keys(info).length ? Object.keys(info) : ['Default'];
+    for (const dir of dirs) {
+      const directory = path.join(root, dir);
+      const cookies = exists(path.join(directory, 'Network/Cookies')) ? path.join(directory, 'Network/Cookies')
+        : exists(path.join(directory, 'Cookies')) ? path.join(directory, 'Cookies') : '';
+      if (!cookies) continue;
+      found.push({ browser, name: info[dir]?.name || dir, directory, cookies });
+    }
+  }
+  return found;
+}
+function readChromeCookieRows(file) {
+  const { DatabaseSync } = require('node:sqlite');
+  const tmp = file + '.nami-read-' + process.pid;
+  fs.copyFileSync(file, tmp);
+  try {
+    const db = new DatabaseSync(tmp, { readOnly: true });
+    let rows;
+    try { rows = db.prepare('SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies').all(); }
+    catch { rows = db.prepare('SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly FROM cookies').all(); }
+    db.close();
+    return rows;
+  } finally { fs.rmSync(tmp, { force: true }); }
+}
+function cookieImportStatus(options) {
+  const sources = detectChromiumProfiles(options);
+  return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name })) };
+}
+function chromeKeychainPassword(browser, execFileSync) {
+  if (typeof execFileSync !== 'function') return null;
+  const edge = browser === 'Edge';
+  try {
+    return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
+  } catch { return null; }
+}
+async function importChromiumCookies({ session, sources, passwordFor, log = () => {} }) {
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, decryptUnavailable = false;
+  for (const source of sources || []) {
+    let rows = [];
+    try { rows = readChromeCookieRows(source.cookies); }
+    catch { decryptUnavailable = true; continue; }
+    const password = passwordFor ? passwordFor(source) : null;
+    const key = password ? deriveChromeKey(password) : null;
+    const ready = [];
+    for (const row of rows) {
+      if (isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
+      const value = row.value || (key ? decryptChromeCookie(row.encrypted_value, key) : null);
+      if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
+      ready.push({ ...row, value });
+    }
+    for (const cookie of ready.slice(0, 5000)) {
+      try {
+        await session.cookies.set({
+          url: cookieUrl(cookie), name: cookie.name, value: cookie.value, domain: cookie.host_key,
+          path: cookie.path || '/', secure: !!cookie.is_secure, httpOnly: !!cookie.is_httponly,
+          expirationDate: chromeExpiryUnix(cookie.expires_utc),
+          sameSite: ({ 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified'),
+        });
+        imported++;
+      } catch { skippedEncrypted++; }
+    }
+  }
+  log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
+  return { imported, skippedGoogle, skippedEncrypted, decryptUnavailable };
+}
 function parsePasswordCsv(text) {
   if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
   const rows = []; let row = [], field = '', quoted = false;
@@ -51,8 +197,19 @@ function createProfileStore({ directory, safeStorage }) {
     write(vaultPath(id), safeStorage.encryptString(JSON.stringify(entries)));
   }
   persist();
+  function publicProfile(p) {
+    return {
+      id: p.id, name: p.name,
+      downloadMode: p.downloadMode === 'auto' ? 'auto' : 'ask',
+      popupMode: p.popupMode === 'oauth' ? 'oauth' : 'block',
+      permissions: p.permissions && typeof p.permissions === 'object' ? p.permissions : {},
+    };
+  }
+  function permissionKey(permission) {
+    return permission === 'camera' || permission === 'microphone' || permission === 'media' ? 'media' : String(permission || 'media').slice(0, 40);
+  }
   return {
-    get, list: () => profiles.map((p) => ({ ...p })), available,
+    get, list: () => profiles.map(publicProfile), available, publicProfile,
     create(name) { name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); const p = { id: randomUUID(), name }; profiles.push(p); persist(); return p; },
     rename(id, name) { const p = get(id); name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); p.name = name; persist(); return { ...p }; },
     remove(id) { get(id); if (profiles.length === 1) throw new Error('Keep at least one browser profile.'); fs.rmSync(vaultPath(id), { force: true }); profiles = profiles.filter((p) => p.id !== id); persist(); },
@@ -64,6 +221,34 @@ function createProfileStore({ directory, safeStorage }) {
     credentials(id, origin) { return readVault(id).filter((e) => !origin || e.origin === origin).map(({ id, origin, username }) => ({ id, origin, username })); },
     credential(id, entryId, origin) { const e = readVault(id).find((e) => e.id === entryId && e.origin === origin); if (!e) throw new Error('This password does not match the current website.'); return e; },
     deleteCredential(id, entryId) { writeVault(id, readVault(id).filter((e) => e.id !== entryId)); },
+    configure(id, patch = {}) {
+      const p = get(id);
+      if (patch.downloadMode === 'ask' || patch.downloadMode === 'auto') p.downloadMode = patch.downloadMode;
+      if (patch.popupMode === 'block' || patch.popupMode === 'oauth') p.popupMode = patch.popupMode;
+      if (patch.origin && patch.permission) {
+        let origin;
+        try { origin = new URL(patch.origin).origin; } catch { throw new Error('Invalid site origin.'); }
+        if (origin === 'null') throw new Error('Invalid site origin.');
+        p.permissions ||= {};
+        p.permissions[origin] ||= {};
+        p.permissions[origin][permissionKey(patch.permission)] = patch.value === 'allow' ? 'allow' : 'deny';
+      }
+      persist();
+      return publicProfile(p);
+    },
+    notePermissionRequest(id, origin, permission) {
+      const p = get(id);
+      if (!origin || origin === 'null') return publicProfile(p);
+      p.permissions ||= {};
+      p.permissions[origin] ||= {};
+      const key = permissionKey(permission);
+      if (!p.permissions[origin][key]) { p.permissions[origin][key] = 'asked'; persist(); }
+      return publicProfile(p);
+    },
   };
 }
-module.exports = { createProfileStore, parsePasswordCsv };
+module.exports = {
+  createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
+  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
+  detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
+};

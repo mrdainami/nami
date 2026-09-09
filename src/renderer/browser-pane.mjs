@@ -13,8 +13,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   function layout() {
     frame = 0;
     for (const [id,rec] of tiles) if(rec.browserViewport) {
-      const b=rec.head.querySelector('.t-mic'),active=annotations.isActive(id);
-      b?.classList.toggle('active',active);b?.setAttribute('aria-pressed',String(active));
+      const b=q('.browser-annotate',rec.body),active=annotations.isActive(id);
+      if(b){b.classList.toggle('is-on',active);b.setAttribute('aria-pressed',String(active));b.textContent=active?'Annotating':'Annotate';}
     }
     const hidden = !!state.overlay;
     const items = [];
@@ -39,13 +39,17 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const p = { id: id || uid('p_'), kind: 'browser', chipKind: 'viewer', code: 'WEB', title: filePath ? filePath.split('/').pop() : 'Browser', url, filePath, status: 'live', browserDeferred: deferred, profileId };
     pin(p, owner ? { owner } : {}); if (owner) { p.owner = owner; refresh(); } return p;
   }
-  function newBrowser(owner) { const active=state.panels.find(p=>p.id===state.activeId && p.kind==='browser'); show({ type: 'browser-new', owner, profileId:active?.profileId }); }
+  function newBrowser(owner) {
+    const active=state.panels.find(p=>p.id===state.activeId && p.kind==='browser');
+    const p=open('about:blank', null, owner, null, false, active?.profileId);
+    p.focusAddress = true;
+    return p;
+  }
   function renderNew() {
-    const modal = dialog('modal modal--browser', `<div class="modal-head"><span class="title">New browser</span></div><div class="modal-body"><label class="field-label">Address</label><input class="field-input" id="browser-new-url" placeholder="Search or enter address" value=""></div><div class="modal-foot"><button class="btn" id="browser-new-cancel">Cancel</button><button class="btn btn--go" id="browser-new-open">Open browser</button></div>`);
-    q('#browser-new-cancel', modal).onclick = close;
-    q('#browser-new-open', modal).onclick = async () => { const r = await api.browserResolve(q('#browser-new-url', modal).value); if (!check(r) || !r.url) return; const {owner,profileId}=state.overlay; close(); open(r.url, null, owner, null, false, profileId); };
-    q('#browser-new-url', modal).onkeydown = (e) => { if (e.key === 'Enter') q('#browser-new-open', modal).click(); };
-    q('#browser-new-url', modal).focus();
+    const {owner,profileId}=state.overlay||{};
+    close();
+    const p=open('about:blank', null, owner, null, false, profileId);
+    p.focusAddress = true;
   }
   function tabs(p, rec) {
     if (!isFile(p) && !p.companionOf) return;
@@ -81,9 +85,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   function mount(p, rec) {
     rec.root.classList.add('browser-tile'); rec.body.classList.add('browser-body');
     q('.t-zoom-out', rec.head).hidden = true; q('.t-zoom-in', rec.head).hidden = true;
-    const annotate = q('.t-mic', rec.head); annotate.innerHTML = helpIcon('annotate'); annotate.title = 'Annotate'; annotate.setAttribute('aria-label', 'Annotate');
-    annotate.onclick = () => { annotations.toggle(p); annotate.classList.toggle('active',annotations.isActive(p.id)); annotate.setAttribute('aria-pressed',String(annotations.isActive(p.id))); };
-    rec.body.innerHTML = `<form class="browser-address">${button('back', 'Back', 'back')}${button('forward', 'Forward', 'forward')}${button('refresh', 'Reload', 'reload')}<input aria-label="Browser address" value="${esc(p.filePath || p.url)}" spellcheck="false">${button('more', 'Browser menu', 'menu')}</form><div class="browser-error" role="status" hidden></div><div class="browser-viewport"></div><div class="browser-selection" hidden><button class="btn btn--small">Selection · Add to session…</button></div>`;
+    q('.t-mic', rec.head).hidden = true;
+    rec.body.innerHTML = `<form class="browser-address">${button('back', 'Back', 'back')}${button('forward', 'Forward', 'forward')}${button('refresh', 'Reload', 'reload')}<input aria-label="Browser address" placeholder="Search or enter address" value="${esc(p.filePath || p.url)}" spellcheck="false"><button type="button" class="browser-annotate" aria-pressed="false" title="Annotate">Annotate</button>${button('more', 'Browser menu', 'menu')}</form><div class="browser-error" role="status" hidden></div><div class="browser-viewport"></div><div class="browser-selection" hidden><button class="btn btn--small">Selection · Add to session…</button></div>`;
     rec.browserViewport = q('.browser-viewport', rec.body);
     const disposeAnnotations = annotations.mount(p, rec.browserViewport);
     const ro = new ResizeObserver(schedule); ro.observe(rec.browserViewport);
@@ -91,7 +94,9 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const form = q('form', rec.body);
     form.onsubmit = async (event) => { event.preventDefault(); const value=q('input',form).value.trim(); if(p.filePath&&value===p.filePath){api.browserAction({id:p.id,action:'reload'}).then(check);return;} const r = await api.browserResolve(value); if (check(r) && r.url) api.browserAction({ id: p.id, action: 'navigate', url: r.url }).then(check); };
     form.querySelectorAll('[data-browser-action]').forEach((b) => { b.type = 'button'; b.onclick = () => b.dataset.browserAction === 'menu' ? openMenu(p, b) : api.browserAction({ id: p.id, action: b.dataset.browserAction }).then(check); });
+    q('.browser-annotate', form).onclick = () => { annotations.toggle(p); schedule(); };
     q('.browser-selection button', rec.body).onclick = () => annotateSelection(p, rec.pendingSelection);
+    if (p.focusAddress) { delete p.focusAddress; const input = q('input', form); requestAnimationFrame(() => { input.focus(); input.select(); }); }
     if (!p.browserDeferred) createNative(p);
   }
   function createNative(p) { api.browserCreate({ id: p.id, owner: p.owner, url: p.url, filePath: p.filePath, profileId:p.profileId }).then((r) => { check(r); signature = ''; schedule(); }); }
@@ -178,7 +183,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Nami profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p class="note">Tabs using the same profile share sign-ins. Agent access ends when you change or clear their profile.</p><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New profile</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove profile…</button></div><details${o.section==='import'?' open':''}><summary>Import saved passwords</summary><p class="note">Copy saved passwords from a Chrome CSV. Chrome stays unchanged.</p><p class="note">Sign in on websites inside Nami to retain their sign-ins in this profile. This imports saved passwords, not Chrome cookies or ongoing Chrome sync.</p><button class="btn btn--small" id="profile-import">Choose password CSV…</button><p class="note">The original CSV remains where you exported it. Saved passwords are protected on this Mac. Filling a password in an agent-controlled page makes it available to that page and its automation.</p></details><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear selected data…</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`<label class="field-label">Nami profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p class="note">Tabs using the same profile share sign-ins. Agent access ends when you change or clear their profile.</p><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New profile</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove profile…</button></div><details${o.section==='cookies'?' open':''}><summary>Import cookies from Chrome or Edge</summary><p class="note">One-time copy into this Nami profile. Google cookies are skipped. Chrome stays unchanged. This is not Chrome Sync.</p><p class="note">${esc(r.capabilities?.cookieImport?.available ? (r.capabilities.cookieImport.browsers || []).map(s=>s.browser+' · '+s.name).join(', ') : 'No Chrome or Edge profile was found on this Mac.')}</p><button class="btn btn--small" id="profile-import-cookies">Import cookies…</button></details><details${o.section==='import'?' open':''}><summary>Import saved passwords</summary><p class="note">Copy saved passwords from a Chrome CSV. Chrome stays unchanged.</p><p class="note">If cookies cannot be copied, import a password CSV and sign in inside Nami.</p><button class="btn btn--small" id="profile-import">Choose password CSV…</button><p class="note">The original CSV remains where you exported it. Saved passwords are protected on this Mac. Filling a password in an agent-controlled page makes it available to that page and its automation.</p></details><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins">Site data and sign-ins</label><label class="browser-check"><input type="checkbox" id="clear-passwords">Saved passwords</label><button class="btn btn--small" id="profile-clear">Clear selected data…</button></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host);
     const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
     const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
@@ -187,6 +192,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     q('#profile-new',host).onclick=()=>nameForm('create');q('#profile-rename',host).onclick=()=>nameForm('rename');
     if(view)q('#profile-switch',host).onclick=()=>ask('Switch this tab to '+chosen.name+' and revoke its agent access?',async()=>{if(await run({action:'switch',id:view.id})){close();toast('Profile changed. Reconfigure browser access when ready.');}});
     q('#profile-remove',host).onclick=()=>ask('Close this profile’s tabs, discard their pending notes, and permanently remove its Nami sign-ins and passwords? Chrome stays unchanged.',async()=>{if(await run({action:'remove',confirmed:true}))show({...o});});
+    q('#profile-import-cookies',host).onclick=()=>ask('Copy cookies from detected Chrome or Edge profiles into '+chosen.name+'? Google cookies are skipped. Chrome stays unchanged. Existing agent access will be revoked.',async()=>{const out=await run({action:'import-cookies'});if(out)result.textContent=out.message||('Copied '+(out.imported??0)+' cookies.');});
     q('#profile-import',host).onclick=()=>ask('Import a password CSV into '+chosen.name+'? Existing agent access to this profile will be revoked.',async()=>{const out=await run({action:'import-passwords'});if(out)result.textContent=out.canceled?'Import cancelled.':out.message||('Imported '+(out.imported??0)+' passwords'+(out.skipped?', skipped '+out.skipped+' invalid rows':'')+'.');});
     q('#profile-clear',host).onclick=()=>{const siteData=q('#clear-signins',host).checked,credentials=q('#clear-passwords',host).checked;if(!siteData&&!credentials){result.textContent='Choose data to clear.';return;}ask('Clear selected data from '+chosen.name+'? Clearing sign-ins closes all its Nami tabs and discards their pending notes. Chrome stays unchanged.',async()=>{if(await run({action:'clear',siteData,credentials,confirmed:true})){result.textContent='Selected Nami data cleared. Agent access revoked.';}});};
     const canFill=!!view && chosen.id===view.profileId;
@@ -198,7 +204,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
   }
   function settingsHtml() { return browserSettingsHtml(); }
-  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onAccess:sessionId=>show({type:'browser-access',sessionId}), onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-profiles',section:'import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
+  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onAccess:sessionId=>show({type:'browser-access',sessionId}), onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-profiles',section:'import'}), onImportCookies:()=>show({type:'browser-profiles',section:'cookies'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
   api.onBrowserEvent((event) => {
     let p = state.panels.find((p) => p.id === event.id), rec = tiles.get(event.id);
     if (event.type === 'created') { if (!p) open(event.url, null, event.owner, event.id, false, event.profileId); return; }
@@ -213,9 +219,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if (event.type === 'state') { p.profileId=event.profileId; p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = event.url; q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
     if (event.type === 'new-tab') open(event.url, null, p.owner, null, false, event.profileId || p.profileId);
     if (event.type === 'error') { const e = q('.browser-error', rec.body); e.hidden = !event.error; e.textContent = event.error; }
-    if (event.type === 'selection') q('.t-mic', rec.head).classList.toggle('active',annotations.isActive(p.id));
     if (event.type === 'text-selection') { rec.pendingSelection = event.selection; q('.browser-selection', rec.body).hidden = false; }
-    if (event.type === 'annotation-end') q('.t-mic', rec.head).classList.remove('active');
     schedule();
   });
   function inbox(p) {

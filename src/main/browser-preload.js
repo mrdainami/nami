@@ -4,10 +4,16 @@ const { ipcRenderer } = require('electron');
 const documentId = crypto.randomUUID();
 const tracked = new Map();
 let highlightRoot = null, helperStyle = null, captureId = null;
+const pickerCursor = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="7" fill="none" stroke="Highlight" stroke-width="2"/><path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="Highlight" stroke-width="2" fill="none"/></svg>')}") 12 12, crosshair`;
 function updateCursor() {
-  if (helperStyle) helperStyle.textContent = (active ? `html,body,body *{cursor:${mode === 'text' ? 'text' : 'crosshair'} !important}` : '') + (captureId ? '::selection{background:transparent!important;color:inherit!important}' : '');
+  if (helperStyle) helperStyle.textContent = (active ? `html,body,body *{cursor:${pickerCursor} !important}` : '') + (captureId ? '::selection{background:transparent!important;color:inherit!important}' : '');
 }
-let active = false, showAnnotations = false, mode = 'component', pointer = null, frame = 0, sequence = 0, suppressClick = false;
+let active = false, showAnnotations = false, pointer = null, frame = 0, sequence = 0, suppressClick = false, consumed = false;
+function textualPoint(x, y) {
+  const caret = document.caretRangeFromPoint?.(x, y) || document.caretPositionFromPoint?.(x, y);
+  const node = caret?.startContainer || caret?.offsetNode;
+  return !!(node && node.nodeType === 3 && /\S/.test(node.nodeValue || ''));
+}
 const rectangle = (r) => ({ x: r.x, y: r.y, width: r.width, height: r.height });
 const viewport = () => ({ width: innerWidth, height: innerHeight });
 function locator(el) {
@@ -35,9 +41,9 @@ function geometry(item) {
 function drawHighlights(hover) {
   if (!highlightRoot) return;
   if (captureId || !showAnnotations) { highlightRoot.replaceChildren(); return; }
-  const rects = [...tracked.values()].flatMap((item) => { const value = geometry(item); return value.stale ? [] : value.rects?.length ? value.rects : value.rect ? [value.rect] : []; });
-  if (hover?.rect) rects.push(hover.rect);
-  highlightRoot.replaceChildren(...rects.slice(0, 2000).map((r) => { const node = document.createElement('span'); node.style.cssText = `position:fixed;left:${r.x}px;top:${r.y}px;width:${Math.max(0, r.width)}px;height:${Math.max(0, r.height)}px;box-sizing:border-box;outline:1px solid Highlight;background:color-mix(in srgb, Highlight 12%, transparent);pointer-events:none`; return node; }));
+  const nodes = [...tracked.values()].flatMap((item) => { const value = geometry(item); return value.stale ? [] : (value.rects?.length ? value.rects : value.rect ? [value.rect] : []).map((r) => ({ r, dashed: false })); });
+  if (hover?.rect) nodes.push({ r: hover.rect, dashed: true });
+  highlightRoot.replaceChildren(...nodes.slice(0, 2000).map(({ r, dashed }) => { const node = document.createElement('span'); node.style.cssText = `position:fixed;left:${r.x}px;top:${r.y}px;width:${Math.max(0, r.width)}px;height:${Math.max(0, r.height)}px;box-sizing:border-box;outline:1px ${dashed ? 'dashed' : 'solid'} Highlight;background:${dashed ? 'transparent' : 'color-mix(in srgb, Highlight 12%, transparent)'};pointer-events:none`; return node; }));
 }
 function layout(hover) {
   drawHighlights(hover);
@@ -53,11 +59,11 @@ function select(el, range, rect, channel = 'browser:selection') {
   if (tracked.size > 200) tracked.delete(tracked.keys().next().value);
   ipcRenderer.send(channel, { ...geometry(item), documentId, kind, viewport: viewport(), text,
     locator: kind === 'region' ? '' : locator(el), label: kind === 'region' ? 'Visual region' : kind === 'text' ? 'Selected text' : el?.tagName?.toLowerCase() || 'Page component', title: document.title });
-  active = false; pointer = null; updateCursor(); schedule();
+  pointer = null; consumed = true; updateCursor(); schedule();
 }
 ipcRenderer.on('browser:annotate-mode', (_e, value) => {
   active = typeof value === 'object' ? !!value.active : !!value; showAnnotations = active;
-  mode = ['component', 'text', 'region'].includes(value?.mode) ? value.mode : 'component'; pointer = null; suppressClick = false; updateCursor(); schedule();
+  pointer = null; suppressClick = false; consumed = false; updateCursor(); schedule();
 });
 ipcRenderer.on('browser:annotation-capture', (_e, value) => {
   if (value?.documentId !== documentId || typeof value?.requestId !== 'string') return;
@@ -90,17 +96,19 @@ window.addEventListener('pointerdown', (event) => {
   if (event.isTrusted) ipcRenderer.send('browser:focus');
   if (!active) return;
   pointer = { x: event.clientX, y: event.clientY, el: event.composedPath()[0] };
-  suppressClick = true;
+  suppressClick = true; consumed = false;
   event.stopImmediatePropagation();
-  // Text dragging needs Chromium's default selection, but never page handlers.
-  if (mode !== 'text') event.preventDefault();
+  if (!textualPoint(event.clientX, event.clientY)) event.preventDefault();
 }, true);
 window.addEventListener('pointermove', (event) => {
   if (!active) return;
   event.stopImmediatePropagation();
-  if (mode === 'region' && pointer) {
-    layout({ rect: { x: Math.min(pointer.x, event.clientX), y: Math.min(pointer.y, event.clientY), width: Math.abs(pointer.x - event.clientX), height: Math.abs(pointer.y - event.clientY) } });
-  } else if (mode === 'component') {
+  if (pointer) {
+    const selected = window.getSelection();
+    if (!selected?.toString().trim()) {
+      layout({ rect: { x: Math.min(pointer.x, event.clientX), y: Math.min(pointer.y, event.clientY), width: Math.abs(pointer.x - event.clientX), height: Math.abs(pointer.y - event.clientY) } });
+    }
+  } else {
     const el = event.composedPath()[0];
     if (el?.getBoundingClientRect) layout({ rect: rectangle(el.getBoundingClientRect()) });
   }
@@ -108,32 +116,36 @@ window.addEventListener('pointermove', (event) => {
 window.addEventListener('pointerup', (event) => {
   if (!active) return;
   event.stopImmediatePropagation();
-  if (mode === 'region' && pointer) {
+  const start = pointer; pointer = null;
+  if (!start) return;
+  const dx = Math.abs(event.clientX - start.x), dy = Math.abs(event.clientY - start.y);
+  const selected = window.getSelection();
+  if ((dx >= 3 || dy >= 3) && selected?.toString().trim() && selected.rangeCount) {
+    const range = selected.getRangeAt(0).cloneRange();
+    const node = range.commonAncestorContainer;
+    select(node.nodeType === 1 ? node : node.parentElement, range);
+    return;
+  }
+  if (dx >= 3 && dy >= 3) {
     event.preventDefault();
-    const rect = { x: Math.min(pointer.x, event.clientX), y: Math.min(pointer.y, event.clientY), width: Math.abs(pointer.x - event.clientX), height: Math.abs(pointer.y - event.clientY) };
+    const rect = { x: Math.min(start.x, event.clientX), y: Math.min(start.y, event.clientY), width: Math.abs(event.clientX - start.x), height: Math.abs(event.clientY - start.y) };
     if (rect.width >= 3 && rect.height >= 3) select(null, null, rect);
-  } else if (mode === 'text') {
-    const selected = window.getSelection();
-    if (selected?.toString().trim() && selected.rangeCount) {
-      const range = selected.getRangeAt(0).cloneRange();
-      const node = range.commonAncestorContainer;
-      select(node.nodeType === 1 ? node : node.parentElement, range);
-    }
   }
 }, true);
 // Prevent page click/default navigation, including the click following pointerup.
 window.addEventListener('click', (event) => {
   if (!active && !suppressClick) return;
   event.preventDefault(); event.stopImmediatePropagation(); suppressClick = false;
-  if (active && mode === 'component') select(event.composedPath()[0]);
+  if (active && !consumed) select(event.composedPath()[0]);
+  consumed = false;
 }, true);
-window.addEventListener('mousedown', (event) => { if (active) { event.stopImmediatePropagation(); if (mode !== 'text') event.preventDefault(); } }, true);
+window.addEventListener('mousedown', (event) => { if (active) { event.stopImmediatePropagation(); if (!textualPoint(event.clientX, event.clientY)) event.preventDefault(); } }, true);
 window.addEventListener('mouseup', (event) => {
   if (active || pointer || suppressClick) { event.stopImmediatePropagation(); return; }
   selectedText('browser:text-selection');
 }, true);
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && showAnnotations) { event.preventDefault(); event.stopImmediatePropagation(); active = false; showAnnotations = false; pointer = null; suppressClick = false; updateCursor(); schedule(); ipcRenderer.send('browser:annotation-end'); }
+  if (event.key === 'Escape' && showAnnotations) { event.preventDefault(); event.stopImmediatePropagation(); active = false; showAnnotations = false; pointer = null; suppressClick = false; consumed = false; updateCursor(); schedule(); ipcRenderer.send('browser:annotation-end'); }
 }, true);
 window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule);
 window.addEventListener('DOMContentLoaded', () => {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { parsePasswordCsv, createProfileStore } = require('../src/main/browser-profiles');
+const { parsePasswordCsv, createProfileStore, isGoogleHost, filterImportableCookies, detectChromiumProfiles, deriveChromeKey, decryptChromeCookie, readChromeCookieRows, cookieUrl, chromeExpiryUnix } = require('../src/main/browser-profiles');
 const { userBrowserUrl, browserUrl, cleanSelection, cleanAnnotationLayout } = require('../src/main/browser-policy');
 test('human address input resolves domains and searches without relaxing agent navigation', () => {
   assert.equal(userBrowserUrl(' youtube.com '), 'https://youtube.com/');
@@ -63,5 +63,80 @@ test('profile vault persists encrypted data, exposes only metadata, exact-matche
     assert.throws(() => restarted.get('../../other'));
     const locked = createProfileStore({ directory, safeStorage: { isEncryptionAvailable: () => false } });
     assert.throws(() => locked.importPasswords('default', 'url,username,password\nhttps://example.com,u,p'));
+    restarted.configure('default', { downloadMode: 'auto', popupMode: 'oauth', origin: 'https://meet.example', permission: 'media', value: 'allow' });
+    assert.equal(restarted.list()[0].downloadMode, 'auto');
+    assert.equal(restarted.list()[0].permissions['https://meet.example'].media, 'allow');
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('cookie import skips Google hosts from fixtures and never logs values', () => {
+  const cookies = [
+    { host_key: '.google.com', name: 'SID', value: 'must-not-copy' },
+    { host_key: 'accounts.google.com', name: 'LSID', value: 'must-not-copy' },
+    { host_key: '.youtube.com', name: 'VISITOR_INFO1_LIVE', value: 'must-not-copy' },
+    { host_key: '.googleapis.com', name: 'NID', value: 'must-not-copy' },
+    { host_key: 'google.co.uk', name: 'SID', value: 'must-not-copy' },
+    { host_key: '.example.com', name: 'session', value: 'fixture-keep' },
+    { host_key: 'news.example.org', name: 'id', value: 'fixture-keep-2' },
+  ];
+  assert.equal(isGoogleHost('.google.com'), true);
+  assert.equal(isGoogleHost('youtube.com'), true);
+  assert.equal(isGoogleHost('meet.google.com'), true);
+  assert.equal(isGoogleHost('.example.com'), false);
+  const { keep, skippedGoogle } = filterImportableCookies(cookies);
+  assert.equal(skippedGoogle, 5);
+  assert.deepEqual(keep.map((c) => c.host_key), ['.example.com', 'news.example.org']);
+  const dump = JSON.stringify({ keep: keep.map(({ host_key, name }) => ({ host_key, name })), skippedGoogle });
+  assert.equal(dump.includes('must-not-copy'), false);
+  assert.equal(dump.includes('fixture-keep'), false);
+});
+
+test('Chromium profile detection uses an injected home and never the real Chrome user-data dir', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-chrome-home-'));
+  try {
+    const cookies = path.join(home, 'Library/Application Support/Google/Chrome/Default/Network/Cookies');
+    fs.mkdirSync(path.dirname(cookies), { recursive: true });
+    fs.writeFileSync(cookies, '');
+    fs.writeFileSync(path.join(home, 'Library/Application Support/Google/Chrome/Local State'), JSON.stringify({ profile: { info_cache: { Default: { name: 'Person 1' } } } }));
+    const edge = path.join(home, 'Library/Application Support/Microsoft Edge/Default/Cookies');
+    fs.mkdirSync(path.dirname(edge), { recursive: true });
+    fs.writeFileSync(edge, '');
+    const found = detectChromiumProfiles({ home, platform: 'darwin' });
+    assert.equal(found.length, 2);
+    assert.equal(found[0].browser, 'Chrome');
+    assert.equal(found[0].name, 'Person 1');
+    assert.equal(found[1].browser, 'Edge');
+    assert.ok(found.every((p) => p.cookies.startsWith(home)));
+    assert.equal(found.some((p) => p.cookies.includes(os.homedir()) && !p.cookies.startsWith(home)), false);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('v10 cookie decrypt works on a fixture blob and refuses v20', () => {
+  const key = deriveChromeKey('fixture-password');
+  const iv = Buffer.alloc(16, ' ');
+  const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
+  const encrypted = Buffer.concat([Buffer.from('v10'), cipher.update('fixture-cookie-value'), cipher.final()]);
+  assert.equal(decryptChromeCookie(encrypted, key), 'fixture-cookie-value');
+  assert.equal(decryptChromeCookie(Buffer.concat([Buffer.from('v20'), encrypted.subarray(3)]), key), null);
+  assert.equal(cookieUrl({ host_key: '.example.com', path: '/', is_secure: 1 }), 'https://example.com/');
+  assert.ok(chromeExpiryUnix(13400000000000000) > 1_700_000_000);
+});
+
+test('Chrome cookie rows are read from a fixture database, never a live profile', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-cookie-db-'));
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const file = path.join(dir, 'Cookies');
+    const db = new DatabaseSync(file);
+    db.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('.example.com', 'session', 'plain-fixture', Buffer.alloc(0), '/', 0, 1, 1, 1);
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('.google.com', 'SID', 'google-fixture', Buffer.alloc(0), '/', 0, 1, 1, 1);
+    db.close();
+    const rows = readChromeCookieRows(file);
+    const { keep, skippedGoogle } = filterImportableCookies(rows);
+    assert.equal(keep.length, 1);
+    assert.equal(keep[0].name, 'session');
+    assert.equal(skippedGoogle, 1);
+    assert.equal(JSON.stringify(keep.map(({ host_key, name }) => ({ host_key, name }))).includes('google-fixture'), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
