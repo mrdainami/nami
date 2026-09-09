@@ -1,18 +1,25 @@
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const validPercent = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100;
 const validTime = (n) => Number.isFinite(n) && !Number.isNaN(new Date(n).valueOf());
+const PROVIDER_CARDS = new Set(['claude', 'codex', 'opencode', 'grok', 'antigravity', 'hermes', 'gemini']);
 
-// Group by explicit account identity. Never add quota windows together or infer
-// model/account identity from a user-facing label.
+// Group installed CLIs by provider. Custom feeds stay on their account id so
+// two adapters that happen to share a display name never add together.
 export function groupUsage(accounts = []) {
   const groups = new Map(), unavailable = [];
   for (const row of accounts) {
     if (row.status === 'unavailable' || (!row.accountId && !validPercent(row.remaining))) { unavailable.push(row); continue; }
-    const key = row.accountId || row.id;
+    const key = PROVIDER_CARDS.has(row.providerId) ? row.providerId : (row.accountId || row.id);
     if (!groups.has(key)) groups.set(key, { id: key, name: row.providerName || row.name, accountName: row.accountName || '', windows: [] });
     groups.get(key).windows.push(row);
   }
   return { groups: [...groups.values()], unavailable };
+}
+
+export function tightestWindow(windows = []) {
+  const reported = windows.filter((row) => row.status !== 'stale' && validPercent(row.remaining));
+  const pool = reported.length ? reported : windows;
+  return pool.reduce((best, row) => validPercent(row.remaining) && (!validPercent(best.remaining) || row.remaining < best.remaining) ? row : best);
 }
 
 function windowHtml(row) {
@@ -28,16 +35,34 @@ function windowHtml(row) {
   return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${esc(label)}${row.scopeLabel ? `<small>${esc(row.scopeLabel)}</small>` : ''}</span><span class="usage-value${row.status === 'stale' ? ' usage-stale' : ''}">${value}</span></div>${reported ? `<div class="usage-bar" role="meter" aria-label="${esc(label)} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${row.remaining}"><span style="width:${row.remaining}%"></span></div>` : ''}${metadata.length ? `<div class="usage-meta">${metadata.map((text) => `<span>${text}</span>`).join('')}</div>` : ''}</div>`;
 }
 
+function meter(row) {
+  const label = row.windowLabel || row.name;
+  return `<div class="usage-bar" role="meter" aria-label="${esc(label)} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${row.remaining}"><span style="width:${row.remaining}%"></span></div>`;
+}
+
+function cardHtml(group) {
+  const tightest = tightestWindow(group.windows);
+  const rest = group.windows.filter((row) => row !== tightest);
+  const reported = tightest.status !== 'stale' && validPercent(tightest.remaining);
+  const label = tightest.windowLabel || tightest.name;
+  const value = reported ? `${tightest.remaining}% left` : tightest.status === 'stale' ? 'Stale report' : 'Unavailable';
+  return `<section class="usage-card"><div class="usage-card-head"><strong>${esc(group.name)}</strong><span class="usage-value${tightest.status === 'stale' ? ' usage-stale' : ''}">${esc(label)} · ${value}</span></div>${reported ? meter(tightest) : ''}${rest.length ? `<details class="usage-more"><summary>Other windows</summary>${rest.map(windowHtml).join('')}</details>` : ''}</section>`;
+}
+
+function quietCard(row) {
+  return `<section class="usage-card usage-card--quiet"><div class="usage-card-head"><strong>${esc(row.providerName || row.name)}</strong><span class="usage-value">${esc(row.detail || 'No quota on this Mac yet')}</span></div></section>`;
+}
+
 export function usageContent(result = {}) {
   const { groups, unavailable } = groupUsage(result.accounts);
-  return `<div class="usage-tools"><p class="bs-note">Reported allowance by account. Limits may be shared across models.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
-    ${groups.map((group) => `<section class="usage-group"><div class="usage-group-head"><strong>${esc(group.name)}</strong><small>${esc(group.accountName)}</small></div>${group.windows.map(windowHtml).join('')}</section>`).join('')}
-    ${!groups.length ? '<p class="bs-note">No current allowance reports. Connect a supported usage source below.</p>' : ''}
-    ${unavailable.length ? `<details class="bs-details usage-unavailable"><summary>Unavailable providers (${unavailable.length})</summary><p class="bs-note">Unavailable does not mean zero remaining.</p>${unavailable.map((row) => `<div class="bs-row"><div class="bs-row-label"><strong>${esc(row.providerName || row.name)}</strong><small>${esc(row.detail || 'No connected quota source.')}</small></div></div>`).join('')}<button class="shortcuts-link" id="usage-open-setup">Set up a usage source</button></details>` : ''}
-    <details class="bs-details usage-setup" id="usage-setup"><summary>Usage sources &amp; setup</summary>
-      <p class="bs-note">Nami reads reported limits when you open Usage or refresh. It does not estimate remaining allowance from token counts.</p>
-      ${result.claudeCommand ? '<div class="bs-section"><h3 class="field-label">Claude Code</h3><p class="bs-note">Eligible plans report limits through Claude’s status line after an API response. Add this command to your status-line settings, or integrate it with your existing script.</p><button class="btn btn--small" id="usage-copy-claude">Copy status-line command</button></div>' : ''}
-      ${result.feedDirectory ? `<div class="bs-section"><h3 class="field-label">Other providers</h3><p class="bs-note">Use an adapter that reports your provider’s quota. Write one JSON feed per account and refresh it within five minutes.</p><pre>${esc(result.feedDirectory)}/my-provider.json</pre><button class="btn btn--small" id="usage-copy-format">Copy feed format</button></div>` : ''}
+  return `<div class="usage-tools"><p class="bs-note">Reported allowance by installed CLI. Limits may be shared across models.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
+    ${groups.map(cardHtml).join('')}
+    ${unavailable.map(quietCard).join('')}
+    ${!groups.length && !unavailable.length ? '<p class="bs-note">No installed CLI reported a quota window.</p>' : ''}
+    <details class="bs-details usage-advanced" id="usage-advanced"><summary>Advanced</summary>
+      <p class="bs-note">Optional adapter for providers that do not keep a local quota on this Mac. Nami does not estimate remaining allowance from token counts.</p>
+      ${result.claudeCommand ? '<div class="bs-section"><h3 class="field-label">Claude status line</h3><p class="bs-note">Eligible plans can still report limits through Claude’s status line after an API response.</p><button class="btn btn--small" id="usage-copy-claude">Copy status-line command</button></div>' : ''}
+      ${result.feedDirectory ? `<div class="bs-section"><h3 class="field-label">JSON feed</h3><p class="bs-note">Write one JSON feed per account and refresh it within five minutes.</p><pre>${esc(result.feedDirectory)}/my-provider.json</pre><button class="btn btn--small" id="usage-copy-format">Copy feed format</button></div>` : ''}
     </details>`;
 }
 
@@ -66,8 +91,6 @@ export async function wireUsagePane(modal, { api, toast }) {
     if (claude) claude.onclick = () => copy(result.claudeCommand);
     const format = host.querySelector('#usage-copy-format');
     if (format) format.onclick = () => copy(JSON.stringify({ name: 'My provider', source: 'Provider quota API', at: Date.now(), windows: [{ label: 'Weekly', remainingPercent: null, resetsAt: null }] }, null, 2), 'Copied. Use reported percentages and timestamps in milliseconds.');
-    const setupLink = host.querySelector('#usage-open-setup');
-    if (setupLink) setupLink.onclick = () => { const setup = host.querySelector('#usage-setup'); setup.open = true; setup.querySelector('summary').focus(); setup.scrollIntoView({ block: 'nearest' }); };
   } catch (_) {
     if (!current()) return;
     host.innerHTML = '<p class="bs-note" role="alert">Could not read usage.</p><button class="btn btn--small">Retry</button>';
