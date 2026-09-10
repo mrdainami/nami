@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
+const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
@@ -160,7 +160,16 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
     wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
     wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
-    wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
+    wc.on('did-fail-load', (_event, code, description, failedUrl, main) => {
+      if (!main) return;
+      // Let the commit settle first: getURL() during the event can still name
+      // the page that was there before the click.
+      setImmediate(() => {
+        if (wc.isDestroyed()) return;
+        const message = loadFailureMessage({ code, description, failedUrl, currentUrl: wc.getURL() });
+        if (message) send(e, 'error', { error: message });
+      });
+    });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
     wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
     if (url === 'about:blank' && !args.filePath) {
