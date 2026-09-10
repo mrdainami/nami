@@ -1,7 +1,7 @@
 {
   "name": "nami",
   "productName": "Nami",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Nami — AI agent workbench, by Dainami AI. Open a folder, run Claude Code and other agents as paper tiles.",
   "main": "src/main/main.js",
   "author": "Calvin Hia",
