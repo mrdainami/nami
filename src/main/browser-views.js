@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access } = require('./browser-policy');
+const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
@@ -160,7 +160,16 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
     wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
     wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
-    wc.on('did-fail-load', (_event, code, description, _url, main) => { if (main && code !== -3) send(e, 'error', { error: description }); });
+    wc.on('did-fail-load', (_event, code, description, failedUrl, main) => {
+      if (!main) return;
+      // Let the commit settle first: getURL() during the event can still name
+      // the page that was there before the click.
+      setImmediate(() => {
+        if (wc.isDestroyed()) return;
+        const message = loadFailureMessage({ code, description, failedUrl, currentUrl: wc.getURL() });
+        if (message) send(e, 'error', { error: message });
+      });
+    });
     wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
     wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
     if (url === 'about:blank' && !args.filePath) {
@@ -360,16 +369,21 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const record = getPartition(w, profileId);
         const sources = detectChromiumProfiles();
-        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chrome or Edge profile was found.' };
+        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chromium browser profile was found.' };
+        // One profile, named. This used to hand every detected source to the
+        // importer at once, which merged whatever the machine happened to have
+        // into a single Nami profile — a blast radius that grew the moment more
+        // browsers were detected. Pick the one asked for, or the first.
+        const source = sources[Number(args.sourceIndex)] || sources[0];
         const { execFileSync } = require('node:child_process');
         const result = await importChromiumCookies({
           session: record.session,
-          sources,
-          passwordFor: (source) => chromeKeychainPassword(source.browser, execFileSync),
+          sources: [source],
+          passwordFor: () => chromeKeychainPassword(source.browser, execFileSync),
         });
         const message = result.imported
-          ? 'Copied ' + result.imported + ' cookies into this Nami profile. Google cookies skipped. Chrome is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
-          : 'Chrome’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. Chrome is unchanged.';
+          ? 'Copied ' + result.imported + ' cookies from ' + source.browser + ' into this Nami profile. Google cookies skipped. ' + source.browser + ' is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
+          : source.browser + '’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. ' + source.browser + ' is unchanged.';
         return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
       });
     } else if (action === 'new-tab') {
@@ -381,38 +395,72 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = await mutateProfile(profileId, async () => {
         const sources = detectChromiumProfiles();
         const source = sources[Number(args.sourceIndex)] || sources[0];
-        if (!source) return { message: 'No Chrome or Edge profile was found.' };
+        if (!source) return { message: 'No Chrome, Edge, Brave, Arc, Vivaldi or Opera profile was found.' };
         const { execFileSync } = require('node:child_process');
         const password = chromeKeychainPassword(source.browser, execFileSync);
         const key = password ? deriveChromeKey(password) : null;
         const record = getPartition(w, profileId);
         const parts = [];
+        // A failure carries its own reason. The old code reduced every one of
+        // them to `locked`, so a read that threw for an unrelated reason still
+        // told you to quit the browser — advice that could not work, and that
+        // hid the real fault for as long as anyone believed it.
+        let locked = false;
+        const reasons = [];
+        const note = (label, result) => {
+          if (!result.locked && !result.error) return false;
+          locked = locked || !!result.locked;
+          if (result.error) reasons.push(label + ': ' + result.error);
+          parts.push(label + (result.locked ? ' locked' : ' could not be read'));
+          return true;
+        };
         let cookies = { imported: 0, skippedV20: 0, locked: false };
         if (args.cookies !== false && source.cookies) {
           cookies = await importChromiumCookies({ session: record.session, sources: [source], passwordFor: () => password, includeGoogle: true });
-          if (cookies.locked) parts.push('cookies locked');
-          else if (cookies.imported) parts.push(cookies.imported + ' cookies');
-          else if (cookies.skippedV20) parts.push('cookies encrypted by Chrome');
-          else parts.push('no cookies');
+          if (!note('cookies', cookies)) {
+            if (cookies.imported) parts.push(cookies.imported + ' cookies');
+            else if (cookies.skippedV20) parts.push('cookies encrypted by ' + source.browser);
+            else parts.push('no cookies');
+          }
         }
         let passwords = { imported: 0 };
         if (args.passwords !== false && source.logins) {
           const parsed = readChromeLogins(source.logins, key);
-          if (parsed.locked) parts.push('passwords locked');
-          else { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
+          if (!note('passwords', parsed)) { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
         }
         let history = { imported: 0 };
         if (args.history !== false && source.history) {
           const parsed = readChromeHistory(source.history);
-          if (parsed.locked) parts.push('history locked');
-          else { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
+          if (!note('history', parsed)) { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
         }
         let extra = '';
-        if (parts.some((p) => /locked/.test(p))) extra = ' Quit Chrome from the menu bar (Chrome → Quit) and try again.';
-        else if (cookies.skippedV20) extra = ' Chrome encrypts cookies on this Mac, so those could not be copied.';
+        if (locked) extra = ' Quit ' + source.browser + ' from the menu bar and try again.';
+        else if (reasons.length) extra = ' ' + reasons[0];
+        // A cookie that decrypted and was then refused by the browser is its
+        // own outcome. Folding it in with "encrypted" is how an import came to
+        // report 3,866 cookies read, write 31 of them, and say nothing.
+        else if (cookies.rejected) extra = ' ' + cookies.rejected + ' cookies were refused by the browser and not copied.';
+        else if (cookies.skippedV20) extra = ' ' + source.browser + ' encrypts these cookies on this Mac, so they could not be copied.';
         else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
         return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
       });
+    } else if (action === 'contents') {
+      // What is actually in this profile, counted from the live session rather
+      // than from the file on disk. Session cookies — which is what most
+      // sign-ins are — never reach the file, so a count read from SQLite
+      // reports a profile as emptier than it is and sends everyone hunting a
+      // bug that is not there.
+      const record = getPartition(w, profileId);
+      let cookies = 0, session = 0;
+      try {
+        const all = await record.session.cookies.get({});
+        cookies = all.length;
+        session = all.filter((c) => !c.expirationDate).length;
+      } catch {}
+      let passwords = 0, history = 0;
+      try { passwords = profiles.credentials(profileId).length; } catch {}
+      try { history = (profiles.get(profileId).history || []).length; } catch {}
+      output.contents = { cookies, session, passwords, history };
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
     return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });

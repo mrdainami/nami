@@ -99,3 +99,10 @@ body[data-theme="operator"] .browser-menu { box-shadow:none; }
 .source-inspect svg { width:13px; height:13px; flex:none; }
 .source-chip:focus-within { border-color:var(--green); }
 body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; }
+/* What is in the profile, kept on screen rather than flashed. Quiet, but never
+   so quiet it cannot be read: this is the only place an import reports what it
+   actually did. */
+.browser-profile-contents {
+  font-size: 11px; color: var(--muted); padding: 6px 0 2px;
+  border-top: 1px dashed var(--dash); margin-top: 8px;
+}

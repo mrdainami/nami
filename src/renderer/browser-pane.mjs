@@ -139,10 +139,24 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host);
     const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
     const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
+    // What is in this profile, said plainly and left on screen. Counted from
+    // the live session, because session cookies — most sign-ins — never reach
+    // the file on disk, and a count taken from there reads as empty when it is
+    // not. Without this line an import has no visible result at all.
+    const contents=q('.browser-profile-contents',host);
+    (async()=>{
+      const out=await api.browserProfiles({action:'contents',profileId:chosen.id}).catch(()=>null);
+      if(!contents.isConnected)return;
+      const c=out&&out.contents;
+      if(!c){contents.textContent='Could not read what is in this profile.';return;}
+      const n=(v,one,many)=>v.toLocaleString()+' '+(v===1?one:many);
+      contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+c.session+' sign-in)':''),
+        n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
+    })();
     q('#profile-choice',host).onchange=e=>show({...o,profileId:e.target.value});
     const nameForm=(action)=>{result.innerHTML=`<label class="field-label">Profile name<input id="profile-name" value="${action==='rename'?esc(chosen.name):''}"></label><button class="btn btn--small" id="profile-name-save">Save</button>`;q('#profile-name-save',result).onclick=async()=>{const out=await run({action,name:q('#profile-name',result).value});if(out)show({...o});};q('input',result).focus();};
     q('#profile-new',host).onclick=()=>nameForm('create');q('#profile-rename',host).onclick=()=>nameForm('rename');

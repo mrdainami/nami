@@ -53,6 +53,35 @@ function cleanAnnotationLayout(value) {
     hover: value.hover ? { rect: cleanRect(value.hover.rect) } : null,
     selections: Array.isArray(value.selections) ? value.selections.slice(0, 200).filter((s) => s && typeof s === 'object').map((s) => ({ selectionId: clean(s.selectionId, 100), stale: !!s.stale, rect: cleanRect(s.rect), rects: Array.isArray(s.rects) ? s.rects.slice(0, 100).map(cleanRect).filter(Boolean) : [] })) : [] };
 }
+// A failed load is only news if it left you looking at the failure. Most of
+// the time it did not: a link to an app scheme (mailto:, slack:), a redirect
+// that superseded itself, a resource the site blocked — Chromium reports each
+// as did-fail-load on the main frame, and the page you were reading is still
+// right there underneath. Showing a bar for those is a popup that says
+// "error" over a browser that works, which is exactly how it read.
+//
+// So the bar appears only when the tab actually ended up on the URL that
+// failed, and it says what happened in words rather than a Chromium constant.
+const LOAD_ERRORS = {
+  '-105': 'Can\u2019t find that site.',
+  '-106': 'No internet connection.',
+  '-118': 'That site took too long to answer.',
+  '-102': 'That site refused the connection.',
+  '-100': 'The connection was closed.',
+  '-501': 'That site\u2019s security certificate is not trusted.',
+  '-200': 'That site\u2019s security certificate is not trusted.',
+  '-302': '',   // unknown scheme: the link opens elsewhere, nothing to say
+  '-3':   '',   // aborted: superseded by another navigation
+};
+function loadFailureMessage({ code, description, failedUrl, currentUrl }) {
+  const key = String(code);
+  if (key in LOAD_ERRORS) return LOAD_ERRORS[key] || null;
+  // Still on the page you were on? Then the failure is not what you are looking at.
+  if (currentUrl && failedUrl && currentUrl !== failedUrl) return null;
+  const text = String(description || '').replace(/^ERR_/, '').replace(/_/g, ' ').toLowerCase();
+  return text ? 'This page could not load (' + text + ').' : 'This page could not load.';
+}
+
 class Access {
   constructor() { this.sessions = new Map(); }
   register(id, windowId, title = '') {
@@ -71,4 +100,4 @@ class Access {
   allows(id, view) { return !!this.sessions.get(id)?.views.has(view); }
   removeWindow(id) { for (const [key, s] of this.sessions) if (s.windowId === id) this.sessions.delete(key); }
 }
-module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, isBlankTab, cleanSelection, Access, clean };
+module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, isBlankTab, cleanSelection, Access, clean, loadFailureMessage };

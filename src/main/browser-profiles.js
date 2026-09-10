@@ -62,35 +62,81 @@ function chromeBlobPrefix(encrypted) {
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
   return buf.subarray(0, 3).toString();
 }
-function decryptChromeCookie(encrypted, key) {
+function decryptChromeBlob(encrypted, key) {
   if (!encrypted || encrypted.length < 4) return null;
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
   if (chromeBlobPrefix(buf) !== 'v10') return null;
   try {
     const decipher = crypto.createDecipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
-    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]).toString('utf8');
+    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]);
   } catch { return null; }
 }
+// Chrome 130 and later prepend the SHA-256 of the cookie's domain to the
+// plaintext before encrypting it, so a decrypted cookie is 32 bytes of hash
+// followed by the value. Hand that whole thing to Chromium and it rejects the
+// cookie as malformed — which is how an import could report success and leave
+// you signed out: on this Mac 3,866 cookies decrypted and 31 survived the write.
+//
+// Passwords are not wrapped this way (their blobs start at 16 bytes, so there
+// is no room for a prefix), which is why this belongs to the cookie path alone.
+//
+// The prefix is detected, never assumed, so a profile written by an older
+// Chrome still imports: a SHA-256 is 32 bytes of binary, and the chance of all
+// 32 landing inside printable ASCII is about one in 10^14, while a cookie value
+// is printable by specification.
+function stripCookieDomainHash(buf) {
+  if (buf.length < 32) return buf;
+  for (let i = 0; i < 32; i++) { const b = buf[i]; if (b < 0x20 || b > 0x7e) return buf.subarray(32); }
+  return buf;
+}
+function decryptChromeCookie(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? buf.toString('utf8') : null;
+}
+function decryptChromeCookieValue(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? stripCookieDomainHash(buf).toString('utf8') : null;
+}
 function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
+  // Every browser here is Chromium underneath, which means one profile layout,
+  // one cookie schema and one reader. Listing only Google's own builds meant a
+  // Brave or Arc user was told no profile existed, when the same code would
+  // have read theirs unchanged.
   const roots = platform === 'darwin' ? [
     [path.join(home, 'Library/Application Support/Google/Chrome'), 'Chrome'],
     [path.join(home, 'Library/Application Support/Google/Chrome Beta'), 'Chrome Beta'],
     [path.join(home, 'Library/Application Support/Google/Chrome Canary'), 'Chrome Canary'],
     [path.join(home, 'Library/Application Support/Microsoft Edge'), 'Edge'],
     [path.join(home, 'Library/Application Support/Chromium'), 'Chromium'],
+    [path.join(home, 'Library/Application Support/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, 'Library/Application Support/Arc/User Data'), 'Arc'],
+    [path.join(home, 'Library/Application Support/Vivaldi'), 'Vivaldi'],
+    [path.join(home, 'Library/Application Support/com.operasoftware.Opera'), 'Opera'],
   ] : platform === 'win32' ? [
     [path.join(home, 'AppData/Local/Google/Chrome/User Data'), 'Chrome'],
     [path.join(home, 'AppData/Local/Microsoft/Edge/User Data'), 'Edge'],
+    [path.join(home, 'AppData/Local/BraveSoftware/Brave-Browser/User Data'), 'Brave'],
+    [path.join(home, 'AppData/Local/Vivaldi/User Data'), 'Vivaldi'],
+    [path.join(home, 'AppData/Roaming/Opera Software/Opera Stable'), 'Opera'],
   ] : [
     [path.join(home, '.config/google-chrome'), 'Chrome'],
     [path.join(home, '.config/microsoft-edge'), 'Edge'],
+    [path.join(home, '.config/chromium'), 'Chromium'],
+    [path.join(home, '.config/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, '.config/vivaldi'), 'Vivaldi'],
+    [path.join(home, '.config/opera'), 'Opera'],
   ];
   const found = [];
   for (const [root, browser] of roots) {
     if (!exists(root)) continue;
     let info = {};
     try { info = JSON.parse(readFile(path.join(root, 'Local State'))).profile?.info_cache || {}; } catch {}
-    const dirs = Object.keys(info).length ? Object.keys(info) : ['Default'];
+    // '.' is not decoration: Opera's data root IS its profile — there is no
+    // Default/ under it — so a list that only ever looks one level down finds
+    // nothing and reports a browser it has just offered as missing. Roots that
+    // do use subfolders keep theirs; the root entry then holds no databases and
+    // is dropped by the check below at no cost.
+    const dirs = (Object.keys(info).length ? Object.keys(info) : ['Default']).concat('.');
     for (const dir of dirs) {
       const directory = path.join(root, dir);
       const cookies = exists(path.join(directory, 'Network/Cookies')) ? path.join(directory, 'Network/Cookies')
@@ -98,7 +144,8 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
       const logins = exists(path.join(directory, 'Login Data')) ? path.join(directory, 'Login Data') : '';
       const history = exists(path.join(directory, 'History')) ? path.join(directory, 'History') : '';
       if (!cookies && !logins && !history) continue;
-      found.push({ browser, name: info[dir]?.name || dir, directory, cookies, logins, history });
+      if (found.some((f) => f.directory === directory)) continue;
+      found.push({ browser, name: dir === '.' ? browser : (info[dir]?.name || dir), directory, cookies, logins, history });
     }
   }
   return found;
@@ -111,11 +158,32 @@ function cookieImportStatus(options) {
   const sources = detectChromiumProfiles(options);
   return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
 }
+// Chrome counts time in microseconds since 1601, so a cookie expiry is a
+// 17-digit integer — bigger than Number.MAX_SAFE_INTEGER. node:sqlite will not
+// guess: it throws ERR_OUT_OF_RANGE rather than hand back a number it cannot
+// represent, and it throws on the whole statement, before the first row. That
+// is why cookies and history imported nothing while passwords (all TEXT and
+// BLOB, no timestamps in the query) came through perfectly.
+//
+// So read integers as BigInt and convert once, here. Microsecond precision is
+// not something a cookie expiry needs, and converting at the boundary is
+// cheaper and safer than auditing every consumer for BigInt arithmetic.
+function normaliseRow(row) {
+  for (const key of Object.keys(row)) if (typeof row[key] === 'bigint') row[key] = Number(row[key]);
+  return row;
+}
 function readSqliteRows(file, sql) {
   const { DatabaseSync } = require('node:sqlite');
-  const open = (target) => {
-    const db = new DatabaseSync(target, { readOnly: true });
-    try { return db.prepare(sql).all(); } finally { db.close(); }
+  // The temp copy is disposable, so it opens read-write: a read-only
+  // connection cannot replay a -wal, which meant the copy path failed on any
+  // Mac where Chrome was mid-write and fell back to the live file for no gain.
+  const open = (target, readOnly) => {
+    const db = new DatabaseSync(target, { readOnly });
+    try {
+      const statement = db.prepare(sql);
+      statement.setReadBigInts(true);
+      return statement.all().map(normaliseRow);
+    } finally { db.close(); }
   };
   const tmp = file + '.nami-read-' + process.pid;
   try {
@@ -123,15 +191,30 @@ function readSqliteRows(file, sql) {
     for (const extra of ['-wal', '-shm']) {
       try { if (fs.existsSync(file + extra)) fs.copyFileSync(file + extra, tmp + extra); } catch {}
     }
-    try { return open(tmp); }
+    try { return open(tmp, false); }
     finally {
       fs.rmSync(tmp, { force: true });
       fs.rmSync(tmp + '-wal', { force: true });
       fs.rmSync(tmp + '-shm', { force: true });
     }
   } catch {
-    return open(file);
+    return open(file, true);
   }
+}
+// A lock is what the message used to blame for everything, so name it
+// precisely: the profile is genuinely held open somewhere else. Anything else
+// keeps its own reason and its own sentence.
+function isLockError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  // EACCES and EPERM are deliberately absent. They mean the file cannot be read
+  // at all — a sandbox or TCC denial — and telling someone to quit their
+  // browser over one is the same wrong advice this whole change removes. They
+  // carry their own message instead. A Windows sharing violation is EBUSY.
+  return code === 'EBUSY' || /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(code + ' ' + message);
+}
+function readFailure(error) {
+  return { locked: isLockError(error), error: String(error?.message || error || 'Could not read the file.') };
 }
 function chromeTimeToMs(value) {
   const n = Number(value);
@@ -141,7 +224,7 @@ function chromeTimeToMs(value) {
 function readChromeLogins(file, key) {
   let rows = [];
   try { rows = readSqliteRows(file, 'SELECT origin_url, username_value, password_value FROM logins'); }
-  catch { return { entries: [], skipped: 0, locked: true }; }
+  catch (error) { return { entries: [], skipped: 0, ...readFailure(error) }; }
   const entries = []; let skipped = 0;
   for (const row of rows) {
     const password = key ? decryptChromeCookie(row.password_value, key) : (typeof row.password_value === 'string' ? row.password_value : null);
@@ -155,7 +238,7 @@ function readChromeLogins(file, key) {
 function readChromeHistory(file) {
   let rows = [];
   try { rows = readSqliteRows(file, 'SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 5000'); }
-  catch { return { entries: [], locked: true }; }
+  catch (error) { return { entries: [], ...readFailure(error) }; }
   return {
     locked: false,
     entries: rows.flatMap((row) => {
@@ -166,19 +249,67 @@ function readChromeHistory(file) {
     }),
   };
 }
+// Each Chromium build keeps its own storage key under its own Keychain item —
+// "Brave Safe Storage", "Opera Safe Storage" and the rest all sit as separate
+// items on a Mac with several installed. Handing Brave's cookies Chrome's key
+// is worse than having no key at all: the key is truthy, so the "allow
+// Keychain access" hint is suppressed, every v10 blob then fails its padding
+// check inside decryptChromeCookie, and the import reports a cheerful zero.
+//
+// The Chrome channels are deliberately absent from this map: Beta and Canary
+// share Google Chrome's item, which is what the default already gives them.
+const SAFE_STORAGE = {
+  Edge: 'Microsoft Edge',
+  Brave: 'Brave',
+  Vivaldi: 'Vivaldi',
+  Opera: 'Opera',
+  Arc: 'Arc',
+  Chromium: 'Chromium',
+};
 function chromeKeychainPassword(browser, execFileSync) {
   if (typeof execFileSync !== 'function') return null;
-  const edge = browser === 'Edge';
+  const label = SAFE_STORAGE[browser] || 'Chrome';
   try {
-    return String(execFileSync('security', ['find-generic-password', '-w', '-s', edge ? 'Microsoft Edge Safe Storage' : 'Chrome Safe Storage', '-a', edge ? 'Microsoft Edge' : 'Chrome'], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
+    return String(execFileSync('security', ['find-generic-password', '-w', '-s', label + ' Safe Storage', '-a', label], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
   } catch { return null; }
 }
+// How a Chrome row becomes a cookie Chromium will actually accept.
+//
+// The whole of a sign-in lives or dies on one field. Chrome marks a cookie
+// host-only by storing its host WITHOUT a leading dot, and a host-only cookie
+// must be written with no domain at all — supplying one is not a widening, it
+// is a different cookie, and Chromium refuses it. Sending `domain` on every row
+// therefore lost every host-only cookie there was: on this Mac that was 585 of
+// 587, and it is exactly the set that keeps you logged in. GitHub arrived with
+// _octo, dotcom_user and logged_in — its three dotted cookies — while
+// user_session, _gh_sess and _device_id, all host-only, were dropped in silence.
+//
+// A __Host- cookie is stricter still: the prefix is a promise that it carries no
+// domain, sits at the root, and is secure. Break any of the three and it is
+// rejected outright.
+function cookieOptions(cookie) {
+  const host = String(cookie.host_key || '');
+  const hostPrefixed = String(cookie.name || '').startsWith('__Host-');
+  const sameSite = { 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified';
+  const options = {
+    url: cookieUrl(cookie), name: cookie.name, value: cookie.value,
+    path: hostPrefixed ? '/' : (cookie.path || '/'),
+    // SameSite=None is only legal on a secure cookie; Chromium rejects the pair
+    // rather than repairing it, so the flag follows the value it needs.
+    secure: hostPrefixed || sameSite === 'no_restriction' ? true : !!cookie.is_secure,
+    httpOnly: !!cookie.is_httponly,
+    expirationDate: chromeExpiryUnix(cookie.expires_utc),
+    sameSite,
+  };
+  if (host.startsWith('.') && !hostPrefixed) options.domain = host;
+  return options;
+}
 async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
-  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, locked = false, decryptUnavailable = false;
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, rejected = 0, locked = false, decryptUnavailable = false, error = null;
   for (const source of sources || []) {
     let rows = [];
     try { rows = readChromeCookieRows(source.cookies); }
-    catch { locked = true; decryptUnavailable = true; continue; }
+    catch (failure) { const f = readFailure(failure); locked = locked || f.locked; error = error || f.error; continue; }
     const password = passwordFor ? passwordFor(source) : null;
     const key = password ? deriveChromeKey(password) : null;
     const ready = [];
@@ -186,24 +317,19 @@ async function importChromiumCookies({ session, sources, passwordFor, includeGoo
       if (!includeGoogle && isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
       const prefix = chromeBlobPrefix(row.encrypted_value);
       if (prefix === 'v20') { skippedV20++; skippedEncrypted++; continue; }
-      const value = row.value || (key ? decryptChromeCookie(row.encrypted_value, key) : null);
+      const value = row.value || (key ? decryptChromeCookieValue(row.encrypted_value, key) : null);
       if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
       ready.push({ ...row, value });
     }
     for (const cookie of ready.slice(0, 5000)) {
       try {
-        await session.cookies.set({
-          url: cookieUrl(cookie), name: cookie.name, value: cookie.value, domain: cookie.host_key,
-          path: cookie.path || '/', secure: !!cookie.is_secure, httpOnly: !!cookie.is_httponly,
-          expirationDate: chromeExpiryUnix(cookie.expires_utc),
-          sameSite: ({ 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified'),
-        });
+        await session.cookies.set(cookieOptions(cookie));
         imported++;
-      } catch { skippedEncrypted++; }
+      } catch { rejected++; }
     }
   }
   log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
-  return { imported, skippedGoogle, skippedEncrypted, skippedV20, locked, decryptUnavailable };
+  return { imported, skippedGoogle, skippedEncrypted, skippedV20, rejected, locked, decryptUnavailable, error };
 }
 function parsePasswordCsv(text) {
   if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
@@ -320,7 +446,7 @@ function createProfileStore({ directory, safeStorage }) {
 }
 module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
-  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie,
+  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
-  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix,
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure,
 };
