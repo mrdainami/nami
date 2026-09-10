@@ -22,17 +22,22 @@ export function tightestWindow(windows = []) {
   return pool.reduce((best, row) => validPercent(row.remaining) && (!validPercent(best.remaining) || row.remaining < best.remaining) ? row : best);
 }
 
-function windowHtml(row) {
+function metaHtml(row) {
   const reported = row.status !== 'stale' && validPercent(row.remaining);
-  const label = row.windowLabel || row.name;
-  const value = reported ? `${row.remaining}% left` : row.status === 'stale' ? 'Stale report' : 'Unavailable';
   const metadata = [];
   if (row.source) metadata.push(esc(row.source));
   if (validTime(row.resetsAt)) metadata.push('Resets ' + esc(new Date(row.resetsAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })));
   if (validTime(row.checkedAt)) metadata.push('Checked ' + esc(new Date(row.checkedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
   if (!reported && row.detail) metadata.push(esc(row.detail));
   if (!row.source && reported && row.detail) metadata.push(esc(row.detail));
-  return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${esc(label)}${row.scopeLabel ? `<small>${esc(row.scopeLabel)}</small>` : ''}</span><span class="usage-value${row.status === 'stale' ? ' usage-stale' : ''}">${value}</span></div>${reported ? `<div class="usage-bar" role="meter" aria-label="${esc(label)} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${row.remaining}"><span style="width:${row.remaining}%"></span></div>` : ''}${metadata.length ? `<div class="usage-meta">${metadata.map((text) => `<span>${text}</span>`).join('')}</div>` : ''}</div>`;
+  return metadata.length ? `<div class="usage-meta">${metadata.map((text) => `<span>${text}</span>`).join('')}</div>` : '';
+}
+
+function windowHtml(row) {
+  const reported = row.status !== 'stale' && validPercent(row.remaining);
+  const label = row.windowLabel || row.name;
+  const value = reported ? `${row.remaining}% left` : row.status === 'stale' ? 'Stale report' : 'Unavailable';
+  return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${esc(label)}${row.scopeLabel ? `<small>${esc(row.scopeLabel)}</small>` : ''}</span><span class="usage-value${row.status === 'stale' ? ' usage-stale' : ''}">${value}</span></div>${reported ? meter(row) : ''}${metaHtml(row)}</div>`;
 }
 
 function meter(row) {
@@ -40,13 +45,27 @@ function meter(row) {
   return `<div class="usage-bar" role="meter" aria-label="${esc(label)} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${row.remaining}"><span style="width:${row.remaining}%"></span></div>`;
 }
 
+
+const labelOf = (row) => row.windowLabel || row.name;
+// A window is folded away only when it is genuinely secondary: a spend limit,
+// or a window that has expired or has no number. Everything a CLI is currently
+// counting against stays on the card, in the open.
+const secondaryWindow = (row) => row.windowKey === 'spend_limit' || row.status === 'stale' || !validPercent(row.remaining);
+const byTightest = (a, b) => (validPercent(a.remaining) ? a.remaining : Infinity) - (validPercent(b.remaining) ? b.remaining : Infinity);
+
+function foldedSummary(rows) {
+  const names = rows.map(labelOf);
+  return names.length <= 3 ? names.join(' · ') : `${names.slice(0, 2).join(' · ')} and ${names.length - 2} more`;
+}
+
 function cardHtml(group) {
   const tightest = tightestWindow(group.windows);
-  const rest = group.windows.filter((row) => row !== tightest);
+  const rest = group.windows.filter((row) => row !== tightest).sort(byTightest);
+  const open = rest.filter((row) => !secondaryWindow(row));
+  const folded = rest.filter(secondaryWindow);
   const reported = tightest.status !== 'stale' && validPercent(tightest.remaining);
-  const label = tightest.windowLabel || tightest.name;
   const value = reported ? `${tightest.remaining}% left` : tightest.status === 'stale' ? 'Stale report' : 'Unavailable';
-  return `<section class="usage-card"><div class="usage-card-head"><strong>${esc(group.name)}</strong><span class="usage-value${tightest.status === 'stale' ? ' usage-stale' : ''}">${esc(label)} · ${value}</span></div>${reported ? meter(tightest) : ''}${rest.length ? `<details class="usage-more"><summary>Other windows</summary>${rest.map(windowHtml).join('')}</details>` : ''}</section>`;
+  return `<section class="usage-card"><div class="usage-card-head"><strong>${esc(group.name)}</strong><span class="usage-value${tightest.status === 'stale' ? ' usage-stale' : ''}">${esc(labelOf(tightest))} · ${value}</span></div>${reported ? meter(tightest) : ''}${metaHtml(tightest)}${open.length ? `<div class="usage-windows">${open.map(windowHtml).join('')}</div>` : ''}${folded.length ? `<details class="usage-more"><summary>${esc(foldedSummary(folded))}</summary>${folded.map(windowHtml).join('')}</details>` : ''}</section>`;
 }
 
 function quietCard(row) {

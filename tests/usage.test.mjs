@@ -90,7 +90,7 @@ test('Gemini remainingFraction of 0 is a real empty window, not unknown', () => 
   assert.equal(rows[0].status, 'reported');
 });
 
-test('readUsage prefers Claude local state and keeps the status-line feed as a supplement', async () => {
+test('readUsage merges Claude local state with the status-line feed, named as the CLI names them', async () => {
   const home = tmpDir('nami-usage-home-');
   const directory = tmpDir('nami-usage-feeds-');
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({
@@ -107,7 +107,7 @@ test('readUsage prefers Claude local state and keeps the status-line feed as a s
     agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
     directory, home, now: 1000000,
   });
-  assert.deepEqual(result.accounts.map((r) => r.windowLabel).sort(), ['5 hours', 'seven day']);
+  assert.deepEqual(result.accounts.map((r) => r.windowLabel).sort(), ['All models · 7 days', 'Session · 5 hours']);
   assert.deepEqual(result.accounts.map((r) => r.remaining).sort(), [60, 90]);
   assert.equal(result.accounts.every((r) => r.providerId === 'claude'), true);
 });

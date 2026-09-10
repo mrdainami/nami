@@ -12,18 +12,38 @@ function parseResets(value) {
   if (typeof value === 'string') { const t = Date.parse(value); return Number.isFinite(t) ? t : null; }
   return null;
 }
-function mergeWindows(primary, extra) {
-  const seen = new Set(primary.map((row) => row.windowKey || row.id)), out = primary.slice();
-  for (const row of extra) { const key = row.windowKey || row.id; if (seen.has(key)) continue; seen.add(key); out.push(row); }
+// Two reports of the same window: keep the one that is actually a number, and
+// among equals the one checked most recently. Neither source outranks the other
+// by being read first.
+function freshest(a, b) {
+  const known = (row) => typeof row.remaining === 'number' && Number.isFinite(row.remaining);
+  if (known(a) !== known(b)) return known(a) ? a : b;
+  const at = Number.isFinite(a.checkedAt) ? a.checkedAt : -Infinity;
+  const bt = Number.isFinite(b.checkedAt) ? b.checkedAt : -Infinity;
+  return bt > at ? b : a;
+}
+function mergeReports(primary, extra) {
+  const out = primary.slice(), index = new Map();
+  out.forEach((row, i) => index.set(row.windowKey || row.id, i));
+  for (const row of extra) {
+    const key = row.windowKey || row.id;
+    if (index.has(key)) { out[index.get(key)] = freshest(out[index.get(key)], row); continue; }
+    index.set(key, out.length); out.push(row);
+  }
   return out;
 }
+// A file too big to parse is a skip, not an absence: the caller has to know the
+// difference so it can ask the account instead of reporting "no usage".
+const JSON_SIZE_LIMIT = 64000;
+const SKIPPED = Object.freeze({ skipped: 'too-large' });
 function readJson(file) {
   try {
-    if (fs.statSync(file).size >= 64000) return null;
+    if (fs.statSync(file).size >= JSON_SIZE_LIMIT) return SKIPPED;
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
   } catch (_) { return null; }
 }
+const usable = (data) => data && data !== SKIPPED ? data : null;
 function unavailable(agent, detail) {
   return [{ id: agent.id, name: agent.name, providerId: agent.id, providerName: agent.name, status: 'unavailable', remaining: null, detail: detail || ('Sign in with ' + (agent.name || agent.id)) }];
 }
@@ -37,11 +57,23 @@ async function httpJson(url, opts = {}, fetchFn) {
   if (!res || !res.ok) return null;
   return res.json();
 }
-function claudeWindowLabel(key) {
-  if (key === 'five_hour') return '5 hours';
-  if (key === 'seven_day') return '7 days';
-  if (key === 'spend_limit') return 'spend limit';
-  return String(key).replaceAll('_', ' ');
+// One vocabulary for every provider, matching the words the CLIs print:
+// a span ("5 hours", "7 days") and, where the window is per-model, the model.
+const COUNT_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fourteen: 14, twenty: 20, thirty: 30 };
+const NAMED_WINDOWS = { five_hour: 'Session · 5 hours', seven_day: 'All models · 7 days', spend_limit: 'Spend limit' };
+const titleWords = (text) => String(text).replaceAll('_', ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
+function spanLabel(minutes) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  return minutes % 1440 === 0 ? minutes / 1440 + ' days' : Math.round(minutes / 60) + ' hours';
+}
+function windowLabel(key) {
+  if (NAMED_WINDOWS[key]) return NAMED_WINDOWS[key];
+  const parts = /^([a-z]+)_(hour|day|week|month)s?(?:_(.+))?$/.exec(String(key));
+  if (!parts) return titleWords(key);
+  const count = COUNT_WORDS[parts[1]] ?? Number(parts[1]);
+  if (!Number.isFinite(count)) return titleWords(key);
+  const span = count + ' ' + parts[2] + (count === 1 ? '' : 's');
+  return parts[3] ? titleWords(parts[3]) + ' · ' + span : span;
 }
 function codexUsage(data, now = Date.now()) {
   const buckets = data?.rateLimitsByLimitId || (data?.rateLimits ? { codex: data.rateLimits } : {});
@@ -49,9 +81,9 @@ function codexUsage(data, now = Date.now()) {
     const w = bucket?.[window], left = percentage(w?.usedPercent);
     if (left === null) return [];
     const expired = Number.isFinite(w.resetsAt) && w.resetsAt * 1000 <= now;
-    const windowLabel = w.windowDurationMins ? (w.windowDurationMins % 1440 === 0 ? w.windowDurationMins / 1440 + ' days' : w.windowDurationMins / 60 + 'h') : window;
-    return [{ id: 'codex:' + key + ':' + window, name: 'Codex · ' + (key === 'codex' && !bucket.limitName ? '' : (bucket.limitName || key) + ' · ') + windowLabel, remaining: expired ? null : Math.round(left * 10) / 10,
-      providerId: 'codex', providerName: 'Codex', accountId: 'codex:configured', accountName: 'Configured CLI account', windowLabel, windowKey: key + ':' + window,
+    const label = spanLabel(w.windowDurationMins) || window;
+    return [{ id: 'codex:' + key + ':' + window, name: 'Codex · ' + (key === 'codex' && !bucket.limitName ? '' : (bucket.limitName || key) + ' · ') + label, remaining: expired ? null : Math.round(left * 10) / 10,
+      providerId: 'codex', providerName: 'Codex', accountId: 'codex:configured', accountName: 'Configured CLI account', windowLabel: label, windowKey: key + ':' + window,
       scopeLabel: key === 'codex' && !bucket.limitName ? 'Shared account allowance' : String(bucket.limitName || key), source: 'Codex', status: expired ? 'stale' : 'reported', resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null,
       checkedAt: now, detail: expired ? 'Window reset; refresh for the new allowance.' : 'Reported by Codex' + (w.resetsAt ? ' · resets ' + new Date(w.resetsAt * 1000).toLocaleString() : '') }];
   }));
@@ -60,8 +92,8 @@ function feedUsage(data, now = Date.now()) {
   return Object.entries(data?.rate_limits || {}).flatMap(([key, w]) => {
     const left = percentage(w?.used_percentage); if (left === null) return [];
     const stale = !Number.isFinite(data.at) || now - data.at > FEED_STALE_MS || data.at > now + 60000 || (Number.isFinite(w.resets_at) && w.resets_at * 1000 <= now);
-    return [{ id: 'claude:' + key, name: 'Claude · ' + key.replaceAll('_', ' '), remaining: stale ? null : Math.round(left * 10) / 10, checkedAt: data.at,
-      providerId: 'claude', providerName: 'Claude', accountId: 'claude:status-line', accountName: 'Status-line account', windowLabel: key.replaceAll('_', ' '), windowKey: key, source: 'Claude status line', status: stale ? 'stale' : 'reported', resetsAt: Number.isFinite(w.resets_at) ? w.resets_at * 1000 : null,
+    return [{ id: 'claude:' + key, name: 'Claude · ' + windowLabel(key), remaining: stale ? null : Math.round(left * 10) / 10, checkedAt: data.at,
+      providerId: 'claude', providerName: 'Claude', accountId: 'claude:status-line', accountName: 'Status-line account', windowLabel: windowLabel(key), windowKey: key, source: 'Claude status line', status: stale ? 'stale' : 'reported', resetsAt: Number.isFinite(w.resets_at) ? w.resets_at * 1000 : null,
       detail: stale ? 'Last report is stale. Use Claude to refresh its status line.' : 'Claude status line' + (w.resets_at ? ' · resets ' + new Date(w.resets_at * 1000).toLocaleString() : '') }];
   });
 }
@@ -98,14 +130,14 @@ function claudeUsage(data, now = Date.now()) {
       const left = percentage(used); if (left === null) continue;
       const resetsAt = parseResets(w.resets_at ?? w.resetsAt);
       const stale = ageStale || (resetsAt != null && resetsAt <= now);
-      const windowLabel = claudeWindowLabel(key);
-      rows.push({ id: 'claude:local:' + key, name: 'Claude · ' + windowLabel, remaining: stale ? null : Math.round(left * 10) / 10,
-        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: 'Claude on this Mac', windowLabel, windowKey: key, source: 'Claude',
+      const label = windowLabel(key);
+      rows.push({ id: 'claude:local:' + key, name: 'Claude · ' + label, remaining: stale ? null : Math.round(left * 10) / 10,
+        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: 'Claude on this Mac', windowLabel: label, windowKey: key, source: 'Claude',
         status: stale ? 'stale' : 'reported', resetsAt, checkedAt: Number.isFinite(fetchedAtMs) ? fetchedAtMs : now,
         detail: stale ? 'Last report is stale. Use Claude to refresh.' : 'Reported by Claude' + (resetsAt ? ' · resets ' + new Date(resetsAt).toLocaleString() : '') });
     }
   }
-  return data?.rate_limits ? mergeWindows(rows, feedUsage(data, now)) : rows;
+  return data?.rate_limits ? mergeReports(rows, feedUsage(data, now)) : rows;
 }
 function geminiUsage(data, now = Date.now(), provider = { id: 'antigravity', name: 'Antigravity' }) {
   const buckets = Array.isArray(data?.buckets) ? data.buckets : Array.isArray(data?.quota?.buckets) ? data.quota.buckets : [];
@@ -113,14 +145,14 @@ function geminiUsage(data, now = Date.now(), provider = { id: 'antigravity', nam
     const remaining = fractionRemaining(bucket?.remainingFraction); if (remaining === null) return [];
     const resetsAt = parseResets(bucket.resetTime ?? bucket.resetsAt ?? bucket.reset_at);
     const expired = resetsAt != null && resetsAt <= now;
-    const windowLabel = String(bucket.modelId || bucket.label || 'Allowance').slice(0, 100);
-    return [{ id: provider.id + ':gemini:' + i, name: provider.name + ' · ' + windowLabel, remaining: expired ? null : remaining,
-      providerId: provider.id, providerName: provider.name, accountId: provider.id + ':local', accountName: 'Configured CLI account', windowLabel, windowKey: windowLabel,
+    const label = String(bucket.modelId || bucket.label || 'Allowance').slice(0, 100);
+    return [{ id: provider.id + ':gemini:' + i, name: provider.name + ' · ' + label, remaining: expired ? null : remaining,
+      providerId: provider.id, providerName: provider.name, accountId: provider.id + ':local', accountName: 'Configured CLI account', windowLabel: label, windowKey: label,
       source: provider.name, status: expired ? 'stale' : 'reported', resetsAt, checkedAt: now,
       detail: expired ? 'Window reset; refresh for the new allowance.' : 'Reported by ' + provider.name }];
   });
 }
-function claudeRows(home, directory, now) {
+function claudeFiles(home) {
   const files = [
     path.join(home, '.claude.json'),
     path.join(home, '.claude', '.claude.json'),
@@ -129,10 +161,16 @@ function claudeRows(home, directory, now) {
     path.join(home, '.claude', 'statusline_raw.json'),
   ];
   if (process.env.CLAUDE_CONFIG_DIR) files.push(path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json'));
+  return files;
+}
+function claudeSkippedLocal(home) {
+  return claudeFiles(home).some((file) => readJson(file) === SKIPPED);
+}
+function claudeRows(home, directory, now) {
   let rows = [];
-  for (const file of files) { const data = readJson(file); if (data) rows = mergeWindows(rows, claudeUsage(data, now)); }
-  const feed = readJson(path.join(directory, 'claude.json'));
-  if (feed) rows = mergeWindows(rows, feedUsage(feed, now));
+  for (const file of claudeFiles(home)) { const data = usable(readJson(file)); if (data) rows = mergeReports(rows, claudeUsage(data, now)); }
+  const feed = usable(readJson(path.join(directory, 'claude.json')));
+  if (feed) rows = mergeReports(rows, feedUsage(feed, now));
   return rows;
 }
 function geminiRows(home, agent, now) {
@@ -144,7 +182,7 @@ function geminiRows(home, agent, now) {
     path.join(home, '.gemini', 'antigravity-cli', 'quota.json'),
   ];
   let rows = [];
-  for (const file of files) { const data = readJson(file); if (data) rows = mergeWindows(rows, geminiUsage(data, now, { id: agent.id, name: agent.name })); }
+  for (const file of files) { const data = usable(readJson(file)); if (data) rows = mergeReports(rows, geminiUsage(data, now, { id: agent.id, name: agent.name })); }
   return rows;
 }
 function queryCodex(command, envPath, spawnFn = spawn) {
@@ -196,14 +234,19 @@ function claudeToken(home) {
   if (home === os.homedir()) return claudeTokenFromKeychain();
   return null;
 }
+// Every window the account reports, whatever it is called. A new model tier
+// shows up in the CLI the day it ships; an allowlist here would drop it.
 function claudeOauthUsage(data, now) {
   const utilization = {};
-  for (const key of ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'spend_limit']) {
-    const w = data?.[key];
-    if (!w || typeof w !== 'object') continue;
-    utilization[key] = { utilization: w.used_percentage ?? w.utilization ?? w.usedPercent, resets_at: w.resets_at ?? w.resetsAt };
+  for (const [key, w] of Object.entries(data && typeof data === 'object' ? data : {})) {
+    if (!w || typeof w !== 'object' || Array.isArray(w)) continue;
+    const used = w.used_percentage ?? w.utilization ?? w.usedPercent;
+    if (typeof used !== 'number' || !Number.isFinite(used)) continue;
+    utilization[key] = { utilization: used, resets_at: w.resets_at ?? w.resetsAt };
   }
-  return claudeUsage({ cachedUsageUtilization: { utilization, fetchedAtMs: now } }, now);
+  return claudeUsage({ cachedUsageUtilization: { utilization, fetchedAtMs: now } }, now)
+    .map((row) => ({ ...row, id: 'claude:account:' + row.windowKey, accountId: 'claude:account', accountName: 'Claude account', source: 'Claude account',
+      detail: row.status === 'stale' ? row.detail : 'Reported by the Claude account' + (row.resetsAt ? ' · resets ' + new Date(row.resetsAt).toLocaleString() : '') }));
 }
 async function fetchClaudeAccount(home, now, fetchFn) {
   const token = claudeToken(home);
@@ -313,16 +356,8 @@ function signedInFile(home, rel) {
 }
 async function rowsFor(agent, { home, directory, envPath, now, spawnFn, fetchFn }) {
   if (agent.id === 'codex') return codexUsage(await queryCodex(agent.path, envPath, spawnFn || spawn), now);
-  if (agent.id === 'claude') {
-    const local = claudeRows(home, directory, now);
-    if (local.length) return local;
-    return fetchClaudeAccount(home, now, fetchFn);
-  }
-  if (agent.id === 'antigravity' || agent.id === 'gemini') {
-    const local = geminiRows(home, agent, now);
-    if (local.length) return local;
-    return fetchGeminiAccount(home, now, agent, fetchFn);
-  }
+  if (agent.id === 'claude') return mergeReports(claudeRows(home, directory, now), await fetchClaudeAccount(home, now, fetchFn));
+  if (agent.id === 'antigravity' || agent.id === 'gemini') return mergeReports(geminiRows(home, agent, now), await fetchGeminiAccount(home, now, agent, fetchFn));
   if (agent.id === 'grok') return fetchGrokAccount(home, now, agent, fetchFn);
   if (agent.id === 'kimi') return fetchKimiAccount(home, now, agent, fetchFn);
   return [];
@@ -330,7 +365,10 @@ async function rowsFor(agent, { home, directory, envPath, now, spawnFn, fetchFn 
 function missingDetail(agent, home) {
   if (agent.id === 'hermes') return signedInFile(home, '.hermes/auth.json') ? 'Hermes does not report a quota window.' : 'Sign in with Hermes';
   if (agent.id === 'opencode') return signedInFile(home, '.local/share/opencode/auth.json') ? 'OpenCode does not report a quota window.' : 'Sign in with OpenCode';
-  if (agent.id === 'claude' && (claudeToken(home))) return 'Could not read Claude usage.';
+  if (agent.id === 'claude' && claudeSkippedLocal(home)) return claudeToken(home)
+    ? 'Claude\u2019s local report is too large to scan, and the account did not answer.'
+    : 'Claude\u2019s local report is too large to scan. Sign in with Claude to read the account.';
+  if (agent.id === 'claude' && claudeToken(home)) return 'Could not read Claude usage.';
   if (agent.id === 'grok' && grokSession(home)) return 'Could not read Grok usage.';
   if (agent.id === 'kimi' && kimiToken(home)) return signedInFile(home, '.kimi-code/credentials/kimi-code.json') ? 'Could not read Kimi usage.' : 'Kimi does not report a quota window for this login.';
   if ((agent.id === 'antigravity' || agent.id === 'gemini') && signedInFile(home, '.gemini/oauth_creds.json')) return 'Could not read Antigravity usage.';
