@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage } = require('./browser-policy');
+const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
@@ -88,6 +88,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     const key = localId ? 'local:' + w.webContents.id + ':' + localId : profileId;
     if (partitions.has(key)) return partitions.get(key);
     const record = { key, local: !!localId, session: session.fromPartition((localId ? 'nami-browser-' : 'persist:nami-browser-') + key), roots: new Set() };
+    record.session.setUserAgent(browserUserAgent(record.session.getUserAgent()));
     record.session.setPermissionRequestHandler((wc, permission, callback) => {
       let origin = '';
       try { origin = new URL(wc.getURL()).origin; } catch {}

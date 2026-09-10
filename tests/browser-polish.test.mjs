@@ -50,3 +50,16 @@ test('light and dark follow Nami, not the Mac, and websites are told', () => {
   assert.match(views, /nativeTheme\.themeSource = /);
   assert.match(views, /ipcMain\.on\('theme:applied'[\s\S]*?syncNativeTheme/);
 });
+
+test('a tab calls itself Chrome, because underneath it is', () => {
+  const { browserUserAgent } = require('../src/main/browser-profiles.js').browserUserAgent ? require('../src/main/browser-profiles.js') : require('../src/main/browser-policy.js');
+  const electron = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.212 Electron/43.3.0 Safari/537.36';
+  assert.equal(browserUserAgent(electron), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.212 Safari/537.36');
+  // a packaged build also carries the app name before Chrome/
+  const named = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Nami/0.5.0 Chrome/150.0.0.0 Electron/43.3.0 Safari/537.36';
+  assert.equal(browserUserAgent(named), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36');
+  // the engine version is never invented
+  assert.match(browserUserAgent(electron), /Chrome\/150\.0\.7871\.212/);
+  const views = read('src/main/browser-views.js');
+  assert.match(views, /record\.session\.setUserAgent\(browserUserAgent\(/, 'every browser partition wears it');
+});
