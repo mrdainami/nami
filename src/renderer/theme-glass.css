@@ -505,6 +505,10 @@ body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }
 body[data-glass] .editor--md .ed-area::selection { background: rgba(239, 100, 97, 0.24); }
 body[data-glass] .ed-area, body[data-glass] .card-body, body[data-glass] .card-raw .raw-area { background: none; caret-color: var(--gl-accent); }
 body[data-glass] .ed-bar { border-top: 1px solid var(--dash); background: none; }
+/* Solid rim, not paper's dash — but the fill stays, because a state strip is
+   the one band on the tile that has to be seen without being read. */
+body[data-glass] .disk-bar { border-bottom: 1px solid var(--amber-line); background: var(--amber-bg); }
+body[data-glass] .disk-bar .btn { border-radius: 999px; box-shadow: none; }
 body[data-glass] .cmd-strip { background: var(--gl-pane-dim); border-radius: 0 0 22px 22px; }
 body[data-glass] .card-links { background: none; border-radius: 0 0 22px 22px; }
 body[data-glass] .link-chip { border-radius: 999px; background: var(--gl-pane); border-color: var(--gl-rim-dim); }

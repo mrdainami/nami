@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Me
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { rememberBins, knownBin, resolveClaudeExecutable, resolveRunCommand, withSpawnFlags } = require('./bin-cache');
 const { claudeSpawnArgs, projectSlug, shellQuote } = require('./claude-args');
 const { readTailTitle } = require('./session-title');
@@ -1093,8 +1094,27 @@ ipcMain.handle('file:raw', (_e, file) => {
     return { ok: true, text: buf.toString('utf8'), path: file, size: fmtSize(stat.size) };
   } catch (e) { return { ok: false, error: e.message }; }
 });
-ipcMain.handle('file:save', (_e, { file, text }) => {
-  try { fs.writeFileSync(file, text); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
+// The hash of what was just written, handed back so the renderer can store it
+// on the panel and recognise the watcher event its own save is about to
+// provoke. Without it every save bounces off the watcher and comes back as a
+// change somebody else made.
+//
+// One implementation, imported from the renderer's pure module rather than
+// copied: two hashes of the same bytes drift the moment either is touched, and
+// the drift shows up as a mystery reload months later. A failure to load it is
+// not a failure to save — the guard goes quiet, decideReload still drops an
+// identical file, and the worst case is one reload that changes nothing.
+let fileSyncMod = null;
+function fileSync() {
+  if (!fileSyncMod) fileSyncMod = import(pathToFileURL(path.join(__dirname, '../renderer/file-sync.mjs')).href);
+  return fileSyncMod;
+}
+async function savedHash(text) {
+  try { const { hashText } = await fileSync(); return hashText(text); } catch (_) { return null; }
+}
+ipcMain.handle('file:save', async (_e, { file, text }) => {
+  try { fs.writeFileSync(file, text); } catch (e) { return { ok: false, error: e.message }; }
+  return { ok: true, hash: await savedHash(text) };
 });
 // Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
 // `relative` is reported because it is the only case a second base could
@@ -1253,7 +1273,10 @@ const dirWatchers = new Map();   // webContents.id -> dir-watch
 function dirWatchFor(wc) {
   let w = dirWatchers.get(wc.id);
   if (w) return w;
-  w = createDirWatch({ onChange: (dir) => { try { wc.send('dir:changed', { dir }); } catch (_) {} } });
+  // `files` rides along so an open tile can tell whether it was its own file
+  // that moved; null means the platform would not say, and the renderer then
+  // re-checks every open panel rather than none.
+  w = createDirWatch({ onChange: (dir, files) => { try { wc.send('dir:changed', { dir, files }); } catch (_) {} } });
   dirWatchers.set(wc.id, w);
   wc.once('destroyed', () => { w.close(); dirWatchers.delete(wc.id); });
   return w;

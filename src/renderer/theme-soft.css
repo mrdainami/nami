@@ -348,6 +348,10 @@ body[data-soft] .tile-note { border-top: 0; border-radius: 0 0 var(--sf-r) var(-
    so the pills are the only raised things — a square band would fight the
    18px corner it sits inside. */
 body[data-soft] .ed-bar { border-top: 0; background: var(--paper); border-radius: 0 0 var(--sf-r) var(--sf-r); }
+/* No border here either — soft says everything with fill and a raised pill.
+   The tint carries the message and the buttons stay the only edges. */
+body[data-soft] .disk-bar { border-bottom: 0; background: var(--amber-bg); }
+body[data-soft] .disk-bar .btn { border: 0; background: var(--paper); color: var(--amber-ink); box-shadow: var(--sf-raise-sm); }
 body[data-soft] .ed-gutter { color: var(--faint); background: none; }
 body[data-soft] .ed-stack,
 body[data-soft] .ql-lines,
