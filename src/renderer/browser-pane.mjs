@@ -104,6 +104,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     closeMenu();
     menu = document.createElement('div'); menu.className = 'browser-menu'; menu.setAttribute('role','menu');
     const actions = [
+      ['Open in Chrome \u2197', () => openOutside(p)],
       ['Find in page', () => findInPage(p)],
       ['Zoom in', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=Math.min(3,(p.pageZoom||1)+0.1)}).then(check)],
       ['Zoom out', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=Math.max(0.5,(p.pageZoom||1)-0.1)}).then(check)],
