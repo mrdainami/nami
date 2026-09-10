@@ -180,27 +180,52 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const o=state.overlay;
     const modal=dialog('modal modal--browser', `<div class="modal-head"><span class="title">Import from your browser</span></div>
       <div class="modal-body browser-profile-body">Loading…</div>
-      <div class="modal-foot"><button class="btn" id="import-cancel">Cancel</button><button class="btn btn--go" id="import-go">Import</button></div>`);
+      <div class="modal-foot"><button class="btn" id="import-cancel">Cancel</button><button class="btn btn--go browser-import-go" id="import-go" disabled>Choose destination</button></div>`);
+    const current=()=>state.overlay===o && modal.isConnected;
     q('#import-cancel',modal).onclick=close;
-    const r=await api.browserProfiles({action:'list'}); if(state.overlay!==o||!check(r))return;
+    const r=await api.browserProfiles({action:'list'}); if(!current()||!check(r))return;
     const sources=r.capabilities?.cookieImport?.browsers||[];
     const host=q('.browser-profile-body',modal);
-    const dest=r.profiles.find(p=>p.id===(o.profileId))||r.profiles[0];
-    if(!dest){host.textContent='Create a Nami profile first.';return;}
+    if(!r.profiles?.length){host.textContent='Create a Nami profile first.';return;}
+    // A tab-menu entry carries a panel ID, while Manage profiles carries an
+    // explicit profile. Resolve that context without substituting Personal.
+    let profileId=o.profileId, contextError='';
+    if(profileId==null && o.panelId){
+      const status=await api.browserStatus(); if(!current())return;
+      profileId=status?.views?.find(v=>v.id===o.panelId)?.profileId;
+      if(!profileId)contextError='The original tab is no longer available. Choose a destination profile.';
+    }
+    const dest=r.profiles.find(p=>p.id===profileId);
+    if(profileId!=null && !dest)contextError='The original profile is no longer available. Choose a destination profile.';
     host.innerHTML=`<label class="field-label">From<select id="import-source">${sources.map((s,i)=>`<option value="${i}">${esc(s.browser)} · ${esc(s.name)}</option>`).join('')||'<option value="">No Chrome profile found</option>'}</select></label>
+      <label class="field-label">Into<select id="import-destination"><option value=""${dest?'':' selected'} disabled>Choose a Nami profile</option>${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===dest?.id?' selected':''}>Nami · ${esc(p.name)}</option>`).join('')}</select></label>
       <p class="note">Allow Keychain access if macOS asks.</p>
       <label class="browser-check"><input type="checkbox" id="import-passwords" checked><span>Saved passwords</span></label>
       <label class="browser-check"><input type="checkbox" id="import-cookies" checked><span>Cookies</span></label>
       <label class="browser-check"><input type="checkbox" id="import-history" checked><span>Browsing history</span></label>
       <div class="browser-profile-result" role="status"></div>`;
-    const go=q('#import-go',modal), result=q('.browser-profile-result',host);
-    go.disabled=!sources.length;
+    const go=q('#import-go',modal), result=q('.browser-profile-result',host), destination=q('#import-destination',host);
+    const controls=[...host.querySelectorAll('select,input')];
+    const selected=()=>r.profiles.find(p=>p.id===destination.value);
+    const update=()=>{
+      const profile=selected();
+      go.textContent=profile?'Import into '+profile.name:'Choose destination';
+      go.disabled=!sources.length || !profile || !host.querySelector('input:checked');
+    };
+    destination.onchange=()=>{result.textContent='';update();};
+    host.querySelectorAll('input').forEach(input=>input.onchange=update);
+    result.textContent=contextError; update();
     go.onclick=async()=>{
-      go.disabled=true; result.textContent='Importing…';
-      const out=await api.browserProfiles({action:'import-browser',profileId:dest.id,sourceIndex:Number(q('#import-source',host).value)||0,passwords:q('#import-passwords',host).checked,cookies:q('#import-cookies',host).checked,history:q('#import-history',host).checked});
-      go.disabled=false;
-      if(!check(out))return;
-      result.textContent=out.message||'Import finished.';
+      const profile=selected(); if(go.disabled || !profile)return;
+      const args={action:'import-browser',profileId:profile.id,sourceIndex:Number(q('#import-source',host).value),passwords:q('#import-passwords',host).checked,cookies:q('#import-cookies',host).checked,history:q('#import-history',host).checked};
+      go.disabled=true; controls.forEach(input=>input.disabled=true);
+      result.textContent='Importing into '+profile.name+'…';
+      try{
+        const out=await api.browserProfiles(args); if(!current())return;
+        if(!out || out.ok===false || out.error)throw new Error(out?.error||'Could not import browser data.');
+        result.textContent=profile.name+': '+(out.message||'Import finished.');
+      }catch(error){if(current())result.textContent=error.message||'Could not import browser data.';}
+      finally{if(current()){controls.forEach(input=>input.disabled=false);update();}}
     };
   }
   function settingsHtml() { return browserSettingsHtml(); }

@@ -327,7 +327,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   }
   guarded('browser:profiles', async (w, args) => {
     const { action = 'list' } = args;
+    // Imports must name their destination before reading a source, asking
+    // Keychain or opening a CSV dialog. A missing choice is never Personal.
+    const importing = ['import-browser', 'import-cookies', 'import-passwords'].includes(action);
+    if (importing && (typeof args.profileId !== 'string' || !args.profileId)) throw new Error('Choose a destination Nami profile before importing.');
     const profileId = args.profileId || profiles.list()[0].id;
+    if (importing) profiles.get(profileId);
     let output = {};
     if (action === 'create') output.profile = profiles.create(args.name);
     else if (action === 'rename') output.profile = profiles.rename(profileId, args.name);

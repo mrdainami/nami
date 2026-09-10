@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
   let win, server;
   try {
     win = await until(() => BrowserWindow.getAllWindows()[0], 'Nami window');
-    const run = expression => win.webContents.executeJavaScript(expression);
+    const run = expression => win.webContents.executeJavaScript(expression).catch(error => { console.error('Failed fixture expression:', expression); throw error; });
     const click = selector => run(`document.querySelector(${JSON.stringify(selector)}).click()`);
     const invoke = args => run(`dainami.browserProfiles(${JSON.stringify(args)})`);
     await until(() => run('!!document.querySelector(".browser-address")'), 'browser pane');
@@ -109,6 +109,28 @@ app.whenReady().then(async () => {
     assert.deepEqual((await invoke({ action: 'contents', profileId: 'default' })).contents, personalBefore);
     console.log('PASS: destination removed while sheet is open produces an inline error and no fallback writes.');
     await click('#import-cancel');
+    // Manage profiles carries the explicit selection, even if it differs from the tab.
+    await click('[data-browser-action="menu"]');
+    await run(`Array.from(document.querySelectorAll('.browser-menu button')).find(b => b.textContent === 'Manage profiles…').click()`);
+    await until(() => run('!!document.querySelector("#profile-choice")'), 'profile manager');
+    await choose('#profile-choice', 'default');
+    await until(() => run('document.querySelector("#profile-choice")?.value === "default" && !!document.querySelector("#profile-import-cookies")'), 'Personal manager selection');
+    await click('#profile-import-cookies');
+    await until(() => run('!!document.querySelector("#import-destination")'), 'manager import');
+    assert.equal(await run('document.querySelector("#import-destination").value'), 'default', 'explicit manager selection takes precedence over Work tab');
+    await click('#import-cancel');
+    // Global settings has no chosen profile yet: require an explicit destination.
+    win.webContents.send('menu:command', 'settings:browser');
+    await until(() => run(`(() => { const el=document.querySelector('[data-browser-settings="cookies"]'); if(typeof el?.onclick !== 'function')return false; el.click(); return true; })()`), 'browser settings import action');
+    await until(() => run('!!document.querySelector("#import-destination")'), 'global import');
+    assert.equal(await run('document.querySelector("#import-destination").value'), '');
+    assert.equal(await run('document.querySelector("#import-go").disabled'), true);
+    await choose('#import-destination', work.id);
+    assert.equal(await run('document.querySelector("#import-go").disabled'), false);
+    await run(`document.querySelectorAll('.browser-check input').forEach(el => { el.checked=false; el.dispatchEvent(new Event('change')); })`);
+    assert.equal(await run('document.querySelector("#import-go").disabled'), true, 'empty category selection cannot start an import');
+    console.log('PASS: Manage profiles keeps its explicit selection; global import requires a destination and at least one category.');
+    await click('#import-cancel');
     await openImport();
     for (const [theme, zoom, width, height] of [['paper', 1, 1200, 850], ['operator', 1, 1200, 850], ['paper', 1.75, 1000, 850], ['operator', 1, 700, 650]]) {
       win.setSize(width, height); win.webContents.setZoomFactor(zoom);
@@ -119,6 +141,14 @@ app.whenReady().then(async () => {
       await shot('import-' + theme + '-' + zoom + '-' + width);
     }
     console.log('PASS: import selectors/action fit paper, operator, 1.75 zoom and compact window.');
+    await click('#import-cancel');
+    const longName='Work' + 'x'.repeat(76);
+    assert.equal((await invoke({action:'rename',profileId:work.id,name:longName})).ok,true);
+    await openImport();
+    const longOverflow=await run(`(() => { const b=document.querySelector('#import-go'), r=b.getBoundingClientRect(), m=document.querySelector('.modal').getBoundingClientRect(); return r.right>m.right || r.left<m.left || b.scrollWidth>b.clientWidth+1; })()`);
+    assert.equal(longOverflow,false,'long profile names must not overflow the import action');
+    await shot('import-long-profile');
+    console.log('PASS: maximum-length profile names remain readable within the import action.');
   } catch (error) {
     console.error(error); process.exitCode = 1;
     if (win && !win.isDestroyed()) console.error(await win.webContents.executeJavaScript('document.querySelector(".modal")?.textContent'));
