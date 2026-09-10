@@ -112,6 +112,19 @@ function decryptChromeCookieValue(encrypted, key) {
   const buf = decryptChromeBlob(encrypted, key);
   return buf ? stripCookieDomainHash(buf).toString('utf8') : null;
 }
+// The directory identifies a Chromium profile; its display name and position
+// in Local State may change. Only an opaque ID crosses the renderer boundary.
+function chromiumImportSourceId(browser, directory) {
+  let canonical = path.resolve(directory);
+  try { canonical = fs.realpathSync(canonical); } catch {}
+  return crypto.createHash('sha256').update(browser + '\0' + canonical).digest('hex');
+}
+function selectChromiumImportSource(sources, sourceId) {
+  if (typeof sourceId !== 'string' || !sourceId) throw new Error('Choose a source browser profile before importing.');
+  const source = sources.find((s) => s.id === sourceId);
+  if (!source) throw new Error('The selected browser profile is no longer available. Refresh the list and choose it again.');
+  return source;
+}
 function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
   // Every browser here is Chromium underneath, which means one profile layout,
   // one cookie schema and one reader. Listing only Google's own builds meant a
@@ -160,7 +173,7 @@ function detectChromiumProfiles({ home = os.homedir(), platform = process.platfo
       const history = exists(path.join(directory, 'History')) ? path.join(directory, 'History') : '';
       if (!cookies && !logins && !history) continue;
       if (found.some((f) => f.directory === directory)) continue;
-      found.push({ browser, name: dir === '.' ? browser : (info[dir]?.name || dir), directory, cookies, logins, history });
+      found.push({ id: chromiumImportSourceId(browser, directory), browser, name: dir === '.' ? browser : (info[dir]?.name || dir), directory, cookies, logins, history });
     }
   }
   return found;
@@ -171,7 +184,7 @@ function readChromeCookieRows(file) {
 }
 function cookieImportStatus(options) {
   const sources = detectChromiumProfiles(options);
-  return { available: sources.length > 0, browsers: sources.map((s) => ({ browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
+  return { available: sources.length > 0, browsers: sources.map((s) => ({ id: s.id, browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
 }
 // Chrome counts time in microseconds since 1601, so a cookie expiry is a
 // 17-digit integer — bigger than Number.MAX_SAFE_INTEGER. node:sqlite will not
@@ -462,5 +475,5 @@ function createProfileStore({ directory, safeStorage }) {
 module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
-  detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
+  detectChromiumProfiles, selectChromiumImportSource, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
   readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure, popupModeOf };

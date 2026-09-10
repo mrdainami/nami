@@ -107,6 +107,48 @@ app.whenReady().then(async () => {
     assert.equal(keychainCalls, callsBefore, 'invalid destination never reaches Keychain');
     console.log('PASS: every import entry rejects a missing/invalid destination before reading the source.');
 
+    // Legacy/index-only requests cannot fall back on either cookie-import route.
+    const sourceCallsBefore=keychainCalls;
+    for(const action of ['import-browser','import-cookies']) {
+      for(const args of [{sourceIndex:0},{sourceId:'removed-source'}]) {
+        const response=await invoke({action,profileId:work.id,...args});
+        assert.equal(response.ok,false);
+        assert.match(response.error,/source|profile/i);
+      }
+      const response=await invoke({action,profileId:work.id,sourceId:source.id,passwords:false,history:false});
+      assert.equal(response.ok,true,response.error);
+      assert.equal((await workSession.cookies.get({name:'other_account'})).length,0);
+    }
+    assert.equal(keychainCalls,sourceCallsBefore+2,'only valid selected sources reach Keychain');
+    console.log('PASS: both import routes reject index-only/removed sources and copy the selected source after reordering.');
+
+    await click('#import-cancel');
+    await openImport();
+    await choose('#import-source',source.id);
+    await run(`document.querySelector('#import-passwords').checked=false`);
+    detectedSources=[otherSource];
+    const beforeMissing=keychainCalls;
+    await click('#import-go');
+    await until(()=>run('!document.querySelector("#import-go").disabled'),'missing source response');
+    assert.match(await run('document.querySelector(".browser-profile-result").textContent'),/no longer available/i);
+    assert.equal(keychainCalls,beforeMissing);
+    assert.equal((await workSession.cookies.get({name:'other_account'})).length,0);
+    await shot('source-missing-error');
+    await click('#import-refresh');
+    await until(()=>run('document.querySelector("#import-source")?.value === "" && !document.querySelector("#import-source option[value=work-source]")'),'refreshed missing source');
+    assert.equal(await run('document.querySelector("#import-destination").value'),work.id);
+    assert.equal(await run('document.querySelector("#import-passwords").checked'),false);
+    assert.equal(await run('document.querySelector("#import-go").disabled'),true);
+    await shot('source-refresh-requires-selection');
+    await choose('#import-source',otherSource.id);
+    detectedSources=[source,otherSource];
+    await click('#import-refresh');
+    await until(()=>run('!!document.querySelector("#import-source option[value=work-source]")'),'restored source list');
+    assert.equal(await run('document.querySelector("#import-source").value'),otherSource.id,'refresh preserves a valid explicit source');
+    assert.equal(await run('document.querySelector("#import-destination").value'),work.id);
+    await shot('source-refresh-preserves-selection');
+    console.log('PASS: disappearing source fails before Keychain; Refresh list requires a new choice and preserves destination/categories/valid selections.');
+
     // Removing the selected profile while its sheet is open never falls back.
     const temporary = (await invoke({ action: 'create', name: 'Temporary' })).profile;
     await click('#import-cancel');
@@ -147,7 +189,7 @@ app.whenReady().then(async () => {
       win.setSize(width, height); win.webContents.setZoomFactor(zoom);
       await run(`document.body.dataset.theme = ${JSON.stringify(theme)}; window.dispatchEvent(new Event('resize'))`);
       await pause(120);
-      const overflow = await run(`Array.from(document.querySelectorAll('#import-source,#import-destination,#import-go,#import-cancel')).filter(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth + 1; }).map(el => el.id)`);
+      const overflow = await run(`Array.from(document.querySelectorAll('#import-source,#import-destination,#import-go,#import-cancel,#import-refresh')).filter(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth + 1; }).map(el => el.id)`);
       assert.deepEqual(overflow, [], 'import controls fit at ' + theme + '/' + zoom);
       await shot('import-' + theme + '-' + zoom + '-' + width);
     }
