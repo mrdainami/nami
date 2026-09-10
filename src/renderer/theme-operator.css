@@ -19,10 +19,10 @@ body[data-theme="operator"] {
   --paper-2: #262626;
   --paper-3: #232323;
   --ink: #eae7e1;
-  --muted: #aaa79f;
-  --muted-2: #98958e;
-  --muted-3: #8a8781;
-  --faint: #6e6c66;
+  --muted: #bcb9b2;
+  --muted-2: #aaa79f;
+  --muted-3: #a19e97;
+  --faint: #98958e;
   --line: #424242;
   --dash: #3a3a3a;
   --dash-dark: #4f4f4f;
@@ -67,11 +67,11 @@ body[data-theme="operator"] {
   /* operator-only helpers */
   --op-accent: #ef6461;
   --op-accent-hi: #ff8b88;
-  /* Content face: what the terminal reads in, the documents read in too.
-     Chrome stays Courier Prime — the desk keeps its typewriter voice; only
-     text you open a file to read gets the denser, screen-first mono. Matches
-     termFontFamily() in app.js. */
+  /* One face for the interface, documents and terminal. Matches
+     termFontFamily() in app.js; sizes still belong to each surface. */
   --op-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  --doc-sans: var(--op-mono);
+  font-family: var(--op-mono);
   --op-accent-dim: rgba(239, 100, 97, 0.12);
   --op-glow: 0 0 0 1px var(--op-accent), 0 0 14px rgba(239, 100, 97, 0.16);
   --op-grid: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1.4px);
@@ -104,7 +104,36 @@ body[data-theme="operator"] .modal-head .title,
 body[data-theme="operator"] .qs-head .title,
 body[data-theme="operator"] .card-lbl,
 body[data-theme="operator"] .ab-name,
-body[data-theme="operator"] .board-title { font-family: 'Courier Prime', 'Courier New', monospace; }
+body[data-theme="operator"] .board-title { font-family: var(--op-mono); }
+
+/* Controls and metadata with explicit paper fonts cannot inherit the body
+   face. Keep their sizes local; changing every button to 13px crowds tabs. */
+body[data-theme="operator"] :is(
+  button, input, select, textarea, .fs-row input, .desk-slot .ds-size,
+  .fmp-slim, .fmp-head, .fmp-key, .fmp-locked, .fmp-add,
+  .fmp-draft .fmp-key input, .fmp-hint, .fmp-broken,
+  .lib-search, .agent-pick, .card-tab, .card-in, .link-chip,
+  .ni-row input, .ni-field input, .ni-field textarea,
+  .usage-settings, .usage-card-head strong, .usage-advanced pre
+) { font-family: var(--op-mono); }
+body[data-theme="operator"] .usage-card-head strong { font-size: 14px; }
+body[data-theme="operator"] .fmp-add { opacity: 1; }
+
+body[data-theme="operator"] :is(.btn, .t-surface, .view-choice, .card-tab) {
+  letter-spacing: 0; text-transform: none; font-weight: 500;
+}
+/* Nine letters in Workspace need more room than seven in Library. Preserve
+   the rail width and collapse control; distribute spare space after content. */
+body[data-theme="operator"] .rail .rail-tabs { gap: 4px; padding-inline: 12px; }
+body[data-theme="operator"] .rail-tab {
+  font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 500;
+  white-space: nowrap;
+}
+body[data-theme="operator"] .rail .rail-tab { flex: 1 0 auto; min-width: max-content; padding: 7px 5px; }
+body[data-theme="operator"] .nav-card .goal { font-size: 14px; font-weight: 600; }
+body[data-theme="operator"] :is(.nav-card .sid, .card-head .subtitle, .project-chip .path) { font-size: 12px; }
+body[data-theme="operator"] :is(.nav-group, .nav-card .status, .nav-file .status) { font-size: 11px; letter-spacing: 0.03em; }
+body[data-theme="operator"] .nav-file .goal { font-size: 12px; }
 
 /* The update note is already mono; operator only drops paper's offset shadow
    and takes the accent for the action, since paper's green reads as dead here. */
@@ -115,7 +144,7 @@ body[data-theme="operator"] .update-note .un-quiet { color: var(--muted); }
 
 /* 18px uppercase mono matches the cap height of paper's Caveat 34px, and the
    mark keeps paper's 24px, so the lockup reads at one size across themes. */
-body[data-theme="operator"] .brand-name { font-size: 18px; letter-spacing: 0.14em; text-transform: uppercase; }
+body[data-theme="operator"] .brand-name { font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; }
 body[data-theme="operator"] .nami-mascot {
   --nami-fill: var(--op-accent); --nami-foam: var(--paper); --nami-eye: var(--paper);
   height: 24px;
@@ -126,29 +155,27 @@ body[data-theme="operator"] .nami-mascot {
 }
 /* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
    lowercase, so operator keeps it centred */
-body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; }
-/* --faint is 2.9:1 on the sheet even after the lift — a smudge, not a word.
-   The caption is meant to be quiet, not invisible, so it steps one rung up
-   the same scale (4.6:1). Paper and graphite keep --faint; only this theme's
-   ground is dark enough to need it. */
-body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; }
+body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; letter-spacing: 0.08em; }
+/* SF Mono fills its line box; the version needs a gap below it instead of
+   paper's negative offset into Caveat's spare baseline space. */
+body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; top: calc(100% + 2px); font-size: 9px; letter-spacing: 0.08em; }
 body[data-theme="operator"] .brand::before {
   content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center;
   background: var(--op-accent); box-shadow: 0 0 8px var(--op-accent);
   animation: pulse 2.2s ease-in-out infinite; /* .brand's 12px gap does the spacing */
 }
-body[data-theme="operator"] .rail-head .title { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+body[data-theme="operator"] .rail-head .title { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 body[data-theme="operator"] .lane-empty .big { font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase; }
 body[data-theme="operator"] .lane-empty .polaroid { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; transform: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); border-radius: 6px; }
-body[data-theme="operator"] .card-head .goal { font-size: 14px; letter-spacing: 0.06em; }
+body[data-theme="operator"] .card-head .goal { font-size: 14px; letter-spacing: 0; font-weight: 600; }
 body[data-theme="operator"] .say--user { font-size: 13px; line-height: 1.6; color: #dbd8d2; border-left-color: var(--op-accent); }
 body[data-theme="operator"] .approval .title,
 body[data-theme="operator"] .stopped .title,
 body[data-theme="operator"] .artifacts .title,
 body[data-theme="operator"] .modal-head .title,
-body[data-theme="operator"] .qs-head .title { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-theme="operator"] .qs-head .title { font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; }
 body[data-theme="operator"] .qs-head .title { line-height: 1.3; }
-body[data-theme="operator"] .card-lbl { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+body[data-theme="operator"] .card-lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 body[data-theme="operator"] .ab-name { font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; }
 /* paper's green reads as dead here; the About links take the accent */
 body[data-theme="operator"] .ab-link { color: var(--accent, #ef6461); }
@@ -449,7 +476,7 @@ body[data-theme="operator"] .theme-opt.picked .theme-dot { border-color: var(--o
 body[data-theme="operator"] .svc-card, body[data-theme="operator"] .svc-custom, body[data-theme="operator"] .sv-fold { border-radius: 6px; }
 body[data-theme="operator"] .svc-card:hover, body[data-theme="operator"] .svc-custom:hover { box-shadow: none; border-color: var(--dash-dark); }
 body[data-theme="operator"] .svc-card:focus-visible, body[data-theme="operator"] .svc-custom:focus-visible { box-shadow: none; border-color: var(--op-accent); }
-body[data-theme="operator"] .sv-bigok-t { font-family: 'Courier Prime', 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase; font-size: 18px; }
+body[data-theme="operator"] .sv-bigok-t { font-family: var(--op-mono); letter-spacing: 0.06em; text-transform: uppercase; font-size: 18px; }
 body[data-theme="operator"] .agent-pick { border-radius: 5px; background: var(--paper-2); }
 body[data-theme="operator"] .agent-pick:focus-visible { border-color: var(--op-accent); }
 body[data-theme="operator"] .ctx-menu { border-radius: 8px; box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6); }
@@ -465,5 +492,5 @@ body[data-theme="operator"] .image-attachment { border-radius: 6px; }
 body[data-theme="operator"] .image-insert, body[data-theme="operator"] .image-remove { border-radius: 6px; }
 
 /* Shortcut reference follows this theme’s type and link treatment. */
-body[data-theme="operator"] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: 'Courier Prime', monospace; font-size: 18px; text-transform: uppercase; }
+body[data-theme="operator"] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: var(--op-mono); font-size: 18px; text-transform: uppercase; }
 body[data-theme="operator"] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }
