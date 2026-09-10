@@ -155,7 +155,7 @@ function currentTheme() {
 }
 function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
 function statusColors() { return STATUS_COLORS[currentTheme()]; }
-// SF Mono in every theme's terminal, Courier Prime everywhere else.
+// SF Mono in every theme's terminal and throughout Operator.
 //
 // Courier Prime is a typewriter face: thin strokes, low x-height, wide letters.
 // It is what makes Nami's chrome look hand-made and it is the worst thing about
@@ -163,8 +163,7 @@ function statusColors() { return STATUS_COLORS[currentTheme()]; }
 // re-read carefully, which is the opposite of what that face is for. The glass
 // themes already made this trade; the rest now follow.
 //
-// The UI keeps Courier Prime, so the desk still reads as paper. Only the
-// terminals change.
+// Paper keeps Courier Prime in its UI; Operator shares the terminal's face.
 function termFontFamily() {
   return "'SF Mono', ui-monospace, Menlo, monospace";
 }
@@ -2541,12 +2540,12 @@ function wireGrip(p, rec, grip) {
 }
 
 const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
-// terminal text size: one shared preference, defaulting smaller in the glass
-// themes because SF Mono renders larger than Courier Prime at equal px
+// Saved global and per-tile sizes win over the theme's fresh-session default.
 const TERM_FONT_KEY = 'dainami-term-fontsize';
 function defaultTermFont() {
-  try { return clampTermFont(localStorage.getItem(TERM_FONT_KEY), TERM_FONT_DEFAULT); }
-  catch (_) { return TERM_FONT_DEFAULT; }
+  const fallback = currentTheme() === 'operator' ? 14 : TERM_FONT_DEFAULT;
+  try { return clampTermFont(localStorage.getItem(TERM_FONT_KEY), fallback); }
+  catch (_) { return fallback; }
 }
 function termFontOf(p) { return clampTermFont(p && p.fontSize, defaultTermFont()); }
 // Zero, every theme. Tracking inherits into xterm's hidden measuring element,
