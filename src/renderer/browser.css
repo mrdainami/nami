@@ -34,6 +34,7 @@
 .modal--browser, .modal--selection { width: min(640px, calc(100vw - 40px)); min-width: 0; max-width: calc(100vw - 40px); }
 .modal--browser .modal-foot, .modal--selection .modal-foot { flex-wrap: wrap; }
 .modal--browser .modal-foot .btn:first-child { margin-right: auto; }
+.modal--browser .browser-import-go { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .modal--browser input:not([type="checkbox"]), .modal--browser select { width: 100%; box-sizing: border-box; }
 .modal--browser select, .modal--browser input:not([type="checkbox"]) { font: inherit; font-size: 12px; color: var(--ink); background: var(--field); border: 1px solid var(--field-line); padding: 8px; }
 .context-reference { font-size: 11px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-bottom: 12px; }
