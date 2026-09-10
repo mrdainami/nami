@@ -1734,6 +1734,7 @@ async function openOutside(p) {
     return;
   }
   if (p.url && /^https?:\/\//i.test(p.url)) api.openUrl(p.url);
+  else toast('Nothing to open yet.');
 }
 function tileMenu(p) {
   return tileMenuItems(p, {
@@ -1748,6 +1749,7 @@ function treeMenu(n, parentDir) {
   const items = [];
   if (n.kind === 'file' && fileKind(n.path) === 'html') {
     items.push({ label: 'Open in browser', run: () => openFileInBrowser(n.path) });
+    items.push({ label: 'Open in Chrome ↗', run: () => openOutside({ filePath: n.path }) });
   }
   // The whole file, not a highlighted piece of it. Same text a drag types —
   // an @mention inside the project, a quoted path outside — into the session
@@ -3509,16 +3511,16 @@ function browserPanelFor(filePath) {
 }
 function browserButtonLabel(button, p) {
   if (!button) return;
-  button.innerHTML = p && p.dirty ? 'Save &amp; open ↗' : 'Browser ↗';
+  button.innerHTML = p && p.dirty ? 'Save &amp; open in Chrome ↗' : 'Open in Chrome ↗';
   button.title = p && p.dirty
-    ? 'Save this page, then open it in Nami’s browser view'
-    : 'Open this saved page in Nami’s browser view';
+    ? 'Save this page, then open it in Chrome'
+    : 'Open this saved page in Chrome';
 }
 function bindBrowserButton(button, p) {
   if (!button) return;
   button._browserPanel = p;
   browserButtonLabel(button, p);
-  button.onclick = () => openFileInBrowser(p.filePath, p);
+  button.onclick = () => openOutside(p);
 }
 function refreshBrowserButtons(p) {
   document.querySelectorAll('.pk-browser, .ed-browser').forEach((button) => {
@@ -6231,9 +6233,19 @@ function renderPeek() {
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;
 }
-function pinPeek() {
+// Pinning a page means the page, not its source: an HTML peek lands on the
+// desk as a browser tile showing it rendered. The source is one click away
+// in the tree, where the peek still opens with Read / Edit.
+async function pinPeek() {
   const o = S.overlay; if (!o || o.type !== 'peek') return;
   const p = o.panel;
+  if (p.kind === 'editor' && fileKind(p.filePath) === 'html') {
+    if (p.dirty && !(await saveEditor(p))) return;
+    const owner = p.owner || ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+    S.overlay = null; renderOverlay();
+    browsers.open('about:blank', p.filePath, owner);
+    return;
+  }
   S.overlay = null; renderOverlay();
   pinFilePanel(p);
 }
