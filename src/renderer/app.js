@@ -1689,12 +1689,36 @@ async function followOneFile(p) {
   if (d.action === 'merge') { rec.reloadFromDisk(d.text); return; }
   if (d.action === 'ask' && rec.raiseDiskBar) rec.raiseDiskBar(d.diskText);
 }
+// Which session a file lands in: the one you are working in, else the only
+// live one. Several live and none active is the one case that has to ask,
+// and it asks with a toast rather than a picker — a right-click is a quick
+// gesture, and the fix is to click the session you meant first.
+async function addPathToSession(path, isDir) {
+  const live = S.panels.filter(isSessionPanel).filter((p) => !p.exited);
+  if (!live.length) { toast('Open a session first.'); return; }
+  const active = live.find((p) => p.id === S.activeId);
+  const target = active || (live.length === 1 ? live[0] : null);
+  if (!target) { toast('Click the session you mean, then add the file.'); return; }
+  const text = pathRef(path, S.project && S.project.path, isDir);
+  const ok = await insertSessionText(target.id, text, { focus: true });
+  toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
+}
 function treeMenu(n, parentDir) {
   const root = S.project.path;
   const items = [];
   if (n.kind === 'file' && fileKind(n.path) === 'html') {
     items.push({ label: 'Open in browser', run: () => openFileInBrowser(n.path) });
   }
+  // The whole file, not a highlighted piece of it. Same text a drag types —
+  // an @mention inside the project, a quoted path outside — into the session
+  // you are working in. Folders go too, with their trailing slash.
+  items.push({ label: 'Add to session', run: () => addPathToSession(n.path, n.kind === 'dir') });
+  // Every window owns one folder. A folder opens as that window's root; a
+  // file opens its folder and lands the file on the new desk.
+  items.push({ label: 'Open in new window', run: () => {
+    if (n.kind === 'dir') api.newWindow(n.path);
+    else api.newWindow(parentDir || root, n.path);
+  } });
   items.push({ label: 'Reveal in Finder', run: () => api.revealFile(n.path) });
   if (n.kind === 'dir') {
     items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
