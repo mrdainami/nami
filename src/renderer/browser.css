@@ -107,3 +107,5 @@ body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; 
   font-size: 11px; color: var(--muted); padding: 6px 0 2px;
   border-top: 1px dashed var(--dash); margin-top: 8px;
 }
+
+.browser-import-refresh { margin: 0 0 14px; }

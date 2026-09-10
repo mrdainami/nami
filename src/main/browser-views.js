@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory, popupModeOf } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory, popupModeOf } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function blankMode(settings) {
@@ -401,13 +401,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action === 'import-cookies') {
       output = await mutateProfile(profileId, async () => {
         const record = getPartition(w, profileId);
-        const sources = detectChromiumProfiles();
-        if (!sources.length) return { imported: 0, skippedGoogle: 0, skippedEncrypted: 0, decryptUnavailable: false, message: 'No Chromium browser profile was found.' };
-        // One profile, named. This used to hand every detected source to the
-        // importer at once, which merged whatever the machine happened to have
-        // into a single Nami profile — a blast radius that grew the moment more
-        // browsers were detected. Pick the one asked for, or the first.
-        const source = sources[Number(args.sourceIndex)] || sources[0];
+        const source = selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
         const { execFileSync } = require('node:child_process');
         const result = await importChromiumCookies({
           session: record.session,
@@ -427,9 +421,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output.newTab = mode;
     } else if (action === 'import-browser') {
       output = await mutateProfile(profileId, async () => {
-        const sources = detectChromiumProfiles();
-        const source = sources[Number(args.sourceIndex)] || sources[0];
-        if (!source) return { message: 'No Chrome, Edge, Brave, Arc, Vivaldi or Opera profile was found.' };
+        const source = selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
         const { execFileSync } = require('node:child_process');
         const password = chromeKeychainPassword(source.browser, execFileSync);
         const key = password ? deriveChromeKey(password) : null;

@@ -1,6 +1,6 @@
 // Exercise the real Nami renderer and import handler with synthetic source data.
 // No installed browser profiles, Keychain secrets or live websites are used.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -8,7 +8,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { DatabaseSync } = require('node:sqlite');
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-import-destination-'));
-const source = { browser: 'Chrome', name: 'Work fixture', directory: fixture, cookies: path.join(fixture, 'Cookies'), history: path.join(fixture, 'History'), logins: '' };
+const source = { id: 'work-source', browser: 'Chrome', name: 'Work fixture', directory: fixture, cookies: path.join(fixture, 'Cookies'), history: path.join(fixture, 'History'), logins: '' };
 const cookies = new DatabaseSync(source.cookies);
 cookies.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
 cookies.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('import.example.test', 'fixture_account', 'synthetic-work', Buffer.alloc(0), '/', 0, 1, 1, 1);
@@ -17,10 +17,16 @@ const history = new DatabaseSync(source.history);
 history.exec('CREATE TABLE urls (url TEXT, title TEXT, last_visit_time INTEGER)');
 history.prepare('INSERT INTO urls VALUES (?, ?, ?)').run('https://import.example.test/', 'Synthetic work history', 13400000000000000n);
 history.close();
+const otherSource = { ...source, id: 'personal-source', name: 'Personal fixture', directory: path.join(fixture, 'Other'), cookies: path.join(fixture, 'OtherCookies') };
+const otherCookies = new DatabaseSync(otherSource.cookies);
+otherCookies.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
+otherCookies.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('import.example.test', 'other_account', 'synthetic-personal', Buffer.alloc(0), '/', 0, 1, 1, 1);
+otherCookies.close();
+let detectedSources = [source, otherSource];
 const profileModule = require('../src/main/browser-profiles');
 let keychainCalls = 0;
-profileModule.detectChromiumProfiles = () => [source];
-profileModule.cookieImportStatus = () => ({ available: true, browsers: [{ browser: source.browser, name: source.name, cookies: true, history: true, passwords: false }] });
+profileModule.detectChromiumProfiles = () => detectedSources;
+profileModule.cookieImportStatus = () => ({ available: !!detectedSources.length, browsers: detectedSources.map(s => ({ id:s.id, browser:s.browser, name:s.name, cookies:true, history:true, passwords:false })) });
 profileModule.chromeKeychainPassword = () => { keychainCalls++; return null; };
 app.getVersion = () => require('../package.json').version;
 process.argv.push('--demo', '--scene=browser', '--theme=paper');
@@ -74,12 +80,17 @@ app.whenReady().then(async () => {
     await choose('#import-destination', work.id);
     await run(`document.querySelector('#import-passwords').checked = false`);
     const personalBefore = (await invoke({ action: 'contents', profileId: 'default' })).contents;
+    detectedSources = [otherSource, source]; // Chrome reorders profiles after the sheet was opened.
     await click('#import-go');
     await until(() => run('!document.querySelector("#import-go").disabled'), 'import completion');
     assert.match(await run('document.querySelector(".browser-profile-result").textContent'), /Work/);
     const workAfter = (await invoke({ action: 'contents', profileId: work.id })).contents;
     assert.equal(workAfter.cookies, 1, 'fixture cookie belongs to Work');
     assert.equal(workAfter.history, 1, 'fixture history belongs to Work');
+    const workSession=session.fromPartition('persist:nami-browser-'+work.id);
+    assert.equal((await workSession.cookies.get({name:'fixture_account'}))[0]?.value, 'synthetic-work', 'reordering the source list cannot import Personal instead of Work');
+    assert.equal((await workSession.cookies.get({name:'other_account'})).length, 0);
+    console.log('PASS: source reordering still copies the selected Work data, never the new first source.');
     assert.deepEqual((await invoke({ action: 'contents', profileId: 'default' })).contents, personalBefore, 'Personal must remain unchanged');
     await shot('import-work-result');
     console.log('PASS: Work-tab import visibly selects Work; changing destination updates the action; real cookie/history writes affect only Work.');
@@ -95,6 +106,48 @@ app.whenReady().then(async () => {
     }
     assert.equal(keychainCalls, callsBefore, 'invalid destination never reaches Keychain');
     console.log('PASS: every import entry rejects a missing/invalid destination before reading the source.');
+
+    // Legacy/index-only requests cannot fall back on either cookie-import route.
+    const sourceCallsBefore=keychainCalls;
+    for(const action of ['import-browser','import-cookies']) {
+      for(const args of [{sourceIndex:0},{sourceId:'removed-source'}]) {
+        const response=await invoke({action,profileId:work.id,...args});
+        assert.equal(response.ok,false);
+        assert.match(response.error,/source|profile/i);
+      }
+      const response=await invoke({action,profileId:work.id,sourceId:source.id,passwords:false,history:false});
+      assert.equal(response.ok,true,response.error);
+      assert.equal((await workSession.cookies.get({name:'other_account'})).length,0);
+    }
+    assert.equal(keychainCalls,sourceCallsBefore+2,'only valid selected sources reach Keychain');
+    console.log('PASS: both import routes reject index-only/removed sources and copy the selected source after reordering.');
+
+    await click('#import-cancel');
+    await openImport();
+    await choose('#import-source',source.id);
+    await run(`document.querySelector('#import-passwords').checked=false`);
+    detectedSources=[otherSource];
+    const beforeMissing=keychainCalls;
+    await click('#import-go');
+    await until(()=>run('!document.querySelector("#import-go").disabled'),'missing source response');
+    assert.match(await run('document.querySelector(".browser-profile-result").textContent'),/no longer available/i);
+    assert.equal(keychainCalls,beforeMissing);
+    assert.equal((await workSession.cookies.get({name:'other_account'})).length,0);
+    await shot('source-missing-error');
+    await click('#import-refresh');
+    await until(()=>run('document.querySelector("#import-source")?.value === "" && !document.querySelector("#import-source option[value=work-source]")'),'refreshed missing source');
+    assert.equal(await run('document.querySelector("#import-destination").value'),work.id);
+    assert.equal(await run('document.querySelector("#import-passwords").checked'),false);
+    assert.equal(await run('document.querySelector("#import-go").disabled'),true);
+    await shot('source-refresh-requires-selection');
+    await choose('#import-source',otherSource.id);
+    detectedSources=[source,otherSource];
+    await click('#import-refresh');
+    await until(()=>run('!!document.querySelector("#import-source option[value=work-source]")'),'restored source list');
+    assert.equal(await run('document.querySelector("#import-source").value'),otherSource.id,'refresh preserves a valid explicit source');
+    assert.equal(await run('document.querySelector("#import-destination").value'),work.id);
+    await shot('source-refresh-preserves-selection');
+    console.log('PASS: disappearing source fails before Keychain; Refresh list requires a new choice and preserves destination/categories/valid selections.');
 
     // Removing the selected profile while its sheet is open never falls back.
     const temporary = (await invoke({ action: 'create', name: 'Temporary' })).profile;
@@ -136,7 +189,7 @@ app.whenReady().then(async () => {
       win.setSize(width, height); win.webContents.setZoomFactor(zoom);
       await run(`document.body.dataset.theme = ${JSON.stringify(theme)}; window.dispatchEvent(new Event('resize'))`);
       await pause(120);
-      const overflow = await run(`Array.from(document.querySelectorAll('#import-source,#import-destination,#import-go,#import-cancel')).filter(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth + 1; }).map(el => el.id)`);
+      const overflow = await run(`Array.from(document.querySelectorAll('#import-source,#import-destination,#import-go,#import-cancel,#import-refresh')).filter(el => { const r=el.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth + 1; }).map(el => el.id)`);
       assert.deepEqual(overflow, [], 'import controls fit at ' + theme + '/' + zoom);
       await shot('import-' + theme + '-' + zoom + '-' + width);
     }
