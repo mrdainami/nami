@@ -156,7 +156,9 @@ body[data-theme="operator"] .nami-mascot {
 /* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
    lowercase, so operator keeps it centred */
 body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; letter-spacing: 0.08em; }
-body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; font-size: 10px; }
+/* SF Mono fills its line box; the version needs a gap below it instead of
+   paper's negative offset into Caveat's spare baseline space. */
+body[data-theme="operator"] .brand-ver { color: var(--muted-3); left: 0; top: calc(100% + 2px); font-size: 10px; }
 body[data-theme="operator"] .brand::before {
   content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center;
   background: var(--op-accent); box-shadow: 0 0 8px var(--op-accent);
