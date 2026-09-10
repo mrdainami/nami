@@ -1,6 +1,6 @@
 // Exercise the real Nami renderer and import handler with synthetic source data.
 // No installed browser profiles, Keychain secrets or live websites are used.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -8,7 +8,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { DatabaseSync } = require('node:sqlite');
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-import-destination-'));
-const source = { browser: 'Chrome', name: 'Work fixture', directory: fixture, cookies: path.join(fixture, 'Cookies'), history: path.join(fixture, 'History'), logins: '' };
+const source = { id: 'work-source', browser: 'Chrome', name: 'Work fixture', directory: fixture, cookies: path.join(fixture, 'Cookies'), history: path.join(fixture, 'History'), logins: '' };
 const cookies = new DatabaseSync(source.cookies);
 cookies.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
 cookies.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('import.example.test', 'fixture_account', 'synthetic-work', Buffer.alloc(0), '/', 0, 1, 1, 1);
@@ -17,10 +17,16 @@ const history = new DatabaseSync(source.history);
 history.exec('CREATE TABLE urls (url TEXT, title TEXT, last_visit_time INTEGER)');
 history.prepare('INSERT INTO urls VALUES (?, ?, ?)').run('https://import.example.test/', 'Synthetic work history', 13400000000000000n);
 history.close();
+const otherSource = { ...source, id: 'personal-source', name: 'Personal fixture', directory: path.join(fixture, 'Other'), cookies: path.join(fixture, 'OtherCookies') };
+const otherCookies = new DatabaseSync(otherSource.cookies);
+otherCookies.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER)');
+otherCookies.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('import.example.test', 'other_account', 'synthetic-personal', Buffer.alloc(0), '/', 0, 1, 1, 1);
+otherCookies.close();
+let detectedSources = [source, otherSource];
 const profileModule = require('../src/main/browser-profiles');
 let keychainCalls = 0;
-profileModule.detectChromiumProfiles = () => [source];
-profileModule.cookieImportStatus = () => ({ available: true, browsers: [{ browser: source.browser, name: source.name, cookies: true, history: true, passwords: false }] });
+profileModule.detectChromiumProfiles = () => detectedSources;
+profileModule.cookieImportStatus = () => ({ available: !!detectedSources.length, browsers: detectedSources.map(s => ({ id:s.id, browser:s.browser, name:s.name, cookies:true, history:true, passwords:false })) });
 profileModule.chromeKeychainPassword = () => { keychainCalls++; return null; };
 app.getVersion = () => require('../package.json').version;
 process.argv.push('--demo', '--scene=browser', '--theme=paper');
@@ -74,12 +80,17 @@ app.whenReady().then(async () => {
     await choose('#import-destination', work.id);
     await run(`document.querySelector('#import-passwords').checked = false`);
     const personalBefore = (await invoke({ action: 'contents', profileId: 'default' })).contents;
+    detectedSources = [otherSource, source]; // Chrome reorders profiles after the sheet was opened.
     await click('#import-go');
     await until(() => run('!document.querySelector("#import-go").disabled'), 'import completion');
     assert.match(await run('document.querySelector(".browser-profile-result").textContent'), /Work/);
     const workAfter = (await invoke({ action: 'contents', profileId: work.id })).contents;
     assert.equal(workAfter.cookies, 1, 'fixture cookie belongs to Work');
     assert.equal(workAfter.history, 1, 'fixture history belongs to Work');
+    const workSession=session.fromPartition('persist:nami-browser-'+work.id);
+    assert.equal((await workSession.cookies.get({name:'fixture_account'}))[0]?.value, 'synthetic-work', 'reordering the source list cannot import Personal instead of Work');
+    assert.equal((await workSession.cookies.get({name:'other_account'})).length, 0);
+    console.log('PASS: source reordering still copies the selected Work data, never the new first source.');
     assert.deepEqual((await invoke({ action: 'contents', profileId: 'default' })).contents, personalBefore, 'Personal must remain unchanged');
     await shot('import-work-result');
     console.log('PASS: Work-tab import visibly selects Work; changing destination updates the action; real cookie/history writes affect only Work.');
