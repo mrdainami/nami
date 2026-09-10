@@ -16,11 +16,21 @@ function namiThemeIsDark(settings) {
   const theme = settings?.theme || '';
   return theme === 'operator' || theme === 'graphite' || theme === 'dusk';
 }
+// "System" means Nami's own theme. It used to fall through to the Mac's dark
+// mode when Nami was light, which on a light desk over a dark Mac gave a dark
+// new tab, then a dark website, then a light desk again — the flicker people
+// reported. Nami is the system the tab lives in.
 function blankIsDark(mode, settings) {
   if (mode === 'dark') return true;
   if (mode === 'light') return false;
-  if (namiThemeIsDark(settings)) return true;
-  try { return require('electron').nativeTheme.shouldUseDarkColors; } catch { return false; }
+  return namiThemeIsDark(settings);
+}
+// Websites read prefers-color-scheme from Chromium, which reads it from the
+// Mac unless told otherwise. Tell it, so a page renders in the same mode as
+// the desk around it. Nami's own window styles itself by data-theme and never
+// consults this, so nothing there moves.
+function syncNativeTheme(settings) {
+  try { require('electron').nativeTheme.themeSource = blankIsDark(blankMode(settings), settings) ? 'dark' : 'light'; } catch {}
 }
 async function paintBlank(wc, dark) {
   if (!wc || wc.isDestroyed()) return;
@@ -53,7 +63,9 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
     });
   } catch {}
+  syncNativeTheme(readSettings());
   ipcMain.on('theme:applied', () => {
+    syncNativeTheme(readSettings());
     if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
   });
   const profiles = createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
@@ -389,6 +401,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action === 'new-tab') {
       const mode = args.value === 'dark' || args.value === 'light' ? args.value : 'system';
       writeSettings({ browserNewTab: mode });
+      syncNativeTheme(readSettings());
       applyBlankAppearance(mode);
       output.newTab = mode;
     } else if (action === 'import-browser') {

@@ -28,7 +28,7 @@ export function browserSettingsContent(status, actions = {}) {
     <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-light" value="light"${blank === 'light' ? ' checked' : ''}><span>Light</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-dark" value="dark"${blank === 'dark' ? ' checked' : ''}><span>Dark</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-system" value="system"${blank === 'system' ? ' checked' : ''}><span>System</span></label>
-    <p class="bs-note">System follows Nami’s dark themes, otherwise the Mac.</p>
+    <p class="bs-note">System follows Nami’s theme, and websites follow it too.</p>
   </section>
   <section class="bs-section" aria-labelledby="browser-download-heading">
     <h3 class="field-label" id="browser-download-heading">Downloads</h3>
