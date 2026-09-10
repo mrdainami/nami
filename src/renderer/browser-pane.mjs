@@ -3,7 +3,7 @@ import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs
 import { createBrowserOverlays } from './browser-overlays.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
-  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, panelIcon }) {
+  show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, panelIcon, tileMenu, showMenu, openOutside }) {
   let frame = 0, signature = '';
   const annotations = createBrowserAnnotations({ api, esc, icon:helpIcon, selection, toast, dictation, focus, insertAnnotation, sessions, onChange:schedule, confirmDiscard:count=>api.browserConfirmDiscard(count) });
   const overlays = createBrowserOverlays({ api });
@@ -61,6 +61,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     rec.companionTabs.innerHTML = siblings.map(x=>`<span class="companion-tab-item${x.id===p.id?' selected':''}"><button class="companion-tab" data-view-id="${esc(x.id)}" title="${esc(x.title)}" aria-pressed="${x.id===p.id}">${panelIcon?.(x)||''}<span>${esc(x.title)}</span></button><button class="companion-close" data-close-id="${esc(x.id)}" aria-label="Close ${esc(x.title)}" title="Close tab">×</button></span>`).join('')+'<button class="companion-add" title="New browser tab" aria-label="New browser tab">＋</button>';
     rec.companionTabs.querySelectorAll('[data-view-id]').forEach(b=>{
       b.onclick=()=>focus(b.dataset.viewId);
+      // the tab is the tile: same menu its head shows
+      b.oncontextmenu=e=>{e.preventDefault();const x=state.panels.find(t=>t.id===b.dataset.viewId);if(x&&tileMenu&&showMenu)showMenu(e.clientX,e.clientY,tileMenu(x));};
     });
     rec.companionTabs.querySelectorAll('[data-close-id]').forEach(b=>b.onclick=e=>{e.stopPropagation();closePanel(b.dataset.closeId);});
     q('.companion-add',rec.companionTabs).onclick=()=>newBrowser(owner);
@@ -102,6 +104,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     closeMenu();
     menu = document.createElement('div'); menu.className = 'browser-menu'; menu.setAttribute('role','menu');
     const actions = [
+      ['Open in Chrome \u2197', () => openOutside(p)],
       ['Find in page', () => findInPage(p)],
       ['Zoom in', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=Math.min(3,(p.pageZoom||1)+0.1)}).then(check)],
       ['Zoom out', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=Math.max(0.5,(p.pageZoom||1)-0.1)}).then(check)],

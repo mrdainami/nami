@@ -8,6 +8,7 @@ import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.m
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file-kinds.mjs';
+import { tileMenuItems } from './tile-menu.mjs';
 import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter, listItems, setListField, removeField } from './frontmatter.mjs';
 import { resolveOpen } from './peek-core.mjs';
 import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
@@ -265,7 +266,8 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation },
+  tileMenu: (p) => tileMenu(p), showMenu: (x, y, items) => showMenu(x, y, items), openOutside: (p) => openOutside(p) });
 function attachCompanion(p,owner) {
   if(!p||!owner)return;
   p.companionOf=owner;
@@ -1703,11 +1705,51 @@ async function addPathToSession(path, isDir) {
   const ok = await insertSessionText(target.id, text, { focus: true });
   toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
 }
+// The same verbs from an open tab. A tile is aimed at the session that owns
+// it; one with no live owner falls back to the rule the tree uses above.
+function tileTarget(p) {
+  const owner = p.owner && S.panels.find((s) => s.id === p.owner && isSessionPanel(s) && !s.exited);
+  if (owner) return owner;
+  const live = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  if (!live.length) { toast('Open a session first.'); return null; }
+  const active = live.find((s) => s.id === S.activeId);
+  const target = active || (live.length === 1 ? live[0] : null);
+  if (!target) toast('Click the session you mean, then add the file.');
+  return target;
+}
+async function addTileToSession(p) {
+  const target = tileTarget(p); if (!target) return;
+  const text = p.filePath ? pathRef(p.filePath, S.project && S.project.path, false) : p.url + ' ';
+  const ok = await insertSessionText(target.id, text, { focus: true });
+  toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
+}
+// Leave Nami for the Mac's browser: a saved HTML file through the file
+// channel, a website through the url one. Main guards both — a .md, a
+// file:// that is not HTML, a custom scheme: none of them gets out.
+async function openOutside(p) {
+  if (p.filePath && fileKind(p.filePath) === 'html') {
+    if (p.dirty && !(await saveEditor(p))) return;
+    const r = await api.openFileInBrowser(p.filePath);
+    if (r && r.ok === false) toast(r.error || 'Could not open Chrome.');
+    return;
+  }
+  if (p.url && /^https?:\/\//i.test(p.url)) api.openUrl(p.url);
+  else toast('Nothing to open yet.');
+}
+function tileMenu(p) {
+  return tileMenuItems(p, {
+    html: (x) => !!x.filePath && fileKind(x.filePath) === 'html',
+    openOutside, addToSession: addTileToSession, move: moveMenu,
+    copy: (x) => { api.copyText(x.filePath || x.url); toast(x.filePath ? 'Path copied.' : 'Address copied.'); },
+    newWindow: (x) => api.newWindow(x.filePath.replace(/\/[^/]*$/, '') || '/', x.filePath),
+  });
+}
 function treeMenu(n, parentDir) {
   const root = S.project.path;
   const items = [];
   if (n.kind === 'file' && fileKind(n.path) === 'html') {
     items.push({ label: 'Open in browser', run: () => openFileInBrowser(n.path) });
+    items.push({ label: 'Open in Chrome ↗', run: () => openOutside({ filePath: n.path }) });
   }
   // The whole file, not a highlighted piece of it. Same text a drag types —
   // an @mention inside the project, a quoted path outside — into the session
@@ -2658,7 +2700,7 @@ function mountTile(p) {
   head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
   head.addEventListener('dragend', () => root.classList.remove('dragging'));
   if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }]); };
-  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); if (p.kind !== 'browser') showMenu(e.clientX, e.clientY, moveMenu(p)); };
+  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, tileMenu(p)); };
   root.addEventListener('dragover', (e) => {
     e.preventDefault(); e.stopPropagation();
     // Stopped for the same reason the drop below is: every tile is a direct
@@ -3469,16 +3511,16 @@ function browserPanelFor(filePath) {
 }
 function browserButtonLabel(button, p) {
   if (!button) return;
-  button.innerHTML = p && p.dirty ? 'Save &amp; open ↗' : 'Browser ↗';
+  button.innerHTML = p && p.dirty ? 'Save &amp; open in Chrome ↗' : 'Open in Chrome ↗';
   button.title = p && p.dirty
-    ? 'Save this page, then open it in Nami’s browser view'
-    : 'Open this saved page in Nami’s browser view';
+    ? 'Save this page, then open it in Chrome'
+    : 'Open this saved page in Chrome';
 }
 function bindBrowserButton(button, p) {
   if (!button) return;
   button._browserPanel = p;
   browserButtonLabel(button, p);
-  button.onclick = () => openFileInBrowser(p.filePath, p);
+  button.onclick = () => openOutside(p);
 }
 function refreshBrowserButtons(p) {
   document.querySelectorAll('.pk-browser, .ed-browser').forEach((button) => {
@@ -6191,9 +6233,19 @@ function renderPeek() {
   q('.pk-pin', box).onclick = pinPeek;
   q('.pk-x', box).onclick = requestClosePeek;
 }
-function pinPeek() {
+// Pinning a page means the page, not its source: an HTML peek lands on the
+// desk as a browser tile showing it rendered. The source is one click away
+// in the tree, where the peek still opens with Read / Edit.
+async function pinPeek() {
   const o = S.overlay; if (!o || o.type !== 'peek') return;
   const p = o.panel;
+  if (p.kind === 'editor' && fileKind(p.filePath) === 'html') {
+    if (p.dirty && !(await saveEditor(p))) return;
+    const owner = p.owner || ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+    S.overlay = null; renderOverlay();
+    browsers.open('about:blank', p.filePath, owner);
+    return;
+  }
   S.overlay = null; renderOverlay();
   pinFilePanel(p);
 }
