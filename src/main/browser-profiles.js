@@ -33,10 +33,17 @@ function uniqueDownloadPath(dir, name, exists = fs.existsSync) {
   while (exists(dest)) dest = path.join(dir, `${stem} (${++n})${ext}`);
   return dest;
 }
-function popupDecision(target, policy = 'block') {
+// disposition is Chromium's word for how the page asked: 'new-window' is
+// window.open from a click — the shape of every sign-in popup — and the only
+// shape that may become a real window. Everything else that points at the web
+// becomes a tab, which is where a link belongs.
+function popupDecision(target, policy = 'block', disposition = '') {
   let url;
   try { url = new URL(target); } catch { return { action: 'deny' }; }
-  if (url.protocol === 'http:' || url.protocol === 'https:') return { action: 'deny', newTab: url.href };
+  if (url.protocol === 'http:' || url.protocol === 'https:') {
+    if (policy === 'oauth' && disposition === 'new-window') return { action: 'allow' };
+    return { action: 'deny', newTab: url.href };
+  }
   if (policy === 'oauth' && url.protocol === 'about:' && url.pathname === 'blank') return { action: 'allow' };
   return { action: 'deny' };
 }
@@ -383,7 +390,7 @@ function createProfileStore({ directory, safeStorage }) {
     return {
       id: p.id, name: p.name,
       downloadMode: p.downloadMode === 'auto' ? 'auto' : 'ask',
-      popupMode: p.popupMode === 'oauth' ? 'oauth' : 'block',
+      popupMode: p.popupMode === 'block' ? 'block' : 'oauth',
       permissions: p.permissions && typeof p.permissions === 'object' ? p.permissions : {},
     };
   }

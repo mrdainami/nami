@@ -156,12 +156,27 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     };
     wc.on('will-navigate', checkNavigation);
     wc.on('will-redirect', checkNavigation);
-    wc.setWindowOpenHandler(({ url: target }) => {
+    wc.setWindowOpenHandler(({ url: target, disposition }) => {
       let popupMode = 'block';
       try { popupMode = profiles.get(e.profileId).popupMode || 'block'; } catch {}
-      const decision = popupDecision(target, popupMode);
+      const decision = popupDecision(target, popupMode, disposition);
       if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
-      return { action: decision.action };
+      if (decision.action !== 'allow' || !allowed(target)) return { action: 'deny' };
+      // A sign-in popup only works as a popup: Google finishes in it, tells the
+      // page that opened it, and closes itself. Opened as a new tab instead, it
+      // has no page to tell, and Canva sits there signed out. So it is a real
+      // child window on the same profile, painted before it loads — the black
+      // box people saw was a window with no background drawn yet.
+      return { action: 'allow', overrideBrowserWindowOptions: {
+        parent: w, width: 520, height: 680, autoHideMenuBar: true, backgroundColor: dark ? '#1f1f1f' : '#fffdf6',
+        webPreferences: { session: record.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+      } };
+    });
+    // A popup does not get popups of its own, and it may not wander: it exists
+    // to finish one sign-in and close.
+    wc.on('did-create-window', (child) => {
+      child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      child.webContents.on('will-navigate', (event, target) => { if (!allowed(target)) event.preventDefault(); });
     });
     const update = () => {
       const local = parseDocUrl(wc.getURL());
