@@ -63,3 +63,23 @@ test('a tab calls itself Chrome, because underneath it is', () => {
   const views = read('src/main/browser-views.js');
   assert.match(views, /record\.session\.setUserAgent\(browserUserAgent\(/, 'every browser partition wears it');
 });
+
+test('the popup switch the screen shows is the one the engine reads', () => {
+  const { popupModeOf } = require('../src/main/browser-profiles.js');
+  // a profile that never chose is "allow" — on screen AND in the engine
+  assert.equal(popupModeOf({}), 'oauth');
+  assert.equal(popupModeOf(undefined), 'oauth');
+  assert.equal(popupModeOf({ popupMode: 'block' }), 'block');
+  assert.equal(popupModeOf({ popupMode: 'oauth' }), 'oauth');
+  const views = read('src/main/browser-views.js');
+  assert.match(views, /popupMode = popupModeOf\(profiles\.get\(e\.profileId\)\)/, 'the engine asks the same function');
+  assert.doesNotMatch(views, /\.popupMode \|\| 'block'/, 'no second default hiding in the handler');
+  const profiles = read('src/main/browser-profiles.js');
+  assert.match(profiles, /popupMode: popupModeOf\(p\)/, 'the screen asks the same function');
+});
+
+test('the permissions list is named for what it holds', () => {
+  const settings = read('src/renderer/browser-settings.mjs');
+  assert.match(settings, /Site permissions/);
+  assert.doesNotMatch(settings, /Camera &amp; microphone<\/h3>/);
+});

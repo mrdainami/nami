@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory, popupModeOf } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function blankMode(settings) {
@@ -159,7 +159,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     wc.on('will-redirect', checkNavigation);
     wc.setWindowOpenHandler(({ url: target, disposition }) => {
       let popupMode = 'block';
-      try { popupMode = profiles.get(e.profileId).popupMode || 'block'; } catch {}
+      try { popupMode = popupModeOf(profiles.get(e.profileId)); } catch {}
       const decision = popupDecision(target, popupMode, disposition);
       if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
       if (decision.action !== 'allow' || !allowed(target)) return { action: 'deny' };

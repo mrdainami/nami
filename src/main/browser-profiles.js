@@ -37,6 +37,14 @@ function uniqueDownloadPath(dir, name, exists = fs.existsSync) {
 // window.open from a click — the shape of every sign-in popup — and the only
 // shape that may become a real window. Everything else that points at the web
 // becomes a tab, which is where a link belongs.
+// The one place the popup default lives. The settings screen and the popup
+// handler both ask this, so what the screen shows is what the engine does. It
+// used to be two expressions that disagreed: the screen defaulted to "allow",
+// the engine to "block", and clicking the already-selected radio saved
+// nothing — a switch that looked on and was wired to nothing.
+function popupModeOf(profile) {
+  return profile && profile.popupMode === 'block' ? 'block' : 'oauth';
+}
 function popupDecision(target, policy = 'block', disposition = '') {
   let url;
   try { url = new URL(target); } catch { return { action: 'deny' }; }
@@ -390,7 +398,7 @@ function createProfileStore({ directory, safeStorage }) {
     return {
       id: p.id, name: p.name,
       downloadMode: p.downloadMode === 'auto' ? 'auto' : 'ask',
-      popupMode: p.popupMode === 'block' ? 'block' : 'oauth',
+      popupMode: popupModeOf(p),
       permissions: p.permissions && typeof p.permissions === 'object' ? p.permissions : {},
     };
   }
@@ -455,5 +463,4 @@ module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
   detectChromiumProfiles, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
-  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure,
-};
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure, popupModeOf };
