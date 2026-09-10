@@ -266,7 +266,8 @@ const tileEls = new Map();
 const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
   pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
   show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
-  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation } });
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation },
+  tileMenu: (p) => tileMenu(p), showMenu: (x, y, items) => showMenu(x, y, items), openOutside: (p) => openOutside(p) });
 function attachCompanion(p,owner) {
   if(!p||!owner)return;
   p.companionOf=owner;
