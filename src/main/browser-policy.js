@@ -82,6 +82,19 @@ function loadFailureMessage({ code, description, failedUrl, currentUrl }) {
   return text ? 'This page could not load (' + text + ').' : 'This page could not load.';
 }
 
+// What a Nami tab calls itself. Chromium's default string names the framework
+// — "Electron/43.3.0" — and Google reads that as an embedded browser and will
+// not finish a "Sign in with Google" in one; Canva's callback then sits blank.
+// Every browser built on this engine ships the same string with that token
+// removed, because underneath it *is* that Chrome. Only the framework token
+// goes; the engine version stays true.
+function browserUserAgent(defaultUA) {
+  return String(defaultUA || '')
+    .replace(/ [A-Za-z][\w.-]*\/[\d.]+(?= Chrome\/)/, '')   // an app name before Chrome/
+    .replace(/ Electron\/[\d.]+/, '')
+    .replace(/\s{2,}/g, ' ').trim();
+}
+
 class Access {
   constructor() { this.sessions = new Map(); }
   register(id, windowId, title = '') {
@@ -100,4 +113,4 @@ class Access {
   allows(id, view) { return !!this.sessions.get(id)?.views.has(view); }
   removeWindow(id) { for (const [key, s] of this.sessions) if (s.windowId === id) this.sessions.delete(key); }
 }
-module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, isBlankTab, cleanSelection, Access, clean, loadFailureMessage };
+module.exports = { cleanAnnotationLayout, userBrowserUrl, browserUrl, isBlankTab, cleanSelection, Access, clean, loadFailureMessage, browserUserAgent };

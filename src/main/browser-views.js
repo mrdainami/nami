@@ -3,9 +3,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage } = require('./browser-policy');
+const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory, popupModeOf } = require('./browser-profiles');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function blankMode(settings) {
@@ -16,11 +16,21 @@ function namiThemeIsDark(settings) {
   const theme = settings?.theme || '';
   return theme === 'operator' || theme === 'graphite' || theme === 'dusk';
 }
+// "System" means Nami's own theme. It used to fall through to the Mac's dark
+// mode when Nami was light, which on a light desk over a dark Mac gave a dark
+// new tab, then a dark website, then a light desk again — the flicker people
+// reported. Nami is the system the tab lives in.
 function blankIsDark(mode, settings) {
   if (mode === 'dark') return true;
   if (mode === 'light') return false;
-  if (namiThemeIsDark(settings)) return true;
-  try { return require('electron').nativeTheme.shouldUseDarkColors; } catch { return false; }
+  return namiThemeIsDark(settings);
+}
+// Websites read prefers-color-scheme from Chromium, which reads it from the
+// Mac unless told otherwise. Tell it, so a page renders in the same mode as
+// the desk around it. Nami's own window styles itself by data-theme and never
+// consults this, so nothing there moves.
+function syncNativeTheme(settings) {
+  try { require('electron').nativeTheme.themeSource = blankIsDark(blankMode(settings), settings) ? 'dark' : 'light'; } catch {}
 }
 async function paintBlank(wc, dark) {
   if (!wc || wc.isDestroyed()) return;
@@ -53,7 +63,9 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
     });
   } catch {}
+  syncNativeTheme(readSettings());
   ipcMain.on('theme:applied', () => {
+    syncNativeTheme(readSettings());
     if (blankMode(readSettings()) === 'system') applyBlankAppearance('system');
   });
   const profiles = createProfileStore({ directory: path.join(app.getPath('userData'), 'browser-profiles'), safeStorage });
@@ -76,6 +88,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     const key = localId ? 'local:' + w.webContents.id + ':' + localId : profileId;
     if (partitions.has(key)) return partitions.get(key);
     const record = { key, local: !!localId, session: session.fromPartition((localId ? 'nami-browser-' : 'persist:nami-browser-') + key), roots: new Set() };
+    record.session.setUserAgent(browserUserAgent(record.session.getUserAgent()));
     record.session.setPermissionRequestHandler((wc, permission, callback) => {
       let origin = '';
       try { origin = new URL(wc.getURL()).origin; } catch {}
@@ -144,12 +157,27 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     };
     wc.on('will-navigate', checkNavigation);
     wc.on('will-redirect', checkNavigation);
-    wc.setWindowOpenHandler(({ url: target }) => {
+    wc.setWindowOpenHandler(({ url: target, disposition }) => {
       let popupMode = 'block';
-      try { popupMode = profiles.get(e.profileId).popupMode || 'block'; } catch {}
-      const decision = popupDecision(target, popupMode);
+      try { popupMode = popupModeOf(profiles.get(e.profileId)); } catch {}
+      const decision = popupDecision(target, popupMode, disposition);
       if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
-      return { action: decision.action };
+      if (decision.action !== 'allow' || !allowed(target)) return { action: 'deny' };
+      // A sign-in popup only works as a popup: Google finishes in it, tells the
+      // page that opened it, and closes itself. Opened as a new tab instead, it
+      // has no page to tell, and Canva sits there signed out. So it is a real
+      // child window on the same profile, painted before it loads — the black
+      // box people saw was a window with no background drawn yet.
+      return { action: 'allow', overrideBrowserWindowOptions: {
+        parent: w, width: 520, height: 680, autoHideMenuBar: true, backgroundColor: dark ? '#1f1f1f' : '#fffdf6',
+        webPreferences: { session: record.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+      } };
+    });
+    // A popup does not get popups of its own, and it may not wander: it exists
+    // to finish one sign-in and close.
+    wc.on('did-create-window', (child) => {
+      child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      child.webContents.on('will-navigate', (event, target) => { if (!allowed(target)) event.preventDefault(); });
     });
     const update = () => {
       const local = parseDocUrl(wc.getURL());
@@ -389,6 +417,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action === 'new-tab') {
       const mode = args.value === 'dark' || args.value === 'light' ? args.value : 'system';
       writeSettings({ browserNewTab: mode });
+      syncNativeTheme(readSettings());
       applyBlankAppearance(mode);
       output.newTab = mode;
     } else if (action === 'import-browser') {

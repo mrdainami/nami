@@ -116,7 +116,13 @@ export function focusSplit(state, id, full = null) {
     return { split:state, full:full && full !== pane ? null : full };
   }
   const p = byId(state.panels || [], id);
-  return { split:splitAfter(state, {type:p?.companionOf ? 'select-companion' : isSession(p) ? 'select-session' : 'select-file',id}), full:null };
+  const split = splitAfter(state, {type:p?.companionOf ? 'select-companion' : isSession(p) ? 'select-session' : 'select-file',id});
+  // Expanding a pane is a statement about the pane, not about which tab is in
+  // it. Clicking a second browser tab lands in the files pane you already
+  // filled the window with, so the fill stays; only a click that moves to the
+  // other pane lets it go.
+  const pane = split.fileId === id ? 'files' : split.sessionId === id ? 'agent' : null;
+  return { split, full: full && full === pane ? full : null };
 }
 
 // ---- across a restart --------------------------------------------------------
