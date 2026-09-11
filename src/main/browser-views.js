@@ -515,12 +515,14 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         cookies = all.length;
         session = all.filter((c) => !c.expirationDate).length;
       } catch {}
-      let passwords = 0, history = 0;
-      try { passwords = profiles.credentials(profileId).length; } catch {}
+      let passwords = args.includePasswords === false ? null : 0, history = 0;
+      if (args.includePasswords !== false) { try { passwords = profiles.credentials(profileId).length; } catch {} }
       try { history = (profiles.get(profileId).history || []).length; } catch {}
       output.contents = { cookies, session, passwords, history };
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
+    // Capability discovery must not unlock the Keychain. Password actions
+    // check availability when the user actually requests protected data.
+    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);

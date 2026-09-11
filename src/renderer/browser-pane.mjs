@@ -158,11 +158,11 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">${view?(view.profileLocal?'Profile for web links':'Profile for this tab'):'Profile to manage'}<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button><button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status">${esc(o.profileError||'')}</div><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">${view?(view.profileLocal?'Profile for web links':'Profile for this tab'):'Profile to manage'}<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button><button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details id="profile-passwords"><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status">${esc(o.profileError||'')}</div><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host), error=q('.browser-profile-error',host);
     let switching=false;
     const run=async (args,{preserveError=false}={})=>{
-      if(!preserveError)error.textContent='';
+      if(!preserveError){error.textContent='';delete o.profileError;}
       try { const out=await api.browserProfiles({profileId:chosen.id,...args}); if(!out?.ok)throw new Error(out?.error||'Profile action failed.'); return out; }
       catch(e){error.textContent=e.message;return null;}
     };
@@ -170,13 +170,13 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     // Live cookie counts include session cookies; they do not count accounts.
     const contents=q('.browser-profile-contents',host);
     (async()=>{
-      const out=await api.browserProfiles({action:'contents',profileId:chosen.id}).catch(()=>null);
+      const out=await api.browserProfiles({action:'contents',profileId:chosen.id,includePasswords:false}).catch(()=>null);
       if(!contents.isConnected)return;
       const c=out&&out.contents;
       if(!c){contents.textContent='Could not read what is in this profile.';return;}
       const n=(v,one,many)=>v.toLocaleString()+' '+(v===1?one:many);
       contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+n(c.session,'session cookie','session cookies')+')':''),
-        n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
+        c.passwords===null?'Saved passwords: open to view':n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
     })();
     q('#profile-choice',host).onchange=async e=>{
       const profileId=e.target.value;
@@ -202,10 +202,15 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const canFill=!!view && chosen.id===view.profileId;
     q('#profile-import',host).disabled=!r.capabilities?.passwordCsv; if(!r.capabilities?.passwordCsv) q('#profile-import',host).title='Unlock macOS Keychain to import saved passwords.';
     let currentOrigin=''; try{currentOrigin=new URL(view?.url).origin;}catch{}
-    const saved=await run({action:'credentials'},{preserveError:true});if(state.overlay!==o||!saved||switching)return;
-    q('#profile-credentials',host).innerHTML=(saved.credentials||[]).map(c=>`<div class="browser-credential"><span>${esc(c.origin)}<small>${esc(c.username)}</small></span>${canFill&&c.origin===currentOrigin?`<button class="btn btn--small" data-fill="${esc(c.id)}">Fill</button>`:''}<button class="btn btn--small" data-delete="${esc(c.id)}">Delete</button></div>`).join('')||'<p class="note">No saved passwords.</p>';
-    host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
-    host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
+    q('#profile-passwords',host).ontoggle=async e=>{
+      if(!e.target.open||switching)return;
+      q('#profile-credentials',host).textContent='Loading saved passwords…';
+      const saved=await run({action:'credentials'},{preserveError:true});if(state.overlay!==o||switching)return;
+      if(!saved){q('#profile-credentials',host).textContent='Could not unlock saved passwords. Close and reopen this section to try again.';return;}
+      q('#profile-credentials',host).innerHTML=(saved.credentials||[]).map(c=>`<div class="browser-credential"><span>${esc(c.origin)}<small>${esc(c.username)}</small></span>${canFill&&c.origin===currentOrigin?`<button class="btn btn--small" data-fill="${esc(c.id)}">Fill</button>`:''}<button class="btn btn--small" data-delete="${esc(c.id)}">Delete</button></div>`).join('')||'<p class="note">No saved passwords.</p>';
+      host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
+      host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
+    };
   }
   async function renderImportJob(o) {
     const modal=dialog('modal modal--browser', `<div class="modal-head"><span class="title">Browser import</span></div>
