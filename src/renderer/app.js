@@ -27,6 +27,7 @@ import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
 import { createLinkHint } from './link-hint.mjs';
 import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
+import { isTypingTarget } from './typing-target.mjs';
 import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
@@ -1098,7 +1099,7 @@ function onGlobalKey(e) {
   // click into the peek's editor and ⌘⌫ is a text operation again.
   const peeking = S.overlay && S.overlay.type === 'peek';
   const inTree = S.railTab === 'workspace' && S.treeSel && !S.treeEdit
-    && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
+    && !isTypingTarget(document.activeElement);
   // Rename needs the rail actually in front of you — starting an edit hidden
   // behind a preview would put your typing somewhere you cannot see it.
   if (e.key === 'Enter' && !meta && inTree && !S.overlay) { e.preventDefault(); beginTreeRename(S.treeSel); return; }
