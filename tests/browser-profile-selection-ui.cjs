@@ -1,6 +1,8 @@
 // Run: npx electron tests/browser-profile-selection-ui.cjs
 // Actual Nami renderer with synthetic local profiles; no real browser import.
-const {app,BrowserWindow,session}=require('electron');
+const {app,BrowserWindow,session,safeStorage}=require('electron');
+let keychainChecks=0;
+safeStorage.isEncryptionAvailable=()=>{keychainChecks++;throw Error('Synthetic Keychain needs explicit access');};
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const profiles=require('../src/main/browser-profiles');
 profiles.detectChromiumProfiles=()=>[];profiles.cookieImportStatus=()=>({available:false,browsers:[]});
@@ -31,7 +33,10 @@ app.whenReady().then(async()=>{
       await until(()=>run('!!document.querySelector("#profile-choice")'),'profile settings');
     };
     const switched=async profileId=>until(()=>run(`!document.querySelector('#profile-choice')?.disabled && document.querySelector('#profile-choice')?.value===${JSON.stringify(profileId)} && dainami.browserStatus().then(r=>r.views.find(v=>v.id===${JSON.stringify(managedId)})?.profileId===${JSON.stringify(profileId)})`),'applied dropdown profile');
-    const work=(await invoke({action:'create',name:'Work'})).profile;
+    const workResult=await invoke({action:'create',name:'Work'});
+    assert.equal(workResult.ok,true,'creating/listing profiles must not unlock password storage: '+workResult.error);
+    const work=workResult.profile;
+    fs.writeFileSync(path.join(app.getPath('userData'),'browser-profiles',work.id+'.vault'),'synthetic-encrypted-vault');
     await session.fromPartition('persist:nami-browser-'+work.id).cookies.set({url:'https://fixture.example.test',name:'synthetic',value:'test-only'});
     await openManager();
     assert.equal(await run('document.querySelector("#profile-choice").closest("label").childNodes[0].textContent'),'Profile for this tab');
@@ -40,6 +45,11 @@ app.whenReady().then(async()=>{
     assert.equal(await run('!!document.querySelector("#profile-switch,.browser-profile-confirm")'),false,'choosing a profile applies it without hidden extra steps');
     await until(()=>run('document.querySelector(".browser-profile-contents")?.textContent.includes("1 session cookie")'),'honest cookie label');
     assert.doesNotMatch(await run('document.querySelector(".browser-profile-contents").textContent'),/sign-in/);
+    assert.equal(keychainChecks,0,'opening a profile and viewing cookie counts must not read the password vault');
+    await click('#profile-passwords summary');
+    await until(()=>run('document.querySelector(".browser-profile-error")?.textContent.includes("Synthetic Keychain")'),'explicit password access');
+    assert.equal(keychainChecks,1,'only expanding Saved passwords requests protected storage');
+    await click('#profile-passwords summary');
     await shot('manager-active-work');
     await choose('default');await switched('default');
     await choose(work.id);await switched(work.id);
