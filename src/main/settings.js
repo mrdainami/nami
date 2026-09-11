@@ -6,16 +6,12 @@
 // The path is passed in rather than imported from electron so tests can load this.
 const fs = require('fs');
 const path = require('path');
+const { writePrivateConfig } = require('./private-config');
 
 const fsIo = {
   read: (f) => fs.readFileSync(f, 'utf8'),
   exists: (f) => fs.existsSync(f),
-  write: (f, t) => {
-    fs.mkdirSync(path.dirname(f), { recursive: true });
-    // 600: the file can hold API keys (envKeys) — owner-only, like ~/.ssh config
-    fs.writeFileSync(f + '.tmp', t, { mode: 0o600 });
-    fs.renameSync(f + '.tmp', f);
-  },
+  write: writePrivateConfig,
 };
 
 function readSettings({ file, io = fsIo }) {
