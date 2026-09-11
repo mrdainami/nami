@@ -162,15 +162,15 @@ app.whenReady().then(async () => {
     assert.deepEqual((await invoke({ action: 'contents', profileId: 'default' })).contents, personalBefore);
     console.log('PASS: destination removed while sheet is open produces an inline error and no fallback writes.');
     await click('#import-cancel');
-    // Manage profiles carries the explicit selection, even if it differs from the tab.
+    // Profile selection switches the tab; import follows that explicit choice.
     await click('[data-browser-action="menu"]');
-    await run(`Array.from(document.querySelectorAll('.browser-menu button')).find(b => b.textContent === 'Manage profiles…').click()`);
+    await run(`Array.from(document.querySelectorAll('.browser-menu button')).find(b => b.textContent.startsWith('Profile:')).click()`);
     await until(() => run('!!document.querySelector("#profile-choice")'), 'profile manager');
     await choose('#profile-choice', 'default');
-    await until(() => run('document.querySelector("#profile-choice")?.value === "default" && !!document.querySelector("#profile-import-cookies")'), 'Personal manager selection');
+    await until(() => run('document.querySelector("#profile-choice")?.value === "default" && !document.querySelector("#profile-choice")?.disabled && !!document.querySelector("#profile-import-cookies")'), 'applied Personal profile');
     await click('#profile-import-cookies');
     await until(() => run('!!document.querySelector("#import-destination")'), 'manager import');
-    assert.equal(await run('document.querySelector("#import-destination").value'), 'default', 'explicit manager selection takes precedence over Work tab');
+    assert.equal(await run('document.querySelector("#import-destination").value'), 'default', 'import uses the profile selected for this tab');
     await click('#import-cancel');
     // Global settings has no chosen profile yet: require an explicit destination.
     win.webContents.send('menu:command', 'settings:browser');

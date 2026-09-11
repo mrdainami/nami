@@ -112,7 +112,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   });
   let mutations = Promise.resolve(), pendingIdentityChanges = 0;
   let gateway, gatewayStarting;
-  const send = (e, type, data) => { if (!e.window.isDestroyed() && !e.window.webContents.isDestroyed()) e.window.webContents.send('browser:event', { id: e.id, type, ...data }); };
+  const send = (e, type, data) => { if (type !== 'closed' && views.get(e.id) !== e) return; if (!e.window.isDestroyed() && !e.window.webContents.isDestroyed()) e.window.webContents.send('browser:event', { id: e.id, type, ...data }); };
   const mainWindow = (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     if (!w || event.sender !== w.webContents || event.senderFrame !== w.webContents.mainFrame) throw new Error('Browser action is not from Nami.');
@@ -161,86 +161,116 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     });
     partitions.set(key, record); return record;
   }
-  async function create(w, args, { pendingCount = 0 } = {}) {
+  async function create(w, args, { pendingCount = 0, replacing = null } = {}) {
     if (typeof args.id !== 'string' || !/^[\w-]{1,200}$/.test(args.id)) throw new Error('Invalid browser view.');
-    if (views.has(args.id)) return find(w, args.id);
+    if (views.has(args.id) && views.get(args.id) !== replacing) return find(w, args.id);
     const profileId = args.profileId || profiles.list()[0].id;
     if (profileLocks.has(profileId) || importBlocks.has(profileId)) throw new Error('Browser profile is being updated. Try again shortly.');
-    const record = getPartition(w, profileId, args.filePath ? args.id : null);
-    let url;
+    // Validate before allocating or abandoning a working view.
+    let url, root;
     if (args.filePath) {
       const file = fs.realpathSync(args.filePath);
       if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) throw new Error('Choose an HTML file.');
-      const root = path.dirname(file); record.roots.add(root); url = buildDocUrl(root, file);
+      root = path.dirname(file); url = buildDocUrl(root, file);
     } else url = args.userNavigation ? userBrowserUrl(args.url) || 'about:blank' : browserUrl(args.url || 'about:blank');
-    const view = new WebContentsView({ webPreferences: { session: record.session, preload: path.join(__dirname, 'browser-preload.js'),
-      sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
     const settings = readSettings();
     const dark = blankIsDark(blankMode(settings), settings);
-    view.setBackgroundColor(dark ? '#1f1f1f' : '#fffdf6');
-    const e = { id: args.id, identity: randomUUID(), owner: args.owner, profileId, pendingCount, record, window: w, view, filePath: args.filePath, localUrl: args.filePath ? url : null };
-    views.set(e.id, e); w.contentView.addChildView(view); view.setVisible(false);
-    const wc = view.webContents;
-    wc.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && (input.meta || input.control) && !input.alt && String(input.key).toLowerCase() === 'l') { event.preventDefault(); w.webContents.focus(); send(e, 'address-focus', {}); }
-    });
-    const allowed = (value) => { if (isBlankTab(value)) return true; try { browserUrl(value); return true; } catch (_) { const p = parseDocUrl(value); return !!(p && e.localUrl && record.roots.has(p.root)); } };
-    const checkNavigation = (event, target) => {
-      if (!allowed(target)) { event.preventDefault(); return; }
-      // Local documents never acquire a named profile's signed-in identity
-      // through a page-controlled navigation. External links open a web tab.
-      if (record.local && /^https?:/.test(target)) { event.preventDefault(); send(e, 'new-tab', { url: target, profileId: e.profileId }); }
-    };
-    wc.on('will-navigate', checkNavigation);
-    wc.on('will-redirect', checkNavigation);
-    wc.setWindowOpenHandler(({ url: target, disposition }) => {
-      let popupMode = 'block';
-      try { popupMode = popupModeOf(profiles.get(e.profileId)); } catch {}
-      const decision = popupDecision(target, popupMode, disposition);
-      if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
-      if (decision.action !== 'allow' || !allowed(target)) return { action: 'deny' };
-      // A sign-in popup only works as a popup: Google finishes in it, tells the
-      // page that opened it, and closes itself. Opened as a new tab instead, it
-      // has no page to tell, and Canva sits there signed out. So it is a real
-      // child window on the same profile, painted before it loads — the black
-      // box people saw was a window with no background drawn yet.
-      return { action: 'allow', overrideBrowserWindowOptions: {
-        parent: w, width: 520, height: 680, autoHideMenuBar: true, backgroundColor: dark ? '#1f1f1f' : '#fffdf6',
-        webPreferences: { session: record.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
-      } };
-    });
-    // A popup does not get popups of its own, and it may not wander: it exists
-    // to finish one sign-in and close.
-    wc.on('did-create-window', (child) => {
-      child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      child.webContents.on('will-navigate', (event, target) => { if (!allowed(target)) event.preventDefault(); });
-    });
-    const update = () => {
-      const local = parseDocUrl(wc.getURL());
-      e.filePath = local ? resolveWithinRoot(local.root, local.rel) : null;
-      const blank = !e.filePath && isBlankTab(wc.getURL());
-      send(e, 'state', { filePath: e.filePath, profileId: e.profileId, zoom: wc.getZoomFactor(), url: e.filePath || (blank ? 'about:blank' : wc.getURL()), title: blank ? 'New tab' : wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
-    };
-    for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
-    wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
-    wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
-    wc.on('did-fail-load', (_event, code, description, failedUrl, main) => {
-      if (!main) return;
-      // Let the commit settle first: getURL() during the event can still name
-      // the page that was there before the click.
-      setImmediate(() => {
-        if (wc.isDestroyed()) return;
-        const message = loadFailureMessage({ code, description, failedUrl, currentUrl: wc.getURL() });
-        if (message) send(e, 'error', { error: message });
+    // A replacement local document gets its own ephemeral partition. Retiring
+    // the previous document must not clear the new document's approved root.
+    const localId = args.filePath ? (replacing ? args.id + '-' + randomUUID() : args.id) : null;
+    const record = getPartition(w, profileId, localId);
+    if (root) record.roots.add(root);
+    let view;
+    try {
+      view = new WebContentsView({ webPreferences: { session: record.session, preload: path.join(__dirname, 'browser-preload.js'),
+        sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+      view.setBackgroundColor(dark ? '#1f1f1f' : '#fffdf6');
+      const e = { id: args.id, identity: randomUUID(), owner: args.owner, profileId, pendingCount, record, window: w, view, filePath: args.filePath, localUrl: args.filePath ? url : null };
+      const wc = view.webContents;
+      wc.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && (input.meta || input.control) && !input.alt && String(input.key).toLowerCase() === 'l') { event.preventDefault(); w.webContents.focus(); send(e, 'address-focus', {}); }
       });
-    });
-    wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
-    wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
-    if (url === 'about:blank' && !args.filePath) {
-      await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
-      await paintBlank(wc, dark);
-    } else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
-    return e;
+      const allowed = (value) => { if (isBlankTab(value)) return true; try { browserUrl(value); return true; } catch (_) { const p = parseDocUrl(value); return !!(p && e.localUrl && record.roots.has(p.root)); } };
+      const checkNavigation = (event, target) => {
+        if (!allowed(target)) { event.preventDefault(); return; }
+        // Local documents never acquire a named profile's signed-in identity
+        // through a page-controlled navigation. External links open a web tab.
+        if (record.local && /^https?:/.test(target)) { event.preventDefault(); send(e, 'new-tab', { url: target, profileId: e.profileId }); }
+      };
+      wc.on('will-navigate', checkNavigation);
+      wc.on('will-redirect', checkNavigation);
+      wc.setWindowOpenHandler(({ url: target, disposition }) => {
+        let popupMode = 'block';
+        try { popupMode = popupModeOf(profiles.get(e.profileId)); } catch {}
+        const decision = popupDecision(target, popupMode, disposition);
+        if (decision.newTab && allowed(target)) send(e, 'new-tab', { url: target, profileId: e.profileId });
+        if (decision.action !== 'allow' || !allowed(target)) return { action: 'deny' };
+        // A sign-in popup only works as a popup: Google finishes in it, tells the
+        // page that opened it, and closes itself. Opened as a new tab instead, it
+        // has no page to tell, and Canva sits there signed out. So it is a real
+        // child window on the same profile, painted before it loads — the black
+        // box people saw was a window with no background drawn yet.
+        return { action: 'allow', overrideBrowserWindowOptions: {
+          parent: w, width: 520, height: 680, autoHideMenuBar: true, backgroundColor: dark ? '#1f1f1f' : '#fffdf6',
+          webPreferences: { session: record.session, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+        } };
+      });
+      // A popup does not get popups of its own, and it may not wander: it exists
+      // to finish one sign-in and close.
+      wc.on('did-create-window', (child) => {
+        child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+        child.webContents.on('will-navigate', (event, target) => { if (!allowed(target)) event.preventDefault(); });
+      });
+      const update = () => {
+        if (wc.isDestroyed() || views.get(e.id) !== e) return;
+        const local = parseDocUrl(wc.getURL());
+        e.filePath = local ? resolveWithinRoot(local.root, local.rel) : null;
+        const blank = !e.filePath && isBlankTab(wc.getURL());
+        send(e, 'state', { filePath: e.filePath, profileId: e.profileId, profileName: profiles.get(e.profileId).name, profileLocal: record.local, zoom: wc.getZoomFactor(), url: e.filePath || (blank ? 'about:blank' : wc.getURL()), title: blank ? 'New tab' : wc.getTitle(), loading: wc.isLoading(), canBack: wc.navigationHistory.canGoBack(), canForward: wc.navigationHistory.canGoForward() });
+      };
+      e.update = update;
+      for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, update);
+      wc.on('did-start-navigation', (_ev, _url, inPlace, main) => { if (main && !inPlace) { e.documentEpoch = (e.documentEpoch || 0) + 1; e.documentId = null; e.selections = new Map(); } });
+      wc.on('did-finish-load', () => send(e, 'error', { error: '' }));
+      wc.on('did-fail-load', (_event, code, description, failedUrl, main) => {
+        if (!main) return;
+        // Let the commit settle first: getURL() during the event can still name
+        // the page that was there before the click.
+        setImmediate(() => {
+          if (wc.isDestroyed()) return;
+          const message = loadFailureMessage({ code, description, failedUrl, currentUrl: wc.getURL() });
+          if (message) send(e, 'error', { error: message });
+        });
+      });
+      wc.on('render-process-gone', () => send(e, 'error', { error: 'Page stopped. Reload to try again.' }));
+      wc.on('context-menu', (_event, params) => { if (params.selectionText) wc.send('browser:selection-request'); });
+      // Install the replacement completely before retiring the old native view.
+      // It cannot request website permissions or emit page state until committed.
+      view.setVisible(false);
+      w.contentView.addChildView(view);
+      if (replacing) {
+        if (views.get(args.id) !== replacing) throw new Error('The browser tab changed. Choose its profile again.');
+        await remove(replacing.id, { notify: false, confirmed: true });
+      }
+      if (w.isDestroyed()) throw new Error('The Nami window has closed.');
+      views.set(e.id, e);
+      if (url === 'about:blank' && !args.filePath) {
+        await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
+        await paintBlank(wc, dark);
+      } else await wc.loadURL(url).catch((error) => send(e, 'error', { error: error.message }));
+      return e;
+    } catch (error) {
+      if (view) {
+        if (views.get(args.id)?.view === view) views.delete(args.id);
+        if (!w.isDestroyed()) w.contentView.removeChildView(view);
+        if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close();
+      }
+      if (record.local) {
+        record.roots.clear(); record.session.protocol.unhandle('nami-doc'); partitions.delete(record.key);
+        await record.session.clearStorageData();
+      }
+      throw error;
+    }
   }
   async function remove(id, { notify = true, confirmed = false } = {}) {
     const e = views.get(id); if (!e) return;
@@ -390,18 +420,24 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     if (importing) profiles.get(profileId);
     let output = {};
     if (action === 'create') output.profile = profiles.create(args.name);
-    else if (action === 'rename') output.profile = profiles.rename(profileId, args.name);
+    else if (action === 'rename') {
+      output.profile = profiles.rename(profileId, args.name);
+      for (const e of views.values()) if (e.profileId === profileId) e.update();
+    }
     else if (action === 'switch') {
       const e = find(w, args.id); profiles.get(profileId);
       if (profileLocks.has(profileId)) throw new Error('Browser profile is being updated.');
       const oldProfile = e.profileId;
       if (oldProfile === profileId) return { profiles: profiles.list() };
       await mutateProfile(oldProfile, async () => {
-        const next = { id: e.id, owner: e.owner, profileId, filePath: e.filePath, url: e.view.webContents.getURL() };
-        await remove(e.id, { notify: false, confirmed: true });
+        const currentUrl = e.view.webContents.getURL();
+        // The internal welcome file is a blank web tab, never a user file URL.
+        const next = { id: e.id, owner: e.owner, profileId, filePath: e.filePath,
+          url: !e.filePath && isBlankTab(currentUrl) ? 'about:blank' : currentUrl };
         // The shared mutation lane keeps destination imports, removal and
         // grants from running until the replacement view is ready.
-        const created = await create(w, next); send(created, 'profile-changed', { profileId });
+        const created = await create(w, next, { pendingCount: e.pendingCount, replacing: e });
+        send(created, 'profile-changed', { profileId });
       });
     } else if (action === 'clear' || action === 'remove') {
       if (args.confirmed !== true) throw new Error('Confirm clearing this Nami browser data first.');
@@ -470,11 +506,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output = { job: done, imported: done.results.cookies?.copied || 0, passwords: done.results.passwords?.copied || 0,
         history: done.results.history?.copied || 0, message: 'Import ' + done.state + ' into ' + done.profileName + '.' };
     } else if (action === 'contents') {
-      // What is actually in this profile, counted from the live session rather
-      // than from the file on disk. Session cookies — which is what most
-      // sign-ins are — never reach the file, so a count read from SQLite
-      // reports a profile as emptier than it is and sends everyone hunting a
-      // bug that is not there.
+      // Count the live cookie store, including session-only cookies. Neither
+      // type of cookie is proof that a website accepts an authenticated session.
       const record = getPartition(w, profileId);
       let cookies = 0, session = 0;
       try {
@@ -482,12 +515,14 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         cookies = all.length;
         session = all.filter((c) => !c.expirationDate).length;
       } catch {}
-      let passwords = 0, history = 0;
-      try { passwords = profiles.credentials(profileId).length; } catch {}
+      let passwords = args.includePasswords === false ? null : 0, history = 0;
+      if (args.includePasswords !== false) { try { passwords = profiles.credentials(profileId).length; } catch {} }
       try { history = (profiles.get(profileId).history || []).length; } catch {}
       output.contents = { cookies, session, passwords, history };
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
+    // Capability discovery must not unlock the Keychain. Password actions
+    // check availability when the user actually requests protected data.
+    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);
@@ -496,7 +531,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   });
   guarded('browser:status', async (w) => {
     const sessions = [...access.sessions].filter(([, s]) => s.windowId === w.webContents.id).map(([id, s]) => ({ id, title: s.title, views: [...s.views], connected: !!gateway?.isConnected(id), ...gateway?.status(id), sources: contexts.list(id), peers: [...(s.peers || [])] }));
-    return { enabled: browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
+    return { enabled: browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, profileName: profiles.get(e.profileId).name, profileLocal: e.record.local, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
   });
   guarded('browser:enable', async (_w, { enabled }) => {
     const result = writeSettings({ browserEnabled: !!enabled });

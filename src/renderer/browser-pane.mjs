@@ -127,7 +127,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       ['Reset zoom', () => api.browserAction({id:p.id,action:'zoom',value:p.pageZoom=1}).then(check)],
       ['Take screenshot…', () => api.browserAction({id:p.id,action:'capture'}).then(check)],
       ['Import from Chrome…', () => show({type:'browser-import',panelId:p.id})],
-      ['Manage profiles…', () => show({type:'browser-profiles',panelId:p.id})],
+      ['Profile: '+(p.profileName||'Loading')+'…', () => show({type:'browser-profiles',panelId:p.id})],
       ['Clear browsing data…', () => show({type:'browser-profiles',panelId:p.id,section:'clear'})],
       ['Browser settings…', () => settings('browser')],
     ];
@@ -154,32 +154,45 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const r=await api.browserProfiles({action:'list'}); if(state.overlay!==o||!check(r))return;
     const status=await api.browserStatus(); if(state.overlay!==o)return;
     const view=status.views?.find(v=>v.id===o.panelId);
-    const chosen=r.profiles.find(p=>p.id===(o.profileId||view?.profileId))||r.profiles[0];
+    const chosen=r.profiles.find(p=>p.id===(view?.profileId||o.profileId))||r.profiles[0];
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-result" role="status"></div>`;
-    const result=q('.browser-profile-result',host);
-    const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
-    const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
-    // What is in this profile, said plainly and left on screen. Counted from
-    // the live session, because session cookies — most sign-ins — never reach
-    // the file on disk, and a count taken from there reads as empty when it is
-    // not. Without this line an import has no visible result at all.
+    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">${view?(view.profileLocal?'Profile for web links':'Profile for this tab'):'Profile to manage'}<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button><button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details id="profile-passwords"><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status">${esc(o.profileError||'')}</div><div class="browser-profile-result" role="status"></div>`;
+    const result=q('.browser-profile-result',host), error=q('.browser-profile-error',host);
+    let switching=false;
+    const run=async (args,{preserveError=false}={})=>{
+      if(!preserveError){error.textContent='';delete o.profileError;}
+      try { const out=await api.browserProfiles({profileId:chosen.id,...args}); if(!out?.ok)throw new Error(out?.error||'Profile action failed.'); return out; }
+      catch(e){error.textContent=e.message;return null;}
+    };
+    const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;try{await action();}finally{if(confirm.isConnected)confirm.disabled=false;}};};
+    // Live cookie counts include session cookies; they do not count accounts.
     const contents=q('.browser-profile-contents',host);
     (async()=>{
-      const out=await api.browserProfiles({action:'contents',profileId:chosen.id}).catch(()=>null);
+      const out=await api.browserProfiles({action:'contents',profileId:chosen.id,includePasswords:false}).catch(()=>null);
       if(!contents.isConnected)return;
       const c=out&&out.contents;
       if(!c){contents.textContent='Could not read what is in this profile.';return;}
       const n=(v,one,many)=>v.toLocaleString()+' '+(v===1?one:many);
-      contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+c.session+' sign-in)':''),
-        n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
+      contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+n(c.session,'session cookie','session cookies')+')':''),
+        c.passwords===null?'Saved passwords: open to view':n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
     })();
-    q('#profile-choice',host).onchange=e=>show({...o,profileId:e.target.value});
+    q('#profile-choice',host).onchange=async e=>{
+      const profileId=e.target.value;
+      if(!view){show({...o,profileId,profileError:null});return;}
+      // This selector names the tab's live profile, not an unapplied draft.
+      if(profileId===view.profileId||switching)return;
+      switching=true;
+      host.querySelectorAll('button,input,select').forEach(el=>el.disabled=true);
+      q('.browser-profile-context',host).textContent='Switching to '+(r.profiles.find(p=>p.id===profileId)?.name||'the selected profile')+'…';
+      const out=await run({action:'switch',id:view.id,profileId});
+      if(state.overlay!==o)return;
+      // Read the actual profile again after either success or failure.
+      show({...o,profileId,profileError:out?null:error.textContent});
+    };
     const nameForm=(action)=>{result.innerHTML=`<label class="field-label">Profile name<input id="profile-name" value="${action==='rename'?esc(chosen.name):''}"></label><button class="btn btn--small" id="profile-name-save">Save</button>`;q('#profile-name-save',result).onclick=async()=>{const out=await run({action,name:q('#profile-name',result).value});if(out)show({...o});};q('input',result).focus();};
     q('#profile-new',host).onclick=()=>nameForm('create');q('#profile-rename',host).onclick=()=>nameForm('rename');
-    if(view)q('#profile-switch',host).onclick=()=>ask('Use '+chosen.name+' for this tab?',async()=>{if(await run({action:'switch',id:view.id})){close();toast('Profile changed.');}});
     q('#profile-remove',host).onclick=()=>ask('Remove '+chosen.name+' and close its tabs? Any import into this profile will be cancelled.',async()=>{if(await run({action:'remove',confirmed:true}))show({...o});});
     const recent=(r.importJobs||[]).filter(j=>j.profileId===chosen.id).sort((a,b)=>b.startedAt-a.startedAt)[0];
     if(recent){const b=document.createElement('button');b.className='btn btn--small';b.textContent=importActive(recent)?'View running import':'View import result';b.onclick=()=>show({type:'browser-import',jobId:recent.id});q('.browser-profile-actions',host).appendChild(b);}
@@ -189,10 +202,15 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const canFill=!!view && chosen.id===view.profileId;
     q('#profile-import',host).disabled=!r.capabilities?.passwordCsv; if(!r.capabilities?.passwordCsv) q('#profile-import',host).title='Unlock macOS Keychain to import saved passwords.';
     let currentOrigin=''; try{currentOrigin=new URL(view?.url).origin;}catch{}
-    const saved=await run({action:'credentials'});if(state.overlay!==o||!saved)return;
-    q('#profile-credentials',host).innerHTML=(saved.credentials||[]).map(c=>`<div class="browser-credential"><span>${esc(c.origin)}<small>${esc(c.username)}</small></span>${canFill&&c.origin===currentOrigin?`<button class="btn btn--small" data-fill="${esc(c.id)}">Fill</button>`:''}<button class="btn btn--small" data-delete="${esc(c.id)}">Delete</button></div>`).join('')||'<p class="note">No saved passwords.</p>';
-    host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
-    host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
+    q('#profile-passwords',host).ontoggle=async e=>{
+      if(!e.target.open||switching)return;
+      q('#profile-credentials',host).textContent='Loading saved passwords…';
+      const saved=await run({action:'credentials'},{preserveError:true});if(state.overlay!==o||switching)return;
+      if(!saved){q('#profile-credentials',host).textContent='Could not unlock saved passwords. Close and reopen this section to try again.';return;}
+      q('#profile-credentials',host).innerHTML=(saved.credentials||[]).map(c=>`<div class="browser-credential"><span>${esc(c.origin)}<small>${esc(c.username)}</small></span>${canFill&&c.origin===currentOrigin?`<button class="btn btn--small" data-fill="${esc(c.id)}">Fill</button>`:''}<button class="btn btn--small" data-delete="${esc(c.id)}">Delete</button></div>`).join('')||'<p class="note">No saved passwords.</p>';
+      host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
+      host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
+    };
   }
   async function renderImportJob(o) {
     const modal=dialog('modal modal--browser', `<div class="modal-head"><span class="title">Browser import</span></div>
@@ -291,7 +309,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     };
   }
   function settingsHtml() { return browserSettingsHtml(); }
-  function wireSettings(modal) { return wireBrowserSettings(modal, { api, onProfiles:()=>show({type:'browser-profiles'}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
+  function wireSettings(modal) { const panelId=state.panels.find(p=>p.id===state.activeId && p.kind==='browser')?.id; return wireBrowserSettings(modal, { api, onProfiles:()=>show({type:'browser-profiles',panelId}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
   api.onBrowserEvent((event) => {
     if(event.type==='import-job'){rememberImport(event.job);return;}
     let p = state.panels.find((p) => p.id === event.id), rec = tiles.get(event.id);
@@ -304,7 +322,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(event.type==='profile-changed'){signature='';updateImportStrips();schedule();}
     if (event.type === 'focus' && !state.overlay) { closeMenu(); focus(p.id, false); }
     if (event.type === 'address-focus') { const input=q('.browser-address input',rec.body); input.focus(); input.select(); }
-    if (event.type === 'state') { p.profileId=event.profileId; p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = p.filePath || (event.url && event.url !== 'about:blank' ? event.url : ''); q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
+    if (event.type === 'state') { p.profileId=event.profileId; p.profileName=event.profileName; p.profileLocal=event.profileLocal; p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = p.filePath || (event.url && event.url !== 'about:blank' ? event.url : ''); q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
     if (event.type === 'new-tab') open(event.url, null, p.owner, null, false, event.profileId || p.profileId);
     if (event.type === 'error') { const e = q('.browser-error', rec.body); e.hidden = !event.error; e.textContent = event.error; }
     if (event.type === 'text-selection') { rec.pendingSelection = event.selection; q('.browser-selection', rec.body).hidden = false; }
