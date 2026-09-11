@@ -824,7 +824,7 @@ ipcMain.handle('services:connect', async (_e, { id, values, scope, agentIds, pro
 });
 // The other two doors: a .mcpb bundle, or a pasted address / command line.
 // Both end at the same place as the catalog — a master entry, delivered.
-const { parseManifest, userConfigFields, buildEntry, bundleSlug, parseCommandLine } = require('./mcpb');
+const { parseManifest, userConfigFields, buildEntry, parseCommandLine } = require('./mcpb');
 ipcMain.handle('services:pickBundle', async (e) => {
   const parent = BrowserWindow.fromWebContents(e.sender) || win;
   const res = await dialog.showOpenDialog(parent, {
@@ -833,29 +833,15 @@ ipcMain.handle('services:pickBundle', async (e) => {
   });
   if (res.canceled || !res.filePaths[0]) return null;
   const file = res.filePaths[0];
-  // A bundle is a zip; /usr/bin/unzip ships with every Mac, so no dependency.
-  // Extract first into a scratch spot named after the file, read the manifest,
-  // then settle under the manifest's own name+version.
-  const tmp = path.join(os.homedir(), '.nami', 'bundles', '.unpacking-' + Date.now());
-  const unzip = await new Promise((resolve) => {
-    execFile('/usr/bin/unzip', ['-o', '-q', file, '-d', tmp], { timeout: 30000 }, (err) => resolve(err ? err.message.split('\n')[0] : null));
-  });
-  if (unzip) return { ok: false, error: 'Could not unpack it: ' + unzip };
   try {
-    const parsed = parseManifest(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
-    if (!parsed.ok) { fs.rmSync(tmp, { recursive: true, force: true }); return parsed; }
-    const dir = path.join(os.homedir(), '.nami', 'bundles', bundleSlug(parsed.manifest));
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.renameSync(tmp, dir);
-    const m = parsed.manifest;
+    const { dir, manifest: m } = await require('./bundle-install').installBundle(file, path.join(os.homedir(), '.nami', 'bundles'));
     return {
       ok: true, dir,
       name: m.display_name || m.name, slug: m.name, version: m.version || '',
       description: m.description || '', fields: userConfigFields(m),
     };
   } catch (err) {
-    fs.rmSync(tmp, { recursive: true, force: true });
-    return { ok: false, error: 'No manifest.json inside — is this really an MCP bundle? (' + err.message + ')' };
+    return { ok: false, error: 'Could not install the bundle: ' + err.message };
   }
 });
 ipcMain.handle('services:connectCustom', async (_e, { name, address, values, bundleDir, scope, agentIds, projectPath } = {}) => {
