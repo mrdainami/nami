@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions,
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain: electronIpc, dialog, shell, clipboard, protocol, Menu, nativeImage } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -112,6 +112,11 @@ const REVIEW = reviewProfile.review;
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
+const { trustedAppSender, trustedIpc } = require('./trusted-ipc');
+const appDocumentUrl = require('node:url').pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).href;
+const ipcMain = trustedIpc(electronIpc, event => trustedAppSender(event, wins, appDocumentUrl));
+// Only the guest modules receive raw events, and each checks its exact sender.
+const browserIpc = { handle: ipcMain.handle, on: electronIpc.on.bind(electronIpc) };
 const windowThemes = new Map();
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
@@ -386,7 +391,7 @@ function createWindow(folder, bounds) {
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
     ...windowChrome(),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, plugins: true },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true },
   });
   browserViews.bindWindow(w);
   const wcId = w.webContents.id;
@@ -549,8 +554,8 @@ app.on('quit', () => {
 // collide with the sessions it just left behind.
 let bootSeq = 0;
 
-const browserViews = wireBrowserViews(ipcMain, { readSettings, writeSettings });
-const browserOverlays = require('./browser-overlays').wireBrowserOverlays(ipcMain);
+const browserViews = wireBrowserViews(browserIpc, { readSettings, writeSettings });
+const browserOverlays = require('./browser-overlays').wireBrowserOverlays(browserIpc);
 let usagePending;
 ipcMain.handle('usage:read', async (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);

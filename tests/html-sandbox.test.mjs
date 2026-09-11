@@ -75,7 +75,7 @@ test('a srcdoc or file iframe is opaque (allow-scripts only)', () => {
 // --- the served policy -------------------------------------------------------
 
 test('the doc protocol forbids the network so a page cannot exfiltrate', () => {
-  assert.match(main, /connect-src 'none'/,
+  assert.match(fs.readFileSync(path.resolve(dir, '../src/main/doc-policy.js'), 'utf8'), /connect-src 'none'/,
     "the served CSP must include connect-src 'none'");
 });
 

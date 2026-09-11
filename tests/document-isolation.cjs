@@ -26,7 +26,17 @@ app.whenReady().then(async () => {
     assert.equal(await frame.executeJavaScript('window.outsideScript===true'), false, 'cannot execute a script from another folder');
     assert.equal(await frame.executeJavaScript(`(()=>{try{return document.querySelector('#outside').contentDocument?.body.innerText.includes('DISPOSABLE_OUTSIDE_DATA')||false;}catch{return false;}})()`), false, 'cannot read another folder by encoding a different root');
     assert.equal(await frame.executeJavaScript(`(()=>{try{return !!parent.dainami;}catch{return false;}})()`), false);
+    // Even a foreign window mistakenly given the app preload must not gain
+    // privileged handlers. The real application window still boots normally.
+    assert.equal(await win.webContents.executeJavaScript('dainami.boot().then(b=>typeof b.demo)'), 'boolean');
+    const foreign = new BrowserWindow({ show: false, webPreferences: { preload: path.resolve(__dirname, '../src/main/preload.js'), sandbox: true, contextIsolation: true } });
+    await foreign.loadURL('data:text/html,<title>Foreign fixture</title>');
+    for (const call of ['dainami.boot()', 'dainami.browserStatus()', `dainami.readFile(${JSON.stringify(path.join(outside, 'private.html'))})`]) {
+      await assert.rejects(foreign.webContents.executeJavaScript(call), /only available from Nami/);
+    }
+    foreign.destroy();
     console.log('PASS: real saved HTML preview runs its own assets and blocks another folder, scripts and app bridge.');
+    console.log('PASS: real IPC accepts the app and denies a foreign window even with the app preload.');
   } catch (error) { console.error(error); process.exitCode = 1; }
   finally { clearTimeout(timer); for (const win of BrowserWindow.getAllWindows()) win.destroy(); fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0); }
 });
