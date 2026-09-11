@@ -89,6 +89,16 @@ for (const file of found) {
   }
   // Refuse a stale review/release build, and catch extra first-party files.
   const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const checkIncluded = directory => {
+    for (const item of fs.readdirSync(path.join(ROOT, directory), { withFileTypes: true })) {
+      const entry = directory + '/' + item.name;
+      if (item.isDirectory()) checkIncluded(entry);
+      else if (!entry.endsWith('.map') && !entries.includes(entry)) {
+        console.error(`   FAIL  missing packaged source: ${entry}`); bad++;
+      }
+    }
+  };
+  checkIncluded('src');
   for (const entry of entries.filter(e => e.startsWith('src/') && !asar.statFile(file, e).files)) {
     const source = path.join(ROOT, entry);
     if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== digest(asar.extractFile(file, entry))) {
