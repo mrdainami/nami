@@ -21,12 +21,16 @@ app.whenReady().then(async()=>{
     const id=await run('document.querySelector(".browser-tile").dataset.id');
     await until(()=>run(`dainami.browserStatus().then(r=>r.views.some(v=>v.id===${JSON.stringify(id)}))`),'native tab');
     assert.equal(await run('document.querySelector(".browser-profile")'),null,'profile management does not crowd the address row');
+    let managedId=id;
     const openManager=async()=>{
+      managedId=await run('document.querySelector("[data-browser-action=menu]").closest(".browser-tile").dataset.id');
       await click('[data-browser-action="menu"]');
-      await run(`Array.from(document.querySelectorAll('.browser-menu button')).find(b=>b.textContent.startsWith('Profile:')).click()`);
+      await run(`Array.from(document.querySelectorAll('.browser-menu button')).find(b=>b.textContent.startsWith('Profile:')).focus()`);
+      win.webContents.focus();
+      for(const event of [{type:'keyDown',keyCode:'Enter'},{type:'char',keyCode:'\r'},{type:'keyUp',keyCode:'Enter'}])win.webContents.sendInputEvent(event);
       await until(()=>run('!!document.querySelector("#profile-choice")'),'profile settings');
     };
-    const switched=async profileId=>until(()=>run(`!document.querySelector('#profile-choice')?.disabled && document.querySelector('#profile-choice')?.value===${JSON.stringify(profileId)} && dainami.browserStatus().then(r=>r.views.find(v=>v.id===${JSON.stringify(id)})?.profileId===${JSON.stringify(profileId)})`),'applied dropdown profile');
+    const switched=async profileId=>until(()=>run(`!document.querySelector('#profile-choice')?.disabled && document.querySelector('#profile-choice')?.value===${JSON.stringify(profileId)} && dainami.browserStatus().then(r=>r.views.find(v=>v.id===${JSON.stringify(managedId)})?.profileId===${JSON.stringify(profileId)})`),'applied dropdown profile');
     const work=(await invoke({action:'create',name:'Work'})).profile;
     await session.fromPartition('persist:nami-browser-'+work.id).cookies.set({url:'https://fixture.example.test',name:'synthetic',value:'test-only'});
     await openManager();

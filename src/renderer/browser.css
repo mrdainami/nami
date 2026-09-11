@@ -50,7 +50,7 @@ body[data-glass] .companion-tab, body[data-soft] .companion-tab { border-radius:
 .usage-meter { height: 4px; background: var(--dash); margin: 10px 0; }
 .usage-meter span { display: block; height: 100%; background: var(--green); }
 .browser-menu { position:fixed; z-index:1200; width:220px; max-width:calc(100vw - 16px); padding:5px; background:var(--menu-sheet); color:var(--ink); border:1px solid var(--dash); box-shadow:4px 5px 0 var(--shadow-mid); backdrop-filter:blur(16px) saturate(1.2); }
-.browser-menu button { display:block; width:100%; text-align:left; padding:8px 10px; background:transparent; color:inherit; border:0; font:inherit; font-size:12px; cursor:pointer; }
+.browser-menu button { overflow-wrap:anywhere; display:block; width:100%; text-align:left; padding:8px 10px; background:transparent; color:inherit; border:0; font:inherit; font-size:12px; cursor:pointer; }
 .browser-menu button:hover,.browser-menu button:focus-visible { background:var(--hover); outline:1px solid var(--green); }
 .browser-find { display:flex; gap:6px; padding:5px 0; flex:none; }
 .browser-find input { flex:1; min-width:0; font:inherit; font-size:12px; color:var(--ink); background:var(--field); border:1px solid var(--field-line); }
@@ -119,10 +119,6 @@ body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; 
 .browser-import-running { display:flex; flex-wrap:wrap; gap:8px; }
 .browser-import-explanation { margin-top:16px; }
 
-.browser-profile { flex:0 1 auto; min-width:48px; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:inherit; font-size:11px; line-height:1.3; padding:5px 8px; color:var(--ink); background:var(--field); border:1px dashed var(--dash); border-radius:2px; cursor:pointer; }
-.browser-profile:focus-visible { border-style:solid; outline:2px solid var(--green); outline-offset:2px; }
-.browser-profile:hover { background:var(--hover); }
-.browser-profile:disabled { color:var(--muted); cursor:default; }
 .browser-profile-context,.browser-profile-error { overflow-wrap:anywhere; }
 .browser-profile-error:empty { display:none; }
 .browser-profile-error { padding:8px 0; color:var(--red-ink); }
