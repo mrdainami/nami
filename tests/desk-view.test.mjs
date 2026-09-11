@@ -186,3 +186,42 @@ test('a file whose owner did not come back is a desk file', () => {
   assert.equal(restored[0].owner, undefined);
   assert.equal(restored[2].owner, undefined);
 });
+
+
+// Closing uses the same visual order as the right-pane tab strip.
+function closeSplitTab(state, id) {
+  return splitAfter({ ...state, panels: state.panels.filter(p => p.id !== id) }, { type:'close', id, before:state.panels });
+}
+test('closing the middle unowned browser shows its next tab, even with other sessions on the desk', () => {
+  const panels=[{id:'a',kind:'browser'},{id:'session',kind:'acp'},{id:'b',kind:'browser'},{id:'c',kind:'browser'},{id:'elsewhere',kind:'browser',owner:'session'}];
+  const state={panels,sessionId:null,fileId:'b'};
+  const next=closeSplitTab(state,'b');
+  assert.deepEqual([next.sessionId,next.fileId],[null,'c']);
+  assert.equal(state.fileId,'b','input is unchanged');
+});
+test('closing the final-position unowned tab shows its previous neighbor', () => {
+  const state={panels:[{id:'a',kind:'browser'},{id:'b',kind:'viewer'},{id:'c',kind:'browser'}],sessionId:null,fileId:'c'};
+  assert.equal(closeSplitTab(state,'c').fileId,'b');
+});
+test('closing an owned tab chooses its next neighbor rather than the first tab and leaves the agent unchanged', () => {
+  const panels=[{id:'s',kind:'acp'},{id:'a',kind:'browser',owner:'s'},{id:'other',kind:'browser',owner:'different'},{id:'b',kind:'browser',owner:'s'},{id:'c',kind:'viewer',owner:'s'}];
+  const next=closeSplitTab({panels,sessionId:'s',fileId:'b',last:{s:'b'}},'b');
+  assert.deepEqual([next.sessionId,next.fileId,next.last.s],['s','c','c']);
+});
+test('closing a background tab keeps the currently visible tab', () => {
+  const state={panels:[{id:'a',kind:'browser'},{id:'b',kind:'browser'},{id:'c',kind:'browser'}],sessionId:null,fileId:'b'};
+  assert.equal(closeSplitTab(state,'a').fileId,'b');
+});
+test('closing the last tab leaves that pane empty without jumping to an unrelated session', () => {
+  const panels=[{id:'s',kind:'acp'},{id:'other',kind:'browser',owner:'s'},{id:'last',kind:'browser'}];
+  const next=closeSplitTab({panels,sessionId:null,fileId:'last'},'last');
+  assert.deepEqual([next.sessionId,next.fileId],[null,null]);
+  const repaired=splitAfter(next,{type:'close'});
+  assert.deepEqual([repaired.sessionId,repaired.fileId],[null,null]);
+  const owned=closeSplitTab({panels,sessionId:'s',fileId:'other'},'other');
+  assert.deepEqual([owned.sessionId,owned.fileId],['s',null]);
+});
+test('repairing a missing unowned selection recovers an existing desk tab', () => {
+  const next=splitAfter({panels:[{id:'a',kind:'browser'}],sessionId:null,fileId:'gone'},{type:'close'});
+  assert.equal(next.fileId,'a');
+});
