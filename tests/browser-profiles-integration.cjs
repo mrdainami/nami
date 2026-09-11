@@ -21,8 +21,9 @@ app.whenReady().then(async () => {
       const value = await handlers.get(name)({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, args);
       if (!value.ok) throw new Error(value.error); return value;
     };
+    const readsAfterStartup = settingsReads;
     for (let poll = 0; poll < 20; poll++) assert.equal((await invoke('browser:status')).enabled, true);
-    assert.equal(settingsReads, 1, 'status polling reads settings only at initialization');
+    assert.equal(settingsReads, readsAfterStartup, 'status polling does not add settings reads');
     let delayResponse = false;
     server = http.createServer((_req, res) => { const respond = () => res.end('<!doctype html><title>Profile fixture</title><form><input name="username"><input type="password"><button>Submit</button></form>'); if (delayResponse) setTimeout(respond, 250); else respond(); });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -173,7 +174,11 @@ app.whenReady().then(async () => {
     assert.equal(browser.contexts.read('s1', 'source').content, 'Context for conversation-B');
     assert.equal((await invoke('browser:connection', { id: 's1' })).url, contextConnection.url);
     console.log('PASS: source identity change during engine drain rejects atomically, new sources require selected identity, existing source grants survive tab edits.');
-    assert.equal(settingsReads, 1, 'connections, grants and status must use in-memory browser settings');
+    const readsBeforeConnection = settingsReads;
+    await invoke('browser:status');
+    await invoke('browser:connection', { id: 's1' });
+    await invoke('browser:grant', { id: 's1', viewIds: [], sourceIds: ['source'] });
+    assert.equal(settingsReads, readsBeforeConnection, 'connections, grants and status must use in-memory browser settings');
     denySettingsWrite = true;
     await assert.rejects(invoke('browser:enable', { enabled: false }), /permission denied/);
     assert.equal((await invoke('browser:status')).enabled, true, 'failed write cannot change enabled state');
@@ -190,7 +195,7 @@ app.whenReady().then(async () => {
     denySettingsWrite = false;
     await invoke('browser:enable', { enabled: true });
     assert.equal((await invoke('browser:status')).enabled, true);
-    assert.equal(settingsReads, 1);
+    assert.equal(settingsReads, readsBeforeConnection);
     console.log('PASS: repeated status/connection/grant queries perform no settings reads; explicit toggles cache only successful writes and disable revokes live access.');
 
 

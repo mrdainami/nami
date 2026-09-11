@@ -59,7 +59,7 @@ test('quiet new-tab page is blank, not a product tour', () => {
   assert.match(views, /browserNewTab/);
   assert.match(views, /namiThemeIsDark/);
   assert.doesNotMatch(views, /Quit Chrome completely and try again/);
-  assert.match(views, /Allow Keychain access/);
+  assert.match(pane, /Waiting for Keychain/);
   assert.match(css, /\.browser-profile-result:empty/);
   assert.match(css, /\.browser-profile-result[^{]*\{[^}]*padding-top:\s*12px/);
   assert.match(css, /\.browser-check[^{]*\{[^}]*grid-template-columns:\s*16px/);

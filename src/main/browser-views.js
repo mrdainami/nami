@@ -5,7 +5,9 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, chromeKeychainPassword, importChromiumCookies, deriveChromeKey, readChromeLogins, readChromeHistory, popupModeOf } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
+const { createImportJobs } = require('./browser-import-jobs');
+const { createImportWorker } = require('./browser-import-worker');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function blankMode(settings) {
@@ -73,7 +75,41 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   const { AnnotationImageStore, captureRect } = require('./browser-images');
   const images = new AnnotationImageStore(path.join(app.getPath('userData'), 'annotation-images'));
   const captures = new Map();
-  const profileLocks = new Set();
+  const profileLocks = new Set(), importBlocks = new Set();
+  const importJobs = createImportJobs({
+    resolveSource: id => selectChromiumImportSource(detectChromiumProfiles(), id),
+    resolveProfile: id => profiles.get(id),
+    createWorker: createImportWorker,
+    applyBatch: (job, category, rows) => mutateProfile(job.profileId, async () => {
+      profiles.get(job.profileId);
+      if (job.cancelled()) return { copied: 0 };
+      if (category === 'passwords') return { copied: profiles.importLogins(job.profileId, rows).imported };
+      if (category === 'history') {
+        const previous = job.firstBatch ? [] : profiles.get(job.profileId).history || [];
+        profiles.setHistory(job.profileId, previous.concat(rows));
+        return { copied: rows.length };
+      }
+      const record = partitions.get(job.profileId);
+      if (!record) throw new Error('Import destination is no longer available.');
+      let copied = 0, failed = 0;
+      for (const row of rows) {
+        if (job.cancelled()) break;
+        try { await record.session.cookies.set(row); copied++; } catch { failed++; }
+        if ((copied + failed) % 25 === 0) await new Promise(resolve => setImmediate(resolve));
+      }
+      return { copied, failed };
+    }),
+    onChange: (job, owner) => {
+      const w = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && w.webContents.id === owner);
+      w?.webContents.send('browser:event', { type: 'import-job', job });
+    },
+  });
+  let importsStopped = false;
+  app.on('before-quit', event => {
+    if (importsStopped) return;
+    event.preventDefault();
+    importJobs.shutdown().finally(() => { importsStopped = true; app.quit(); });
+  });
   let mutations = Promise.resolve(), pendingIdentityChanges = 0;
   let gateway, gatewayStarting;
   const send = (e, type, data) => { if (!e.window.isDestroyed() && !e.window.webContents.isDestroyed()) e.window.webContents.send('browser:event', { id: e.id, type, ...data }); };
@@ -129,7 +165,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     if (typeof args.id !== 'string' || !/^[\w-]{1,200}$/.test(args.id)) throw new Error('Invalid browser view.');
     if (views.has(args.id)) return find(w, args.id);
     const profileId = args.profileId || profiles.list()[0].id;
-    if (profileLocks.has(profileId)) throw new Error('Browser profile is being updated. Try again shortly.');
+    if (profileLocks.has(profileId) || importBlocks.has(profileId)) throw new Error('Browser profile is being updated. Try again shortly.');
     const record = getPartition(w, profileId, args.filePath ? args.id : null);
     let url;
     if (args.filePath) {
@@ -219,7 +255,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   const guarded = (channel, action) => ipcMain.handle(channel, async (ev, args = {}) => {
     try {
       const w = mainWindow(ev);
-      const profileMutation = channel === 'browser:profiles' && !['list', 'credentials'].includes(args.action || 'list');
+      const profileMutation = channel === 'browser:profiles' && !['list', 'credentials', 'contents', 'import-browser', 'import-cookies'].includes(args.action || 'list');
       const navigation = channel === 'browser:action' && args.action === 'navigate';
       const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'import-cookies', 'delete-credential'].includes(args.action)) || (navigation && find(w, args.id).record.local);
       const serialized = profileMutation || navigation || ['browser:create', 'browser:close', 'browser:grant', 'browser:enable', 'browser:sync', 'browser:connection'].includes(channel);
@@ -325,6 +361,25 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       await revokeProfile(profileId); return await operation();
     } finally { profileLocks.delete(profileId); }
   }
+  async function startImport(w, args) {
+    if (typeof args.profileId !== 'string' || !args.profileId) throw new Error('Choose a destination Nami profile before importing.');
+    profiles.get(args.profileId);
+    selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
+    if (importBlocks.has(args.profileId) || profileLocks.has(args.profileId)) throw new Error('Browser profile is being updated.');
+    if (importJobs.active(args.profileId)) throw new Error('An import is already running for this profile. Open its progress or cancel it first.');
+    getPartition(w, args.profileId);
+    await mutateProfile(args.profileId, () => {});
+    if (importBlocks.has(args.profileId)) throw new Error('Browser profile is being updated.');
+    return importJobs.start(w.webContents.id, args);
+  }
+  guarded('browser:import', async (w, args) => {
+    const owner = w.webContents.id;
+    if (args.action === 'start') return { job: await startImport(w, args) };
+    if (args.action === 'cancel') return { job: await importJobs.cancel(owner, args.jobId) };
+    if (args.action === 'get') return { job: importJobs.get(owner, args.jobId) };
+    if (!args.action || args.action === 'list') return { jobs: importJobs.list(owner) };
+    throw new Error('Unknown import action.');
+  });
   guarded('browser:profiles', async (w, args) => {
     const { action = 'list' } = args;
     // Imports must name their destination before reading a source, asking
@@ -351,6 +406,9 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action === 'clear' || action === 'remove') {
       if (args.confirmed !== true) throw new Error('Confirm clearing this Nami browser data first.');
       if (action === 'remove' && profiles.list().length === 1) throw new Error('Keep at least one browser profile.');
+      importBlocks.add(profileId);
+      try {
+      await importJobs.cancelProfile(profileId);
       await mutateProfile(profileId, async () => {
         const record = getPartition(w, profileId);
         if (action === 'remove' || args.siteData) {
@@ -364,7 +422,9 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         if (action === 'remove' || args.credentials) profiles.clearCredentials(profileId);
         if (action === 'remove') { profiles.remove(profileId); record.session.protocol.unhandle('nami-doc'); partitions.delete(profileId); }
       });
+      } finally { importBlocks.delete(profileId); }
     } else if (action === 'import-passwords') {
+      if (importJobs.active(profileId)) throw new Error('Cancel the running browser import before importing a password CSV.');
       profiles.get(profileId);
       if (!profiles.available()) throw new Error('macOS protected password storage is unavailable.');
       const chosen = await dialog.showOpenDialog(w, { title: 'Import an exported Chrome password CSV', properties: ['openFile'], filters: [{ name: 'Chrome password export', extensions: ['csv'] }] });
@@ -398,78 +458,17 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       output.filled = true;
     } else if (action === 'configure') {
       output.profile = profiles.configure(profileId, args);
-    } else if (action === 'import-cookies') {
-      output = await mutateProfile(profileId, async () => {
-        const record = getPartition(w, profileId);
-        const source = selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
-        const { execFileSync } = require('node:child_process');
-        const result = await importChromiumCookies({
-          session: record.session,
-          sources: [source],
-          passwordFor: () => chromeKeychainPassword(source.browser, execFileSync),
-        });
-        const message = result.imported
-          ? 'Copied ' + result.imported + ' cookies from ' + source.browser + ' into this Nami profile. Google cookies skipped. ' + source.browser + ' is unchanged.' + (result.decryptUnavailable ? ' Some cookies used newer encryption and were skipped.' : '')
-          : source.browser + '’s cookie encryption could not be copied. Import a password CSV and sign in inside Nami. ' + source.browser + ' is unchanged.';
-        return { imported: result.imported, skippedGoogle: result.skippedGoogle, skippedEncrypted: result.skippedEncrypted, decryptUnavailable: result.decryptUnavailable, message };
-      });
     } else if (action === 'new-tab') {
       const mode = args.value === 'dark' || args.value === 'light' ? args.value : 'system';
       writeSettings({ browserNewTab: mode });
       syncNativeTheme(readSettings());
       applyBlankAppearance(mode);
       output.newTab = mode;
-    } else if (action === 'import-browser') {
-      output = await mutateProfile(profileId, async () => {
-        const source = selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
-        const { execFileSync } = require('node:child_process');
-        const password = chromeKeychainPassword(source.browser, execFileSync);
-        const key = password ? deriveChromeKey(password) : null;
-        const record = getPartition(w, profileId);
-        const parts = [];
-        // A failure carries its own reason. The old code reduced every one of
-        // them to `locked`, so a read that threw for an unrelated reason still
-        // told you to quit the browser — advice that could not work, and that
-        // hid the real fault for as long as anyone believed it.
-        let locked = false;
-        const reasons = [];
-        const note = (label, result) => {
-          if (!result.locked && !result.error) return false;
-          locked = locked || !!result.locked;
-          if (result.error) reasons.push(label + ': ' + result.error);
-          parts.push(label + (result.locked ? ' locked' : ' could not be read'));
-          return true;
-        };
-        let cookies = { imported: 0, skippedV20: 0, locked: false };
-        if (args.cookies !== false && source.cookies) {
-          cookies = await importChromiumCookies({ session: record.session, sources: [source], passwordFor: () => password, includeGoogle: true });
-          if (!note('cookies', cookies)) {
-            if (cookies.imported) parts.push(cookies.imported + ' cookies');
-            else if (cookies.skippedV20) parts.push('cookies encrypted by ' + source.browser);
-            else parts.push('no cookies');
-          }
-        }
-        let passwords = { imported: 0 };
-        if (args.passwords !== false && source.logins) {
-          const parsed = readChromeLogins(source.logins, key);
-          if (!note('passwords', parsed)) { passwords = profiles.importLogins(profileId, parsed.entries); parts.push(passwords.imported + ' passwords'); }
-        }
-        let history = { imported: 0 };
-        if (args.history !== false && source.history) {
-          const parsed = readChromeHistory(source.history);
-          if (!note('history', parsed)) { history = profiles.setHistory(profileId, parsed.entries); parts.push(history.imported + ' history rows'); }
-        }
-        let extra = '';
-        if (locked) extra = ' Quit ' + source.browser + ' from the menu bar and try again.';
-        else if (reasons.length) extra = ' ' + reasons[0];
-        // A cookie that decrypted and was then refused by the browser is its
-        // own outcome. Folding it in with "encrypted" is how an import came to
-        // report 3,866 cookies read, write 31 of them, and say nothing.
-        else if (cookies.rejected) extra = ' ' + cookies.rejected + ' cookies were refused by the browser and not copied.';
-        else if (cookies.skippedV20) extra = ' ' + source.browser + ' encrypts these cookies on this Mac, so they could not be copied.';
-        else if (!key && (args.cookies !== false || args.passwords !== false) && !passwords.imported) extra = ' Allow Keychain access when asked, then try again.';
-        return { ...cookies, passwords: passwords.imported, history: history.imported, message: (parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported.') + extra };
-      });
+    } else if (action === 'import-browser' || action === 'import-cookies') {
+      const job = await startImport(w, action === 'import-cookies' ? { ...args, cookies: true, passwords: false, history: false } : args);
+      const done = await importJobs.wait(w.webContents.id, job.id);
+      output = { job: done, imported: done.results.cookies?.copied || 0, passwords: done.results.passwords?.copied || 0,
+        history: done.results.history?.copied || 0, message: 'Import ' + done.state + ' into ' + done.profileName + '.' };
     } else if (action === 'contents') {
       // What is actually in this profile, counted from the live session rather
       // than from the file on disk. Session cookies — which is what most
@@ -488,7 +487,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       try { history = (profiles.get(profileId).history || []).length; } catch {}
       output.contents = { cookies, session, passwords, history };
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
-    return { ...output, profiles: profiles.list(), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
+    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: profiles.available(), cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);
@@ -608,6 +607,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       for (const e of [...views.values()]) if (e.window === w) remove(e.id, { notify: false, confirmed: true });
     });
     w.once('closed', () => {
+      for (const job of importJobs.list(windowId)) if (['running', 'cancelling'].includes(job.state)) void importJobs.cancel(windowId, job.id);
       for (const [id, s] of access.sessions) if (s.windowId === windowId) gateway?.revoke(id);
       for (const e of [...views.values()]) if (e.window === w) remove(e.id, { confirmed: true });
       for (const [id, session] of access.sessions) if (session.windowId === windowId) contexts.remove(id);

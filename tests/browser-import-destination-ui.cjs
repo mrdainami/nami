@@ -27,7 +27,7 @@ const profileModule = require('../src/main/browser-profiles');
 let keychainCalls = 0;
 profileModule.detectChromiumProfiles = () => detectedSources;
 profileModule.cookieImportStatus = () => ({ available: !!detectedSources.length, browsers: detectedSources.map(s => ({ id:s.id, browser:s.browser, name:s.name, cookies:true, history:true, passwords:false })) });
-profileModule.chromeKeychainPassword = () => { keychainCalls++; return null; };
+require('../src/main/browser-import-worker').createImportWorker = data => require('./browser-import-fixture.cjs').fixtureWorker(data, {}, () => keychainCalls++);
 app.getVersion = () => require('../package.json').version;
 process.argv.push('--demo', '--scene=browser', '--theme=paper');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -82,7 +82,7 @@ app.whenReady().then(async () => {
     const personalBefore = (await invoke({ action: 'contents', profileId: 'default' })).contents;
     detectedSources = [otherSource, source]; // Chrome reorders profiles after the sheet was opened.
     await click('#import-go');
-    await until(() => run('!document.querySelector("#import-go").disabled'), 'import completion');
+    await until(() => run('!!document.querySelector("#import-go") && !document.querySelector("#import-go").hidden && !document.querySelector("#import-go").disabled && !document.querySelector("#import-source")'), 'import completion');
     assert.match(await run('document.querySelector(".browser-profile-result").textContent'), /Work/);
     const workAfter = (await invoke({ action: 'contents', profileId: work.id })).contents;
     assert.equal(workAfter.cookies, 1, 'fixture cookie belongs to Work');
