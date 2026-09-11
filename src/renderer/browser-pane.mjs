@@ -89,11 +89,18 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     api.browserSync(state.panels.filter((p) => isSession(p) && !p.exited).map((p) => ({ id: p.id, title: p.title }))).catch(() => {});
     schedule();
   }
+  function updateProfile(p, rec) {
+    const b = q('.browser-profile', rec.body); if (!b) return;
+    b.textContent = p.profileLocal ? 'Local file' : (p.profileName || 'Profile…');
+    b.disabled = !p.profileName;
+    const label = p.profileLocal ? 'Local file; web links use ' + p.profileName : 'Browser profile: ' + (p.profileName || 'Loading');
+    b.title = label + '. Manage profiles'; b.setAttribute('aria-label', b.title);
+  }
   function mount(p, rec) {
     rec.root.classList.add('browser-tile'); rec.body.classList.add('browser-body');
     q('.t-zoom-out', rec.head).hidden = true; q('.t-zoom-in', rec.head).hidden = true;
     q('.t-mic', rec.head).hidden = true;
-    rec.body.innerHTML = `<form class="browser-address">${button('back', 'Back', 'back')}${button('forward', 'Forward', 'forward')}${button('refresh', 'Reload', 'reload')}<input aria-label="Browser address" placeholder="Search or enter address" value="${esc(p.filePath || (p.url && p.url !== 'about:blank' ? p.url : ''))}" spellcheck="false"><button type="button" class="browser-annotate" aria-pressed="false" title="Annotate">Annotate</button>${button('more', 'Browser menu', 'menu')}</form><div class="browser-error" role="status" hidden></div><button type="button" class="browser-import-status" hidden></button><div class="browser-viewport"></div><div class="browser-selection" hidden><button class="btn btn--small">Selection · Add to session…</button></div>`;
+    rec.body.innerHTML = `<form class="browser-address">${button('back', 'Back', 'back')}${button('forward', 'Forward', 'forward')}${button('refresh', 'Reload', 'reload')}<button type="button" class="browser-profile" disabled>Profile…</button><input aria-label="Browser address" placeholder="Search or enter address" value="${esc(p.filePath || (p.url && p.url !== 'about:blank' ? p.url : ''))}" spellcheck="false"><button type="button" class="browser-annotate" aria-pressed="false" title="Annotate">Annotate</button>${button('more', 'Browser menu', 'menu')}</form><div class="browser-error" role="status" hidden></div><button type="button" class="browser-import-status" hidden></button><div class="browser-viewport"></div><div class="browser-selection" hidden><button class="btn btn--small">Selection · Add to session…</button></div>`;
     rec.browserViewport = q('.browser-viewport', rec.body);
     updateImportStrips();
     const disposeAnnotations = annotations.mount(p, rec.browserViewport);
@@ -102,6 +109,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const form = q('form', rec.body);
     form.onsubmit = async (event) => { event.preventDefault(); const value=q('input',form).value.trim(); if(p.filePath&&value===p.filePath){api.browserAction({id:p.id,action:'reload'}).then(check);return;} const r = await api.browserResolve(value); if (check(r) && r.url) api.browserAction({ id: p.id, action: 'navigate', url: r.url }).then(check); };
     form.querySelectorAll('[data-browser-action]').forEach((b) => { b.type = 'button'; b.onclick = () => b.dataset.browserAction === 'menu' ? openMenu(p, b) : api.browserAction({ id: p.id, action: b.dataset.browserAction }).then(check); });
+    q('.browser-profile', form).onclick = () => show({ type: 'browser-profiles', panelId: p.id });
+    updateProfile(p, rec);
     q('.browser-annotate', form).onclick = () => { annotations.toggle(p); schedule(); };
     q('.browser-selection button', rec.body).onclick = () => annotateSelection(p, rec.pendingSelection);
     if (p.focusAddress) { delete p.focusAddress; const input = q('input', form); requestAnimationFrame(() => { input.focus(); input.select(); }); }
@@ -158,14 +167,15 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?'<button class="btn btn--small" id="profile-switch">Use for this tab</button>':''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-result" role="status"></div>`;
-    const result=q('.browser-profile-result',host);
-    const run=async args=>{const out=await api.browserProfiles({profileId:chosen.id,...args});if(!check(out))return null;return out;};
-    const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;await action();};};
-    // What is in this profile, said plainly and left on screen. Counted from
-    // the live session, because session cookies — most sign-ins — never reach
-    // the file on disk, and a count taken from there reads as empty when it is
-    // not. Without this line an import has no visible result at all.
+    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">Profile<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button>${view?`<button class="btn btn--small" id="profile-switch"${chosen.id===view.profileId?' disabled':''}>${chosen.id===view.profileId?'Using this profile':'Use for this tab'}</button>`:''}<button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status"></div><div class="browser-profile-result" role="status"></div>`;
+    const result=q('.browser-profile-result',host), error=q('.browser-profile-error',host);
+    const run=async args=>{
+      error.textContent='';
+      try { const out=await api.browserProfiles({profileId:chosen.id,...args}); if(!out?.ok)throw new Error(out?.error||'Profile action failed.'); return out; }
+      catch(e){error.textContent=e.message;return null;}
+    };
+    const ask=(title,action)=>{ const row=document.createElement('div');row.className='browser-profile-confirm';row.innerHTML=`<p class="note">${esc(title)}</p><button class="btn btn--small">Cancel</button><button class="btn btn--small btn--go">Confirm</button>`;result.replaceChildren(row);const [cancel,confirm]=row.querySelectorAll('button');cancel.onclick=()=>row.remove();confirm.onclick=async()=>{confirm.disabled=true;try{await action();}finally{if(confirm.isConnected)confirm.disabled=false;}};};
+    // Live cookie counts include session cookies; they do not count accounts.
     const contents=q('.browser-profile-contents',host);
     (async()=>{
       const out=await api.browserProfiles({action:'contents',profileId:chosen.id}).catch(()=>null);
@@ -173,7 +183,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       const c=out&&out.contents;
       if(!c){contents.textContent='Could not read what is in this profile.';return;}
       const n=(v,one,many)=>v.toLocaleString()+' '+(v===1?one:many);
-      contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+c.session+' sign-in)':''),
+      contents.textContent=[n(c.cookies,'cookie','cookies')+(c.session?' ('+n(c.session,'session cookie','session cookies')+')':''),
         n(c.passwords,'password','passwords'), n(c.history,'history row','history rows')].join(' \u00b7 ');
     })();
     q('#profile-choice',host).onchange=e=>show({...o,profileId:e.target.value});
@@ -304,7 +314,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     if(event.type==='profile-changed'){signature='';updateImportStrips();schedule();}
     if (event.type === 'focus' && !state.overlay) { closeMenu(); focus(p.id, false); }
     if (event.type === 'address-focus') { const input=q('.browser-address input',rec.body); input.focus(); input.select(); }
-    if (event.type === 'state') { p.profileId=event.profileId; p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = p.filePath || (event.url && event.url !== 'about:blank' ? event.url : ''); q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
+    if (event.type === 'state') { p.profileId=event.profileId; p.profileName=event.profileName; p.profileLocal=event.profileLocal; updateProfile(p,rec); p.pageZoom=event.zoom || 1; p.url = event.url; p.filePath = event.filePath || null; if (event.title) p.title = event.title; const input = q('.browser-address input', rec.body); if (document.activeElement !== input) input.value = p.filePath || (event.url && event.url !== 'about:blank' ? event.url : ''); q('.t-title', rec.head).textContent = p.title; q('[data-browser-action="back"]', rec.body).disabled = !event.canBack; q('[data-browser-action="forward"]', rec.body).disabled = !event.canForward; if (!event.loading) { tabs(p, rec); save(); } }
     if (event.type === 'new-tab') open(event.url, null, p.owner, null, false, event.profileId || p.profileId);
     if (event.type === 'error') { const e = q('.browser-error', rec.body); e.hidden = !event.error; e.textContent = event.error; }
     if (event.type === 'text-selection') { rec.pendingSelection = event.selection; q('.browser-selection', rec.body).hidden = false; }

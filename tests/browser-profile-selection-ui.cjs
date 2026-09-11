@@ -23,7 +23,9 @@ app.whenReady().then(async()=>{
     assert.equal(await run('document.querySelector(".browser-profile")?.textContent'),'Personal','address controls show the actual active profile');
     const work=(await invoke({action:'create',name:'Work'})).profile;
     await session.fromPartition('persist:nami-browser-'+work.id).cookies.set({url:'https://fixture.example.test',name:'synthetic',value:'test-only'});
-    await click('.browser-profile');await until(()=>run('!!document.querySelector("#profile-choice")'),'profile manager');
+    await run('document.querySelector(".browser-profile").focus()');win.webContents.focus();
+    for(const event of [{type:'keyDown',keyCode:'Enter'},{type:'char',keyCode:'\r'},{type:'keyUp',keyCode:'Enter'}])win.webContents.sendInputEvent(event);
+    await until(()=>run('!!document.querySelector("#profile-choice")'),'keyboard profile manager');
     await choose(work.id);await until(()=>run(`document.querySelector('#profile-choice')?.value===${JSON.stringify(work.id)} && document.querySelector('.browser-profile-contents')?.textContent.includes('1 cookie')`),'Work selection');
     assert.equal(await run('document.querySelector(".browser-profile").textContent'),'Personal','manager selection does not claim the tab has switched');
     assert.match(await run('document.querySelector(".browser-profile-context").textContent'),/Personal/);
@@ -36,7 +38,6 @@ app.whenReady().then(async()=>{
     await click('.companion-add');await until(()=>run('document.querySelectorAll(".browser-profile").length===2'),'second Work tab');
     await until(()=>run('dainami.browserStatus().then(r=>r.views.length===2 && r.views.every(v=>v.profileName==="Work"))'),'both tabs use Work');
     console.log('PASS: visible backend profile, manager vs active selection, honest cookie labels and second-tab Work inheritance.');
-    const selected=await run('document.querySelector(".browser-tile:not([hidden])")?.dataset.id')||id;
     // A target deleted while the confirmation is open leaves retry controls usable.
     const temp=(await invoke({action:'create',name:'Temporary'})).profile;
     await click('.browser-profile');await until(()=>run('!!document.querySelector("#profile-choice")'),'manager');

@@ -5,8 +5,8 @@
 .companion-tab.selected { border-bottom-color: var(--green); background: var(--hover); }
 .companion-add { font-size: 18px; padding: 2px 8px; }
 .browser-body { display: flex; flex-direction: column; padding: 0 10px !important; }
-.browser-address { margin: 0; flex: none; display: flex; align-items: center; gap: 6px; padding: 7px 0; }
-.browser-address input { font: inherit; font-size: 11px; min-width: 0; flex: 1; padding: 7px 8px; border: 1px solid var(--field-line); border-radius: 2px; color: var(--ink); background: var(--field); }
+.browser-address { margin: 0; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 0; }
+.browser-address input { font: inherit; font-size: 11px; min-width: 80px; flex: 1 1 100px; padding: 7px 8px; border: 1px solid var(--field-line); border-radius: 2px; color: var(--ink); background: var(--field); }
 .browser-annotate { flex: none; font: inherit; font-size: 11px; line-height: 1.3; padding: 5px 9px; border: 1px solid var(--dash); border-radius: 2px; background: transparent; color: var(--muted); cursor: pointer; }
 .browser-annotate.is-on { background: var(--green); color: var(--paper); border-color: var(--green); }
 .browser-viewport { flex: 1; min-height: 60px; background: var(--paper); }
@@ -118,3 +118,11 @@ body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; 
 .browser-import-result-row span,.browser-import-result-row p { font-size:12px; margin:0; }
 .browser-import-running { display:flex; flex-wrap:wrap; gap:8px; }
 .browser-import-explanation { margin-top:16px; }
+
+.browser-profile { flex:0 1 auto; min-width:48px; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:inherit; font-size:11px; line-height:1.3; padding:5px 8px; color:var(--ink); background:var(--field); border:1px dashed var(--dash); border-radius:2px; cursor:pointer; }
+.browser-profile:focus-visible { border-style:solid; outline:2px solid var(--green); outline-offset:2px; }
+.browser-profile:hover { background:var(--hover); }
+.browser-profile:disabled { color:var(--muted); cursor:default; }
+.browser-profile-context,.browser-profile-error { overflow-wrap:anywhere; }
+.browser-profile-error:empty { display:none; }
+.browser-profile-error { padding:8px 0; color:var(--red-ink); }

@@ -27,8 +27,8 @@ app.whenReady().then(async () => {
     const peer=await create('work-peer',{profileId:work.id});
     await peer.view.webContents.session.cookies.set({url,name:'fixture_account',value:'work',httpOnly:true,expirationDate:Date.now()/1000+3600});
     await test('welcome tab switches to Work and uses its real website session',async()=>{
-      const old=await create('welcome',{url:'about:blank'});await call('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
-      const next=browser.views.get(old.id);assert.equal(next.profileId,work.id);assert.equal(old.view.webContents.isDestroyed(),true);
+      const old=await create('welcome',{url:'about:blank'}), oldContents=old.view.webContents;await call('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
+      const next=browser.views.get(old.id);assert.equal(next.profileId,work.id);assert.equal(oldContents.isDestroyed(),true);
       assert.ok(events.some(e=>e.id===old.id&&e.type==='state'&&e.profileId===work.id&&e.profileName==='Work'&&e.url==='about:blank'));
       await call('browser:action',{id:old.id,action:'navigate',url});
       assert.match(await next.view.webContents.executeJavaScript('document.body.innerText'),/WORK_SIGNED_IN/);
@@ -49,6 +49,18 @@ app.whenReady().then(async () => {
       await call('browser:action',{id:old.id,action:'navigate',url});
       await call('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
       assert.match(await browser.views.get(old.id).view.webContents.executeJavaScript('document.body.innerText'),/WORK_SIGNED_IN/);
+    });
+    await test('native attachment failure cleans up the replacement and leaves the original tab usable',async()=>{
+      const old=await create('attachment'), before=win.contentView.children.length;
+      const original=win.contentView.addChildView.bind(win.contentView);let fail=true;
+      win.contentView.addChildView=(view)=>{if(fail){fail=false;throw Error('Synthetic attachment failure');}return original(view);};
+      try {
+        const result=await raw('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
+        assert.equal(result.ok,false);assert.match(result.error,/attachment failure/);
+        assert.equal(browser.views.get(old.id),old);assert.equal(win.contentView.children.length,before);
+        await call('browser:action',{id:old.id,action:'navigate',url});
+        await call('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
+      } finally {win.contentView.addChildView=original;}
     });
     await test('deleted target is rejected without losing the original tab',async()=>{
       const old=await create('deleted');const r=await raw('browser:profiles',{action:'switch',id:old.id,profileId:'deleted-profile'});
