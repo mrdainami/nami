@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions,
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, net, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, Menu, nativeImage } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -43,7 +43,8 @@ const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
 const { sendPing } = require('./ping');
 const { downloadUpdate, installNow, hasStagedFile, updaterState } = require('./updater');
-const { parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
+const { parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
+const { serveDocFile } = require('./doc-response');
 const { browserFileUrl } = require('./browser-file');
 const { wireBrowserViews } = require('./browser-views');
 const stt = require('./stt');
@@ -57,7 +58,7 @@ const stt = require('./stt');
 // ready; the handler that answers requests is installed once it is (below).
 protocol.registerSchemesAsPrivileged([{
   scheme: 'nami-doc',
-  privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false },
+  privileges: { standard: true, secure: true, stream: true, supportFetchAPI: false, corsEnabled: false },
 }]);
 
 // The one policy every served response carries: the page may run and style
@@ -78,13 +79,7 @@ function installDocProtocol() {
     const file = resolveWithinRoot(parsed.root, parsed.rel);
     // null means the path escaped its folder — refuse, do not explain.
     if (!file) return new Response('not found', { status: 404 });
-    const res = await net.fetch('file://' + file.split('/').map(encodeURIComponent).join('/'));
-    // Re-wrap so we set our own content type and, above all, our CSP — net.fetch
-    // of a file:// URL carries neither.
-    return new Response(res.body, {
-      status: res.status,
-      headers: { 'content-type': docContentType(file), 'content-security-policy': DOC_CSP },
-    });
+    return serveDocFile(file, request, DOC_CSP);
   });
 }
 
