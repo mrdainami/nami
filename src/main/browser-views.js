@@ -161,10 +161,10 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     });
     partitions.set(key, record); return record;
   }
-  async function create(w, args, { pendingCount = 0, replacing = null } = {}) {
+  async function create(w, args, { pendingCount = 0, replacing = null, rememberProfile = false } = {}) {
     if (typeof args.id !== 'string' || !/^[\w-]{1,200}$/.test(args.id)) throw new Error('Invalid browser view.');
     if (views.has(args.id) && views.get(args.id) !== replacing) return find(w, args.id);
-    const profileId = args.profileId || profiles.list()[0].id;
+    const profileId = args.profileId || profiles.defaultId();
     if (profileLocks.has(profileId) || importBlocks.has(profileId)) throw new Error('Browser profile is being updated. Try again shortly.');
     // Validate before allocating or abandoning a working view.
     let url, root;
@@ -250,6 +250,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       w.contentView.addChildView(view);
       if (replacing) {
         if (views.get(args.id) !== replacing) throw new Error('The browser tab changed. Choose its profile again.');
+        if (w.isDestroyed()) throw new Error('The Nami window has closed.');
+        if (rememberProfile) profiles.setDefault(profileId);
         await remove(replacing.id, { notify: false, confirmed: true });
       }
       if (w.isDestroyed()) throw new Error('The Nami window has closed.');
@@ -416,10 +418,13 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     // Keychain or opening a CSV dialog. A missing choice is never Personal.
     const importing = ['import-browser', 'import-cookies', 'import-passwords'].includes(action);
     if (importing && (typeof args.profileId !== 'string' || !args.profileId)) throw new Error('Choose a destination Nami profile before importing.');
-    const profileId = args.profileId || profiles.list()[0].id;
+    const profileId = args.profileId || profiles.defaultId();
     if (importing) profiles.get(profileId);
     let output = {};
-    if (action === 'create') output.profile = profiles.create(args.name);
+    if (action === 'set-default') {
+      if (!args.profileId) throw new Error('Choose a browser profile first.');
+      profiles.setDefault(profileId);
+    } else if (action === 'create') output.profile = profiles.create(args.name);
     else if (action === 'rename') {
       output.profile = profiles.rename(profileId, args.name);
       for (const e of views.values()) if (e.profileId === profileId) e.update();
@@ -428,7 +433,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const e = find(w, args.id); profiles.get(profileId);
       if (profileLocks.has(profileId)) throw new Error('Browser profile is being updated.');
       const oldProfile = e.profileId;
-      if (oldProfile === profileId) return { profiles: profiles.list() };
+      if (oldProfile === profileId) { profiles.setDefault(profileId); return { profiles: profiles.list(), defaultProfileId: profiles.defaultId() }; }
       await mutateProfile(oldProfile, async () => {
         const currentUrl = e.view.webContents.getURL();
         // The internal welcome file is a blank web tab, never a user file URL.
@@ -436,7 +441,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
           url: !e.filePath && isBlankTab(currentUrl) ? 'about:blank' : currentUrl };
         // The shared mutation lane keeps destination imports, removal and
         // grants from running until the replacement view is ready.
-        const created = await create(w, next, { pendingCount: e.pendingCount, replacing: e });
+        const created = await create(w, next, { pendingCount: e.pendingCount, replacing: e, rememberProfile: true });
         send(created, 'profile-changed', { profileId });
       });
     } else if (action === 'clear' || action === 'remove') {
@@ -522,7 +527,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
     // Capability discovery must not unlock the Keychain. Password actions
     // check availability when the user actually requests protected data.
-    return { ...output, profiles: profiles.list(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
+    return { ...output, profiles: profiles.list(), defaultProfileId: profiles.defaultId(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);
@@ -531,7 +536,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   });
   guarded('browser:status', async (w) => {
     const sessions = [...access.sessions].filter(([, s]) => s.windowId === w.webContents.id).map(([id, s]) => ({ id, title: s.title, views: [...s.views], connected: !!gateway?.isConnected(id), ...gateway?.status(id), sources: contexts.list(id), peers: [...(s.peers || [])] }));
-    return { enabled: browserEnabled, sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, profileName: profiles.get(e.profileId).name, profileLocal: e.record.local, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
+    return { enabled: browserEnabled, defaultProfileId: profiles.defaultId(), sessions, views: [...views.values()].filter((e) => e.window === w).map((e) => ({ id: e.id, identity: e.identity, owner: e.owner, profileId: e.profileId, profileName: profiles.get(e.profileId).name, profileLocal: e.record.local, title: e.view.webContents.getTitle(), url: e.filePath || e.view.webContents.getURL() })) };
   });
   guarded('browser:enable', async (_w, { enabled }) => {
     const result = writeSettings({ browserEnabled: !!enabled });

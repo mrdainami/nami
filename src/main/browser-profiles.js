@@ -393,7 +393,8 @@ function createProfileStore({ directory, safeStorage }) {
   try { profiles = JSON.parse(fs.readFileSync(metadataFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Browser profiles could not be read.'); profiles = [{ id: 'default', name: 'Personal' }]; }
   if (!Array.isArray(profiles) || !profiles.length || profiles.some((p) => !/^[\w-]{1,80}$/.test(p.id) || typeof p.name !== 'string')) throw new Error('Browser profile metadata is invalid.');
   function write(file, value) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, value, { mode: 0o600 }); fs.renameSync(tmp, file); }
-  const persist = () => write(metadataFile, JSON.stringify(profiles));
+  const persist = (next = profiles) => { write(metadataFile, JSON.stringify(next)); profiles = next; };
+  const defaultId = () => (profiles.find(p => p.isDefault === true) || profiles[0]).id;
   const get = (id = 'default') => { const p = profiles.find((p) => p.id === id); if (!p) throw new Error('Browser profile is no longer available.'); return p; };
   const vaultPath = (id) => { get(id); return path.join(directory, id + '.vault'); };
   function available() { return safeStorage.isEncryptionAvailable(); }
@@ -419,7 +420,13 @@ function createProfileStore({ directory, safeStorage }) {
     return permission === 'camera' || permission === 'microphone' || permission === 'media' ? 'media' : String(permission || 'media').slice(0, 40);
   }
   return {
-    get, list: () => profiles.map(publicProfile), available, publicProfile,
+    get, list: () => profiles.map(publicProfile), available, publicProfile, defaultId,
+    setDefault(id) {
+      get(id);
+      if (defaultId() === id) return id;
+      persist(profiles.map(p => ({ ...p, isDefault: p.id === id })));
+      return id;
+    },
     create(name) { name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); const p = { id: randomUUID(), name }; profiles.push(p); persist(); return p; },
     rename(id, name) { const p = get(id); name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); p.name = name; persist(); return { ...p }; },
     remove(id) { get(id); if (profiles.length === 1) throw new Error('Keep at least one browser profile.'); fs.rmSync(vaultPath(id), { force: true }); profiles = profiles.filter((p) => p.id !== id); persist(); },
@@ -447,7 +454,8 @@ function createProfileStore({ directory, safeStorage }) {
     credential(id, entryId, origin) { const e = readVault(id).find((e) => e.id === entryId && e.origin === origin); if (!e) throw new Error('This password does not match the current website.'); return e; },
     deleteCredential(id, entryId) { writeVault(id, readVault(id).filter((e) => e.id !== entryId)); },
     configure(id, patch = {}) {
-      const p = get(id);
+      // Only publish a settings change in memory after its disk write succeeds.
+      const p = structuredClone(get(id));
       if (patch.downloadMode === 'ask' || patch.downloadMode === 'auto') p.downloadMode = patch.downloadMode;
       if (patch.popupMode === 'block' || patch.popupMode === 'oauth') p.popupMode = patch.popupMode;
       if (patch.origin && patch.permission) {
@@ -458,7 +466,7 @@ function createProfileStore({ directory, safeStorage }) {
         p.permissions[origin] ||= {};
         p.permissions[origin][permissionKey(patch.permission)] = patch.value === 'allow' ? 'allow' : 'deny';
       }
-      persist();
+      persist(profiles.map(old => old.id === id ? p : old));
       return publicProfile(p);
     },
     notePermissionRequest(id, origin, permission) {

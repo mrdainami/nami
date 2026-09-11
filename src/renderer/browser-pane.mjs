@@ -55,8 +55,8 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     pin(p, owner ? { owner } : {}); if (owner) { p.owner = owner; refresh(); } return p;
   }
   function newBrowser(owner) {
-    const active=state.panels.find(p=>p.id===state.activeId && p.kind==='browser');
-    const p=open('about:blank', null, owner, null, false, active?.profileId);
+    // New tabs use the saved default. Website-opened tabs pass an explicit profile.
+    const p=open('about:blank', null, owner);
     p.focusAddress = true;
     return p;
   }
@@ -154,11 +154,11 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const r=await api.browserProfiles({action:'list'}); if(state.overlay!==o||!check(r))return;
     const status=await api.browserStatus(); if(state.overlay!==o)return;
     const view=status.views?.find(v=>v.id===o.panelId);
-    const chosen=r.profiles.find(p=>p.id===(view?.profileId||o.profileId))||r.profiles[0];
+    const chosen=r.profiles.find(p=>p.id===(view?.profileId||o.profileId))||r.profiles.find(p=>p.id===r.defaultProfileId)||r.profiles[0];
     if(!chosen)return;
     o.profileId=chosen.id;
     const host=q('.browser-profile-body',modal);
-    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">${view?(view.profileLocal?'Profile for web links':'Profile for this tab'):'Profile to manage'}<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button><button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details id="profile-passwords"><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status">${esc(o.profileError||'')}</div><div class="browser-profile-result" role="status"></div>`;
+    host.innerHTML=`${view?`<p class="note browser-profile-context">This tab uses ${esc(view.profileName||r.profiles.find(p=>p.id===view.profileId)?.name||'an unavailable profile')}.${view.profileLocal?' Local files use isolated site data.':''}</p>`:''}<label class="field-label">${view?(view.profileLocal?'Profile for web links':'Profile for this tab'):'Profile to manage'}<select id="profile-choice">${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===chosen.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label>${view?'<p class="note">Changing this tab’s profile also sets the profile for new browser tabs.</p>':''}<div class="browser-profile-actions"><button class="btn btn--small" id="profile-new">New</button><button class="btn btn--small" id="profile-rename">Rename</button><button class="btn btn--small" id="profile-remove">Remove…</button></div><div class="browser-profile-actions"><button class="btn btn--small" id="profile-import-cookies">Import from Chrome…</button><button class="btn btn--small" id="profile-import">Import password CSV…</button></div><details${o.section==='clear'?' open':''}><summary>Clear browsing data</summary><label class="browser-check"><input type="checkbox" id="clear-signins"><span>Site data and sign-ins</span></label><label class="browser-check"><input type="checkbox" id="clear-passwords"><span>Saved passwords</span></label><div class="browser-profile-clear"><button class="btn btn--small" id="profile-clear">Clear</button></div></details><details id="profile-passwords"><summary>Saved passwords</summary><div id="profile-credentials"></div></details><div class="browser-profile-contents" role="status">Counting\u2026</div><div class="browser-profile-error" role="status">${esc(o.profileError||'')}</div><div class="browser-profile-result" role="status"></div>`;
     const result=q('.browser-profile-result',host), error=q('.browser-profile-error',host);
     let switching=false;
     const run=async (args,{preserveError=false}={})=>{
@@ -309,7 +309,16 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     };
   }
   function settingsHtml() { return browserSettingsHtml(); }
-  function wireSettings(modal) { const panelId=state.panels.find(p=>p.id===state.activeId && p.kind==='browser')?.id; return wireBrowserSettings(modal, { api, onProfiles:()=>show({type:'browser-profiles',panelId}), onImport:()=>show({type:'browser-import'}), onImportCookies:()=>show({type:'browser-import'}), onClear:()=>show({type:'browser-profiles',section:'clear'}), onError:toast }); }
+  function wireSettings(modal) {
+    const o=state.overlay;
+    if (!Object.hasOwn(o,'browserPanelId')) o.browserPanelId=state.panels.find(p=>p.id===state.activeId && p.kind==='browser')?.id;
+    return wireBrowserSettings(modal, { api, panelId:o.browserPanelId, profileId:o.browserProfileId,
+      onProfileChange:profileId=>{if(state.overlay===o)o.browserProfileId=profileId;},
+      onProfiles:context=>show({type:'browser-profiles',...context}),
+      onImport:context=>show({type:'browser-import',...context}),
+      onImportCookies:context=>show({type:'browser-import',...context}),
+      onClear:context=>show({type:'browser-profiles',section:'clear',...context}), onError:toast });
+  }
   api.onBrowserEvent((event) => {
     if(event.type==='import-job'){rememberImport(event.job);return;}
     let p = state.panels.find((p) => p.id === event.id), rec = tiles.get(event.id);

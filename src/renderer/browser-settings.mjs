@@ -18,12 +18,21 @@ function permissionRows(profiles) {
 
 export function browserSettingsContent(status, actions = {}) {
   const profiles = status.profiles || [];
-  const profile = profiles[0] || {};
+  const profileId = actions.profileId ?? status.defaultProfileId ?? profiles[0]?.id;
+  const profile = profiles.find(p => p.id === profileId) || {};
+  const defaultProfile = profiles.find(p => p.id === status.defaultProfileId) || profiles[0];
   const download = profile.downloadMode === 'auto' ? 'auto' : 'ask';
   const popup = profile.popupMode === 'oauth' ? 'oauth' : 'block';
-  const sites = permissionRows(profiles);
+  const sites = permissionRows(profile.id ? [profile] : []);
   const blank = status.newTab === 'dark' || status.newTab === 'light' ? status.newTab : 'system';
-  return `<section class="bs-section" aria-labelledby="browser-blank-heading">
+  const selection = `<section class="bs-section" aria-labelledby="browser-selection-heading">
+    <label class="field-label" id="browser-selection-heading" for="browser-settings-profile">Settings for profile</label>
+    <select id="browser-settings-profile">${!profile.id ? '<option value="" selected>Choose a profile</option>' : ''}${profiles.map(p => `<option value="${esc(p.id)}"${p.id === profile.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+    <p class="bs-note">New browser tabs use ${esc(defaultProfile?.name || 'the selected profile')}. Existing tabs keep their profiles.</p>
+    ${profile.id && profile.id !== defaultProfile?.id ? `<button class="btn btn--small" data-browser-settings="default">Use ${esc(profile.name)} for new tabs</button>` : ''}
+  </section>`;
+  if (!profile.id) return selection + '<p class="bs-note" role="status">Choose an available profile to view its settings.</p>';
+  return selection + `<section class="bs-section" aria-labelledby="browser-blank-heading">
     <h3 class="field-label" id="browser-blank-heading">New tab</h3>
     <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-light" value="light"${blank === 'light' ? ' checked' : ''}><span>Light</span></label>
     <label class="bs-toggle"><input type="radio" name="browser-blank" id="browser-blank-dark" value="dark"${blank === 'dark' ? ' checked' : ''}><span>Dark</span></label>
@@ -57,39 +66,57 @@ export async function wireBrowserSettings(modal, options) {
   const token = {}; host._browserSettingsRequest = token;
   const current = () => host.isConnected && host._browserSettingsRequest === token;
   try {
-    const [status, profileResult] = await Promise.all([api.browserStatus(), api.browserProfiles ? api.browserProfiles({ action: 'list' }).catch(() => ({ error: true })) : null]);
+    const [status, profileResult] = await Promise.all([api.browserStatus(), api.browserProfiles ? api.browserProfiles({ action: 'list' }) : null]);
     if (!current()) return;
-    if (status?.error) throw new Error(status.error);
+    if (status?.error || profileResult?.error) throw new Error(status?.error || profileResult.error);
     if (profileResult?.profiles) status.profiles = profileResult.profiles.map((profile) => ({ ...profile, viewCount: (status.views || []).filter((view) => view.profileId === profile.id).length }));
-    if (profileResult?.error) status.profileLoadError = true;
+    if (profileResult?.defaultProfileId) status.defaultProfileId = profileResult.defaultProfileId;
     if (profileResult?.capabilities?.cookieImport) status.cookieImport = profileResult.capabilities.cookieImport;
     if (profileResult?.capabilities?.newTab) status.newTab = profileResult.capabilities.newTab;
-    host.innerHTML = browserSettingsContent(status, options);
-    const profileId = status.profiles?.[0]?.id;
-    const configure = async (patch) => {
-      if (!profileId || !api.browserProfiles) return;
-      const result = await api.browserProfiles({ action: 'configure', profileId, ...patch });
-      if (result?.error) throw new Error(result.error);
+    const activeView = status.views?.find(view => view.id === options.panelId);
+    const profileId = options.profileId ?? activeView?.profileId ?? status.defaultProfileId ?? status.profiles?.[0]?.id;
+    options.onProfileChange?.(profileId);
+    host.innerHTML = browserSettingsContent(status, { ...options, profileId });
+    const refresh = () => current() ? wireBrowserSettings(modal, { ...options, profileId }) : undefined;
+    const picker = host.querySelector('#browser-settings-profile');
+    if (picker) picker.onchange = () => {
+      options.onProfileChange?.(picker.value);
+      return wireBrowserSettings(modal, { ...options, profileId: picker.value });
     };
-    host.querySelectorAll('[name="browser-blank"]').forEach((input) => {
-      input.onchange = async () => {
-        try {
-          const result = await api.browserProfiles({ action: 'new-tab', value: input.value });
-          if (result?.error) throw new Error(result.error);
-        } catch (error) { onError(error.message || 'Could not change new tab.'); }
-      };
+    let saving = false;
+    const save = async (args) => {
+      if (saving || !current()) return;
+      saving = true;
+      host.querySelectorAll('input,select,button').forEach(input => input.disabled = true);
+      try {
+        const result = await api.browserProfiles(args);
+        if (result?.error || !result?.ok) throw new Error(result?.error || 'Could not save browser settings.');
+        await refresh();
+      } catch (error) {
+        // Read the saved values again so a rejected change cannot look accepted.
+        if (current()) { await refresh(); onError(error.message || 'Could not save browser settings.'); }
+      }
+    };
+    host.querySelectorAll('[name="browser-blank"]').forEach(input => {
+      input.onchange = () => save({ action: 'new-tab', value: input.value });
     });
-    host.querySelectorAll('[name="browser-download"]').forEach((input) => { input.onchange = async () => { try { await configure({ downloadMode: input.value }); } catch (error) { onError(error.message || 'Could not change downloads.'); } }; });
-    host.querySelectorAll('[name="browser-popups"]').forEach((input) => { input.onchange = async () => { try { await configure({ popupMode: input.value }); } catch (error) { onError(error.message || 'Could not change popups.'); } }; });
-    host.querySelectorAll('[data-browser-permission]').forEach((input) => {
-      input.onchange = async () => {
-        try { await configure({ origin: input.dataset.browserPermission, permission: input.dataset.permission, value: input.checked ? 'allow' : 'deny', profileId: input.dataset.profile || profileId }); }
-        catch (error) { input.checked = !input.checked; onError(error.message || 'Could not change site permission.'); }
-      };
+    host.querySelectorAll('[name="browser-download"]').forEach(input => {
+      input.onchange = () => save({ action: 'configure', profileId, downloadMode: input.value });
     });
+    host.querySelectorAll('[name="browser-popups"]').forEach(input => {
+      input.onchange = () => save({ action: 'configure', profileId, popupMode: input.value });
+    });
+    host.querySelectorAll('[data-browser-permission]').forEach(input => {
+      input.onchange = () => save({ action: 'configure', profileId, origin: input.dataset.browserPermission,
+        permission: input.dataset.permission, value: input.checked ? 'allow' : 'deny' });
+    });
+    const defaultButton = host.querySelector('[data-browser-settings="default"]');
+    if (defaultButton) defaultButton.onclick = () => save({ action: 'set-default', profileId });
+    // Management keeps a tab context only when it actually uses this profile.
+    const context = { profileId, panelId: activeView?.profileId === profileId ? activeView.id : undefined };
     for (const [key, callback] of [['profiles', options.onProfiles], ['import', options.onImport], ['cookies', options.onImportCookies], ['clear', options.onClear]]) {
       const button = host.querySelector(`[data-browser-settings="${key}"]`);
-      if (button) button.onclick = async () => { try { await callback(); } catch (error) { onError(error.message || 'Could not open browser settings.'); } };
+      if (button) button.onclick = async () => { try { await callback(context); } catch (error) { onError(error.message || 'Could not open browser settings.'); } };
     }
   } catch (error) {
     if (!current()) return;
