@@ -1,11 +1,11 @@
-const { WebContentsView, BrowserWindow, session, net, app, safeStorage, dialog } = require('electron');
+const { WebContentsView, BrowserWindow, session, app, safeStorage, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
-const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
-const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
+const { buildDocUrl, parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
 const { resolveBrowserInput } = require('./browser-file');
+const { serveDocFile } = require('./doc-response');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
 const { createImportJobs } = require('./browser-import-jobs');
 const { createImportWorker } = require('./browser-import-worker');
@@ -154,11 +154,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const p = parseDocUrl(request.url);
       const file = p && record.roots.has(p.root) && resolveWithinRoot(p.root, p.rel);
       if (!file) return new Response('Not found', { status: 404 });
-      const response = await net.fetch(pathToFileURL(file).href);
-      const headers = new Headers(response.headers);
-      headers.set('Content-Type', docContentType(file));
-      headers.set('Content-Security-Policy', "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; form-action 'none'");
-      return new Response(response.body, { status: response.status, headers });
+      return serveDocFile(file, request, "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; form-action 'none'");
     });
     partitions.set(key, record); return record;
   }
