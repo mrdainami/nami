@@ -5,6 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationLayout, Access, loadFailureMessage, browserUserAgent } = require('./browser-policy');
 const { buildDocUrl, parseDocUrl, resolveWithinRoot, docContentType } = require('./doc-protocol');
+const { resolveBrowserInput } = require('./browser-file');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
 const { createImportJobs } = require('./browser-import-jobs');
 const { createImportWorker } = require('./browser-import-worker');
@@ -168,10 +169,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     if (profileLocks.has(profileId) || importBlocks.has(profileId)) throw new Error('Browser profile is being updated. Try again shortly.');
     // Validate before allocating or abandoning a working view.
     let url, root;
+    if (args.userNavigation && !args.filePath) args = { ...args, ...resolveBrowserInput(args.url) };
     if (args.filePath) {
       const file = fs.realpathSync(args.filePath);
       if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) throw new Error('Choose an HTML file.');
       root = path.dirname(file); url = buildDocUrl(root, file);
+      if (/^file:/i.test(args.url || '')) { const requested = new URL(args.url); url += requested.search + requested.hash; }
     } else url = args.userNavigation ? userBrowserUrl(args.url) || 'about:blank' : browserUrl(args.url || 'about:blank');
     const settings = readSettings();
     const dark = blankIsDark(blankMode(settings), settings);
@@ -289,7 +292,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const w = mainWindow(ev);
       const profileMutation = channel === 'browser:profiles' && !['list', 'credentials', 'contents', 'import-browser', 'import-cookies'].includes(args.action || 'list');
       const navigation = channel === 'browser:action' && args.action === 'navigate';
-      const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'import-cookies', 'delete-credential'].includes(args.action)) || (navigation && find(w, args.id).record.local);
+      const identityChange = (profileMutation && ['switch', 'clear', 'remove', 'import-passwords', 'import-cookies', 'delete-credential'].includes(args.action)) || navigation;
       const serialized = profileMutation || navigation || ['browser:create', 'browser:close', 'browser:grant', 'browser:enable', 'browser:sync', 'browser:connection'].includes(channel);
       // A grant chosen before an identity change must not be replayed against
       // the same tab ID after that change. Ask the user to review it again.
@@ -318,19 +321,17 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     }
     return {};
   });
-  guarded('browser:resolve', (_w, { value }) => ({ url: userBrowserUrl(value) }));
+  guarded('browser:resolve', (_w, { value }) => resolveBrowserInput(value));
   guarded('browser:action', async (w, { id, action, url, value }) => {
     const e = find(w, id), wc = e.view.webContents;
     if (action === 'navigate') {
-      const target = userBrowserUrl(url);
-      if (target && e.record.local && /^https?:/.test(target)) {
+      const target = resolveBrowserInput(url);
+      if (target.filePath || (target.url && e.record.local && /^https?:/.test(target.url))) {
         await revokeViews(new Set([e.id]));
-        const next = { id: e.id, owner: e.owner, profileId: e.profileId, url: target };
-        const pendingCount = e.pendingCount;
-        await remove(e.id, { notify: false, confirmed: true });
-        const created = await create(w, next, { pendingCount });
+        const next = { id: e.id, owner: e.owner, profileId: e.profileId, ...target };
+        const created = await create(w, next, { pendingCount: e.pendingCount, replacing: e });
         send(created, 'profile-changed', { profileId: created.profileId });
-      } else if (target) await wc.loadURL(target);
+      } else if (target.url) await wc.loadURL(target.url);
     }
     else if (action === 'reload') wc.reload();
     else if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();

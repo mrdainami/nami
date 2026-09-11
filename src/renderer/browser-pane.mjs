@@ -100,7 +100,14 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const ro = new ResizeObserver(schedule); ro.observe(rec.browserViewport);
     rec.disposeBrowser = () => { disposeAnnotations(); ro.disconnect(); api.browserClose(p.id).catch(() => {}); };
     const form = q('form', rec.body);
-    form.onsubmit = async (event) => { event.preventDefault(); const value=q('input',form).value.trim(); if(p.filePath&&value===p.filePath){api.browserAction({id:p.id,action:'reload'}).then(check);return;} const r = await api.browserResolve(value); if (check(r) && r.url) api.browserAction({ id: p.id, action: 'navigate', url: r.url }).then(check); };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const value = q('input', form).value.trim();
+      if (p.filePath && value === p.filePath) { api.browserAction({ id: p.id, action: 'reload' }).then(check); return; }
+      // The backend resolves and validates once at navigation time, including
+      // local HTML. The old URL-only round trip could not open a file here.
+      api.browserAction({ id: p.id, action: 'navigate', url: value }).then(check);
+    };
     form.querySelectorAll('[data-browser-action]').forEach((b) => { b.type = 'button'; b.onclick = () => b.dataset.browserAction === 'menu' ? openMenu(p, b) : api.browserAction({ id: p.id, action: b.dataset.browserAction }).then(check); });
     q('.browser-annotate', form).onclick = () => { annotations.toggle(p); schedule(); };
     q('.browser-selection button', rec.body).onclick = () => annotateSelection(p, rec.pendingSelection);
