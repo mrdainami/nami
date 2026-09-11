@@ -109,3 +109,12 @@ body[data-glass] .source-chip,body[data-soft] .source-chip { border-radius:7px; 
 }
 
 .browser-import-refresh { margin: 0 0 14px; }
+
+.browser-import-status { flex:none; max-width:100%; padding:7px 10px; border:0; border-bottom:1px dashed var(--dash); background:var(--field); color:var(--ink); font:inherit; font-size:11px; text-align:left; overflow-wrap:anywhere; cursor:pointer; }
+.browser-import-status[hidden] { display:none; }
+.browser-import-context { color:var(--muted); overflow-wrap:anywhere; }
+.browser-import-result-row { display:grid; gap:6px; padding:12px 0; border-bottom:1px dashed var(--dash); overflow-wrap:anywhere; }
+.browser-import-result-row strong { font-size:13px; }
+.browser-import-result-row span,.browser-import-result-row p { font-size:12px; margin:0; }
+.browser-import-running { display:flex; flex-wrap:wrap; gap:8px; }
+.browser-import-explanation { margin-top:16px; }

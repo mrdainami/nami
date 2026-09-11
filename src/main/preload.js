@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('dainami', {
   browserConfirmDiscard: (count) => ipcRenderer.invoke('browser:confirm-discard', { count }),
   browserOverlays: (args) => ipcRenderer.invoke('browser:overlays', args),
   onBrowserOverlayInput: (cb) => { const h = (_e, value) => cb(value); ipcRenderer.on('browser:overlay-input', h); return () => ipcRenderer.removeListener('browser:overlay-input', h); },
+  browserImport: (args) => ipcRenderer.invoke('browser:import', args),
   browserProfiles: (args) => ipcRenderer.invoke('browser:profiles', args),
   browserResolve: (value) => ipcRenderer.invoke('browser:resolve', { value }),
   browserCreate: (args) => ipcRenderer.invoke('browser:create', args),
