@@ -70,6 +70,10 @@ app.whenReady().then(async()=>{
   const navigationMs=performance.now()-navigationStart;
   assert.ok(navigationMs<500,'another profile navigates while import is delayed: '+navigationMs);
   win.webContents.send('menu:command','settings:browser');
+  // Settings now remembers the selected profile. Choose Personal explicitly
+  // to open a fresh import form; Work correctly reopens its running job.
+  await until(()=>run(`(() => {const el=document.querySelector('#browser-settings-profile');if(!el||el.disabled)return false;el.value='default';el.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'select Personal settings');
+  await until(()=>run(`document.querySelector('#browser-settings-profile')?.value==='default' && !document.querySelector('#browser-settings-profile').disabled`),'Personal settings saved');
   await until(()=>run(`(() => {const el=document.querySelector('[data-browser-settings="cookies"]');if(typeof el?.onclick!=='function')return false;el.click();return true;})()`),'global import entry');
   await until(()=>run('!!document.querySelector("#import-destination")'),'global destination');
   await run(`(() => {const el=document.querySelector('#import-destination');el.value=${JSON.stringify(work.id)};el.dispatchEvent(new Event('change'));})()`);

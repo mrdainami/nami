@@ -31,13 +31,6 @@ jobs:
     # no hand-made PAT to rotate. It only needs to be told it may write.
     permissions:
       contents: write
-    # Secrets are lifted into env here because `if:` conditions cannot read the
-    # secrets context — a workflow that tries fails validation before any job
-    # starts, with "this run likely failed because of a workflow file issue" and
-    # no log to read. env is readable from a step-level `if`, so the checks below
-    # go through these.
-    env:
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     timeout-minutes: 60
     steps:
       # Stop in the first seconds rather than after half an hour of building and
@@ -45,6 +38,7 @@ jobs:
       - name: Check we can publish before doing any work
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           missing=
           [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
@@ -56,6 +50,8 @@ jobs:
           echo "all release credentials present"
 
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -75,14 +71,19 @@ jobs:
       # The gate. A red test never becomes a download.
       - run: npm test
 
+      - name: Reject known dependency vulnerabilities
+        run: npm run check:security
+
       # The key has to exist as a file on disk — see the note at the top. Runner
       # disks are destroyed with the job, so this never outlives the build.
       - name: Stage the notarization key
-        if: env.APPLE_API_KEY_P8 != ''
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          mkdir -p "$HOME/private_keys"
-          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$HOME/private_keys/AuthKey.p8"
-          echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/nami-signing"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/nami-signing/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/nami-signing/AuthKey.p8" >> "$GITHUB_ENV"
 
       # Build only — publishing is a separate step below, deliberately.
       #
@@ -100,6 +101,10 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: npm run dist
+
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/nami-signing"
 
       # Refuse to publish something Gatekeeper would reject. This is the check a
       # user performs by double-clicking, and it is silent at build time.

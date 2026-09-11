@@ -6,6 +6,7 @@ const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationL
 const { buildDocUrl, parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
 const { resolveBrowserInput } = require('./browser-file');
 const { serveDocFile } = require('./doc-response');
+const { documentPolicy } = require('./doc-policy');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
 const { createImportJobs } = require('./browser-import-jobs');
 const { createImportWorker } = require('./browser-import-worker');
@@ -126,11 +127,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     if (partitions.has(key)) return partitions.get(key);
     const record = { key, local: !!localId, session: session.fromPartition((localId ? 'nami-browser-' : 'persist:nami-browser-') + key), roots: new Set() };
     record.session.setUserAgent(browserUserAgent(record.session.getUserAgent()));
-    record.session.setPermissionRequestHandler((wc, permission, callback) => {
+    record.session.setPermissionRequestHandler((_wc, permission, callback, details = {}) => {
       let origin = '';
-      try { origin = new URL(wc.getURL()).origin; } catch {}
-      const e = [...views.values()].find((v) => v.view.webContents === wc);
-      const profileId = e?.profileId || 'default';
+      // webContents is the top-level page even when a different-origin frame
+      // asks. A popup also belongs to this partition's profile, not Personal.
+      try { const url = new URL(details.requestingUrl); if (['http:', 'https:'].includes(url.protocol)) origin = url.origin; } catch {}
+      if (!origin) { callback(false); return; }
       try {
         if (permissionAllowed(profiles.get(profileId).permissions?.[origin], permission)) { callback(true); return; }
         profiles.notePermissionRequest(profileId, origin, permission);
@@ -140,8 +142,8 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     record.session.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
       let origin = '';
       try { origin = requestingOrigin ? new URL(requestingOrigin).origin : ''; } catch { origin = ''; }
-      const e = [...views.values()].find((v) => v.record === record);
-      try { return permissionAllowed(profiles.get(e?.profileId || 'default').permissions?.[origin], permission); }
+      if (!origin || origin === 'null') return false;
+      try { return permissionAllowed(profiles.get(profileId).permissions?.[origin], permission); }
       catch { return false; }
     });
     record.session.on('will-download', (_event, item, wc) => {
@@ -154,7 +156,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const p = parseDocUrl(request.url);
       const file = p && record.roots.has(p.root) && resolveWithinRoot(p.root, p.rel);
       if (!file) return new Response('Not found', { status: 404 });
-      return serveDocFile(file, request, "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; form-action 'none'");
+      return serveDocFile(file, request, documentPolicy(p.root));
     });
     partitions.set(key, record); return record;
   }

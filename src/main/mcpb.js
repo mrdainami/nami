@@ -15,6 +15,7 @@ function parseManifest(text) {
   const cfg = m && m.server && m.server.mcp_config;
   if (!cfg || (!cfg.command && !cfg.url)) return { ok: false, error: 'manifest has no server.mcp_config — not a runnable bundle' };
   if (!m.name) return { ok: false, error: 'manifest has no name' };
+  try { bundleSlug(m); } catch (_) { return { ok: false, error: 'manifest has no safe bundle name' }; }
   return { ok: true, manifest: m };
 }
 
@@ -58,7 +59,9 @@ function buildEntry({ manifest, dir, values = {} }) {
 }
 
 function bundleSlug(manifest) {
-  const base = String(manifest.name || 'bundle').trim().toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '');
+  if (typeof manifest.name !== 'string') throw new Error('Invalid bundle name');
+  const base = manifest.name.trim().toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^[.-]+|[.-]+$/g, '');
+  if (!base || !/[a-z0-9]/.test(base)) throw new Error('Invalid bundle name');
   const v = String(manifest.version || '').trim().toLowerCase().replace(/[^a-z0-9.]+/g, '-');
   return v ? base + '-' + v : base;
 }

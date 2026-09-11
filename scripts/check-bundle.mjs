@@ -15,9 +15,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
 
 // Everything the app needs to run, and nothing that merely helped build it.
 const ALLOWED_TOP = new Set(['src', 'package.json', 'node_modules']);
@@ -56,6 +58,10 @@ let bad = 0;
 for (const file of found) {
   const arch = file.split(path.sep).slice(-5)[0];
   console.log(`\n== ${arch}`);
+  const frameworkInfo = path.join(path.dirname(file), '..', 'Frameworks', 'Electron Framework.framework', 'Versions', 'A', 'Resources', 'Info.plist');
+  const engine = require('plist').parse(fs.readFileSync(frameworkInfo, 'utf8')).CFBundleVersion;
+  if (engine !== lock.packages['node_modules/electron'].version) { console.error(`   FAIL  stale Electron framework: ${engine}`); bad++; }
+  else console.log(`   ok    Electron framework ${engine}`);
 
   // listPackage returns every path inside, each leading with a separator
   const entries = asar.listPackage(file).map((e) => e.replace(/^[/\\]/, ''));
@@ -72,6 +78,37 @@ for (const file of found) {
   if (missing.length) { console.error(`   FAIL  the app cannot run without: ${missing.join(', ')}`); bad++; }
 
   if (!strays.length && !named.length && !missing.length) console.log('   ok    only what it needs to run');
+
+  // Inspect every copy, including nested dependencies. A patched lockfile is
+  // insufficient if an older library was left inside the packaged app.
+  for (const name of ['js-yaml', 'sharp']) {
+    const expected = lock.packages['node_modules/' + name]?.version;
+    const copies = entries.filter(e => e.endsWith('node_modules/' + name + '/package.json'));
+    if (!expected || !copies.length) { console.error(`   FAIL  missing ${name}`); bad++; }
+    for (const entry of copies) {
+      const actual = JSON.parse(asar.extractFile(file, entry)).version;
+      if (actual !== expected) { console.error(`   FAIL  ${entry}: ${actual}, expected ${expected}`); bad++; }
+      else console.log(`   ok    ${name} ${actual}`);
+    }
+  }
+  // Refuse a stale review/release build, and catch extra first-party files.
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const checkIncluded = directory => {
+    for (const item of fs.readdirSync(path.join(ROOT, directory), { withFileTypes: true })) {
+      const entry = directory + '/' + item.name;
+      if (item.isDirectory()) checkIncluded(entry);
+      else if (!entry.endsWith('.map') && !entries.includes(entry)) {
+        console.error(`   FAIL  missing packaged source: ${entry}`); bad++;
+      }
+    }
+  };
+  checkIncluded('src');
+  for (const entry of entries.filter(e => e.startsWith('src/') && !asar.statFile(file, e).files)) {
+    const source = path.join(ROOT, entry);
+    if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== digest(asar.extractFile(file, entry))) {
+      console.error(`   FAIL  packaged source differs: ${entry}`); bad++;
+    }
+  }
 }
 
 if (bad) {

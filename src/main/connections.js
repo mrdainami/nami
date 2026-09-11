@@ -16,10 +16,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const { writePrivateConfig } = require('./private-config');
 
 const fsIo = {
   read: (f) => fs.readFileSync(f, 'utf8'),
-  write: (f, t) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, t); },
+  write: writePrivateConfig,
   exists: (f) => fs.existsSync(f),
 };
 

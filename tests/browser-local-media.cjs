@@ -96,5 +96,5 @@ app.whenReady().then(async () => {
     }
     console.log('PASS: real protocol ranges/HEAD, default preview handler, document-root containment and app isolation.');
   } catch (error) { console.error(error); process.exitCode = 1; }
-  finally { for (const win of BrowserWindow.getAllWindows()) win.destroy(); fs.rmSync(root, { recursive: true, force: true }); app.exit(process.exitCode || 0); }
+  finally { for (const win of BrowserWindow.getAllWindows()) win.destroy(); try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); } finally { app.exit(process.exitCode || 0); } }
 });

@@ -2,7 +2,7 @@
 // Owns: the window, PTY terminal sessions,
 // the open folder + its .claude scan, restart-proof state, and all IPC.
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, protocol, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain: electronIpc, dialog, shell, clipboard, protocol, Menu, nativeImage } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -61,16 +61,7 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, stream: true, supportFetchAPI: false, corsEnabled: false },
 }]);
 
-// The one policy every served response carries: the page may run and style
-// itself (agents inline both) and load its own assets, but connect-src 'none'
-// means it can open no socket, so anything it managed to read it cannot send
-// anywhere. No frame-ancestors on purpose — Nami is a file:// origin embedding a
-// nami-doc:// page, and 'self' there would refuse the very frame we want; the
-// isolation that matters is the cross-origin wall and the sandbox, not this.
-const DOC_CSP = "default-src 'self' data: blob:; img-src 'self' data: blob:; "
-  + "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
-  + "media-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'self'; "
-  + "form-action 'none';";
+const { documentPolicy } = require('./doc-policy');
 
 function installDocProtocol() {
   protocol.handle('nami-doc', async (request) => {
@@ -79,7 +70,7 @@ function installDocProtocol() {
     const file = resolveWithinRoot(parsed.root, parsed.rel);
     // null means the path escaped its folder — refuse, do not explain.
     if (!file) return new Response('not found', { status: 404 });
-    return serveDocFile(file, request, DOC_CSP);
+    return serveDocFile(file, request, documentPolicy(parsed.root));
   });
 }
 
@@ -121,6 +112,11 @@ const REVIEW = reviewProfile.review;
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
+const { trustedAppSender, trustedIpc } = require('./trusted-ipc');
+const appDocumentUrl = require('node:url').pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).href;
+const ipcMain = trustedIpc(electronIpc, event => trustedAppSender(event, wins, appDocumentUrl));
+// Only the guest modules receive raw events, and each checks its exact sender.
+const browserIpc = { handle: ipcMain.handle, on: electronIpc.on.bind(electronIpc) };
 const windowThemes = new Map();
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
@@ -395,7 +391,7 @@ function createWindow(folder, bounds) {
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
     ...windowChrome(),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, plugins: true },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true },
   });
   browserViews.bindWindow(w);
   const wcId = w.webContents.id;
@@ -558,8 +554,8 @@ app.on('quit', () => {
 // collide with the sessions it just left behind.
 let bootSeq = 0;
 
-const browserViews = wireBrowserViews(ipcMain, { readSettings, writeSettings });
-const browserOverlays = require('./browser-overlays').wireBrowserOverlays(ipcMain);
+const browserViews = wireBrowserViews(browserIpc, { readSettings, writeSettings });
+const browserOverlays = require('./browser-overlays').wireBrowserOverlays(browserIpc);
 let usagePending;
 ipcMain.handle('usage:read', async (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
@@ -824,7 +820,7 @@ ipcMain.handle('services:connect', async (_e, { id, values, scope, agentIds, pro
 });
 // The other two doors: a .mcpb bundle, or a pasted address / command line.
 // Both end at the same place as the catalog — a master entry, delivered.
-const { parseManifest, userConfigFields, buildEntry, bundleSlug, parseCommandLine } = require('./mcpb');
+const { parseManifest, userConfigFields, buildEntry, parseCommandLine } = require('./mcpb');
 ipcMain.handle('services:pickBundle', async (e) => {
   const parent = BrowserWindow.fromWebContents(e.sender) || win;
   const res = await dialog.showOpenDialog(parent, {
@@ -833,29 +829,15 @@ ipcMain.handle('services:pickBundle', async (e) => {
   });
   if (res.canceled || !res.filePaths[0]) return null;
   const file = res.filePaths[0];
-  // A bundle is a zip; /usr/bin/unzip ships with every Mac, so no dependency.
-  // Extract first into a scratch spot named after the file, read the manifest,
-  // then settle under the manifest's own name+version.
-  const tmp = path.join(os.homedir(), '.nami', 'bundles', '.unpacking-' + Date.now());
-  const unzip = await new Promise((resolve) => {
-    execFile('/usr/bin/unzip', ['-o', '-q', file, '-d', tmp], { timeout: 30000 }, (err) => resolve(err ? err.message.split('\n')[0] : null));
-  });
-  if (unzip) return { ok: false, error: 'Could not unpack it: ' + unzip };
   try {
-    const parsed = parseManifest(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
-    if (!parsed.ok) { fs.rmSync(tmp, { recursive: true, force: true }); return parsed; }
-    const dir = path.join(os.homedir(), '.nami', 'bundles', bundleSlug(parsed.manifest));
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.renameSync(tmp, dir);
-    const m = parsed.manifest;
+    const { dir, manifest: m } = await require('./bundle-install').installBundle(file, path.join(os.homedir(), '.nami', 'bundles'));
     return {
       ok: true, dir,
       name: m.display_name || m.name, slug: m.name, version: m.version || '',
       description: m.description || '', fields: userConfigFields(m),
     };
   } catch (err) {
-    fs.rmSync(tmp, { recursive: true, force: true });
-    return { ok: false, error: 'No manifest.json inside — is this really an MCP bundle? (' + err.message + ')' };
+    return { ok: false, error: 'Could not install the bundle: ' + err.message };
   }
 });
 ipcMain.handle('services:connectCustom', async (_e, { name, address, values, bundleDir, scope, agentIds, projectPath } = {}) => {

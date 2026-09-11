@@ -20,7 +20,8 @@ if(!process.versions.electron){
     fs.writeFileSync(path.join(directory,'state.json'),JSON.stringify({panelsByFolder:{__no_folder__:[{kind:'browser',url:url+'/account',profileId:'default'}]}}));
     try{
       for(const mode of ['write','read'])await new Promise((resolve,reject)=>{
-        const child=spawn(require('electron'),[__filename,mode],{env:{...process.env,NAMI_PERSISTENCE_FIXTURE:directory,NAMI_FIXTURE_URL:url},stdio:'inherit'});
+        const electron = mode === 'write' && process.env.NAMI_PERSISTENCE_BASELINE ? require(path.join(process.env.NAMI_PERSISTENCE_BASELINE, 'node_modules/electron')) : require('electron');
+        const child=spawn(electron,[__filename,mode],{env:{...process.env,NAMI_PERSISTENCE_FIXTURE:directory,NAMI_FIXTURE_URL:url},stdio:'inherit'});
         const timer=setTimeout(()=>{child.kill();reject(Error('Normal restart fixture timed out: '+mode));},60000);
         child.on('error',e=>{clearTimeout(timer);reject(e);});child.on('exit',(code,signal)=>{clearTimeout(timer);code===0?resolve():reject(Error(mode+' failed: '+(signal||code)));});
       });
@@ -31,12 +32,13 @@ if(!process.versions.electron){
   const {app,BrowserWindow,safeStorage}=require('electron');
   const directory=process.env.NAMI_PERSISTENCE_FIXTURE,url=process.env.NAMI_FIXTURE_URL,mode=process.argv.at(-1);
   if(!directory||!path.basename(directory).startsWith('nami-persistence-fixture-'))throw Error('Run this fixture through Node.');
-  const profiles=require('../src/main/browser-profiles');profiles.detectChromiumProfiles=()=>[];profiles.cookieImportStatus=()=>({available:false,browsers:[]});
+  const appRoot = mode === 'write' && process.env.NAMI_PERSISTENCE_BASELINE || path.resolve(__dirname, '..');
+  const profiles=require(path.join(appRoot, 'src/main/browser-profiles'));profiles.detectChromiumProfiles=()=>[];profiles.cookieImportStatus=()=>({available:false,browsers:[]});
   safeStorage.isEncryptionAvailable=()=>{throw Error('This test must not access Keychain');};
-  app.getVersion=()=>require('../package.json').version;
+  app.getVersion=()=>require(path.join(appRoot, 'package.json')).version;
   process.argv.push('--review','--user-data',directory);
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');app.commandLine.appendSwitch('disable-renderer-backgrounding');
-  require('../src/main/main');
+  require(path.join(appRoot, 'src/main/main'));
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const until=async(fn,label)=>{const end=Date.now()+15000;while(Date.now()<end){if(await fn())return;await pause(40);}throw Error('Timed out: '+label);};
   app.whenReady().then(async()=>{

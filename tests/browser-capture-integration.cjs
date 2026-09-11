@@ -30,7 +30,7 @@ app.whenReady().then(async () => {
       await invoke('browser:action', { id: 'page', action: 'annotate', value: { active: true, mode: 'region' } });
       await pause(50);
       win.focus(); wc.focus();
-      assert.equal(await wc.executeJavaScript('getComputedStyle(document.body).cursor'), 'crosshair');
+      assert.match(await wc.executeJavaScript('getComputedStyle(document.body).cursor'), /\bcrosshair$/, 'native or themed crosshair cursor');
       const previous = events.filter(e => e.type === 'selection').length;
       // The helper has its own real pointer test; dispatch a deterministic
       // region here to isolate crop/IPC transport from desktop mouse focus.
