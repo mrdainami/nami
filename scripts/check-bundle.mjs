@@ -58,6 +58,10 @@ let bad = 0;
 for (const file of found) {
   const arch = file.split(path.sep).slice(-5)[0];
   console.log(`\n== ${arch}`);
+  const frameworkInfo = path.join(path.dirname(file), '..', 'Frameworks', 'Electron Framework.framework', 'Versions', 'A', 'Resources', 'Info.plist');
+  const engine = require('plist').parse(fs.readFileSync(frameworkInfo, 'utf8')).CFBundleVersion;
+  if (engine !== lock.packages['node_modules/electron'].version) { console.error(`   FAIL  stale Electron framework: ${engine}`); bad++; }
+  else console.log(`   ok    Electron framework ${engine}`);
 
   // listPackage returns every path inside, each leading with a separator
   const entries = asar.listPackage(file).map((e) => e.replace(/^[/\\]/, ''));

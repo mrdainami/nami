@@ -17,6 +17,7 @@ const watchdog = setTimeout(() => { console.error('Native runtime check timed ou
 app.whenReady().then(async () => {
   let win, child;
   try {
+    assert.equal(process.versions.electron, require('../package-lock.json').packages['node_modules/electron'].version, 'execute the locked Electron engine');
     const sharp = load('sharp');
     assert.equal(sharp.versions.sharp, '0.35.4');
     assert.equal(sharp.versions.heif, '1.23.2');

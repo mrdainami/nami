@@ -2,7 +2,7 @@
   "name": "nami",
   "productName": "Nami",
   "version": "0.5.1",
-  "description": "Nami \u2014 AI agent workbench, by Dainami AI. Open a folder, run Claude Code and other agents as paper tiles.",
+  "description": "Nami — AI agent workbench, by Dainami AI. Open a folder, run Claude Code and other agents as paper tiles.",
   "main": "src/main/main.js",
   "author": "Calvin Hia",
   "license": "MIT",
@@ -26,7 +26,7 @@
     "prepack:review": "npm run fetch-model",
     "postpack:review": "codesign --force --deep --sign - \"release-review/mac-arm64/Nami Review.app\"",
     "check-bundle": "node scripts/check-bundle.mjs",
-    "//dist": "predist matters: npm runs pre<name> for any script, so `pack` picked up the weights via prepack while `dist` \u2014 the one that builds what users install \u2014 quietly shipped without them.",
+    "//dist": "predist matters: npm runs pre<name> for any script, so `pack` picked up the weights via prepack while `dist` — the one that builds what users install — quietly shipped without them.",
     "predist": "npm run fetch-model",
     "dist": "electron-builder --publish never && npm run fix-update-metadata",
     "fix-update-metadata": "node scripts/fix-update-metadata.mjs",
@@ -50,13 +50,13 @@
   "devDependencies": {
     "@milkdown/crepe": "^7.22.1",
     "@xterm/addon-webgl": "^0.19.0",
-    "electron": "^43.3.0",
+    "electron": "43.7.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "js-yaml": "4.3.2",
     "marked": "18.0.11"
   },
-  "//deps": "transformers and onnxruntime-node are pinned exactly on purpose: a v3\u2192v4 transformers bump swaps the tokenizer and the wasm-vendoring story, and onnxruntime-node's prebuilt-binary layout moves between napi generations. Re-pin deliberately, never by caret drift. Packaging lives in electron-builder.yml.",
+  "//deps": "transformers and onnxruntime-node are pinned exactly on purpose: a v3→v4 transformers bump swaps the tokenizer and the wasm-vendoring story, and onnxruntime-node's prebuilt-binary layout moves between napi generations. Re-pin deliberately, never by caret drift. Packaging lives in electron-builder.yml.",
   "overrides": {
     "@huggingface/transformers": {
       "sharp": "$sharp"
