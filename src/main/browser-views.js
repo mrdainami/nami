@@ -6,6 +6,7 @@ const { browserUrl, userBrowserUrl, isBlankTab, cleanSelection, cleanAnnotationL
 const { buildDocUrl, parseDocUrl, resolveWithinRoot } = require('./doc-protocol');
 const { resolveBrowserInput } = require('./browser-file');
 const { serveDocFile } = require('./doc-response');
+const { documentPolicy } = require('./doc-policy');
 const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
 const { createImportJobs } = require('./browser-import-jobs');
 const { createImportWorker } = require('./browser-import-worker');
@@ -154,7 +155,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       const p = parseDocUrl(request.url);
       const file = p && record.roots.has(p.root) && resolveWithinRoot(p.root, p.rel);
       if (!file) return new Response('Not found', { status: 404 });
-      return serveDocFile(file, request, "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; form-action 'none'");
+      return serveDocFile(file, request, documentPolicy(p.root));
     });
     partitions.set(key, record); return record;
   }

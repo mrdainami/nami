@@ -61,16 +61,7 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, stream: true, supportFetchAPI: false, corsEnabled: false },
 }]);
 
-// The one policy every served response carries: the page may run and style
-// itself (agents inline both) and load its own assets, but connect-src 'none'
-// means it can open no socket, so anything it managed to read it cannot send
-// anywhere. No frame-ancestors on purpose — Nami is a file:// origin embedding a
-// nami-doc:// page, and 'self' there would refuse the very frame we want; the
-// isolation that matters is the cross-origin wall and the sandbox, not this.
-const DOC_CSP = "default-src 'self' data: blob:; img-src 'self' data: blob:; "
-  + "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; "
-  + "media-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'self'; "
-  + "form-action 'none';";
+const { documentPolicy } = require('./doc-policy');
 
 function installDocProtocol() {
   protocol.handle('nami-doc', async (request) => {
@@ -79,7 +70,7 @@ function installDocProtocol() {
     const file = resolveWithinRoot(parsed.root, parsed.rel);
     // null means the path escaped its folder — refuse, do not explain.
     if (!file) return new Response('not found', { status: 404 });
-    return serveDocFile(file, request, DOC_CSP);
+    return serveDocFile(file, request, documentPolicy(parsed.root));
   });
 }
 
