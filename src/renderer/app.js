@@ -2230,6 +2230,10 @@ async function makeFolderDialog() {
 function renderGrid() {
   if (!S.panels.length) {
     tileEls.forEach((t) => { if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); }); tileEls.clear();
+    // The last tab leaves the same empty desk as startup, with no stale Split frame.
+    const pv = q('.paneview', els.grid.parentElement);
+    if (pv) { pv._resize?.disconnect(); pv.remove(); }
+    els.grid.parentElement.classList.remove('is-split');
     els.grid.classList.remove('has-focus');
     // The empty lane is not a card and must not be laid out on the card grid —
     // it is one block that wants the whole canvas, and a 210px row track would
@@ -4672,11 +4676,19 @@ function closePanel(id, opts = {}) {
     api.termKill({ id });
   }
   const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); tileEls.delete(id); }
+  const before = S.panels;
+  const closedActive = S.activeId === id;
   S.panels = S.panels.filter((x) => x.id !== id);
   orphanFiles(S.panels, id); // a closed session's files stay, on the desk
   if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
   if (S.expandedId === id) S.expandedId = null;
-  if (S.view === 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'close', id });
+  if (S.view === 'split') {
+    const closedFile = S.split.fileId === id;
+    S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'close', id, before });
+    // Keep subsequent keyboard closes on the replacement in the same pane.
+    if (closedActive) S.activeId = closedFile ? (S.split.fileId || S.split.sessionId) : (S.split.sessionId || S.split.fileId);
+    if (S.splitFull === 'files' && !S.split.fileId) S.splitFull = null;
+  }
   if (opts.silent) return;
   renderGrid(); renderRail(); renderHeader(); savePanels();
 }

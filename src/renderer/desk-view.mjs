@@ -68,13 +68,13 @@ export function moveTo(file, ownerId) {
 //   select-session { id }  — a session row or chip
 //   select-file { id }     — a file row
 //   open { id }            — a file just opened into the current session
-//   close { id }           — a panel just closed (panels already without it)
+//   close { id, before }   — a panel just closed; optional pre-close tab order
 // Returns the next state (panels carried through); never mutates the input.
 export function splitAfter(state, action) {
   const panels = state.panels || [];
   const last = Object.assign({}, state.last || {});
   const sessions = panels.filter(isSession);
-  const filesOf = (sid) => panels.filter((f) => (isFile(f) && f.owner === sid) || (sid && f.companionOf === sid));
+  const filesOf = (sid, list = panels) => list.filter((f) => (isFile(f) && (f.owner || null) === (sid || null)) || (sid && f.companionOf === sid));
   const firstFile = (sid) => { const r = last[sid] && filesOf(sid).find((f) => f.id === last[sid]); return (r || filesOf(sid)[0] || null); };
   let sessionId = state.sessionId, fileId = state.fileId;
   const t = action && action.type;
@@ -93,15 +93,23 @@ export function splitAfter(state, action) {
     const f = byId(panels, action.id);
     if (f) { const s = liveOwner(panels, f); sessionId = s ? s.id : (t === 'open' ? sessionId : null); fileId = f.id; }
   } else if (t === 'close') {
-    // fall through to the repair below: whatever closed, show what is left
+    if (action.id && action.id === fileId) {
+      const before = filesOf(sessionId, action.before || []);
+      const index = before.findIndex((f) => f.id === action.id);
+      const remaining = new Set(filesOf(sessionId).map((f) => f.id));
+      // Follow the visible tab order: right neighbor, then nearest on the left.
+      const neighbors = index < 0 ? [] : [...before.slice(index + 1), ...before.slice(0, index).reverse()];
+      const next = neighbors.find((f) => remaining.has(f.id)) || firstFile(sessionId);
+      fileId = next ? next.id : null;
+    }
   }
   // Repair: the session must exist, the file must be one of its files.
   if (sessionId && !byId(panels, sessionId)) sessionId = sessions[0] ? sessions[0].id : null;
-  if (!sessionId && sessions[0] && !fileId) sessionId = sessions[0].id;
+  if (!sessionId && sessions[0] && !fileId && t !== 'close') sessionId = sessions[0].id;
   const shown = byId(panels, fileId);
   const companion = shown && sessionId && shown.companionOf === sessionId;
   if (!companion && (!shown || !isFile(shown) || (sessionId ? shown.owner !== sessionId : liveOwner(panels, shown)))) {
-    const f = sessionId ? firstFile(sessionId) : null;
+    const f = firstFile(sessionId);
     fileId = f ? f.id : null;
   }
   if (sessionId) { if (fileId) last[sessionId] = fileId; else delete last[sessionId]; }

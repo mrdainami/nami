@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     const url='http://127.0.0.1:'+server.address().port;
     const work=(await call('browser:profiles',{action:'create',name:'Work'})).profile;
-    const create = async (id,args={})=>{await call('browser:create',{id,url,...args});return browser.views.get(id);};
+    const create = async (id,args={})=>{await call('browser:create',{id,url,profileId:'default',...args});return browser.views.get(id);};
     const peer=await create('work-peer',{profileId:work.id});
     await peer.view.webContents.session.cookies.set({url,name:'fixture_account',value:'work',httpOnly:true,expirationDate:Date.now()/1000+3600});
     await test('welcome tab switches to Work and uses its real website session',async()=>{
@@ -75,6 +75,34 @@ app.whenReady().then(async () => {
       const next=browser.views.get(old.id);assert.equal(next.record.local,true);assert.equal(next.profileId,work.id);
       assert.equal(next.view.webContents.session.storagePath,null);assert.deepEqual(await next.view.webContents.session.cookies.get({url}),[]);
       assert.match(await next.view.webContents.executeJavaScript('document.body.innerText'),/LOCAL_DOCUMENT/);
+    });
+    await test('unscoped openings use the remembered default in this window and a new window',async()=>{
+      await call('browser:profiles',{action:'set-default',profileId:work.id});
+      await call('browser:create',{id:'unscoped',url});
+      assert.equal(browser.views.get('unscoped').profileId,work.id);
+      assert.match(await browser.views.get('unscoped').view.webContents.executeJavaScript('document.body.innerText'),/WORK_SIGNED_IN/);
+      assert.equal((await call('browser:status')).defaultProfileId,work.id);
+      const other=new BrowserWindow({show:false});
+      try {
+        await other.loadURL('data:text/html,<title>Second window</title>');
+        const result=await handlers.get('browser:create')({sender:other.webContents,senderFrame:other.webContents.mainFrame},{id:'other-window',url});
+        assert.equal(result.ok,true,result.error);assert.equal(browser.views.get('other-window').profileId,work.id);
+        await create('explicit-personal');
+        assert.equal((await call('browser:profiles')).defaultProfileId,work.id,'explicit or restored tabs do not overwrite the preference');
+      } finally { await call('browser:close',{id:'other-window',confirmed:true}).catch(()=>{});other.destroy(); }
+    });
+    await test('failed default save leaves the original tab and remembered profile intact',async()=>{
+      await call('browser:profiles',{action:'set-default',profileId:'default'});
+      const old=await create('save-failure'),tmp=path.join(root,'browser-profiles','profiles.json.tmp');
+      fs.mkdirSync(tmp);
+      try {
+        const failed=await raw('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
+        assert.equal(failed.ok,false);
+        assert.equal(browser.views.get(old.id),old);assert.equal(old.view.webContents.isDestroyed(),false);
+        assert.equal((await call('browser:profiles')).defaultProfileId,'default');
+      } finally {fs.rmdirSync(tmp);}
+      await call('browser:profiles',{action:'switch',id:old.id,profileId:work.id});
+      assert.equal((await call('browser:profiles')).defaultProfileId,work.id);
     });
     await test('profile name comes from backend status and updates existing tab state after rename',async()=>{
       await call('browser:profiles',{action:'rename',profileId:work.id,name:'Renamed Work'});
