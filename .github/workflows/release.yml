@@ -75,6 +75,9 @@ jobs:
       # The gate. A red test never becomes a download.
       - run: npm test
 
+      - name: Reject known dependency vulnerabilities
+        run: npm run check:security
+
       # The key has to exist as a file on disk — see the note at the top. Runner
       # disks are destroyed with the job, so this never outlives the build.
       - name: Stage the notarization key
