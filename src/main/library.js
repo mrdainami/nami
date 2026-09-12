@@ -469,23 +469,25 @@ function extractEdges(items, { maxBytes = 65536 } = {}) {
 // target as "already gone" — refusing to remove the entry that is still there.
 function entryExists(p) { try { fs.lstatSync(p); return true; } catch (_) { return false; } }
 async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = entryExists }) {
+  const isPosix = String(filePath || '').startsWith('/') || String(projectPath || '').startsWith('/') || String(homeDir || '').startsWith('/');
+  const p = isPosix ? path.posix : path;
   const home = homeDir || os.homedir();
-  const abs = path.resolve(String(filePath || ''));
+  const abs = p.resolve(String(filePath || ''));
   // Built from the same source tables the scan uses, so anything Nami is willing
   // to list it is willing to clean up — which is what makes the broken-links
   // group actionable instead of just a shelf of other tools' rot.
   const roots = [];
   if (projectPath) {
-    for (const s of PROJECT_SKILL_SOURCES) roots.push(path.join(projectPath, s.rel));
-    roots.push(path.join(projectPath, '.claude'), path.join(projectPath, '.opencode'));
-    roots.push(path.join(projectPath, 'agents'), path.join(projectPath, '.gemini'), path.join(projectPath, '.kimi-code'), path.join(projectPath, '.codex'), path.join(projectPath, '.grok'));
+    for (const s of PROJECT_SKILL_SOURCES) roots.push(p.join(projectPath, s.rel));
+    roots.push(p.join(projectPath, '.claude'), p.join(projectPath, '.opencode'));
+    roots.push(p.join(projectPath, 'agents'), p.join(projectPath, '.gemini'), p.join(projectPath, '.kimi-code'), p.join(projectPath, '.codex'), p.join(projectPath, '.grok'));
   }
-  for (const s of USER_SKILL_SOURCES) roots.push(path.join(home, s.rel));
-  roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.config', 'opencode'));
-  const inRoot = roots.some((r) => abs.startsWith(r + path.sep));
-  const inPluginCache = abs.includes(path.sep + path.join('.claude', 'plugins') + path.sep);
+  for (const s of USER_SKILL_SOURCES) roots.push(p.join(home, s.rel));
+  roots.push(p.join(home, '.claude', 'agents'), p.join(home, '.config', 'opencode'));
+  const inRoot = roots.some((r) => abs.startsWith(r + p.sep) || abs.startsWith(r + '/'));
+  const inPluginCache = abs.includes(p.sep + p.join('.claude', 'plugins') + p.sep) || abs.includes('/.claude/plugins/');
   if (!inRoot || inPluginCache) return { ok: false, error: 'Not a deletable library item' };
-  const target = path.basename(abs) === 'SKILL.md' ? path.dirname(abs) : abs;
+  const target = p.basename(abs) === 'SKILL.md' ? p.dirname(abs) : abs;
   if (!existsFn(target)) return { ok: false, error: 'Already gone' };
   try { await trashFn(target); return { ok: true, target }; }
   catch (e) { return { ok: false, error: e.message }; }

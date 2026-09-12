@@ -8,13 +8,16 @@ const { browserFileUrl } = require('../src/main/browser-file.js');
 function fileStat() { return { isFile: () => true }; }
 
 test('browserFileUrl accepts existing absolute html paths', () => {
+  const p1 = '/Users/cal/My Site/index.html';
+  const p2 = '/tmp/report.HTM';
+  const { pathToFileURL } = require('url');
   assert.equal(
-    browserFileUrl('/Users/cal/My Site/index.html', { statSync: fileStat }),
-    'file:///Users/cal/My%20Site/index.html',
+    browserFileUrl(p1, { statSync: fileStat }),
+    pathToFileURL(p1).href,
   );
   assert.equal(
-    browserFileUrl('/tmp/report.HTM', { statSync: fileStat }),
-    'file:///tmp/report.HTM',
+    browserFileUrl(p2, { statSync: fileStat }),
+    pathToFileURL(p2).href,
   );
 });
 

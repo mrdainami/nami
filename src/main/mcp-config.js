@@ -48,20 +48,21 @@ function removeService({ files, id, io = fsIo }) {
 // The JSON notebooks only — Codex TOML and Hermes YAML presence is read by
 // connections.readNotebooks, which powers coverage rather than this list.
 function knownFiles(projectPath, home) {
+  const p = (projectPath && projectPath.includes('/')) || (home && home.includes('/')) ? path.posix : path;
   const out = [];
   if (projectPath) {
-    out.push([path.join(projectPath, '.mcp.json'), 'project', 'claude', 'mcpServers']);
-    out.push([path.join(projectPath, 'opencode.json'), 'project', 'opencode', 'mcp']);
-    out.push([path.join(projectPath, '.cursor', 'mcp.json'), 'project', 'cursor', 'mcpServers']);
-    out.push([path.join(projectPath, '.gemini', 'settings.json'), 'project', 'gemini', 'mcpServers']);
-    out.push([path.join(projectPath, '.kimi-code', 'mcp.json'), 'project', 'kimi', 'mcpServers']);
+    out.push([p.join(projectPath, '.mcp.json'), 'project', 'claude', 'mcpServers']);
+    out.push([p.join(projectPath, 'opencode.json'), 'project', 'opencode', 'mcp']);
+    out.push([p.join(projectPath, '.cursor', 'mcp.json'), 'project', 'cursor', 'mcpServers']);
+    out.push([p.join(projectPath, '.gemini', 'settings.json'), 'project', 'gemini', 'mcpServers']);
+    out.push([p.join(projectPath, '.kimi-code', 'mcp.json'), 'project', 'kimi', 'mcpServers']);
   }
   if (home) {
-    out.push([path.join(home, '.claude.json'), 'user', 'claude', 'mcpServers']);
-    out.push([path.join(home, '.config', 'opencode', 'opencode.json'), 'user', 'opencode', 'mcp']);
-    out.push([path.join(home, '.cursor', 'mcp.json'), 'user', 'cursor', 'mcpServers']);
-    out.push([path.join(home, '.gemini', 'settings.json'), 'user', 'gemini', 'mcpServers']);
-    out.push([path.join(home, '.kimi-code', 'mcp.json'), 'user', 'kimi', 'mcpServers']);
+    out.push([p.join(home, '.claude.json'), 'user', 'claude', 'mcpServers']);
+    out.push([p.join(home, '.config', 'opencode', 'opencode.json'), 'user', 'opencode', 'mcp']);
+    out.push([p.join(home, '.cursor', 'mcp.json'), 'user', 'cursor', 'mcpServers']);
+    out.push([p.join(home, '.gemini', 'settings.json'), 'user', 'gemini', 'mcpServers']);
+    out.push([p.join(home, '.kimi-code', 'mcp.json'), 'user', 'kimi', 'mcpServers']);
   }
   return out;
 }

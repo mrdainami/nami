@@ -64,7 +64,7 @@ const SEP = { type: 'separator' };
 // The last path segment, which is what the folder is called. Recents rows are
 // absolute paths and the menu has room for a name, not a path.
 function folderName(p) {
-  const parts = String(p || '').split('/').filter(Boolean);
+  const parts = String(p || '').split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || p;
 }
 
@@ -119,7 +119,7 @@ function buildMenuTemplate({
     cmd('New Folder', 'new-folder'),
     SEP,
     cmd('Save', 'save', { accelerator: 'CommandOrControl+S' }),
-    cmd('Reveal in Finder', 'reveal'),
+    cmd(mac ? 'Reveal in Finder' : 'Reveal in File Explorer', 'reveal'),
     SEP,
     cmd('Close Pane', 'close-pane', { accelerator: 'CommandOrControl+W' }),
     // Off macOS there is no app submenu, so File is the only place these can go.

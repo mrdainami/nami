@@ -44,9 +44,10 @@ function parseDocUrl(urlString) {
 // .. is collapsed and every symlink is followed; null otherwise. `realpath` is
 // injected so the symlink test can be exercised deterministically.
 function resolveWithinRoot(root, rel, io = fs) {
+  const p = root && root.startsWith('/') && !root.includes(':') ? path.posix : path;
   // A rel that is itself absolute (or uses .. to climb) must not win. Joining
   // then re-checking containment catches both.
-  const joined = path.resolve(root, rel);
+  const joined = p.resolve(root, rel);
   const rootReal = safeReal(root, io);
   if (!rootReal) return null;
 
@@ -68,8 +69,10 @@ function safeReal(p, io) {
 // so /foo/bar is inside /foo but /foo-secret is not (a plain startsWith would
 // wrongly accept the second).
 function isInside(root, child) {
-  const rel = path.relative(root, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  const p = (root && root.startsWith('/') && !root.includes(':')) ||
+            (child && child.startsWith('/') && !child.includes(':')) ? path.posix : path;
+  const rel = p.relative(root, child);
+  return rel === '' || (!rel.startsWith('..') && !p.isAbsolute(rel));
 }
 
 // A minimal content type from the extension — enough for a browser to render a

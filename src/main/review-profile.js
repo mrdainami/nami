@@ -14,15 +14,19 @@ function createReviewProfile({ argv, normalPath, packaged, reviewBuild = false, 
   // request protected-folder access. Reject that developer launch configuration
   // before Electron opens storage; never probe or migrate protected files here.
   if (review && explicit) {
-    const target = path.resolve(explicit);
+    const isPosix = String(explicit).startsWith('/') || String(homePath).startsWith('/');
+    const p = isPosix ? path.posix : path;
+    const target = p.resolve(explicit);
     if (['Desktop', 'Documents', 'Downloads'].some(name => {
-      const protectedPath = path.join(homePath, name);
-      return target === protectedPath || target.startsWith(protectedPath + path.sep);
+      const protectedPath = p.join(homePath, name);
+      return target === protectedPath || target.startsWith(protectedPath + p.sep) || target.startsWith(protectedPath + '/');
     })) throw new Error('Review data must be outside Desktop, Documents and Downloads. Use --review without --user-data for a persistent Application Support profile.');
   }
+  const isPosix = String(homePath).startsWith('/');
+  const p = isPosix ? path.posix : path;
   const owned = review && !persistent && !explicit;
-  const directory = explicit ? path.resolve(explicit)
-    : persistent ? path.join(homePath, 'Library', 'Application Support', 'Nami Review')
+  const directory = explicit ? p.resolve(explicit)
+    : persistent ? p.join(homePath, 'Library', 'Application Support', 'Nami Review')
       : owned ? fs.mkdtempSync(path.join(os.tmpdir(), 'nami-review-'))
       : normalPath + (packaged ? '' : '-dev');
   return {

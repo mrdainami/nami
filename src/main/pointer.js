@@ -228,7 +228,15 @@ function linkNative({ dir, slugs, agentIds } = {}) {
           continue;  // a real folder someone put here by hand is theirs, not ours
         }
         fs.mkdirSync(nativeDir, { recursive: true });
-        fs.symlinkSync(target, at);
+        try {
+          fs.symlinkSync(target, at, process.platform === 'win32' ? 'junction' : 'dir');
+        } catch (symErr) {
+          if (process.platform === 'win32' && symErr.code === 'EPERM') {
+            // Unprivileged Windows user without Developer Mode: skip symlink
+            continue;
+          }
+          throw symErr;
+        }
         linked.push(path.join(agent.projectSkillsDir, slug));
       }
       // Sweep our own leftovers: a link into skills/ whose skill has gone. Only

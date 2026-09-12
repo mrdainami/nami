@@ -17,11 +17,14 @@ const path = require('node:path');
 const { agentById, expandHome } = require('./agents-detect.js');
 
 function isSafeRemovePath(p, home) {
-  if (typeof p !== 'string' || !p || !path.isAbsolute(p)) return false;
-  const norm = path.normalize(p).replace(/\/+$/, '');
-  const base = path.normalize(home).replace(/\/+$/, '');
+  if (typeof p !== 'string' || !p) return false;
+  const isPosix = (p.startsWith('/') || home.startsWith('/')) && !p.includes(':') && !home.includes(':');
+  const pMod = isPosix ? path.posix : path;
+  if (!pMod.isAbsolute(p)) return false;
+  const norm = pMod.normalize(p).replace(/[\\/]+$/, '');
+  const base = pMod.normalize(home).replace(/[\\/]+$/, '');
   if (norm === base) return false;
-  return norm.startsWith(base + path.sep);
+  return norm.startsWith(base + pMod.sep) || norm.startsWith(base + '/');
 }
 
 function planRemoval({ id, binPath, home }) {

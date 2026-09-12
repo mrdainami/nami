@@ -38,12 +38,11 @@ files:
   - '!**/*.map'
 
   # --- weight, in descending order of how much it saves -------------------
-  # 170 MB: the ORT tarball carries every platform. win32 + linux is DirectML and
-  # CUDA that a Mac build can never load.
-  - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
+  # 170 MB: the ORT tarball carries every platform. linux is CUDA that Mac/Windows builds cannot load.
   - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
-  # 34 MB: and of the two Mac slices, keep only the one being built.
+  # keep only the arch being built
   - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/!(${arch})/**'
+  - '!node_modules/onnxruntime-node/bin/napi-v3/win32/!(${arch})/**'
 
   # 68 MB: transformers declares onnxruntime-web as a hard dependency, but the
   # build we actually load (dist/transformers.node.mjs) imports only node:*,
@@ -130,3 +129,18 @@ mac:
     NSMicrophoneUsageDescription: >-
       Nami uses your microphone so you can dictate into a session instead of
       typing.
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+

@@ -88,15 +88,18 @@ function renderCopy(platform, slug, a) {
 
 // ---- masters ----------------------------------------------------------------
 
-function mastersDir(projectPath) { return path.join(projectPath, 'agents'); }
+const pFor = (r) => (r && r.startsWith('/') && !r.includes(':') ? path.posix : path);
+
+function mastersDir(projectPath) { return pFor(projectPath).join(projectPath, 'agents'); }
 
 function readAgentMasters({ projectPath, io = fsIo }) {
   if (!projectPath) return [];
+  const p = pFor(projectPath);
   const dir = mastersDir(projectPath);
   return io.list(dir)
     .filter((f) => f.endsWith('.md'))
     .map((f) => {
-      const file = path.join(dir, f);
+      const file = p.join(dir, f);
       try { return { slug: path.basename(f, '.md'), file, agent: parseAgentMd(io.read(file)) }; }
       catch (_) { return null; }
     })
@@ -106,14 +109,16 @@ function readAgentMasters({ projectPath, io = fsIo }) {
 // ---- where each tool's copy lands ------------------------------------------
 
 function copyTargets(projectPath, slug, homeDir) {
-  const p = (rel) => path.join(projectPath, rel);
+  const pMod = pFor(projectPath);
+  const p = (rel) => pMod.join(projectPath, rel);
   const home = homeDir || os.homedir();
+  const hMod = pFor(home);
   return {
     claude: { kind: 'copy', file: p(`.claude/agents/${slug}.md`) },
     opencode: { kind: 'copy', file: p(`.opencode/agents/${slug}.md`) },
     gemini: { kind: 'copy', file: p(`.gemini/agents/${slug}.md`) },
     // agy discovers user scope only; a project copy is a copy it never reads
-    antigravity: { kind: 'copy', file: path.join(home, `.gemini/agents/${slug}.md`) },
+    antigravity: { kind: 'copy', file: hMod.join(home, `.gemini/agents/${slug}.md`) },
     kimi: { kind: 'copy', file: p(`.kimi-code/agents/${slug}.md`) },
     // grok reads .grok/agents/ (project) and ~/.grok/agents/ (user) as .md
     // with YAML frontmatter — the same four fields the claude dialect writes.
@@ -208,7 +213,7 @@ function importToMaster({ filePath, projectPath, io = fsIo }) {
   let text;
   try { text = io.read(filePath); } catch (_) { return { ok: false, error: 'That file is missing.' }; }
   const slug = path.basename(filePath, path.extname(filePath));
-  const masterPath = path.join(mastersDir(projectPath), slug + '.md');
+  const masterPath = pFor(projectPath).join(mastersDir(projectPath), slug + '.md');
   if (io.exists(masterPath)) return { ok: false, error: `agents/${slug}.md already exists — rename one of them first.` };
   const a = filePath.endsWith('.toml') ? parseAgentToml(text) : parseAgentMd(text);
   const master = fmBlock([
@@ -230,7 +235,7 @@ function liftToMaster({ filePath, platform, projectPath, io = fsIo }) {
   // nested inside developer_instructions. Refuse rather than mangle.
   if (!filePath.endsWith('.md')) return { ok: false, error: 'Only markdown agents can be lifted into agents/ — this one is ' + path.extname(filePath) + '.' };
   const slug = path.basename(filePath, path.extname(filePath));
-  const masterPath = path.join(mastersDir(projectPath), slug + '.md');
+  const masterPath = pFor(projectPath).join(mastersDir(projectPath), slug + '.md');
   if (io.exists(masterPath)) return { ok: false, error: `agents/${slug}.md already exists — rename one of them first.` };
   const a = parseAgentMd(text);
   const master = fmBlock([

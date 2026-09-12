@@ -34,11 +34,16 @@ before(() => {
   write(path.join(home, '.hermes/skills/github/DESCRIPTION.md'), 'the github group\n');
   // a live symlink into the shared store, and one whose target is gone
   fs.mkdirSync(path.join(home, '.gemini/skills'), { recursive: true });
-  fs.symlinkSync(path.join(home, '.agents/skills/hyperframes'), path.join(home, '.gemini/skills/hyperframes'));
-  fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.gemini/skills/media-use'));
-  // the same missing folder, linked a second time by another tool
   fs.mkdirSync(path.join(home, '.cursor/skills'), { recursive: true });
-  fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.cursor/skills/media-use'));
+  try {
+    const type = process.platform === 'win32' ? 'junction' : 'dir';
+    fs.symlinkSync(path.join(home, '.agents/skills/hyperframes'), path.join(home, '.gemini/skills/hyperframes'), type);
+    fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.gemini/skills/media-use'), type);
+    // the same missing folder, linked a second time by another tool
+    fs.symlinkSync(path.join(home, '.claude/skills/deleted-store-item'), path.join(home, '.cursor/skills/media-use'), type);
+  } catch (err) {
+    if (process.platform !== 'win32' || err.code !== 'EPERM') throw err;
+  }
 });
 
 function find(items, pred) { return items.filter(pred); }
@@ -123,7 +128,7 @@ test('scan without a project still returns user + plugin items', () => {
 test('createItem scaffolds a claude project agent and refuses overwrite', () => {
   const res = createItem({ projectPath: project, homeDir: home, type: 'agent', platform: 'claude', scope: 'project', name: 'My New Agent' });
   assert.ok(res.ok);
-  assert.ok(res.filePath.endsWith('.claude/agents/my-new-agent.md'));
+  assert.ok(res.filePath.endsWith(path.join('.claude', 'agents', 'my-new-agent.md')));
   const text = fs.readFileSync(res.filePath, 'utf8');
   assert.match(text, /name: my-new-agent/);
   assert.match(text, /description: /);
@@ -134,7 +139,7 @@ test('createItem scaffolds a claude project agent and refuses overwrite', () => 
 test('createItem scaffolds a skill in the project\'s own folder, and an opencode agent', () => {
   const sk = createItem({ projectPath: project, homeDir: home, type: 'skill', platform: 'claude', scope: 'project', name: 'Cool Skill' });
   assert.ok(sk.ok);
-  assert.ok(sk.filePath.endsWith('skills/cool-skill/SKILL.md'), sk.filePath);
+  assert.ok(sk.filePath.endsWith(path.join('skills', 'cool-skill', 'SKILL.md')), sk.filePath);
   assert.ok(!sk.filePath.includes('.claude'), 'no agent\'s name on the folder');
   assert.equal(sk.item.availability, 'project');
   // a skill asked for at user scope still lands in the project — nothing reads a
@@ -148,7 +153,7 @@ test('createItem scaffolds a skill in the project\'s own folder, and an opencode
   assert.match(none.error, /Open a folder first/);
   const oc = createItem({ projectPath: project, homeDir: home, type: 'agent', platform: 'opencode', scope: 'user', name: 'OC Agent' });
   assert.ok(oc.ok);
-  assert.ok(oc.filePath.endsWith('.config/opencode/agent/oc-agent.md'));
+  assert.ok(oc.filePath.endsWith(path.join('.config', 'opencode', 'agent', 'oc-agent.md')));
   assert.match(fs.readFileSync(oc.filePath, 'utf8'), /mode: subagent/);
 });
 
@@ -157,13 +162,13 @@ test('"Use here" copies a skill into the project\'s own folder, -copy on collisi
   const tdd = items.find((i) => i.slug === 'tdd' && i.scope === 'plugin');
   const one = duplicateItem({ filePath: tdd.filePath, type: 'skill', projectPath: project });
   assert.ok(one.ok);
-  assert.ok(one.filePath.endsWith('skills/tdd/SKILL.md'), one.filePath);
+  assert.ok(one.filePath.endsWith(path.join('skills', 'tdd', 'SKILL.md')), one.filePath);
   assert.ok(!one.filePath.includes('.claude'), 'it lands in the neutral folder, not Claude\'s');
   assert.match(fs.readFileSync(one.filePath, 'utf8'), /Test first/);
   assert.equal(one.item.availability, 'project');
   const two = duplicateItem({ filePath: tdd.filePath, type: 'skill', projectPath: project });
   assert.ok(two.ok);
-  assert.ok(two.filePath.endsWith('skills/tdd-copy/SKILL.md'), two.filePath);
+  assert.ok(two.filePath.endsWith(path.join('skills', 'tdd-copy', 'SKILL.md')), two.filePath);
 });
 
 // Most of these skills are links into a shared store. Copying the link would
@@ -209,7 +214,7 @@ test('duplicateItem copies a plugin agent file into the project', () => {
   const critic = items.find((i) => i.slug === 'critic' && i.scope === 'plugin');
   const res = duplicateItem({ filePath: critic.filePath, type: 'agent', projectPath: project });
   assert.ok(res.ok);
-  assert.ok(res.filePath.endsWith('.claude/agents/critic.md'));
+  assert.ok(res.filePath.endsWith(path.join('.claude', 'agents', 'critic.md')));
 });
 
 test('extractEdges: hyphenated slug and [[wiki-link]] references, no substring noise', () => {

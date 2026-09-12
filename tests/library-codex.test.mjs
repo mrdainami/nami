@@ -48,7 +48,7 @@ test('a hand-made Codex agent is listed, as Codex, with its filename as the slug
   assert.equal(rows.length, 1);
   assert.equal(rows[0].platform, 'codex');
   assert.equal(rows[0].scope, 'project');
-  assert.match(rows[0].filePath, /\.codex\/agents\/toml-critic\.toml$/);
+  assert.match(rows[0].filePath, /[\\/]\.codex[\\/]agents[\\/]toml-critic\.toml$/);
 });
 
 test('its name and description come out of the TOML, not the filename', () => {

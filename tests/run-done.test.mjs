@@ -62,7 +62,8 @@ test('the carry buffer does not grow with the output', () => {
 // ---- the other half: what the shell is actually asked to print -------------
 // Asserting the parser against a string this file wrote proves nothing about
 // whether a real shell emits it. So run it.
-test('a real zsh emits the sequence, with the real exit code', () => {
+test('a real zsh emits the sequence, with the real exit code', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   for (const [cmd, want] of [['true', 0], ['false', 1], ['(exit 7)', 7], ['ls /nope/nope', 1]]) {
     const out = execFileSync('/bin/zsh', ['-c', doneSuffix(cmd)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     assert.equal(feedRunDone({}, out), want, `for \`${cmd}\``);
@@ -73,7 +74,8 @@ test('a real zsh emits the sequence, with the real exit code', () => {
 // execs — never reaches the printf. Nothing is lost: killing the shell fires
 // the pty's own exit, which the tile already listens to. Worth pinning so the
 // gap stays a known one.
-test('a command that ends the shell reports nothing here, and that is fine', () => {
+test('a command that ends the shell reports nothing here, and that is fine', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   let out = '';
   try {
     execFileSync('/bin/zsh', ['-c', doneSuffix('exit 7')], { encoding: 'utf8' });
@@ -81,13 +83,15 @@ test('a command that ends the shell reports nothing here, and that is fine', () 
   assert.equal(feedRunDone({}, out), null);
 });
 
-test('a real zsh reports the failing stage of a pipeline', () => {
+test('a real zsh reports the failing stage of a pipeline', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   // the shape an install actually has: fetch | interpreter
   const out = execFileSync('/bin/zsh', ['-c', doneSuffix('echo hi | grep -q nothing')], { encoding: 'utf8' });
   assert.equal(feedRunDone({}, out), 1);
 });
 
-test('nothing of the sequence is left visible in the output', () => {
+test('nothing of the sequence is left visible in the output', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   const out = execFileSync('/bin/zsh', ['-c', doneSuffix('echo installed')], { encoding: 'utf8' });
   assert.match(out, /installed/);
   // no literal escape text leaked into what the user reads
@@ -99,7 +103,8 @@ test('nothing of the sequence is left visible in the output', () => {
 // of its LAST stage — so a curl that never reached the host still leaves bash
 // reading an empty script and exiting 0. The exit code cannot confirm an
 // install; only the scan can, and finishAgentInstall treats it that way.
-test('curl | bash reports zero even when curl failed', () => {
+test('curl | bash reports zero even when curl failed', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   const out = execFileSync('/bin/zsh', ['-c', doneSuffix('curl -fsS https://nope.invalid/x.sh | bash')],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   assert.equal(feedRunDone({}, out), 0, 'if this ever reports non-zero, the exit code became trustworthy');
@@ -120,7 +125,8 @@ test('a one-shot is spawned with its command, so nothing is typed', () => {
   assert.match(args[2], /exec \/bin\/zsh -i$/);
 });
 
-test('spawned for real: the code is reported and the output survives', () => {
+test('spawned for real: the code is reported and the output survives', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   const args = oneShotArgs('/bin/zsh', 'echo BEFORE; echo AFTER');
   const out = execFileSync('/bin/zsh', args.slice(0, 2).concat(args[2].replace(/; exec .*$/, '')), { encoding: 'utf8' });
   assert.equal(feedRunDone({}, out), 0);
@@ -130,7 +136,8 @@ test('spawned for real: the code is reported and the output survives', () => {
   assert.doesNotMatch(out, /printf/);
 });
 
-test('a failing spawned command still reports', () => {
+test('a failing spawned command still reports', (t) => {
+  if (process.platform === 'win32') { t.skip('/bin/zsh test is Unix-only'); return; }
   const args = oneShotArgs('/bin/zsh', 'ls /nope/nope');
   const body = args[2].replace(/; exec .*$/, '');
   const out = execFileSync('/bin/zsh', ['-i', '-c', body], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });

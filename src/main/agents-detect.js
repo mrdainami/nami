@@ -152,7 +152,7 @@ function contextFilesFor(agentIds) {
 // also means anything the rc file prints lands on stdout before our answer.
 // `command -v` runs last, so the last path-shaped line is the one we asked for.
 function pathFromShellOutput(stdout, platform = process.platform) {
-  const looksAbsolute = platform === 'win32' ? /^[a-zA-Z]:\\/ : /^\//;
+  const looksAbsolute = platform === 'win32' ? /^([a-zA-Z]:[\\/]|\/)/ : /^\//;
   const lines = String(stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) if (looksAbsolute.test(lines[i])) return lines[i];
   return '';
@@ -167,8 +167,9 @@ async function findOnDisk(bin, { home = os.homedir(), env = process.env, platfor
   const canRun = access || ((p) => fsp.access(p, fs.constants.X_OK));
   const exts = platform === 'win32' ? ['.exe', '.cmd', '.bat'] : [''];
   for (const dir of binSearchDirs({ home, env, platform })) {
+    const pMod = dir.startsWith('/') && !dir.includes(':') ? path.posix : path;
     for (const ext of exts) {
-      const p = path.join(dir, bin + ext);
+      const p = pMod.join(dir, bin + ext);
       try { await canRun(p); return p; } catch (_) { /* keep looking */ }
     }
   }
@@ -214,12 +215,24 @@ async function detectAgents({ exec = shellWhich, home = os.homedir() } = {}) {
 function agentById(id) { return KNOWN_AGENTS.find((a) => a.id === id) || null; }
 
 function expandHome(p, home) {
-  return String(p || '').replace(/^~(?=\/|$)/, home);
+  const normHome = home ? home.replace(/[\\/]+$/, '') : '';
+  const str = String(p || '');
+  if (str === '~') return normHome;
+  const pMod = normHome.startsWith('/') && !normHome.includes(':') ? path.posix : path;
+  if (str.startsWith('~/') || str.startsWith('~\\')) {
+    return pMod.join(normHome, str.slice(2));
+  }
+  return str;
 }
 // The display twin: ~/.local/bin/hermes reads better than /Users/you/.local/...
 function shortHome(p, home) {
   const s = String(p || '');
-  return home && s.startsWith(home + '/') ? '~' + s.slice(home.length) : s;
+  if (!home) return s;
+  const normHome = home.replace(/[\\/]+$/, '');
+  if (s.startsWith(normHome + '/') || s.startsWith(normHome + '\\')) {
+    return '~' + s.slice(normHome.length).replace(/\\/g, '/');
+  }
+  return s;
 }
 
 const shellRun = runLoginShell;

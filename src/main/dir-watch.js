@@ -68,11 +68,13 @@ function createDirWatch({
   // A recursive event names a path relative to the root. The tree wants the
   // folder that path lives in — that is the row whose listing changed, and
   // whose parent's "N items" is now wrong.
+  const pFor = (r) => (r && r.startsWith('/') && !r.includes(':') ? path.posix : path);
+
   function dirOf(rel) {
     if (rel == null) return root;
     const s = String(rel).replace(/\\/g, '/');
     const cut = s.lastIndexOf('/');
-    return cut <= 0 ? root : path.join(root, s.slice(0, cut));
+    return cut <= 0 ? root : pFor(root).join(root, s.slice(0, cut));
   }
 
   // The thing that moved, absolute — which is the shape an open panel stores
@@ -81,7 +83,7 @@ function createDirWatch({
     if (rel == null) return null;
     const s = String(rel).replace(/\\/g, '/').replace(/\/+$/, '');
     if (!s) return null;
-    return path.join(root, s);
+    return pFor(root).join(root, s);
   }
 
   function flush(dir) {

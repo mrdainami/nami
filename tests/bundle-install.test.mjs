@@ -24,7 +24,8 @@ test('bundle extraction rejects escaping paths, symlinks and oversized data with
     // without ever extracting them with a system utility.
     const zip = async (kind, name = 'fixture') => {
       const file = path.join(root, kind + '.zip');
-      execFileSync('/usr/bin/python3', ['-c', `
+      const pyBin = process.platform === 'win32' ? 'python' : '/usr/bin/python3';
+      execFileSync(pyBin, ['-c', `
 import zipfile,json,sys
 file,kind,name=sys.argv[1:]
 with zipfile.ZipFile(file,'w') as z:
