@@ -15,10 +15,16 @@ const fsOps = {
   cp: (a, b) => fs.promises.cp(a, b, { recursive: true, errorOnExist: true, force: false }),
 };
 
+function pFor(root, ...others) {
+  const all = [root, ...others].filter(Boolean);
+  return all.some((s) => String(s).startsWith('/')) ? path.posix : path;
+}
+
 function inside(root, p) {
   if (!root) return null;
-  const r = path.resolve(root), abs = path.resolve(String(p || ''));
-  return abs === r || abs.startsWith(r + path.sep) ? abs : null;
+  const pathLib = pFor(root, p);
+  const r = pathLib.resolve(root), abs = pathLib.resolve(String(p || ''));
+  return abs === r || abs.startsWith(r + pathLib.sep) ? abs : null;
 }
 function badName(name) { return !name || String(name).includes('/') || String(name).includes('\\'); }
 
@@ -26,42 +32,46 @@ function badName(name) { return !name || String(name).includes('/') || String(na
 // a plain startsWith would call /proj/srcXtra a child of /proj/src and refuse a
 // legitimate move between siblings.
 function isDescendant(parent, child) {
-  const a = path.resolve(String(parent || '')), b = path.resolve(String(child || ''));
-  return b === a || b.startsWith(a + path.sep);
+  const pathLib = pFor(parent, child);
+  const a = pathLib.resolve(String(parent || '')), b = pathLib.resolve(String(child || ''));
+  return b === a || b.startsWith(a + pathLib.sep);
 }
 
 // The first free name beside an existing one: shot.png → shot-copy.png →
 // shot-copy-1.png. Dotfiles keep their leading dot out of the split, so .env
 // becomes .env-copy rather than -copy.env.
-function freeName(dir, base, exists) {
-  if (!exists(path.join(dir, base))) return base;
+function freeName(dir, base, exists, pathLib = path) {
+  if (!exists(pathLib.join(dir, base))) return base;
   const dot = base.lastIndexOf('.');
   const stem = dot > 0 ? base.slice(0, dot) : base;
   const ext = dot > 0 ? base.slice(dot) : '';
   let name = stem + '-copy' + ext;
   let n = 0;
-  while (exists(path.join(dir, name))) { n += 1; name = stem + '-copy-' + n + ext; }
+  while (exists(pathLib.join(dir, name))) { n += 1; name = stem + '-copy-' + n + ext; }
   return name;
 }
 
 function newFile({ root, dir, name, ops = fsOps }) {
   const d = inside(root, dir);
   if (!d || badName(name)) return { ok: false, error: 'Bad target' };
-  const p = path.join(d, name);
-  if (ops.exists(p)) return { ok: false, error: 'Already exists: ' + name };
-  try { ops.writeFile(p); return { ok: true, path: p }; } catch (e) { return { ok: false, error: e.message }; }
+  const p = pFor(root, dir);
+  const target = p.join(d, name);
+  if (ops.exists(target)) return { ok: false, error: 'Already exists: ' + name };
+  try { ops.writeFile(target); return { ok: true, path: target }; } catch (e) { return { ok: false, error: e.message }; }
 }
 function newFolder({ root, dir, name, ops = fsOps }) {
   const d = inside(root, dir);
   if (!d || badName(name)) return { ok: false, error: 'Bad target' };
-  const p = path.join(d, name);
-  if (ops.exists(p)) return { ok: false, error: 'Already exists: ' + name };
-  try { ops.mkdir(p); return { ok: true, path: p }; } catch (e) { return { ok: false, error: e.message }; }
+  const p = pFor(root, dir);
+  const target = p.join(d, name);
+  if (ops.exists(target)) return { ok: false, error: 'Already exists: ' + name };
+  try { ops.mkdir(target); return { ok: true, path: target }; } catch (e) { return { ok: false, error: e.message }; }
 }
 function movePath({ root, src, destDir, ops = fsOps }) {
   const s = inside(root, src), d = inside(root, destDir);
   if (!s || !d) return { ok: false, error: 'Move stays inside the open folder' };
-  const dest = path.join(d, path.basename(s));
+  const p = pFor(root, src, destDir);
+  const dest = p.join(d, p.basename(s));
   if (dest === s) return { ok: true, path: s };
   // Dropped on itself: nowhere to go, and Finder says nothing here rather than
   // scolding you for a gesture that clearly meant nothing.
@@ -80,8 +90,9 @@ function movePath({ root, src, destDir, ops = fsOps }) {
 function renamePath({ root, src, name, ops = fsOps }) {
   const s = inside(root, src);
   if (!s || badName(name)) return { ok: false, error: 'Bad name' };
-  if (s === path.resolve(root)) return { ok: false, error: 'That is the open folder — rename it in Finder' };
-  const dest = path.join(path.dirname(s), String(name));
+  const p = pFor(root, src);
+  if (s === p.resolve(root)) return { ok: false, error: 'That is the open folder — rename it in Finder' };
+  const dest = p.join(p.dirname(s), String(name));
   if (dest === s) return { ok: true, path: s };
   if (ops.exists(dest)) return { ok: false, error: 'Already exists: ' + name };
   try { ops.rename(s, dest); return { ok: true, path: dest }; } catch (e) { return { ok: false, error: e.message }; }
@@ -96,13 +107,14 @@ async function importPaths({ root, destDir, srcPaths, ops = fsOps }) {
   if (!d) return { ok: false, error: 'Drop lands inside the open folder' };
   const list = (srcPaths || []).filter((p) => typeof p === 'string' && p);
   if (!list.length) return { ok: false, error: 'Nothing to import' };
+  const p = pFor(root, destDir);
   const taken = new Set();
-  const exists = (p) => taken.has(p) || ops.exists(p);
+  const exists = (target) => taken.has(target) || ops.exists(target);
   const out = [];
   try {
     for (const src of list) {
-      const name = freeName(d, path.basename(src), exists);
-      const dest = path.join(d, name);
+      const name = freeName(d, p.basename(src), exists, p);
+      const dest = p.join(d, name);
       taken.add(dest);
       await ops.cp(src, dest);
       out.push(dest);
@@ -116,15 +128,17 @@ async function importPaths({ root, destDir, srcPaths, ops = fsOps }) {
 async function duplicatePath({ root, src, ops = fsOps }) {
   const s = inside(root, src);
   if (!s) return { ok: false, error: 'Not inside the open folder' };
-  if (s === path.resolve(root)) return { ok: false, error: 'Cannot duplicate the open folder' };
-  const dir = path.dirname(s);
-  const dest = path.join(dir, freeName(dir, path.basename(s), ops.exists));
+  const p = pFor(root, src);
+  if (s === p.resolve(root)) return { ok: false, error: 'Cannot duplicate the open folder' };
+  const dir = p.dirname(s);
+  const dest = p.join(dir, freeName(dir, p.basename(s), ops.exists, p));
   try { await ops.cp(s, dest); return { ok: true, path: dest }; }
   catch (e) { return { ok: false, error: e.message }; }
 }
 async function trashPath({ root, path: target, trashFn, ops = fsOps }) {
   const abs = inside(root, target);
-  if (!abs || abs === path.resolve(root)) return { ok: false, error: 'Not inside the open folder' };
+  const p = pFor(root, target);
+  if (!abs || abs === p.resolve(root)) return { ok: false, error: 'Not inside the open folder' };
   if (!ops.exists(abs)) return { ok: false, error: 'Already gone' };
   try { await trashFn(abs); return { ok: true, path: abs }; } catch (e) { return { ok: false, error: e.message }; }
 }

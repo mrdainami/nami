@@ -22,11 +22,11 @@ function browserFileUrl(file, deps = {}) {
 // navigation continue to use browserUrl, which cannot authorize local files.
 function resolveBrowserInput(value, { homePath = os.homedir() } = {}) {
   let text = String(value || '').trim();
-  if (/^["'](?:\/|~\/|file:)/i.test(text)) {
+  if (/^["'](?:\/|~\/|file:|[a-zA-Z]:[\\/])/i.test(text)) {
     if (text.at(-1) !== text[0]) throw new Error('Close the quote around the file path.');
     text = text.slice(1, -1);
   }
-  const local = /^(?:\/|~\/|file:)/i.test(text);
+  const local = /^(?:\/|~\/|file:|[a-zA-Z]:[\\/])/i.test(text);
   if (!local) return { url: userBrowserUrl(text) };
   if (text.includes('\0')) throw new Error('Invalid file path.');
   let file = text, suffix = '';

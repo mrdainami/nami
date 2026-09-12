@@ -28,8 +28,12 @@ test('human local path input opens the same real HTML file in its supported form
 
 test('file links are canonicalized and escaped without granting arbitrary browser URL schemes', t => {
   const { root, file } = fixture(t), link = path.join(root, 'linked.html');
-  fs.symlinkSync(file, link);
-  assert.equal(resolveBrowserInput(link).filePath, file);
+  try {
+    fs.symlinkSync(file, link, 'file');
+    assert.equal(resolveBrowserInput(link).filePath, file);
+  } catch (err) {
+    if (err.code !== 'EPERM') throw err;
+  }
   assert.throws(() => browserUrl(pathToFileURL(file).href));
   for (const value of ['javascript:alert(1)', 'data:text/html,x', 'nami-doc://doc/x/y', 'file://remote-host/share/index.html', 'https://user:pass@example.com']) assert.throws(() => resolveBrowserInput(value), value);
 });

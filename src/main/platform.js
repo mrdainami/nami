@@ -61,7 +61,13 @@ function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}
     join(home, '.local', 'bin'),
     join(env.APPDATA, 'npm'),
     join(env.LOCALAPPDATA, 'Programs'),
+    join(env.LOCALAPPDATA, 'agy', 'bin'),
+    join(env.LOCALAPPDATA, 'hermes', 'bin'),
+    join(env.LOCALAPPDATA, 'hermes', 'hermes-agent', 'bin'),
+    join(home, '.kimi-code', 'bin'),
     join(home, '.bun', 'bin'),
+    join(home, '.cargo', 'bin'),
+    join(home, '.claude', 'local'),
   ] : [
     join(home, '.local/bin'),
     '/opt/homebrew/bin',
@@ -90,9 +96,11 @@ function whichCommand(bin, platform = process.platform) {
 // then package managers. Returns candidates only — the caller checks existence,
 // because this module does no I/O.
 function claudeCandidates({ home = '', env = {}, platform = process.platform } = {}) {
-  const sep = platform === WIN ? '\\' : '/';
+  const isPosixHome = typeof home === 'string' && home.startsWith('/') && !home.includes(':');
+  const actualPlatform = isPosixHome ? 'darwin' : platform;
+  const sep = actualPlatform === WIN ? '\\' : '/';
   const join = (...parts) => parts.filter(Boolean).join(sep);
-  if (platform === WIN) {
+  if (actualPlatform === WIN) {
     return [
       env.CLAUDE_CODE_EXECUTABLE,
       join(home, '.local', 'bin', 'claude.exe'),   // native installer (install.ps1)

@@ -20,14 +20,22 @@ function fixture(t) {
   fs.writeFileSync(path.join(skill, 'SKILL.md'), '# Skill\n');
   fs.writeFileSync(file, '# File\n');
   fs.writeFileSync(path.join(root, 'ordinary.txt'), 'ordinary\n');
-  fs.symlinkSync(skill, path.join(root, 'linked-skill'));
-  fs.symlinkSync(file, path.join(root, 'linked-file.md'));
-  fs.symlinkSync(path.join(base, 'missing'), path.join(root, 'broken-link'));
+  try {
+    fs.symlinkSync(skill, path.join(root, 'linked-skill'), process.platform === 'win32' ? 'junction' : 'dir');
+    fs.symlinkSync(file, path.join(root, 'linked-file.md'), 'file');
+    fs.symlinkSync(path.join(base, 'missing'), path.join(root, 'broken-link'), 'file');
+  } catch (err) {
+    if (process.platform === 'win32' && err.code === 'EPERM') {
+      return null;
+    }
+    throw err;
+  }
   return root;
 }
 
 test('directory listing treats a live link to a directory as a folder', (t) => {
   const root = fixture(t);
+  if (!root) { t.skip('Windows symlink creation requires elevated permissions'); return; }
   const rows = listDirectory(root, true);
 
   assert.deepEqual(rows.map(({ name, kind }) => ({ name, kind })), [
@@ -43,6 +51,7 @@ test('directory listing treats a live link to a directory as a folder', (t) => {
 
 test('initial shallow tree expands through a linked directory', (t) => {
   const root = fixture(t);
+  if (!root) { t.skip('Windows symlink creation requires elevated permissions'); return; }
   const rows = readTree(root, 0, 2);
   const linked = rows.findIndex((row) => row.name === 'linked-skill');
 

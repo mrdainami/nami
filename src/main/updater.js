@@ -146,10 +146,11 @@ async function downloadUpdate({ isPackaged, emit }) {
 // comes from update-check.js, as it always has.
 function hasStagedFile(cacheRoot, io = fs) {
   try {
-    const dir = path.join(cacheRoot, 'pending');
-    const info = JSON.parse(io.readFileSync(path.join(dir, 'update-info.json'), 'utf8'));
+    const p = String(cacheRoot || '').includes('/') ? path.posix : path;
+    const dir = p.join(cacheRoot, 'pending');
+    const info = JSON.parse(io.readFileSync(p.join(dir, 'update-info.json'), 'utf8'));
     const name = info && typeof info.fileName === 'string' ? info.fileName : '';
-    return Boolean(name) && io.existsSync(path.join(dir, name));
+    return Boolean(name) && io.existsSync(p.join(dir, name));
   } catch (_) {
     return false;
   }

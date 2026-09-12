@@ -37,13 +37,15 @@ const fsIo = {
   remove: (p) => fs.rmSync(p, { recursive: true, force: true }),
 };
 
-const repoDir = (dir, repo) => path.join(dir, repo);
-const readyMarker = (dir, repo) => path.join(repoDir(dir, repo), '.ready');
+const pPath = (dir) => (String(dir || '').includes('/') ? path.posix : path);
+const repoDir = (dir, repo) => pPath(dir).join(dir, repo);
+const readyMarker = (dir, repo) => pPath(dir).join(repoDir(dir, repo), '.ready');
 
 // Usable means: the marker is there AND every file it promised still is.
 function isReady({ dir, repo, io = fsIo }) {
   if (!dir || !io.exists(readyMarker(dir, repo))) return false;
-  return MODEL_FILES.every((f) => io.exists(path.join(repoDir(dir, repo), f)));
+  const p = pPath(dir);
+  return MODEL_FILES.every((f) => io.exists(p.join(repoDir(dir, repo), f)));
 }
 
 async function ensureModel({ dir, repo, fetchImpl = fetch, io = fsIo, onProgress = () => {} }) {
@@ -51,10 +53,11 @@ async function ensureModel({ dir, repo, fetchImpl = fetch, io = fsIo, onProgress
   // a marker without its files (or the reverse) means a previous run died partway
   io.remove(readyMarker(dir, repo));
 
-  const missing = MODEL_FILES.filter((f) => !io.exists(path.join(repoDir(dir, repo), f)));
+  const p = pPath(dir);
+  const missing = MODEL_FILES.filter((f) => !io.exists(p.join(repoDir(dir, repo), f)));
   let done = 0;
   for (const rel of missing) {
-    const dest = path.join(repoDir(dir, repo), rel);
+    const dest = p.join(repoDir(dir, repo), rel);
     const part = dest + '.part';
     io.mkdir(path.dirname(dest));
     const url = `https://huggingface.co/${repo}/resolve/main/${rel}`;
