@@ -48,6 +48,7 @@ so the shipped app can transcribe offline. Packaging config lives in
 - `src/main/main.js` — Electron main: window, PTYs, folder + `.claude` scan, state, IPC
 - `src/main/claude-driver.js` — one Claude Code session → paper-card events
 - `src/main/settings.js` — settings.json, read-merge-rename so writers can't clobber
+- `src/main/credential-store.js` — saved API keys, safeStorage-encrypted in credentials.json, and their migration
 - `src/main/stt.js` — transcription providers as one registry (local, openai, elevenlabs, custom)
 - `src/main/stt-local.js` / `stt-model.js` — Whisper on onnxruntime-node, and its weights
 - `src/main/preload.js` — contextBridge IPC surface
@@ -96,8 +97,9 @@ No API key is set. If your `claude` lives elsewhere, set
 
 ⌘, or the ⚙ in the topbar. **Voice** picks how Nami hears you, **Look** switches
 desks, **Models** configures the OpenAI-compatible endpoint behind "any AI model"
-sessions. Everything lands in `settings.json` under the app's userData, on that
-Mac only — nothing syncs. API keys typed there beat `OPENAI_API_KEY` /
+sessions. Preferences land in `settings.json`; API keys are encrypted in `credentials.json`
+under the app's userData, on that Mac only — nothing syncs. See
+[saved-key protection and recovery](docs/credential-storage.md). API keys typed there beat `OPENAI_API_KEY` /
 `ELEVENLABS_API_KEY` from the shell; a key that came from the environment is
 shown as read-only.
 

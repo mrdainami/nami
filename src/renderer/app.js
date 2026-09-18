@@ -187,7 +187,9 @@ function setView(name, persistIt = true) {
   const was = S.view;
   S.view = view;
   if (persistIt && !S.demo && !S.review) { try { localStorage.setItem(VIEW_KEY, view); } catch (_) {} }
-  if (persistIt && !S.demo && !S.review && api.viewSet) api.viewSet(view);
+  if (persistIt && !S.demo && !S.review && api.viewSet) {
+    Promise.resolve(api.viewSet(view)).then((r) => { if (r && r.ok === false && r.error) toast(`View changed, but could not be saved: ${r.error}`); }).catch(() => {});
+  }
   if (view === 'split' && was !== 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'enter', activeId: S.activeId });
   if (view !== 'split') S.expandedId = null;
   applyViewAttrs();
@@ -205,9 +207,9 @@ function setTheme(name, persistIt = true) {
   let saved = Promise.resolve();
   if (persistIt && !S.review && api.themeSet) {
     saved = Promise.resolve(api.themeSet(name)).then((result) => {
-      if (!result || !result.ok) throw new Error('save failed');
+      if (!result || !result.ok) throw new Error((result && result.error) || 'save failed');
       if (version === themeSaveVersion) { try { localStorage.setItem(THEME_KEY, name); } catch (_) {} }
-    }).catch(() => toast('Appearance changed, but could not be saved for next launch.'));
+    }).catch((e) => toast('Appearance changed, but could not be saved for next launch.' + (e && e.message && e.message !== 'save failed' ? ` ${e.message}` : '')));
   }
   tileEls.forEach((t, id) => {
     if (!t.term) return;
@@ -4990,7 +4992,7 @@ function renderAgentInstalled(a) {
     const v = keyInput && keyInput.value.trim();
     if (!v) { toast('Paste the secret first.'); return; }
     const res = await api.keysSet(GROK_API_KEY, v);
-    if (!res.ok) { toast(res.error || 'Could not save it.'); return; }
+    if (!res.ok) { toast(res.error || 'Could not save it.'); refreshKeys(); return; }
     S.overlay.editGrokKey = false;
     toast(`${GROK_API_KEY} saved — every new session gets it.`);
     // Grok prefers a session token over the env key. Logging out is what
@@ -5880,6 +5882,11 @@ function dlProgressText(ev) {
 // key is missing, or a download button. Keys are typed in exactly one place —
 // the Keys tab — so a ready provider shows nothing extra at all.
 function voiceRowBodyHtml(p) {
+  // Nami cannot read its saved keys right now, so "add it in Keys" would be wrong.
+  if (p.needsKey && !p.ready && S.sttInfo && S.sttInfo.credentialStorage && S.sttInfo.credentialStorage.ok === false) {
+    return `<div class="set-opt-body"><div class="setup-note">saved keys are unavailable —
+        <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">retry in Keys</span></div></div>`;
+  }
   if (p.needsKey && !p.ready) {
     return `<div class="set-opt-body"><div class="setup-note">needs your ${esc(p.keyEnv)} —
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">add it in Keys</span></div>
@@ -6142,6 +6149,10 @@ function keyEditRowHtml(name, current) {
 function keysPaneHtml() {
   const o = S.overlay;
   if (!o.keys) return '<p class="setup-copy">Looking for your keys…</p>';
+  // .k-act is only styled inside a .key-row; out here the themed control is .btn.
+  if (o.keys.ok === false) return `<p class="setup-copy" role="alert">${esc(o.keys.error)}</p>
+    ${o.keys.kind === 'settings' ? '<div class="sv-help" id="keys-show-settings">show settings.json</div>' : ''}
+    <button class="btn" id="keys-retry">Retry secure storage</button>`;
   const stored = o.keys.stored, have = new Set(stored.map((k) => k.name));
   const rows = [];
   for (const k of stored) {
@@ -6160,26 +6171,38 @@ function keysPaneHtml() {
   }
   return `<p class="setup-copy">Paste a key once and it lands in the environment of every session Nami
     starts — agents, terminals, harnesses. Voice reads the same keys.</p>
+    ${o.keys.cleanupPending ? `<div id="keys-cleanup-warning" role="alert"><p class="setup-copy">${esc(o.keys.cleanupWarning)}</p><button class="btn" id="keys-retry">Retry cleanup</button> <button class="btn" id="keys-show-settings">Show settings.json</button></div>` : ''}
+    ${!o.keys.cleanupPending && o.keys.skippedKeys && o.keys.skippedKeys.length ? `<div id="keys-skipped-warning" role="alert"><p class="setup-copy">${esc(o.keys.skippedWarning || '')}</p><button class="btn" id="keys-retry">Check again</button> <button class="btn" id="keys-show-settings">Show settings.json</button></div>` : ''}
     ${rows.join('')}
+    ${(o.keys.legacy || []).map(k => keyRowHtml({ name: k.name, value: o.reveal?.name === k.name ? o.reveal.value : k.masked, actions: [o.reveal?.name === k.name ? 'hide' : 'show', 'remove'] })).join('')}
     <div class="key-row key-row--new">
       <input class="text-input k-input k-name-input" id="key-new-name" placeholder="MY_SERVICE_KEY" spellcheck="false" />
       <input class="text-input k-input" id="key-new-val" type="password" placeholder="paste the secret…" spellcheck="false" />
       <button class="k-act k-save" id="key-new-save">save</button></div>
-    <div class="key-note">saved in <span class="k-open" id="key-note-open">settings.json</span> — click to see the file</div>`;
+    <div class="key-note">encrypted in <span class="k-open" id="key-note-open">credentials.json</span> — click to see the file</div>`;
 }
 function refreshKeys() {
   return api.keysGet().then((res) => {
-    if (isSettingsOpen()) { S.overlay.keys = res; renderOverlay(); }
+    if (isSettingsOpen()) { S.overlay.keys = res; if (!res.ok) S.overlay.reveal = null; renderOverlay(); }
   });
 }
 function wireKeysPane(modal) {
   const o = S.overlay;
   if (o.keys === undefined) { o.keys = null; refreshKeys(); }
+  const retry = q('#keys-retry', modal);
+  if (retry) retry.onclick = async () => {
+    const result = await api.keysRetry();
+    if (!result.ok) toast(result.error);
+    else if (result.cleanupPending) toast(result.cleanupWarning);
+    refreshKeys(); refreshSttInfo();
+  };
+  const showSettings = q('#keys-show-settings', modal);
+  if (showSettings) showSettings.onclick = () => api.settingsRevealFile();
   const saveKey = async (name, input) => {
     const v = input.value.trim();
     if (!v) { toast('Paste the secret first.'); return; }
     const res = await api.keysSet(name, v);
-    if (!res.ok) { toast(res.error || 'Could not save it.'); return; }
+    if (!res.ok) { toast(res.error || 'Could not save it.'); refreshKeys(); return; }
     o.editKey = null; o.reveal = null;
     toast(`${name} saved — every new session gets it.`);
     refreshKeys(); refreshSttInfo(); // Voice's ready flags read the same store
@@ -6191,9 +6214,9 @@ function wireKeysPane(modal) {
       if (act === 'add' || act === 'edit') { o.editKey = name; o.reveal = null; renderOverlay(); const i = q('#key-edit-val'); if (i) i.focus(); }
       else if (act === 'save') saveKey(name, q('#key-edit-val', modal));
       else if (act === 'cancel') { o.editKey = null; renderOverlay(); }
-      else if (act === 'show') { const r = await api.keysReveal(name); o.reveal = { name, value: r.value }; renderOverlay(); }
+      else if (act === 'show') { const r = await api.keysReveal(name); if (!r.ok) { toast(r.error); refreshKeys(); return; } o.reveal = { name, value: r.value }; renderOverlay(); }
       else if (act === 'hide') { o.reveal = null; renderOverlay(); }
-      else if (act === 'remove') { o.reveal = null; await api.keysDelete(name); toast(`${name} removed.`); refreshKeys(); refreshSttInfo(); }
+      else if (act === 'remove') { o.reveal = null; const result = await api.keysDelete(name); if (!result.ok) { toast(result.error); refreshKeys(); return; } toast(result.cleanupPending ? 'Removed from encrypted storage; plaintext cleanup is incomplete' : `${name} removed.`); refreshKeys(); refreshSttInfo(); }
     };
   });
   const editInput = q('#key-edit-val', modal);
