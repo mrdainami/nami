@@ -1,13 +1,14 @@
-# Nami on Windows — tested and built, never released.
+# Nami on Windows — tested and built on every push, shipped only by a tag.
 #
 # This is the proof that the Windows column still works, run on real Windows on
 # every push that could break it. It produces installers a person can download
-# from the run page and try. It does NOT publish anything: shipping is
-# release.yml's job, and a Windows release joins it only once these builds have
-# been lived in.
+# from the run page and try. On its own it publishes nothing: release.yml calls
+# it when a version is tagged, and that is the only road to a user's PC.
 #
-# The installers are unsigned, so Windows will warn about an unknown publisher
-# when one is opened. That is expected here and is not a build failure.
+# Both roads run the same steps, down to joining the two update feeds into one,
+# so a release never does anything a plain push has not already done that week.
+# The one difference is signing. A push signs when it can and says so when it
+# cannot; a release that cannot sign stops.
 
 name: windows
 
@@ -16,6 +17,13 @@ on:
     branches: [master, windows]
   pull_request:
   workflow_dispatch:
+  # release.yml, on a version tag. It passes its secrets down, and it insists.
+  workflow_call:
+    inputs:
+      require_signing:
+        description: Stop rather than build an installer nobody signed.
+        type: boolean
+        default: false
 
 # A second push to the same branch makes the first run's answer irrelevant.
 concurrency:
@@ -40,6 +48,24 @@ jobs:
       contents: read
     timeout-minutes: 45
     steps:
+      # Stop in the first seconds rather than after half an hour of building
+      # something that must not be uploaded.
+      - name: Check we can sign before doing any work
+        if: inputs.require_signing
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+          AZURE_CODE_SIGNING_NAME: ${{ secrets.AZURE_CODE_SIGNING_NAME }}
+          AZURE_CERT_PROFILE_NAME: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+        run: |
+          $names = 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_ENDPOINT', 'AZURE_CODE_SIGNING_NAME', 'AZURE_CERT_PROFILE_NAME'
+          $missing = @($names | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
+          if ($missing.Count) { throw "Missing secrets: $($missing -join ', ') — a released installer must be signed, so stopping now." }
+          Write-Host 'all signing credentials present'
+
       # Without this, git rewrites every line ending on checkout and the tests
       # that read fixtures byte for byte fail for a reason that is not theirs.
       - run: git config --global core.autocrlf false
@@ -143,7 +169,7 @@ jobs:
       - name: Check who Windows says signed the installers
         shell: pwsh
         env:
-          EXPECT_SIGNED: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+          EXPECT_SIGNED: ${{ inputs.require_signing || secrets.AZURE_CLIENT_SECRET != '' }}
         run: |
           $bad = 0
           foreach ($exe in Get-ChildItem release/*.exe) {
@@ -160,10 +186,70 @@ jobs:
       - name: Check what is inside the app
         run: node scripts/check-bundle.mjs
 
+      # The installers, and beside them what an update needs: this machine's
+      # latest.yml and the block map a later version downloads a difference from.
       - name: Keep what was built
         uses: actions/upload-artifact@v4
         with:
           name: Nami-windows-${{ matrix.arch }}
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  # Two machines, two latest.yml files, and a release has room for one. This
+  # joins them and hashes both installers again on the way, so the file that
+  # tells every Windows Nami what to download is checked against the very bytes
+  # it describes. It runs on every push: the day it matters is a bad day to
+  # find out it broke.
+  feed:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The script needs one small library and none of the app, so nothing is
+      # allowed to run on install and no Electron is downloaded.
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Nami-windows-x64
+          path: win/x64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Nami-windows-arm64
+          path: win/arm64
+
+      - name: Join the two update feeds into one
+        run: node scripts/win-feed.mjs win/x64 win/arm64 --out win/release/latest.yml
+
+      - name: Gather exactly what a release would carry
+        run: |
+          set -e
+          cp win/x64/*.exe win/x64/*.blockmap win/arm64/*.exe win/arm64/*.blockmap win/release/
+          ls -l win/release
+          for f in latest.yml Nami-Setup-x64.exe Nami-Setup-arm64.exe Nami-Portable-x64.exe Nami-Portable-arm64.exe Nami-Setup-x64.exe.blockmap Nami-Setup-arm64.exe.blockmap; do
+            [ -f "win/release/$f" ] || { echo "::error::$f is missing"; exit 1; }
+          done
+
+      - name: Keep the release set
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nami-windows-release
+          path: win/release/*
           if-no-files-found: error
           retention-days: 14
