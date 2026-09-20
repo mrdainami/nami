@@ -290,7 +290,7 @@ function windowChrome(platform = process.platform, background = '#fffdf6') {
     const hex = /^#[0-9a-f]{6}$/i.test(background) ? background : '#fffdf6';
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     const bright = (0.299 * r + 0.587 * g + 0.114 * b) > 140;
-    return { titleBarStyle: 'hidden', titleBarOverlay: { color: hex, symbolColor: bright ? '#2f2b26' : '#f2efe8', height: 38 } };
+    return { titleBarStyle: 'hidden', titleBarOverlay: { color: hex, symbolColor: bright ? '#2f2b26' : '#f2efe8', height: 28 } };
   }
   // The sheet is edge-to-edge, so the renderer reserves a 22px lights deck at
   // the top (see .lights-deck in paper.css). y gives the 12px buttons 11px of
