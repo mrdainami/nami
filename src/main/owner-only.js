@@ -74,8 +74,8 @@ function isOwnerOnly(listing) {
 // programs. That is fine for a settings save and wrong for anything in a loop,
 // so callers that write often tighten the folder once when they make it and let
 // the files inherit.
-function exec(file, args, env) {
-  return execFileSync(file, args, { encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], ...(env ? { env: { ...process.env, ...env } } : {}) });
+function exec(file, args, env, timeout = 5000) {
+  return execFileSync(file, args, { encoding: 'utf8', windowsHide: true, timeout, stdio: ['ignore', 'pipe', 'ignore'], ...(env ? { env: { ...process.env, ...env } } : {}) });
 }
 
 // The whole list, written in one go: nothing inherited, the user and SYSTEM,
@@ -90,7 +90,12 @@ function exec(file, args, env) {
 // The path and the SID travel in the environment and are read as data. Nothing
 // about a file name is ever part of the script, so a folder called
 // `it's; $(calc)` is a folder. About three quarters of a second, which is why it
-// is the second thing tried and not the first.
+// is the second thing tried and not the first — and that is on a warm machine.
+// A cold PowerShell on a busy one took more than five seconds (a two-core build
+// server, measured: the five-second limit the icacls runs share cut it off and
+// the file was left as it was). It gets twenty. Giving up early here does not
+// save a user any time worth having; it leaves their key file readable.
+const SET_EXACT_TIMEOUT = 20000;
 const SET_EXACT = "$ErrorActionPreference='Stop'; $t=$env:NAMI_ACL_TARGET; $dir=Test-Path -LiteralPath $t -PathType Container; "
   + "$s = if ($dir) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }; "
   + "$s.SetAccessRuleProtection($true, $false); "
@@ -122,7 +127,7 @@ function ownerOnly(target, { directory = false, platform = process.platform, env
     if (isOwnerOnly(listing)) return true;
     if (!namesSomeone(listing)) return false;
     run(path.win32.join(bin, 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', SET_EXACT],
-      { NAMI_ACL_TARGET: String(target), NAMI_ACL_SID: cache.sid });
+      { NAMI_ACL_TARGET: String(target), NAMI_ACL_SID: cache.sid }, SET_EXACT_TIMEOUT);
     return isOwnerOnly(run(icacls, [String(target)]));
   } catch (_) { return false; }
 }

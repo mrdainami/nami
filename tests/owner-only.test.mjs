@@ -120,8 +120,8 @@ test('entries set on the file itself are replaced, not added to', () => {
   // in one go, and read back again.
   const STRANGER = TIGHT.replace('\r\n\r\n', '\r\n                BUILTIN\\Users:(R)\r\n\r\n');
   const calls = []; let reads = 0;
-  const run = (file, args, env) => {
-    calls.push({ file, args, env });
+  const run = (file, args, env, timeout) => {
+    calls.push({ file, args, env, timeout });
     if (/whoami/.test(file)) return WHOAMI;
     if (/icacls/.test(file) && args.length === 1) return ++reads === 1 ? STRANGER : TIGHT;
     return 'ok';
@@ -135,6 +135,8 @@ test('entries set on the file itself are replaced, not added to', () => {
   assert.equal(ps.env.NAMI_ACL_SID, SID);
   assert.ok(!ps.args.join(' ').includes('calc'), 'nothing of the path is in the command line');
   assert.equal(reads, 2, 'and it was read back again afterwards');
+  // a cold PowerShell on a busy machine needs longer than icacls ever does
+  assert.ok(ps.timeout >= 20000, 'the exact form is given time to start: ' + ps.timeout);
 });
 
 test('a volume with no permissions at all is not worth a second try', () => {
