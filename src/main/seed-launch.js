@@ -2,6 +2,7 @@
 // startup questions and subsequent conversation under the CLI's control.
 const { KNOWN_AGENTS, agentRunCommandAllowed } = require('./agents-detect');
 const { reachesCmd } = require('./cmd-shim');
+const { isPowerShell, psNativeArg, PS_NATIVE_HEAD } = require('./platform');
 
 function seedAgentForLaunch({ kind, command, agentId, args, watchDone, oneShot } = {}) {
   if (watchDone || oneShot) return null;
@@ -17,12 +18,13 @@ function seedAgentForLaunch({ kind, command, agentId, args, watchDone, oneShot }
   return null;
 }
 
-// `program` is where the scan found the agent. On Windows an agent installed by
-// npm is a .cmd shim, and an argument to one is read by cmd.exe as a command
-// (cmd-shim.js): a first message is other people's text as often as not — a
-// connector's description, an agent's name — so to a shim it is not sent as an
-// argument at all, and main falls back to what it does for an agent with no
-// such option. A real .exe, and every Mac, gets it exactly as before.
+// `program` is what the agent found by the scan really is (real-program.js). On
+// Windows an agent installed by npm is a .cmd shim, and an argument to one is
+// read by cmd.exe as a command (cmd-shim.js): a first message is other people's
+// text as often as not — a connector's description, an agent's name — so to a
+// shim that could not be gone round it is not sent as an argument at all, and
+// main falls back to what it does for an agent with no such option. A real
+// .exe, node.exe in a shim's place, and every Mac get it exactly as before.
 function initialPromptArgs(agentId, seed, { program = '', platform = process.platform } = {}) {
   if (reachesCmd(program, platform)) return [];
   return nativePromptArgs(agentId, seed);
@@ -49,6 +51,18 @@ function nativePromptArgs(agentId, seed) {
   }
 }
 
+// A run tile's line with the message on the end of it. `quote` is the pane's
+// own, and on a POSIX shell that is all there is to do. PowerShell delivers a
+// single-quoted string to a program whole unless it has a quote in it or ends
+// in a backslash; those two are written the way each PowerShell needs them,
+// and the line opens by finding out which one it is (psNativeArg in
+// platform.js has the measurements).
+function withPromptArgs(line, promptArgs, { quote, shell = '' } = {}) {
+  if (!promptArgs.length) return line;
+  const awkward = (a) => isPowerShell(shell) && /"|\\$/.test(a);
+  return (promptArgs.some(awkward) ? PS_NATIVE_HEAD : '') + line + ' ' + promptArgs.map((a) => (awkward(a) ? psNativeArg(a) : quote(a))).join(' ');
+}
+
 // Hermes's modern TUI accepts a startup query through this environment key;
 // its classic REPL ignores it and uses the terminal sender. Do not force the
 // user's interface with --tui or turn the conversation into a one-shot query.
@@ -61,4 +75,4 @@ function initialPromptEnv(env, agentId, seed) {
   return out;
 }
 
-module.exports = { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld };
+module.exports = { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld, withPromptArgs };

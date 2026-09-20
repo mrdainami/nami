@@ -94,6 +94,32 @@ function psQuote(text) {
   return "'" + String(text == null ? '' : text).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&') + "'";
 }
 
+// One string on its way THROUGH PowerShell to a real program, for the two
+// things single quotes alone do not survive. Windows PowerShell 5.1 pastes an
+// argument into the program's command line as it stands, wraps it in "…" if it
+// has a space after an even number of quotes, and escapes nothing:
+// `resize it to 5" wide` reached node as three arguments, and `sp trail\`
+// swallowed the one after it (both measured in the VM through node-pty). So for
+// 5.1 the argument is written already quoted the way the C runtime unquotes it,
+// with a quote inside it doubled rather than backslashed. 5.1 counts every
+// quote, backslash or no, and a doubled one keeps the count odd — which is how
+// it knows the spaces are taken care of and pastes the string untouched. (With
+// \" the count came out even after the first one, 5.1 wrapped the lot a second
+// time, and the message arrived as nine words. Also measured.)
+//
+// PowerShell 7.3 and later hand a program the string itself, exactly, and
+// would deliver those extra quotes as text. They are told apart by the
+// preference variable that came in with that behaviour, which PS_NATIVE_HEAD
+// reads at the front of the line; it also sets it, since a profile may have
+// turned the old behaviour back on. Never for a cmdlet's argument (Set-Location
+// takes the string itself, quotes and all) — that is psQuote's.
+const PS_NATIVE_HEAD = "$namiPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ";
+function psNativeArg(text) {
+  const s = String(text == null ? '' : text);
+  const pasted = '"' + s.replace(/(\\*)"/g, '$1$1""').replace(/(\\*)$/, '$1$1') + '"';
+  return `$(if ($namiPastes) {${psQuote(pasted)}} else {${psQuote(s)}})`;
+}
+
 // The shell a pane runs. On a Mac that is the user's own. On Windows SHELL is
 // ignored on purpose: nothing native sets it, and Git Bash sets it to
 // /usr/bin/bash, which is a path that does not exist outside Git Bash.
@@ -312,4 +338,19 @@ function planCwd(plan, cwd, { home = '', env = {}, platform = process.platform }
   return [home, env && env.SystemRoot].find((d) => d && !UNC_RE.test(d)) || 'C:\\Windows';
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, psQuote, paneShell, scriptArgs, spawnPlan, pwshCandidates, planCwd };
+// Where node.exe might be, for a shim Nami goes round (cmd-shim.js): the
+// folders of PATH in order, which is where the shim's own bare `node` would
+// have been found, then the installer's folder. Only folders written in full.
+// A relative entry means a different place in every project, and a program
+// looked for there is the thing CMD_GUARD above exists to stop.
+function nodeCandidates({ env = {}, pathValue, platform = process.platform } = {}) {
+  if (platform !== WIN) return [];
+  const e = env || {};
+  const dirs = String(pathValue != null ? pathValue : (e.PATH || e.Path || '')).split(';')
+    .map((d) => d.trim().replace(/^"(.*)"$/, '$1').replace(/\\+$/, '')).filter((d) => DRIVE_PATH.test(d + '\\') || UNC_RE.test(d));
+  for (const root of [e.ProgramFiles, e.ProgramW6432]) if (root) dirs.push(`${root}\\nodejs`);
+  const seen = new Set();
+  return dirs.map((d) => `${d}\\node.exe`).filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+}
+
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, psQuote, psNativeArg, PS_NATIVE_HEAD, paneShell, scriptArgs, spawnPlan, pwshCandidates, nodeCandidates, planCwd };

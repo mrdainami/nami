@@ -82,6 +82,30 @@ test('a scanned program with a space in its path is called, not printed', () => 
   forgetBins();
 });
 
+// An npm shim Nami can go round (real-program.js) is typed as what it runs:
+// node.exe and the script, so PowerShell starts a real program and cmd.exe
+// never reads the rest of the line.
+test('a shim that is really node and a script is called as node and the script', () => {
+  forgetBins();
+  const shim = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\codex.cmd';
+  rememberBins([{ id: 'codex', found: true, path: shim }, { id: 'opencode', found: true, path: 'C:\\npm\\opencode.cmd' }, { id: 'kimi', found: true, path: 'C:\\tools\\kimi.exe' }]);
+  const real = (p) => (p === shim ? { file: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js'] }
+    : p === 'C:\\npm\\opencode.cmd' ? { file: 'C:\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe', args: [] } : { file: p, args: [] });
+  assert.equal(resolveRunCommand('codex resume abc', PS, real),
+    "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js' resume abc");
+  // a shim round a real .exe is that .exe, typed the way any other is
+  assert.equal(resolveRunCommand('opencode', PS, real), 'C:\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe');
+  assert.equal(resolveRunCommand('kimi', PS, real), 'C:\\tools\\kimi.exe');
+  assert.equal(resolveRunCommand('unknown --x', PS, real), 'unknown --x');
+  // one that cannot be read that way is typed as the shim it is
+  assert.equal(resolveRunCommand('codex resume abc', PS, (p) => ({ file: p, args: [] })), shim + ' resume abc');
+  forgetBins();
+  // a Mac's line never asks
+  rememberBins([{ id: 'codex', found: true, path: '/Users/x/My Tools/codex' }]);
+  assert.equal(resolveRunCommand('codex resume t', '/bin/zsh', () => { throw new Error('asked'); }), "'/Users/x/My Tools/codex' resume t");
+  forgetBins();
+});
+
 test('a PowerShell one-shot reports its exit code and stays open', () => {
   const args = oneShotArgs(PS, 'npm i -g x');
   assert.deepEqual(args.slice(0, 3), ['-NoLogo', '-NoExit', '-Command']);

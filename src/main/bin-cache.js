@@ -85,7 +85,12 @@ function resolveClaudeExecutable({ home = os.homedir(), env = process.env, exist
 // command-not-found in a tile while the launcher says ready. When the scan
 // already knows where the binary lives, the command is typed by that
 // absolute path instead. Anything the scan doesn't know passes untouched.
-function resolveRunCommand(command, shell = '') {
+//
+// `real` is asked what a found program really is (real-program.js). On Windows
+// npm's codex.cmd comes back as node.exe and codex.js, and the line starts
+// those, so nothing typed after them is read by cmd.exe. Only a PowerShell
+// line asks: there are no shims anywhere else.
+function resolveRunCommand(command, shell = '', real = null) {
   const s = String(command || '');
   const m = /^([A-Za-z][\w.-]*)(\s[\s\S]*)?$/.exec(s);
   if (!m) return s;
@@ -94,8 +99,9 @@ function resolveRunCommand(command, shell = '') {
   // PowerShell reads a quoted string at the head of a line as a string, not as
   // a program. The call operator is what runs it.
   if (isPowerShell(shell)) {
-    const plain = /^[\w@%+=:,.\\/-]+$/.test(found);
-    return (plain ? found : `& ${psQuote(found)}`) + (m[2] || '');
+    const run = real ? real(found) : { file: found, args: [] };
+    const plain = !run.args.length && /^[\w@%+=:,.\\/-]+$/.test(run.file);
+    return (plain ? run.file : `& ${[run.file, ...run.args].map(psQuote).join(' ')}`) + (m[2] || '');
   }
   const head = /[^\w@%+=:,./-]/.test(found) ? `'${found.replace(/'/g, `'\\''`)}'` : found;
   return head + (m[2] || '');

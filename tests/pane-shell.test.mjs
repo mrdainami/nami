@@ -105,3 +105,14 @@ test('everything else starts where it was asked to', () => {
   assert.equal(planCwd(mac, '//odd/but/legal', { home: '/Users/cal', platform: 'darwin' }), '//odd/but/legal');
   assert.equal(planCwd(viaCmd, undefined, { home: 'C:\\Users\\cal', platform: 'win32' }), undefined);
 });
+
+// ---- node, for a shim Nami goes round (cmd-shim.js) --------------------------
+test('node.exe is looked for in the full folders of PATH and in its installer\'s own, never in a relative one', () => {
+  const { nodeCandidates } = require('../src/main/platform.js');
+  const env = { ProgramFiles: 'C:\\Program Files', PATH: 'C:\\Windows\\system32;.;bin;..\\tools;"C:\\tools\\my bin\\";\\\\corp\\share\\node;;C:\\Program Files\\nodejs\\' };
+  assert.deepEqual(nodeCandidates({ env, platform: 'win32' }), [
+    'C:\\Windows\\system32\\node.exe', 'C:\\tools\\my bin\\node.exe', '\\\\corp\\share\\node\\node.exe', 'C:\\Program Files\\nodejs\\node.exe',
+  ]);
+  assert.deepEqual(nodeCandidates({ env, pathValue: 'D:\\n', platform: 'win32' }), ['D:\\n\\node.exe', 'C:\\Program Files\\nodejs\\node.exe']);
+  assert.deepEqual(nodeCandidates({ env: { PATH: '/usr/local/bin' }, platform: 'darwin' }), []);
+});

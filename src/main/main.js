@@ -16,8 +16,9 @@ const { feedOscTitle } = require('./osc-title');
 const { installAppMenu, buildWindowsExtrasTemplate, editContextTemplate } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
-const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld } = require('./seed-launch');
+const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld, withPromptArgs } = require('./seed-launch');
 const { reachesCmd, shimSafe, shimSafeArgs } = require('./cmd-shim');
+const { realProgram } = require('./real-program');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { buildChildEnv, terminalLaunchPolicy, customAgents, redactChildError } = require('./session-env');
 const { detectAgents, agentStatus, findOnDisk, agentRunCommandAllowed } = require('./agents-detect');
@@ -903,10 +904,14 @@ function catalogForRenderer() {
 // CLI delivery steps run the resolved `claude` binary directly with an argv
 // array — no login shell, so nothing in an id or entry can be parsed as a
 // command. Falls back to the bare name when the bin scan has not run.
+// `mcp add-json` carries a connector's JSON, which is other people's text. To
+// npm's claude.cmd on Windows it goes round the shim when it can
+// (real-program.js) — the claude.exe or the node script behind it, and no
+// cmd.exe at all — and through spawnPlan's escaping when it cannot.
 function claudeExec(argv) {
   return new Promise((resolve) => {
-    const bin = knownBin('claude') || 'claude';
-    const plan = spawnPlan(bin, argv);
+    const run = realProgram(knownBin('claude') || 'claude');
+    const plan = spawnPlan(run.file, [...run.args, ...argv]);
     execFile(plan.file, plan.args, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }), ...plan.options }, (err) => {
       resolve(err ? { ok: false, error: redactChildError(err, { settings: readSettings() }).split('\n')[0] } : { ok: true });
     });
@@ -1527,11 +1532,18 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const launch = { kind, purpose, agentId, program, command, args, watchDone, oneShot };
   const policy = sessionPolicy(launch);
   const seedAgent = seedAgentForLaunch(launch);
+  // What a found program really is. On Windows npm's claude.cmd and codex.cmd
+  // are shims, and one that plainly runs node on a script, or a .exe of the
+  // package's own, is started as that instead (real-program.js), so from here
+  // down it is a real .exe like any other. Anything else, and everything on a
+  // Mac, is itself.
+  const real = (found) => realProgram(found, { platform: process.platform, pathValue: envPath || undefined });
+  const claudeRun = real(claudeExe);
   // Where the agent the message is for really is. On Windows that decides
-  // whether it may travel as an argument at all: npm's claude.cmd and codex.cmd
-  // are read by cmd.exe, and a message is not something cmd.exe may read
+  // whether it may travel as an argument at all: a shim Nami could not go round
+  // is read by cmd.exe, and a message is not something cmd.exe may read
   // (cmd-shim.js). On a Mac the answer is always yes and nothing changes.
-  const seedProgram = kind === 'claude' ? claudeExe : knownBin(seedAgent);
+  const seedProgram = kind === 'claude' ? claudeRun.file : real(knownBin(seedAgent)).file;
   const promptArgs = initialPromptArgs(seedAgent, seed, { program: seedProgram, platform: process.platform });
   const held = seedHeld(seedAgent, seed, { program: seedProgram, platform: process.platform });
 
@@ -1558,8 +1570,8 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // no resolved binary the shell will find whichever claude it finds, so the
     // typed line is written for the shim it may turn out to be.
     const extraArgs = Array.isArray(args) ? args : [];
-    const ownArgs = shimSafeArgs([...claudeArgs, ...extraArgs], claudeExe, process.platform);
-    if (claudeExe) { file = claudeExe; spawnArgs = [...ownArgs, ...promptArgs]; }
+    const ownArgs = shimSafeArgs([...claudeArgs, ...extraArgs], claudeRun.file, process.platform);
+    if (claudeExe) { file = claudeRun.file; spawnArgs = [...claudeRun.args, ...ownArgs, ...promptArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
     // into a marker branch below that typed a bare `claude`, dropping
@@ -1593,7 +1605,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // cannot be reduced here without ceasing to be the line that was checked.
     // It is turned away instead, with the reason where the agent would be.
     const head = (/^[A-Za-z][\w.-]*/.exec(String(command)) || [''])[0];
-    if (Array.isArray(args) && reachesCmd(knownBin(head), process.platform) && args.some((a) => shimSafe(a) !== String(a))) {
+    if (Array.isArray(args) && reachesCmd(real(knownBin(head)).file, process.platform) && args.some((a) => shimSafe(a) !== String(a))) {
       sendWc(wc, 'term:data', { id, data: `\r\n[not started: this agent's name has a character in it that cannot be handed to ${head} safely on Windows — one of " % & | < > ^ ! ( )]\r\n` });
       return { ok: false };
     }
@@ -1601,7 +1613,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // by binary, and resolveRunCommand may replace the head with a full path.
     // This is where grok gets --minimal; see the table in bin-cache.js for why
     // the flag is not stored on the panel.
-    let typed = resolveRunCommand(withSpawnFlags(command), shellPath);
+    let typed = resolveRunCommand(withSpawnFlags(command), shellPath, real);
     // A known agent tile restoring with a saved conversation id gets its
     // resume line typed instead of the bare bin — but only while the agent's
     // store still holds that session (the same restored-but-unused guard as
@@ -1616,11 +1628,11 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume), shellPath); storeWatch = { agent, sid: acpSid }; }
+        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume), shellPath, real); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
 
-    if (promptArgs.length) typed += ' ' + promptArgs.map(quote).join(' ');
+    typed = withPromptArgs(typed, promptArgs, { quote, shell: shellPath });
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     // An agent tile: the shell runs the line as its script and exits with the
     // agent, so the keys in its environment die with it. Still `-i`, so the

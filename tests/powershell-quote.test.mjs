@@ -83,3 +83,81 @@ test('a home folder with a curly quote in it cannot break out of a connector ins
   assert.equal(readBack(steps[0].slice('git clone https://github.com/a/b '.length)), dir);
   assert.equal(readBack(steps[1].slice('Set-Location -LiteralPath '.length)), dir);
 });
+
+// ---- a quote on its way to a real program -----------------------------------
+// Single quotes get a string into PowerShell whole. Getting it out again to a
+// program is a second journey: Windows PowerShell 5.1 pastes the string into
+// the command line, wraps it in "…" if it has a space after an even number of
+// quotes, and escapes nothing, so `resize it to 5" wide & echo PWNED` reached
+// node as `resize it to 5`, `wide`, `&`, `echo`, `PWNED` (measured in the VM
+// through node-pty). No command runs — there is no cmd.exe here — but codex was
+// handed five arguments where the Mac hands it one.
+const { psNativeArg, PS_NATIVE_HEAD } = require('../src/main/platform.js');
+const { withPromptArgs } = require('../src/main/seed-launch.js');
+
+// What 5.1 puts on the command line for one string. It counts every quote,
+// one after a backslash included: `"resize it to 5\" wide"` was wrapped a
+// second time and arrived as nine words (measured in the VM).
+function ps51Paste(s) {
+  let quotes = 0, need = false;
+  for (const c of s) {
+    if (c === '"') quotes++;
+    else if (/\s/.test(c) && quotes % 2 === 0) need = true;
+  }
+  return need ? `"${s}"` : s;
+}
+// And how the C runtime splits a command line back into arguments.
+function crtSplit(line) {
+  const out = []; let cur = '', inq = false, any = false, i = 0;
+  while (i < line.length) {
+    let n = 0; while (line[i] === '\\') { n++; i++; }
+    if (line[i] === '"') { cur += '\\'.repeat(n >> 1); any = true; if (n % 2) cur += '"'; else if (inq && line[i + 1] === '"') { cur += '"'; i++; } else inq = !inq; i++; continue; }
+    cur += '\\'.repeat(n);
+    if (i >= line.length) break;
+    if (!inq && /[ \t]/.test(line[i])) { if (cur || any) out.push(cur); cur = ''; any = false; i++; continue; }
+    cur += line[i++];
+  }
+  if (cur || any) out.push(cur);
+  return out;
+}
+// The two strings psNativeArg wrote: the one 5.1 pastes, and the one 7.3 and
+// later hand over as it is.
+function bothForms(written) {
+  const m = /^\$\(if \(\$namiPastes\) \{([\s\S]*)\} else \{([\s\S]*)\}\)$/.exec(written);
+  assert.ok(m, written);
+  // the split between the two is wherever both halves read back as strings
+  for (let at = written.indexOf('} else {'); at !== -1; at = written.indexOf('} else {', at + 1)) {
+    const pasted = readBack(written.slice('$(if ($namiPastes) {'.length, at)), exact = readBack(written.slice(at + '} else {'.length, -2));
+    if (pasted !== null && exact !== null) return { pasted, exact };
+  }
+  return assert.fail(written);
+}
+const TEXTS = ['resize it to 5" wide & echo PWNED', 'a&echo PWNED', '%USERNAME%', 'it\u2019s \u201Ccurly\u201D', 'trail\\', 'sp trail\\', 'a\\"b c', '"', '""', 'say "hi"', 'one " two " three " four', 'C:\\dir\\" x', 'x\\\\" y\\', 'line1\nline "2"', '--prompt=fix the "export" button', "} else {'x'}) ; Write-Output INJECTED #", '\u2019} else {\u2019'];
+
+test('a string with a quote or a closing backslash reaches a program whole, through 5.1 and through 7.3 alike', () => {
+  for (const text of TEXTS) {
+    const { pasted, exact } = bothForms(psNativeArg(text));
+    assert.deepEqual(crtSplit('node.exe x.js ' + ps51Paste(pasted)), ['node.exe', 'x.js', text], pasted);
+    assert.equal(ps51Paste(pasted), pasted, 'and 5.1 leaves it as it was written');
+    assert.equal(exact, text);
+  }
+  assert.equal(psNativeArg('say "hi"'), '$(if ($namiPastes) {\'"say ""hi"""\'} else {\'say "hi"\'})');
+  assert.equal(psNativeArg('it\u2019s dir\\'), '$(if ($namiPastes) {\'"it\u2019\u2019s dir\\\\"\'} else {\'it\u2019\u2019s dir\\\'})');
+});
+
+test('a first message is added to a PowerShell line so that it arrives exactly, and to a POSIX one as ever', () => {
+  const { shellQuote } = require('../src/main/claude-args.js');
+  const ps = (a) => shellQuote(a, PS), sh = (a) => shellQuote(a, '/bin/zsh');
+  // nothing awkward in it: the line everyone has always had
+  assert.equal(withPromptArgs('codex', ['--', 'fix the export button'], { quote: ps, shell: PS }), "codex -- 'fix the export button'");
+  assert.equal(withPromptArgs('codex', ['--', 'a&echo PWNED %USERNAME%'], { quote: ps, shell: PS }), "codex -- 'a&echo PWNED %USERNAME%'");
+  assert.equal(withPromptArgs('codex', [], { quote: ps, shell: PS }), 'codex');
+  // a quote, or a backslash at the end: the line first finds out which
+  // PowerShell it is in, and the argument is written for both
+  assert.equal(withPromptArgs('codex', ['--', 'say "hi"'], { quote: ps, shell: PS }), PS_NATIVE_HEAD + 'codex -- ' + psNativeArg('say "hi"'));
+  assert.equal(withPromptArgs('opencode', ['--prompt=dir\\'], { quote: ps, shell: PS }), PS_NATIVE_HEAD + 'opencode ' + psNativeArg('--prompt=dir\\'));
+  assert.equal(PS_NATIVE_HEAD, "$namiPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ");
+  // a Mac, where a quote inside single quotes was never anything but a quote
+  for (const seed of TEXTS) assert.equal(withPromptArgs('codex', ['--', seed], { quote: sh, shell: '/bin/zsh' }), 'codex ' + ['--', seed].map(sh).join(' '));
+  assert.equal(withPromptArgs('codex', ['--', 'say "hi"'], { quote: sh, shell: '/bin/zsh' }), "codex -- 'say \"hi\"'");
+});

@@ -22,7 +22,7 @@ async function spawnBoundary(request, config = settings, overrides = {}) {
   const messages = [];
   const context = {
     ...require('../src/main/seed-launch'), startSeedGate: require('../src/main/seed-gate').startSeedGate,
-    ...require('../src/main/cmd-shim'), knownBin: () => '',
+    ...require('../src/main/cmd-shim'), knownBin: () => '', realProgram: require('../src/main/real-program').realProgram,
     ...policy, agentRunCommandAllowed: (launch) => require('../src/main/agents-detect').agentRunCommandAllowed(launch, 'darwin'), process: { env: parentEnv, platform: 'darwin' }, readSettings: () => config,
     storedEnvKeys: () => config.envKeys, settingsStore: require('../src/main/settings'),
     ipcMain: { handle: (_channel, fn) => { handler = fn; } }, browserViews: { registerSession() {} },
@@ -308,6 +308,7 @@ test('Hermes startup messages are scoped to its launch and omitted on normal res
 // (measured in the Windows 11 VM; the reasoning is in src/main/cmd-shim.js).
 // The handler is the real one, told it is on Windows.
 const HOSTILE = 'resize it to 5" wide & echo PWNED\nuse %USERNAME% here';
+const { psNativeArg, PS_NATIVE_HEAD } = require('../src/main/platform');
 const onWindows = (overrides) => ({
   process: { env: { ...parentEnv, SystemRoot: 'C:\\Windows' }, platform: 'win32' }, findPwsh: () => '',
   reportingArgs: require('../src/main/shell-integration').reportingArgs, feedCwd: () => null, ptyCwd: { tell() {}, forget() {} },
@@ -341,7 +342,11 @@ test('windows: a run tile\'s first message reaches a real .exe and never a shim 
     assert.equal(fake.captured.file, PS);
     const line = fake.captured.args[fake.captured.args.length - 1];
     assert.equal(line.includes('PWNED'), sent, line);
-    assert.equal(line, sent ? "codex -- '" + HOSTILE + "'" : 'codex');
+    // HOSTILE has a quote in it, and PowerShell 5.1 escapes none on the way to
+    // a program: in single quotes alone it reached node as five arguments
+    // (measured in the VM). It goes written for the PowerShell it lands in —
+    // psNativeArg, and tests/powershell-quote.test.mjs reads both forms back.
+    assert.equal(line, sent ? PS_NATIVE_HEAD + 'codex -- ' + psNativeArg(HOSTILE) : 'codex');
     assert.deepEqual({ ...result }, sent ? { ok: true } : { ok: true, seedHeld: true });
     assert.deepEqual(fake.writes, []);
   }
@@ -361,4 +366,59 @@ test('windows: a library agent whose file name is a command is not started throu
   assert.match(refused.messages.map((m) => m.data).join(''), /not started/);
   assert.ok((await launch('reviewer', shim)).fake.captured, 'an ordinary name starts as ever');
   assert.ok((await launch('x&calc', 'C:\\tools\\opencode.exe')).fake.captured, 'and a real .exe takes any name');
+});
+
+// ---- Windows: going round the shim ------------------------------------------
+// Held and reduced is safe, and it is not what a Mac does. A shim that plainly
+// runs node on one script is started as node.exe and that script (cmd-shim.js,
+// real-program.js), and then nothing is held and nothing is reduced.
+const NODE_EXE = 'C:\\Program Files\\nodejs\\node.exe';
+const roundTheShim = (shim, script) => (p) => (p === shim ? { file: NODE_EXE, args: [script] } : { file: p, args: [] });
+
+test('windows: npm\'s claude.cmd, started as node and its script, gets the message and the name exactly as a Mac does', async () => {
+  const shim = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\claude.cmd', script = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+  const fake = recordingPty();
+  const { result } = await spawnBoundary({ kind: 'claude', sid: 'abc', name: 'fix "it" & calc %PATH%', seed: HOSTILE, args: ['--agent', 'rev&iewer'] }, settings,
+    onWindows({ pty: fake, resolveClaudeExecutable: () => shim, realProgram: roundTheShim(shim, script) }));
+  assert.equal(fake.captured.file, NODE_EXE);
+  assert.deepEqual(fake.captured.args, [script, '--session-id', 'abc', '--name', 'fix "it" & calc %PATH%', '--agent', 'rev&iewer', '--', HOSTILE]);
+  assert.deepEqual({ ...result }, { ok: true }, 'nothing was held');
+  assert.deepEqual(fake.writes, []);
+});
+
+test('windows: a run tile for npm\'s codex.cmd types node and the script, with the message, and still says `codex`', async () => {
+  const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  const shim = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\codex.cmd', script = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js';
+  const { rememberBins, forgetBins, resolveRunCommand, knownBin, withSpawnFlags } = require('../src/main/bin-cache');
+  forgetBins(); rememberBins([{ id: 'codex', bin: 'codex', found: true, path: shim }]);
+  try {
+    const head = "& '" + NODE_EXE + "' '" + script + "'";
+    for (const [request, line] of [
+      [{ seed: 'fix the export button' }, head + " -- 'fix the export button'"],
+      [{ seed: HOSTILE }, PS_NATIVE_HEAD + head + ' -- ' + psNativeArg(HOSTILE)],
+      [{}, head],
+      [{ cont: true, acpSid: 'conv-1' }, head + ' resume conv-1'],
+    ]) {
+      const fake = recordingPty(), messages = [];
+      const { result } = await spawnBoundary({ kind: 'run', command: 'codex', agentId: 'codex', purpose: 'agent', ...request }, settings,
+        onWindows({ pty: fake, knownBin, resolveRunCommand, withSpawnFlags, realProgram: roundTheShim(shim, script), sendWc: (_wc, _channel, m) => messages.push(m),
+          agentForCommand: (c) => (c === 'codex' ? 'codex' : null), resumeCommand: (_a, sid) => 'codex resume ' + sid }));
+      assert.equal(fake.captured.file, PS);
+      assert.equal(fake.captured.args[fake.captured.args.length - 1], line);
+      assert.deepEqual({ ...result }, { ok: true }, 'nothing was held');
+      // the tile's header is the name the user knows it by, not a path to node
+      assert.ok(messages.some((m) => typeof m.data === 'string' && m.data.includes('$ codex\x1b')), JSON.stringify(messages));
+      assert.ok(!messages.some((m) => typeof m.data === 'string' && /node\.exe|codex\.js/.test(m.data)));
+    }
+  } finally { forgetBins(); }
+});
+
+test('windows: a library agent named like a command starts once its shim has been gone round', async () => {
+  const shim = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\opencode.cmd', exe = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe';
+  const fake = recordingPty();
+  const { result } = await spawnBoundary({ kind: 'run', command: "opencode '--agent' 'x&calc'", args: ['--agent', 'x&calc'], agentId: 'opencode', purpose: 'agent', seed: 'say "hi"' }, settings,
+    onWindows({ pty: fake, knownBin: (id) => (id === 'opencode' ? shim : ''), realProgram: (p) => (p === shim ? { file: exe, args: [] } : { file: p, args: [] }) }));
+  assert.ok(fake.captured, 'started');
+  assert.deepEqual({ ...result }, { ok: true });
+  assert.ok(fake.captured.args[fake.captured.args.length - 1].endsWith("'x&calc' " + psNativeArg('--prompt=say "hi"')), fake.captured.args[fake.captured.args.length - 1]);
 });

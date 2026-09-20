@@ -60,4 +60,74 @@ function shimSafeArgs(args, program, platform = process.platform) {
   return (Array.isArray(args) ? args : []).map((a) => shimSafe(a) || '_');
 }
 
-module.exports = { reachesCmd, shimSafe, shimSafeArgs };
+// ---- going round the shim ---------------------------------------------------
+// Holding a first message back is safe, and it is not what a Mac does: Codex and
+// OpenCode only come from npm, so on Windows they were never once handed one.
+// But a shim is a few generated lines that find node and run a single script,
+// and Nami can do that itself. Started as `node.exe codex.js …`, the program is
+// a real .exe, the arguments go straight to it, and cmd.exe never sees them.
+//
+// shimTarget reads the text of a .cmd and says what it runs, or null. It is
+// strict on purpose, since whatever it returns gets a stranger's text as an
+// argument: every line must be one npm's cmd-shim is known to write, the one
+// thing run must be node on one script (or one .exe, which is what opencode's
+// package puts in `bin`) with %* and nothing else, and the target must be a
+// file that exists inside the shim's own folder. A flag from the shebang, a
+// variable set for the program (pnpm sets NODE_PATH), a hand-written wrapper —
+// each is a null, and a null means the shim is used as before, with the
+// message held and the name reduced.
+//
+// `node` is where the caller found node.exe, for the shim that has none beside
+// it. A full path or nothing: a bare `node` is looked for in the current folder
+// first, and that folder is somebody's project (platform.js, CMD_GUARD).
+const win = require('path').win32;
+
+const FULL_PATH = /^([A-Za-z]:|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)[\\/]/;
+const SHIM_LINES = new Set([
+  'echo off', 'goto start', ':find_dp0', 'set dp0=%~dp0', 'exit /b', ':start', 'setlocal', 'call :find_dp0',
+  'if exist "%dp0%\\node.exe" (', 'if exist "%~dp0\\node.exe" (', 'set "_prog=%dp0%\\node.exe"', ') else (',
+  'set "_prog=node"', 'set pathext=%pathext:;.js;=;%', ')', 'endlocal', 'exit /b %errorlevel%',
+]);
+// The words npm puts in front of the command so that Ctrl-C does not ask
+// "Terminate batch job?". They run nothing.
+const SHIM_LEAD = 'endlocal & goto #_undefined_# 2>nul || title %comspec% & ';
+const SHIM_RUNS = /^(?:("%_prog%"|"%dp0%\\node\.exe"|"%~dp0\\node\.exe"|node)\s+)?"(%dp0%|%~dp0)\\([^"%]+)"\s+%\*$/i;
+
+function shimTarget(text, shimPath, { exists, node = '' } = {}) {
+  const shim = String(shimPath || '');
+  if (!FULL_PATH.test(shim) || !/\.cmd$/i.test(shim) || typeof exists !== 'function') return null;
+  const seen = new Set();
+  let viaNode = null, target = null, usesProg = false, usesDp0 = false;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim().replace(/^@/, '');
+    if (!line) continue;
+    if (!line.includes('%*')) {
+      const known = line.replace(/\s+/g, ' ').toLowerCase();
+      if (!SHIM_LINES.has(known)) return null;
+      seen.add(known);
+      continue;
+    }
+    const m = SHIM_RUNS.exec(line.toLowerCase().startsWith(SHIM_LEAD) ? line.slice(SHIM_LEAD.length) : line);
+    if (!m) return null;
+    if (target !== null && (target !== m[3] || viaNode !== !!m[1])) return null;
+    target = m[3]; viaNode = !!m[1];
+    usesProg = usesProg || /^"%_prog%"$/i.test(m[1] || '');
+    usesDp0 = usesDp0 || m[2].toLowerCase() === '%dp0%';
+  }
+  if (target === null) return null;
+  // A variable nothing in the file sets would be read from the environment.
+  if (usesProg && !(seen.has('set "_prog=node"') && seen.has('set "_prog=%dp0%\\node.exe"'))) return null;
+  if (usesDp0 && !seen.has('set dp0=%~dp0')) return null;
+  if (!(viaNode ? /\.[cm]?js$/i : /\.exe$/i).test(target)) return null;
+  const parts = target.split('\\');
+  if (parts.some((part) => !part || part === '.' || part === '..' || /[:/]/.test(part))) return null;
+  const dir = win.dirname(shim);
+  const found = win.join(dir, target);
+  if (!exists(found)) return null;
+  if (!viaNode) return { file: found, args: [] };
+  const beside = win.join(dir, 'node.exe');
+  const program = exists(beside) ? beside : String(node || '');
+  return reachesCmd(program, WIN) ? null : { file: program, args: [found] };
+}
+
+module.exports = { reachesCmd, shimSafe, shimSafeArgs, shimTarget };
