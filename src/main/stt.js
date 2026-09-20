@@ -180,6 +180,27 @@ function lazyEngine() {
   return engineCache;
 }
 
+// What to say when the engine's native half will not load.
+//
+// On Windows the raw error is "The specified module could not be found" and
+// then the full path of onnxruntime_binding.node — a file that is there. What
+// is missing is a DLL it depends on, which Windows does not name. None of that
+// helps the person reading it, and a path into AppData is not something to
+// print in a settings pane. The cause is always the install (a DLL that was
+// not shipped, or that antivirus removed), so the message says the one thing
+// that fixes it. The Mac keeps the loader's own words, as it always has.
+//
+// Only a failed dlopen is rewritten. A bad clip or a model that will not parse
+// is a different problem, and reinstalling would be the wrong advice for it.
+const ENGINE_FAULT_WIN = 'The speech engine could not start because part of Nami is missing or damaged. Reinstalling Nami fixes it.';
+function isLoadFault(e) {
+  return !!e && (e.code === 'ERR_DLOPEN_FAILED' || /\.node\b/i.test(String(e.message || '')));
+}
+function engineError(e, platform = process.platform) {
+  if (platform === 'win32' && isLoadFault(e)) return { error: ENGINE_FAULT_WIN, fault: true };
+  return { error: (e && e.message) || String(e) };
+}
+
 function safeStatus(p, cfg, deps) {
   try { return p.status(cfg, deps) || { ready: false }; }
   catch (e) { return { ready: false, reason: e.message }; }
@@ -227,7 +248,7 @@ function status({ settings = {}, env = {}, deps } = {}) {
 }
 
 // Get the active provider's engine ready (download a model, warm a session).
-async function prepare({ settings = {}, env = {}, deps } = {}) {
+async function prepare({ settings = {}, env = {}, deps, platform = process.platform } = {}) {
   const d = withDefaults(deps);
   const p = resolveProvider(settings, env, deps);
   if (!p) return { ok: false, error: 'no transcription provider' };
@@ -235,11 +256,16 @@ async function prepare({ settings = {}, env = {}, deps } = {}) {
   try {
     await p.prepare(sttConfig(settings, env), d);
     return { ok: true, provider: p.id };
-  } catch (e) { return { ok: false, provider: p.id, error: e.message }; }
+  } catch (e) {
+    // `fault` tells the Voice pane this was not the download, so it does not
+    // put "Download failed" in front of a sentence about reinstalling.
+    const said = engineError(e, platform);
+    return said.fault ? { ok: false, provider: p.id, error: said.error, fault: true } : { ok: false, provider: p.id, error: e.message };
+  }
 }
 
 // Same { ok, text, provider } envelope the old inline handler returned.
-async function transcribe({ clip, settings = {}, env = {}, deps } = {}) {
+async function transcribe({ clip, settings = {}, env = {}, deps, platform = process.platform } = {}) {
   const d = withDefaults(deps);
   const p = resolveProvider(settings, env, deps);
   if (!p) return { ok: false, error: 'No transcription provider available' };
@@ -249,7 +275,10 @@ async function transcribe({ clip, settings = {}, env = {}, deps } = {}) {
   try {
     const text = await p.transcribe(normalizeClip(clip), cfg, d);
     return { ok: true, text: String(text || '').trim(), provider: p.id };
-  } catch (e) { return { ok: false, provider: p.id, error: `${p.label}: ${e.message}` }; }
+  } catch (e) {
+    const said = engineError(e, platform);
+    return said.fault ? { ok: false, provider: p.id, error: said.error, fault: true } : { ok: false, provider: p.id, error: `${p.label}: ${e.message}` };
+  }
 }
 
 // IPC structured-clone hands back plain objects; make the shape predictable
@@ -269,5 +298,5 @@ function normalizeClip(clip) {
 module.exports = {
   PROVIDERS, DEFAULT_PROVIDER, providerById, resolveProvider,
   sttConfig, status, prepare, transcribe,
-  pcmToWav, clipToFile, normalizeClip,
+  pcmToWav, clipToFile, normalizeClip, engineError,
 };

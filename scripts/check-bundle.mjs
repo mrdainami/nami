@@ -10,12 +10,18 @@
 // Run after packaging:  node scripts/check-bundle.mjs
 // The release workflow runs it before publishing, so nothing a user can
 // download has ever gone unexamined.
+//
+// On Windows, or anywhere with --win, it looks at release/win*-unpacked
+// instead. The asar is held to the same two boundaries, and then to the rules
+// in check-bundle-win.mjs, which are about the thing a Windows build gets wrong
+// without noticing: a native module, or a DLL it needs, that is not there.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { checkWinBundle, archOfUnpacked } from './check-bundle-win.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,9 +48,20 @@ function bundles() {
   });
 }
 
-const found = bundles();
+function winBundles() {
+  const rel = path.join(ROOT, 'release');
+  if (!fs.existsSync(rel)) return [];
+  return fs.readdirSync(rel)
+    .filter((d) => archOfUnpacked(d) && fs.existsSync(path.join(rel, d, 'resources', 'app.asar')))
+    .map((d) => path.join(rel, d));
+}
+
+const WIN = process.platform === 'win32' || process.argv.includes('--win');
+const found = WIN ? winBundles() : bundles();
 if (!found.length) {
-  console.error('No packaged app under release/. Run `npm run pack` first.');
+  console.error(WIN
+    ? 'No unpacked Windows app under release/. Run `npm run dist:win -- --x64` (or --arm64) first.'
+    : 'No packaged app under release/. Run `npm run pack` first.');
   process.exit(1);
 }
 
@@ -55,16 +72,37 @@ try { asar = require('@electron/asar'); } catch (_) {
 }
 
 let bad = 0;
-for (const file of found) {
+for (const file of WIN ? [] : found) {
   const arch = file.split(path.sep).slice(-5)[0];
   console.log(`\n== ${arch}`);
   const frameworkInfo = path.join(path.dirname(file), '..', 'Frameworks', 'Electron Framework.framework', 'Versions', 'A', 'Resources', 'Info.plist');
   const engine = require('plist').parse(fs.readFileSync(frameworkInfo, 'utf8')).CFBundleVersion;
   if (engine !== lock.packages['node_modules/electron'].version) { console.error(`   FAIL  stale Electron framework: ${engine}`); bad++; }
   else console.log(`   ok    Electron framework ${engine}`);
+  checkAsar(file);
+}
 
-  // listPackage returns every path inside, each leading with a separator
-  const entries = asar.listPackage(file).map((e) => e.replace(/^[/\\]/, ''));
+for (const dir of WIN ? found : []) {
+  const arch = archOfUnpacked(path.basename(dir));
+  console.log(`\n== ${path.basename(dir)} (${arch})`);
+  const file = path.join(dir, 'resources', 'app.asar');
+  const entries = checkAsar(file);
+  const productName = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).productName;
+  const result = checkWinBundle({ dir, arch, exe: productName + '.exe', asarEntries: entries });
+  for (const line of result.ok) console.log(`   ok    ${line}`);
+  for (const line of result.problems) { console.error(`   FAIL  ${line}`); bad++; }
+}
+
+// The two boundaries, the same on every platform: nothing in the asar that is
+// not the app, and the app that is in it is the source in this checkout.
+function checkAsar(file) {
+  // listPackage returns every path inside, each leading with a separator. The
+  // separator is the build machine's, so it is made a slash before anything
+  // compares an entry with a name written in this file.
+  const entries = asar.listPackage(file).map((e) => e.replace(/^[/\\]/, '').split('\\').join('/'));
+  // ...and made the machine's again on the way back in, which is the only
+  // spelling @electron/asar will look up. On a Mac this changes nothing.
+  const inside = (entry) => entry.split('/').join(path.sep);
   const top = [...new Set(entries.map((e) => e.split(/[/\\]/)[0]))].sort();
   console.log(`   ${entries.length} entries, top level: ${top.join(', ')}`);
 
@@ -86,7 +124,7 @@ for (const file of found) {
     const copies = entries.filter(e => e.endsWith('node_modules/' + name + '/package.json'));
     if (!expected || !copies.length) { console.error(`   FAIL  missing ${name}`); bad++; }
     for (const entry of copies) {
-      const actual = JSON.parse(asar.extractFile(file, entry)).version;
+      const actual = JSON.parse(asar.extractFile(file, inside(entry))).version;
       if (actual !== expected) { console.error(`   FAIL  ${entry}: ${actual}, expected ${expected}`); bad++; }
       else console.log(`   ok    ${name} ${actual}`);
     }
@@ -103,12 +141,13 @@ for (const file of found) {
     }
   };
   checkIncluded('src');
-  for (const entry of entries.filter(e => e.startsWith('src/') && !asar.statFile(file, e).files)) {
+  for (const entry of entries.filter(e => e.startsWith('src/') && !asar.statFile(file, inside(e)).files)) {
     const source = path.join(ROOT, entry);
-    if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== digest(asar.extractFile(file, entry))) {
+    if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== digest(asar.extractFile(file, inside(entry)))) {
       console.error(`   FAIL  packaged source differs: ${entry}`); bad++;
     }
   }
+  return entries;
 }
 
 if (bad) {

@@ -65,11 +65,31 @@ jobs:
       # The gate, the same one release.yml has. A red test never becomes a build.
       - run: npm test
 
+      # The other half of release.yml's gate. It starts npm, which on Windows is
+      # npm.cmd, and until the script learned that it failed here before it had
+      # audited anything.
+      - name: Reject known dependency vulnerabilities
+        run: npm run check:security
+
+      # onnxruntime.dll needs Microsoft's C++ runtime and a clean PC has none, so
+      # the DLLs ship inside the app. They come off this runner's own Visual
+      # Studio, never from a download. predist:win does this too; it is a step of
+      # its own here so that the arch is the matrix's rather than Node's, and so
+      # the log says which folder the files were taken from.
+      - name: Collect the C++ runtime for this arch
+        run: node scripts/stage-vc-runtime.mjs ${{ matrix.arch }}
+
       - name: Build the installer and the portable app
         env:
           # No certificate yet. Say so, or electron-builder goes looking for one.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist:win -- --${{ matrix.arch }}
+
+      # Opens what was actually built. A Windows app that is missing a native
+      # module, or a DLL one of them needs, still installs and still opens; it
+      # just has no voice or no terminal on a PC that is not this one.
+      - name: Check what is inside the app
+        run: node scripts/check-bundle.mjs
 
       - name: Keep what was built
         uses: actions/upload-artifact@v4

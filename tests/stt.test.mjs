@@ -211,3 +211,48 @@ test('clipToFile prefers the original recording over a rebuilt WAV', () => {
   assert.equal(clipToFile({ bytes: null, pcm: pcm() }).name, 'audio.wav');
   assert.equal(clipToFile({ bytes: null, pcm: null }), null);
 });
+
+// ---- an engine that will not load -------------------------------------------
+// What Windows really says on a PC without the C++ runtime, path and all.
+const dlopenWin = () => Object.assign(
+  new Error('The specified module could not be found.\r\n\\\\?\\C:\\Users\\cal\\AppData\\Local\\Programs\\Nami\\resources\\app.asar.unpacked\\node_modules\\onnxruntime-node\\bin\\napi-v3\\win32\\arm64\\onnxruntime_binding.node'),
+  { code: 'ERR_DLOPEN_FAILED' });
+
+test('on Windows an engine that cannot load is explained in plain words, with no path', async () => {
+  const engine = fakeEngine();
+  engine.transcribe = async () => { throw dlopenWin(); };
+  engine.prepare = async () => { throw dlopenWin(); };
+  for (const res of [
+    await transcribe({ clip: clip(), settings: {}, env: {}, deps: { engine }, platform: 'win32' }),
+    await stt.prepare({ settings: {}, env: {}, deps: { engine }, platform: 'win32' }),
+  ]) {
+    assert.equal(res.ok, false);
+    assert.equal(res.fault, true);
+    assert.match(res.error, /speech engine could not start/);
+    assert.match(res.error, /Reinstalling Nami fixes it/);
+    assert.doesNotMatch(res.error, /[\\/]|\.node|onnxruntime|module/i);
+  }
+});
+
+test('a load failure is recognised by its message alone, for a loader that sets no code', () => {
+  assert.equal(stt.engineError(new Error('Cannot find module ../bin/napi-v3/win32/x64/onnxruntime_binding.node'), 'win32').fault, true);
+});
+
+test('on Windows any other engine error keeps its own words', async () => {
+  const engine = fakeEngine();
+  engine.transcribe = async () => { throw new Error('model exploded'); };
+  const res = await transcribe({ clip: clip(), settings: {}, env: {}, deps: { engine }, platform: 'win32' });
+  assert.match(res.error, /: model exploded$/);
+  assert.equal('fault' in res, false);
+});
+
+test('the Mac keeps the loader\'s own message, exactly as before', async () => {
+  const engine = fakeEngine();
+  const raw = Object.assign(new Error('dlopen(/Applications/Nami.app/x/onnxruntime_binding.node, 0x0001): Library not loaded'), { code: 'ERR_DLOPEN_FAILED' });
+  engine.transcribe = async () => { throw raw; };
+  engine.prepare = async () => { throw raw; };
+  const spoken = await transcribe({ clip: clip(), settings: {}, env: {}, deps: { engine }, platform: 'darwin' });
+  assert.deepEqual(spoken, { ok: false, provider: 'local', error: `${HERE}: ${raw.message}` });
+  const prepared = await stt.prepare({ settings: {}, env: {}, deps: { engine }, platform: 'darwin' });
+  assert.deepEqual(prepared, { ok: false, provider: 'local', error: raw.message });
+});

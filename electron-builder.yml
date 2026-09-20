@@ -38,8 +38,22 @@ files:
   - '!**/*.map'
 
   # --- weight, in descending order of how much it saves -------------------
-  # 170 MB: the ORT tarball carries every platform. Which slices go depends on
-  # what is being built, so that cut lives under `mac.files` and `win.files`.
+  # 170 MB: the ORT tarball carries every platform, and a build can only ever
+  # load its own. ${platform} is the machine doing the build (darwin, win32),
+  # which is the platform being built: each one is built on its own OS, because
+  # npm only installs the node-pty and sharp binaries for the machine it runs on.
+  - '!node_modules/onnxruntime-node/bin/napi-v3/!(${platform})/**'
+  # 34 MB: and of that platform's slices, keep only the arch being built.
+  - '!node_modules/onnxruntime-node/bin/napi-v3/${platform}/!(${arch})/**'
+  #
+  # These two lines stay HERE, not under `mac.files` / `win.files`, where they
+  # read better and where the Windows branch first put them. electron-builder
+  # folds this top-level list into one file set, and a platform's own `files`
+  # into another that it treats as the main one. A main set holding nothing but
+  # exclusions gets `**/*` put in front of it — so the app shipped the whole
+  # repo: docs, tests, scripts, and whatever scratch file was lying in the root.
+  # Found by check-bundle on the first Windows build; the same was true of the
+  # Mac for as long as `mac.files` existed.
 
   # 68 MB: transformers declares onnxruntime-web as a hard dependency, but the
   # build we actually load (dist/transformers.node.mjs) imports only node:*,
@@ -77,6 +91,11 @@ dmg:
   sign: true
 afterAllArtifactBuild: scripts/notarize-dmg.mjs
 
+# Windows ARM64 only; on a Mac, and for x64, it does nothing. Without it the
+# ARM64 installer succeeds and installs an app with no Nami.exe in it. The
+# script says why.
+beforePack: scripts/win-pack.mjs
+
 # No version in the installer's name, on purpose. The download button on
 # nami.dainami.ai points at
 #   github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg
@@ -88,12 +107,6 @@ afterAllArtifactBuild: scripts/notarize-dmg.mjs
 artifactName: ${productName}-${arch}.${ext}
 
 mac:
-  files:
-    # win32 + linux is DirectML and CUDA that a Mac build can never load.
-    - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
-    - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
-    # 34 MB: and of the two Mac slices, keep only the one being built.
-    - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/!(${arch})/**'
   category: public.app-category.developer-tools
   target:
     # What a person downloads. Carries the quarantine flag, gets judged by
@@ -139,18 +152,53 @@ mac:
 
 win:
   icon: build/icon.ico
-  files:
-    - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/**'
-    - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
-    - '!node_modules/onnxruntime-node/bin/napi-v3/win32/!(${arch})/**'
+  # Microsoft's C++ runtime, which onnxruntime.dll needs and a clean Windows does
+  # not have. Without it the first dictation on a new PC fails with "The
+  # specified module could not be found". Microsoft permits shipping these files
+  # app-local, beside the binary that needs them, in place of running vc_redist.
+  # scripts/stage-vc-runtime.mjs fills the folder (predist:win runs it) and
+  # explains where the files come from and why they are never downloaded.
+  #
+  # Beside onnxruntime.dll, not beside Nami.exe, and the difference is not
+  # taste. Node loads a .node with LOAD_WITH_ALTERED_SEARCH_PATH, which makes
+  # Windows look for that module's dependencies in the module's own folder
+  # INSTEAD of the folder of the exe. Proved on a Windows 11 ARM64 VM with
+  # the installed app: from this folder the process loads these copies; moved
+  # beside Nami.exe they are never opened and System32's are loaded instead —
+  # which on a clean PC means nothing is. No other native module in the app
+  # imports the C++ runtime, and check-bundle fails the build if one starts to.
+  #
+  # The folder does not exist inside the asar, and does not need to: Windows
+  # resolves DLLs on the real disk, and that is where app.asar.unpacked is.
+  extraFiles:
+    - from: build/vc-runtime/${arch}
+      to: resources/app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v3/win32/${arch}
+      filter: ['*.dll']
+  # No `fileAssociations` here, on purpose, though the Mac has them above.
+  # electron-builder's NSIS template registers a type by writing the extension's
+  # own default value (HKCU\Software\Classes\.md = its ProgID). That is taking
+  # the default: on a PC where nobody has chosen an app for .md, a double-click
+  # now opens Nami. Its uninstaller then deletes the ProgID and leaves the
+  # extension pointing at it. There is no option that turns this off, in either
+  # install mode (`perMachine` only moves the same keys from HKCU to HKLM).
+  #
+  # build/installer.nsh does the Windows half of the Mac rule instead: it lists
+  # Nami under "Open with" for the same extensions (OpenWithProgids, and
+  # Applications\Nami.exe\SupportedTypes) and never touches the default value,
+  # so installing Nami never changes what a double-click does. The portable
+  # build registers nothing, as a portable app should.
+  # No `arch:` on these, unlike the Mac targets, and that is the fix for a real
+  # bug. An arch list written here beats the one on the command line, so
+  # `dist:win -- --arm64` built x64 as well — on an ARM machine, with the arm64
+  # node-pty inside it, a terminal that can never start — plus a third 300 MB
+  # installer holding both. Left off, the flag decides, and one run builds the
+  # one arch its machine has the native modules for.
   target:
     # What a person downloads and what an update installs.
     - target: nsis
-      arch: [x64, arm64]
     # Runs from wherever it is dropped, for a machine that refuses installers.
     # It cannot update itself, so it is never what the website links to.
     - target: portable
-      arch: [x64, arm64]
 
 # The top-level artifactName would give both Windows targets the same file name
 # and the second would overwrite the first. Still no version, for the same
@@ -162,6 +210,11 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Nami
   artifactName: ${productName}-Setup-${arch}.${ext}
+  # "Open with" for markdown and text, without taking the default. See the note
+  # under `win:` for why this is a script and not a fileAssociations list.
+  # electron-builder would find a file of this name by itself; it is named here
+  # so that nobody has to know that to find it.
+  include: build/installer.nsh
 
 portable:
   artifactName: ${productName}-Portable-${arch}.${ext}

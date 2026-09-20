@@ -1,8 +1,23 @@
 // An unavailable or incomplete audit is a failed release gate, never a pass.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
+
+// npm is npm.cmd on Windows, and Node will not start a .cmd by name: the gate
+// failed there with ENOENT before it had audited anything, which reads as
+// "vulnerable" and is not. spawnPlan is the app's own answer to the same
+// problem (src/main/platform.js), so the gate starts npm the way Nami starts
+// every other CLI. On a Mac the plan is the command unchanged.
+const { spawnPlan } = createRequire(import.meta.url)('../src/main/platform.js');
+
+export function startTool({ spawn = spawnSync, platform = process.platform } = {}) {
+  return (file, args, options) => {
+    const plan = spawnPlan(file, args, platform);
+    return spawn(plan.file, plan.args, { ...options, ...plan.options });
+  };
+}
 
 export function assessAudit(result) {
   if (result.error || result.signal || result.status !== 0) return { ok: false, reason: 'audit failed or reported vulnerabilities' };
@@ -27,7 +42,7 @@ export function assessElectron(locked, versions, latest) {
   return { ok: true };
 }
 
-export function checkSecurity({ cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), run = spawnSync, electronVersion } = {}) {
+export function checkSecurity({ cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), run = startTool(), electronVersion } = {}) {
   let passed = true;
   for (const [label, flags] of [['all dependencies', []], ['runtime dependencies', ['--omit=dev']]]) {
     const result = run('npm', ['audit', '--json', ...flags], { cwd, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
