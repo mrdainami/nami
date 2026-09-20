@@ -125,12 +125,13 @@ test('the Windows caption buttons take the theme and stay readable on it', () =>
   const { windowChrome } = require('../src/main/platform.js');
   const paper = windowChrome('win32', '#cfc3ac').titleBarOverlay;
   const operator = windowChrome('win32', '#121212').titleBarOverlay;
-  assert.equal(paper.color, '#cfc3ac');
+  // see-through in every theme, so the buttons sit on the desk and not in a box
+  assert.equal(paper.color, '#00000000');
+  assert.equal(operator.color, '#00000000');
   assert.equal(paper.symbolColor, '#2f2b26');
-  assert.equal(operator.color, '#121212');
   assert.equal(operator.symbolColor, '#f2efe8');
-  // nonsense in, the paper default out — never an invalid colour to Electron
-  assert.equal(windowChrome('win32', 'red').titleBarOverlay.color, '#fffdf6');
+  // nonsense in, the light-theme symbols out — never an invalid colour to Electron
+  assert.deepEqual(windowChrome('win32', 'red').titleBarOverlay, { color: '#00000000', symbolColor: '#2f2b26', height: 28 });
   // and a Mac has no overlay at all
   assert.equal(windowChrome('darwin', '#121212').titleBarOverlay, undefined);
 });

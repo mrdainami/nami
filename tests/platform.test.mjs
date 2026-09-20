@@ -134,9 +134,11 @@ test('mac gives the traffic lights Chrome-style air over the 22px deck', () => {
   });
 });
 
-test('windows gets an overlay tinted to the paper header, not a system bar', () => {
+test('windows gets its buttons floated on the desk, not a system bar', () => {
   const c = windowChrome('win32');
   assert.equal(c.titleBarStyle, 'hidden');
-  assert.equal(c.titleBarOverlay.color, '#fffdf6');   // --paper
+  // See-through, so the buttons sit on Nami's own background. Tinted to --paper
+  // they sat in a visible box on every theme whose background is not flat.
+  assert.equal(c.titleBarOverlay.color, '#00000000');
   assert.equal(c.titleBarOverlay.symbolColor, '#2f2b26'); // --ink
 });

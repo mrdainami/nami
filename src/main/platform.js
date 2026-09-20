@@ -281,16 +281,20 @@ function claudeCandidates({ home = '', env = {}, platform = process.platform } =
 // with an overlay tinted to match the paper header rather than a system bar
 // sitting on top of the design.
 //
-// The overlay takes the theme's own background, so the three window buttons sit
-// on the desk rather than on a strip of paper above a dark one. The symbols go
-// light or dark by how bright that background is, which keeps a theme added
-// later from needing an entry here.
+// The overlay itself is see-through, so the three window buttons float on the
+// desk the way the traffic lights do on a Mac. Painted in the theme's flat
+// background colour they sat in a box, because no theme's background is flat
+// (looked at on Windows 11, glass theme: the box was plain to see, and gone once
+// the colour was). The symbols still go light or dark by how bright the theme's
+// background is, which keeps a theme added later from needing an entry here.
+// 28 tall: the header sits in a deck BELOW the buttons (paper.css), so they no
+// longer need the header's height and can be the small things they are on a Mac.
 function windowChrome(platform = process.platform, background = '#fffdf6') {
   if (platform === WIN) {
     const hex = /^#[0-9a-f]{6}$/i.test(background) ? background : '#fffdf6';
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     const bright = (0.299 * r + 0.587 * g + 0.114 * b) > 140;
-    return { titleBarStyle: 'hidden', titleBarOverlay: { color: hex, symbolColor: bright ? '#2f2b26' : '#f2efe8', height: 28 } };
+    return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: bright ? '#2f2b26' : '#f2efe8', height: 28 } };
   }
   // The sheet is edge-to-edge, so the renderer reserves a 22px lights deck at
   // the top (see .lights-deck in paper.css). y gives the 12px buttons 11px of
