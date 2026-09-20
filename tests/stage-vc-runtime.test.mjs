@@ -119,7 +119,7 @@ test('the script never reaches the network, and its output is ignored by git and
   const ignore = fs.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
   assert.match(ignore, /^build\/vc-runtime\/$/m);
   const yml = fs.readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8');
-  assert.match(yml, /from: build\/vc-runtime\/\$\{arch\}\n\s+to: resources\/app\.asar\.unpacked\/node_modules\/onnxruntime-node\/bin\/napi-v3\/win32\/\$\{arch\}/);
+  assert.match(yml, /from: build\/vc-runtime\/\$\{arch\}\r?\n\s+to: resources\/app\.asar\.unpacked\/node_modules\/onnxruntime-node\/bin\/napi-v3\/win32\/\$\{arch\}/);
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.match(pkg.scripts['predist:win'], /stage-vc-runtime\.mjs/);
 });
