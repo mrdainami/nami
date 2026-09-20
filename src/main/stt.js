@@ -71,7 +71,7 @@ async function postForm({ url, headers, fields, file, fetchImpl }) {
 
 const local = {
   id: 'local',
-  label: 'On this Mac',
+  label: process.platform === 'win32' ? 'On this PC' : 'On this Mac',
   blurb: 'free, offline, nothing leaves your machine',
   kind: 'local',
   input: 'pcm',

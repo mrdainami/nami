@@ -23,20 +23,24 @@ function extOf(p) {
 function handles(filePath) { return OPEN_EXT.includes(extOf(filePath)); }
 
 function dirOf(p) {
-  const s = String(p || '').replace(/\/+$/, '');
-  const i = s.lastIndexOf('/');
-  return i > 0 ? s.slice(0, i) : '/';
+  const s = String(p || '').replace(/[\\/]+$/, '');
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  const dir = i > 0 ? s.slice(0, i) : '/';
+  // The parent of C:\notes.md is the drive, and a drive keeps its slash: a bare
+  // "C:" means wherever that drive's current directory happens to be.
+  return /^[a-zA-Z]:$/.test(dir) ? dir + '\\' : dir;
 }
 
 // Separator-aware, so "/proj-evil" is not read as living under "/proj". Same
 // boundary test as the renderer's path-guard, for the same reason.
 function contains(folder, filePath) {
   if (!folder) return false;
-  const r = String(folder).replace(/\/+$/, '');
-  return String(filePath).startsWith(r + '/');
+  const r = String(folder).replace(/[\\/]+$/, '');
+  const f = String(filePath || '');
+  return f.startsWith(r + '/') || f.startsWith(r + '\\');
 }
 
-const depth = (folder) => String(folder).split('/').filter(Boolean).length;
+const depth = (folder) => String(folder).split(/[\\/]/).filter(Boolean).length;
 
 // windows: [{ id, folder }] — folder may be null for a window with nothing open.
 // Returns { action, id, folder }:

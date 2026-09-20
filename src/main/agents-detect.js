@@ -153,7 +153,7 @@ function contextFilesFor(agentIds) {
 // also means anything the rc file prints lands on stdout before our answer.
 // `command -v` runs last, so the last path-shaped line is the one we asked for.
 function pathFromShellOutput(stdout, platform = process.platform) {
-  const looksAbsolute = platform === 'win32' ? /^[a-zA-Z]:\\/ : /^\//;
+  const looksAbsolute = platform === 'win32' ? /^([a-zA-Z]:[\\/]|\\\\)/ : /^\//;
   const lines = String(stdout || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) if (looksAbsolute.test(lines[i])) return lines[i];
   return '';
@@ -167,9 +167,12 @@ function pathFromShellOutput(stdout, platform = process.platform) {
 async function findOnDisk(bin, { home = os.homedir(), env = process.env, platform = process.platform, access } = {}) {
   const canRun = access || ((p) => fsp.access(p, fs.constants.X_OK));
   const exts = platform === 'win32' ? ['.exe', '.cmd', '.bat'] : [''];
+  // Joined the way the platform being asked about joins, not the way the
+  // machine running this does — the two differ in every test of this function.
+  const join = (platform === 'win32' ? path.win32 : path.posix).join;
   for (const dir of binSearchDirs({ home, env, platform })) {
     for (const ext of exts) {
-      const p = path.join(dir, bin + ext);
+      const p = join(dir, bin + ext);
       try { await canRun(p); return p; } catch (_) { /* keep looking */ }
     }
   }

@@ -15,10 +15,14 @@ const fsOps = {
   cp: (a, b) => fs.promises.cp(a, b, { recursive: true, errorOnExist: true, force: false }),
 };
 
+// Windows file names ignore case, so D:\Work and d:\work are one folder and a
+// containment check that compares letters would call the second an escape.
+const fold = (s) => (process.platform === 'win32' ? s.toLowerCase() : s);
+
 function inside(root, p) {
   if (!root) return null;
   const r = path.resolve(root), abs = path.resolve(String(p || ''));
-  return abs === r || abs.startsWith(r + path.sep) ? abs : null;
+  return fold(abs) === fold(r) || fold(abs).startsWith(fold(r) + path.sep) ? abs : null;
 }
 function badName(name) { return !name || String(name).includes('/') || String(name).includes('\\'); }
 
@@ -26,7 +30,7 @@ function badName(name) { return !name || String(name).includes('/') || String(na
 // a plain startsWith would call /proj/srcXtra a child of /proj/src and refuse a
 // legitimate move between siblings.
 function isDescendant(parent, child) {
-  const a = path.resolve(String(parent || '')), b = path.resolve(String(child || ''));
+  const a = fold(path.resolve(String(parent || ''))), b = fold(path.resolve(String(child || '')));
   return b === a || b.startsWith(a + path.sep);
 }
 
@@ -80,7 +84,7 @@ function movePath({ root, src, destDir, ops = fsOps }) {
 function renamePath({ root, src, name, ops = fsOps }) {
   const s = inside(root, src);
   if (!s || badName(name)) return { ok: false, error: 'Bad name' };
-  if (s === path.resolve(root)) return { ok: false, error: 'That is the open folder — rename it in Finder' };
+  if (s === path.resolve(root)) return { ok: false, error: `That is the open folder — rename it in ${process.platform === 'win32' ? 'File Explorer' : 'Finder'}` };
   const dest = path.join(path.dirname(s), String(name));
   if (dest === s) return { ok: true, path: s };
   if (ops.exists(dest)) return { ok: false, error: 'Already exists: ' + name };

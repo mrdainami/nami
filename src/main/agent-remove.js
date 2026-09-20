@@ -18,8 +18,8 @@ const { agentById, expandHome } = require('./agents-detect.js');
 
 function isSafeRemovePath(p, home) {
   if (typeof p !== 'string' || !p || !path.isAbsolute(p)) return false;
-  const norm = path.normalize(p).replace(/\/+$/, '');
-  const base = path.normalize(home).replace(/\/+$/, '');
+  const norm = path.normalize(p).replace(/[\\/]+$/, '');
+  const base = path.normalize(home).replace(/[\\/]+$/, '');
   if (norm === base) return false;
   return norm.startsWith(base + path.sep);
 }

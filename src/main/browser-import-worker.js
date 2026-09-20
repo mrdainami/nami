@@ -7,6 +7,7 @@ const { deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, chromeBl
 const { browserUrl } = require('./browser-policy');
 const LABELS={Edge:'Microsoft Edge',Brave:'Brave',Vivaldi:'Vivaldi',Opera:'Opera',Arc:'Arc',Chromium:'Chromium'};
 function keychainPassword(browser,signal) {
+  if (process.platform !== 'darwin') return Promise.resolve(null);
   const label=LABELS[browser]||'Chrome';
   return new Promise(resolve=>execFile('security',['find-generic-password','-w','-s',label+' Safe Storage','-a',label],
     {encoding:'utf8',timeout:25000,signal,maxBuffer:64*1024},(error,out)=>resolve(error?null:String(out).trim()||null)));

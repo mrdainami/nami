@@ -209,6 +209,7 @@ function queryCodex(command, envPath, spawnFn = spawn, { parentEnv = process.env
   });
 }
 function claudeTokenFromKeychain() {
+  if (process.platform !== 'darwin') return null;   // `security` is the macOS keychain tool
   const { execFileSync } = require('node:child_process');
   let user = '';
   try { user = os.userInfo().username; } catch { user = process.env.USER || ''; }
