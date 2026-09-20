@@ -2,6 +2,7 @@
 // credentials, cwd or session identifiers. The user installs it explicitly.
 const fs = require('node:fs');
 const path = require('node:path');
+const { ownerOnly } = require('./owner-only');
 let input = '';
 process.stdin.on('data', (chunk) => { input += chunk; if (input.length > 1024 * 1024) process.exit(1); });
 process.stdin.on('end', () => {
@@ -13,7 +14,12 @@ process.stdin.on('end', () => {
       const w = data.rate_limits?.[key];
       if (w && typeof w.used_percentage === 'number' && Number.isFinite(w.used_percentage)) limits[key] = { used_percentage: w.used_percentage, resets_at: w.resets_at };
     }
-    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    // Windows has no 0o700. Claude runs this on every repaint of its status
+    // line, in a new process each time, so icacls per write would cost more than
+    // the write and the user's SID could never be remembered. The folder is
+    // closed once instead, when it is made, and claude.json inherits that.
+    const made = fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (made) ownerOnly(made, { directory: true });
     const file = path.join(directory, 'claude.json'), tmp = file + '.' + process.pid;
     fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), rate_limits: limits }), { mode: 0o600 }); fs.renameSync(tmp, file);
     process.stdout.write(Object.entries(limits).map(([key, w]) => key.replaceAll('_', ' ') + ': ' + Math.max(0, 100 - w.used_percentage).toFixed(0) + '% left').join(' · ') || 'Claude');
