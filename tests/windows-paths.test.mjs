@@ -54,3 +54,20 @@ test('the menu says File Explorer where there is no Finder', () => {
   assert.doesNotMatch(labels('win32'), /Finder/);
   assert.match(labels('darwin'), /Reveal in Finder/);
 });
+
+test('a PC is only offered a release that has a Windows installer on it', () => {
+  const { releaseFromApi } = require('../src/main/update-check.js');
+  const asset = (name) => ({ name, browser_download_url: 'https://github.com/mrdainami/nami/releases/download/v9.9.9/' + name });
+  const macOnly = { tag_name: 'v9.9.9', html_url: 'https://github.com/mrdainami/nami/releases/tag/v9.9.9', assets: [asset('Nami-arm64.dmg'), asset('Nami-x64.dmg')] };
+  const both = { ...macOnly, assets: [...macOnly.assets, asset('Nami-Setup-x64.exe'), asset('Nami-Setup-arm64.exe'), asset('Nami-Portable-x64.exe')] };
+
+  // a Mac-only release is not an update for a PC, and never a dmg
+  assert.equal(releaseFromApi(macOnly, 'x64', 'win32'), null);
+  assert.ok(releaseFromApi(both, 'x64', 'win32').url.endsWith('/Nami-Setup-x64.exe'));
+  assert.ok(releaseFromApi(both, 'arm64', 'win32').url.endsWith('/Nami-Setup-arm64.exe'));
+  // the portable build cannot update itself, so it is never the one offered
+  assert.doesNotMatch(releaseFromApi(both, 'x64', 'win32').url, /Portable/);
+  // and a Mac is still handed its dmg, whatever else is on the release
+  assert.ok(releaseFromApi(both, 'arm64', 'darwin').url.endsWith('/Nami-arm64.dmg'));
+  assert.ok(releaseFromApi(both, 'x64', 'darwin').url.endsWith('/Nami-x64.dmg'));
+});

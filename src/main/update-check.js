@@ -45,7 +45,7 @@ function isNewer(candidate, current) {
 
 // GitHub's release JSON → { version, url }, or null if it is not something a
 // user should be offered: a draft, a prerelease, or not a release at all.
-function releaseFromApi(doc, arch = process.arch) {
+function releaseFromApi(doc, arch = process.arch, platform = process.platform) {
   if (!doc || typeof doc !== 'object') return null;
   if (doc.draft || doc.prerelease) return null;
   const version = String(doc.tag_name || '').trim().replace(/^v/i, '');
@@ -55,6 +55,14 @@ function releaseFromApi(doc, arch = process.arch) {
   // the arm64 one with the arch in it and leaves x64 bare, so match on that and
   // fall back to the release page rather than guessing wrong.
   const assets = Array.isArray(doc.assets) ? doc.assets : [];
+  // On Windows the installer is the only thing worth offering, and a release
+  // without one is not an update at all: a Mac-only release must not light the
+  // bar on a PC and then hand its owner a dmg.
+  if (platform === 'win32') {
+    const setup = assets.find((a) => a && typeof a.name === 'string' && /setup/i.test(a.name) && a.name.endsWith('.exe')
+      && (/arm64/i.test(a.name)) === (String(arch) === 'arm64'));
+    return setup && setup.browser_download_url ? { version, url: setup.browser_download_url } : null;
+  }
   const dmgs = assets.filter((a) => a && typeof a.name === 'string' && a.name.endsWith('.dmg'));
   const wantsArm = String(arch) === 'arm64';
   const pick = dmgs.find((a) => (/arm64/i.test(a.name)) === wantsArm) || null;
@@ -86,14 +94,14 @@ async function fetchLatest(url = LATEST) {
 // A reachable GitHub with nothing offerable (the latest is a draft, or a
 // prerelease) is 'current' rather than an error. From where the user stands
 // there is nothing to install, which is what 'current' means.
-async function updateStatus({ currentVersion, arch = process.arch, fetchJson = fetchLatest } = {}) {
+async function updateStatus({ currentVersion, arch = process.arch, platform = process.platform, fetchJson = fetchLatest } = {}) {
   let doc = null;
   try {
     doc = await fetchJson();
   } catch (_) {
     return { state: 'offline' };
   }
-  const rel = releaseFromApi(doc, arch);
+  const rel = releaseFromApi(doc, arch, platform);
   if (!rel || !isNewer(rel.version, currentVersion)) return { state: 'current' };
   return { state: 'update', version: rel.version, url: rel.url };
 }

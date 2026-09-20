@@ -92,10 +92,15 @@ function updaterState() { return { state, version: staged ? staged.version : nul
 // one update-check.js already made, and the two can disagree for the minute a
 // release is being published — a disagreement surfaces here as an error, which
 // is the browser fallback, which is correct.
-async function downloadUpdate({ isPackaged, emit }) {
+async function downloadUpdate({ isPackaged, emit, platform = process.platform }) {
   // A dev build must never replace anything. main guards the poll the same way;
   // this is the guard that matters, because it is the one that writes to disk.
   if (!isPackaged) { log('not packaged — refusing to download'); return updaterState(); }
+
+  // Windows releases carry an installer but no update feed yet, so there is
+  // nothing for the updater to read. Say so the way a failed download does:
+  // the bar goes back to opening the installer in a browser, which works.
+  if (platform === 'win32') { log('no in-place update on Windows yet — opening the installer instead'); emit('update:failed', {}); return updaterState(); }
 
   const moved = nextState(state, 'download');
   if (moved === state) return updaterState();  // already downloading, or already staged
