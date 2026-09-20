@@ -9,6 +9,7 @@ import { createCommandRouter } from './acp-commands.mjs';
 import { chipHtml, iconKeyFor } from './icons.mjs';
 import { createSessionContextRecorder } from './session-context.mjs';
 import { appendDraft } from './session-draft.mjs';
+import { sessionHome } from './home-path.mjs';
 
 // Main owns executable/argument selection for these probed ACP agents.
 export const CHAT_READY = ['claude', 'kimi', 'codex', 'opencode', 'grok', 'hermes'];
@@ -71,7 +72,7 @@ export function mountChatPane(p, rec, hooks) {
   }
   const transcript = createTranscript(scrollHost, {
     cwd: p.cwd,
-    home: (p.cwd.match(/^\/(Users|home)\/[^/]+/) || [''])[0],
+    home: sessionHome(p.cwd),
     onLink: (url) => { if (/^https?:/.test(url)) api.openLink(url); else hooks.open(url); },
     onCopy: (text) => { api.copyText(text); hooks.toast('Copied'); },
     onOpenFile: (path) => openSmart(path),

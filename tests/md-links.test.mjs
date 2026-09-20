@@ -91,3 +91,40 @@ test('emphasis and links nest both ways; code spans stay literal', () => {
   assert.match(renderMarkdown('[**x** y](https://e.com/b)'), /<a href="https:\/\/e\.com\/b"><strong>x<\/strong> y<\/a>/);
   assert.match(renderMarkdown('`**[x](u)**`'), /<code>\*\*\[x\]\(u\)\*\*<\/code>/);
 });
+
+// ---- the same clicks on Windows --------------------------------------------
+// The platform is named; nothing here is read off the shape of the path.
+
+test('windows: a link to another file resolves next to the doc', () => {
+  const doc = 'C:\\p\\docs\\README.md';
+  assert.deepEqual(docHrefTarget('spec.md', doc, 'win32'), { kind: 'path', target: 'C:\\p\\docs\\spec.md' });
+  assert.deepEqual(docHrefTarget('./img/shot.png', doc, 'win32'), { kind: 'path', target: 'C:\\p\\docs\\img\\shot.png' });
+  assert.deepEqual(docHrefTarget('..\\notes.md', doc, 'win32'), { kind: 'path', target: 'C:\\p\\notes.md' });
+  assert.deepEqual(docHrefTarget('../notes.md#usage', doc, 'win32'), { kind: 'path', target: 'C:\\p\\notes.md' });
+  assert.deepEqual(docHrefTarget('./my%20notes.md', doc, 'win32'), { kind: 'path', target: 'C:\\p\\docs\\my notes.md' });
+  assert.deepEqual(docHrefTarget('a.md', 'C:\\README.md', 'win32'), { kind: 'path', target: 'C:\\a.md' });
+  assert.deepEqual(docHrefTarget('a.md', '\\\\nas\\work\\README.md', 'win32'), { kind: 'path', target: '\\\\nas\\work\\a.md' });
+});
+
+test('windows: a drive path is a file, not a scheme nobody has heard of', () => {
+  const doc = 'C:\\p\\README.md';
+  assert.deepEqual(docHrefTarget('D:\\abs\\x.md', doc, 'win32'), { kind: 'path', target: 'D:\\abs\\x.md' });
+  assert.deepEqual(docHrefTarget('D:/abs/x.md', doc, 'win32'), { kind: 'path', target: 'D:\\abs\\x.md' });
+  assert.deepEqual(docHrefTarget('file:///C:/Users/me/My%20Notes/a.md', doc, 'win32'), { kind: 'path', target: 'C:\\Users\\me\\My Notes\\a.md' });
+  assert.deepEqual(docHrefTarget('file://nas/work/a.md', doc, 'win32'), { kind: 'path', target: '\\\\nas\\work\\a.md' });
+  assert.deepEqual(docHrefTarget('~\\.claude\\CLAUDE.md', doc, 'win32'), { kind: 'path', target: '~\\.claude\\CLAUDE.md' });
+  // and off Windows the same text is still a scheme, and still goes nowhere
+  assert.equal(docHrefTarget('D:\\abs\\x.md', '/p/README.md', 'darwin').kind, 'ignore');
+  assert.equal(docHrefTarget('D:/abs/x.md', '/p/README.md').kind, 'ignore');
+});
+
+test('windows: no scheme reaches the shell there either', () => {
+  const doc = 'C:\\p\\README.md';
+  assert.equal(docHrefTarget('javascript:alert(1)', doc, 'win32').kind, 'ignore');
+  assert.equal(docHrefTarget('mailto:cal@dainami.ai', doc, 'win32').kind, 'ignore');
+  assert.equal(docHrefTarget('vscode://file/x', doc, 'win32').kind, 'ignore');
+  assert.equal(docHrefTarget('c:calc.exe', doc, 'win32').kind, 'ignore', 'a letter and a colon with no separator is not a path');
+  assert.equal(docHrefTarget('docs\\spec.md', null, 'win32').kind, 'ignore');
+  assert.deepEqual(docHrefTarget('https://x.com', doc, 'win32'), { kind: 'url', target: 'https://x.com' });
+  assert.deepEqual(docHrefTarget('#install', doc, 'win32'), { kind: 'anchor', target: 'install' });
+});

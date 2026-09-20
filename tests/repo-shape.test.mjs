@@ -35,6 +35,7 @@ const ALLOWED_ROOT = new Set([
   'package.json', 'package-lock.json', 'electron-builder.yml',
   'electron-builder.review.yml',
   'README.md', 'LICENSE', 'CONTRIBUTING.md', '.gitignore',
+  '.gitattributes',   // one set of line endings, so a PC and a Mac check out the same files
 ]);
 
 test('nothing is published from outside the folders that make Nami', () => {

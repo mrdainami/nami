@@ -5,6 +5,9 @@ release-review/
 shots/
 # 42MB of Whisper weights, fetched by `npm run fetch-model` at package time
 build/models/
+# Microsoft's C++ runtime DLLs, copied off the build machine by
+# scripts/stage-vc-runtime.mjs. Theirs to publish, not ours to commit.
+build/vc-runtime/
 .DS_Store
 
 # Your desk. Anything personal, half-finished, or nobody-else's-business goes

@@ -10,6 +10,7 @@
 // containing <script> renders as the literal characters.
 
 import { highlightCode } from './md-code.mjs';
+import { currentPlatform, isWin, isAbsolute, dirName, join, normalize, fromFileUrl } from './paths.mjs';
 
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -25,38 +26,28 @@ const INLINE = /(`[^`\n]+`)|(==[^=\n]+==)|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*\*[^*\n
 // Pure: hand it an href and the path of the doc it came from, get back what the
 // click should do. The app never navigates on an href it did not classify, so
 // an unknown scheme is a no-op rather than a trip to the shell.
-function normalizePath(p) {
-  const abs = p.startsWith('/');
-  const parts = [];
-  for (const seg of p.split('/')) {
-    if (!seg || seg === '.') continue;
-    if (seg === '..') {
-      if (parts.length && parts[parts.length - 1] !== '..') parts.pop();
-      else if (!abs) parts.push('..');
-      continue;
-    }
-    parts.push(seg);
-  }
-  return (abs ? '/' : '') + parts.join('/');
-}
-
-export function docHrefTarget(href, docPath) {
+//
+// What a path looks like is paths.mjs's to say. The one thing that has to be
+// settled here is the order: on Windows `C:\notes\a.md` opens with a letter and
+// a colon, which is also how a scheme opens, so the drive is asked about first
+// — no scheme anyone links to is one letter long.
+export function docHrefTarget(href, docPath, platform = currentPlatform()) {
   let h = String(href == null ? '' : href).trim();
   if (!h) return { kind: 'ignore' };
   if (h.startsWith('#')) return { kind: 'anchor', target: h.slice(1) };
   if (/^https?:\/\//i.test(h)) return { kind: 'url', target: h };
   if (/^www\./i.test(h)) return { kind: 'url', target: 'https://' + h };
-  if (/^file:\/\//i.test(h)) h = h.replace(/^file:\/\/(localhost)?/i, '');
-  else if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return { kind: 'ignore' };
+  if (/^file:\/\//i.test(h)) h = isWin(platform) ? fromFileUrl(h, platform) : h.replace(/^file:\/\/(localhost)?/i, '');
+  else if (!(isWin(platform) && isAbsolute(h, platform)) && /^[a-z][a-z0-9+.-]*:/i.test(h)) return { kind: 'ignore' };
 
   h = h.split('#')[0].split('?')[0];
   try { h = decodeURIComponent(h); } catch (_) {}
   if (!h) return { kind: 'ignore' };
-  if (h.startsWith('~') || h.startsWith('/')) return { kind: 'path', target: h.startsWith('~') ? h : normalizePath(h) };
+  if (h.startsWith('~') || isAbsolute(h, platform)) return { kind: 'path', target: h.startsWith('~') ? h : normalize(h, platform) };
 
-  const dir = String(docPath || '').slice(0, String(docPath || '').lastIndexOf('/'));
+  const dir = dirName(docPath || '', platform);
   if (!dir) return { kind: 'ignore' };   // a doc with no path can't anchor a relative link
-  return { kind: 'path', target: normalizePath(dir + '/' + h) };
+  return { kind: 'path', target: normalize(join(dir, h, platform), platform) };
 }
 
 // ---- block -----------------------------------------------------------------

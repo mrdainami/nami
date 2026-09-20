@@ -18,17 +18,20 @@
 // terminal, and the caller owns all the buffer walking and stat calls.
 
 import { scanLinks } from './term-links.mjs';
+import { currentPlatform, isAbsolute, dirName, join, stripDotSlash, climbs } from './paths.mjs';
 
 // Absolute folder candidates from one glued run of terminal text, order
-// preserved, deduped, capped. Relative tokens and URLs contribute nothing.
-export function basesFromText(text, cap = 6) {
+// preserved, deduped, capped. Relative tokens and URLs contribute nothing, and
+// neither does a bare root: `/` or `C:\` under a short token names nothing
+// anyone pointed at.
+export function basesFromText(text, cap = 6, platform = currentPlatform()) {
   const out = [];
   const seen = new Set();
-  const add = (b) => { if (b && b !== '/' && !seen.has(b) && out.length < cap) { seen.add(b); out.push(b); } };
-  for (const link of scanLinks(text)) {
-    if (link.kind !== 'path' || link.text[0] !== '/') continue;
+  const add = (b) => { if (b && dirName(b, platform) !== b && !seen.has(b) && out.length < cap) { seen.add(b); out.push(b); } };
+  for (const link of scanLinks(text, platform)) {
+    if (link.kind !== 'path' || !isAbsolute(link.text, platform)) continue;
     add(link.text);
-    add(link.text.slice(0, link.text.lastIndexOf('/')) || null);
+    add(dirName(link.text, platform));
     if (out.length >= cap) break;
   }
   return out;
@@ -38,11 +41,11 @@ export function basesFromText(text, cap = 6) {
 // path a base applies to. `..` is refused outright: a scavenged base plus a
 // climbing token could name anything on the disk, and nothing on screen
 // vouches for it.
-export function joinBase(base, token) {
+export function joinBase(base, token, platform = currentPlatform()) {
   let t = String(token || '');
-  if (!t || t[0] === '/' || t[0] === '~') return null;
-  if (t.startsWith('./')) t = t.slice(2);
-  if (t === '..' || t.startsWith('../') || t.includes('/../') || t.endsWith('/..')) return null;
+  if (!t || isAbsolute(t, platform) || t[0] === '~') return null;
+  t = stripDotSlash(t, platform);
+  if (climbs(t, platform)) return null;
   if (!t) return null;
-  return base.replace(/\/$/, '') + '/' + t;
+  return join(base, t, platform);
 }

@@ -183,9 +183,25 @@ body[data-platform="darwin"] .lights-deck {
   -webkit-app-region: drag;
 }
 body[data-platform="darwin"].is-fullscreen .lights-deck { height: 0; }
-/* Windows paints its own min/max/close overlay top-right (38px tall, ~140px
-   wide); without this clearance it sits on NEW SESSION. */
-body[data-platform="win32"] .topbar { padding-right: 150px; }
+/* Windows gets the same deck for the same reason, in the other corner: its
+   minimise / maximise / close buttons are painted by the system over the top
+   right of the window, and the header sits below them rather than beside them.
+   Beside them was tried first, with a fixed gutter, and it cannot work — the
+   system draws the buttons at one size whatever the zoom, so zooming out shrank
+   the gutter from under them and they came to rest on NEW SESSION. The deck's
+   height is the strip's own, as the engine reports it (it tracks zoom); the
+   fallback is what platform.js asks the strip to be. Fullscreen hides the
+   buttons, so the deck goes with them. */
+body[data-platform="win32"] .lights-deck {
+  display: block; flex: none; height: env(titlebar-area-height, 28px);
+  -webkit-app-region: drag;
+}
+body[data-platform="win32"].is-fullscreen .lights-deck { height: 0; }
+/* A shortcut hint on a button is two characters on a Mac (⌘N) and twelve on
+   Windows (Ctrl+Shift+T), so there it crowds the header instead of decorating
+   it. Windows buttons say what they do and nothing else; the keys are still in
+   the Shortcuts sheet, in right-click menus and in the footer strip. */
+body[data-platform="win32"] .btn .kb { display: none; }
 /* ---- header ------------------------------------------------------------- */
 
 .topbar {

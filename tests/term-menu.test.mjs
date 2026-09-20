@@ -82,3 +82,30 @@ test('the shortcuts advertised are the ones that exist', () => {
   // A directory has no alt route — ⌘click already reveals it.
   assert.equal(dir.find((i) => i !== '-' && i.label === 'Reveal in Finder').kb, '⌘click');
 });
+
+// Platform is a parameter, so the Windows menu is checked from a Mac. Same
+// rows, same order; only the key and the word for Finder are the machine's.
+test('on Windows the menu says Ctrl and File Explorer, row for row', () => {
+  const shapes = [
+    { kind: 'url', text: 'https://example.com', st: null },
+    { kind: 'path', text: 'src\\gone.js', st: null },
+    { kind: 'path', text: 'src', st: { exists: true, isDir: true, abs: 'C:\\w\\src' } },
+    { kind: 'path', text: 'src\\app.js', st: { exists: true, isFile: true, abs: 'C:\\w\\src\\app.js' } },
+  ];
+  for (const s of shapes) {
+    const mac = termMenuItems(s, 'darwin'), win = termMenuItems(s, 'win32');
+    assert.equal(win.length, mac.length);
+    assert.deepEqual(win.map((i) => (i === '-' ? '-' : [!!i.off, i.copy])), mac.map((i) => (i === '-' ? '-' : [!!i.off, i.copy])));
+  }
+  const file = termMenuItems({ kind: 'path', text: 'a.js', st: { exists: true, isFile: true, abs: 'C:\\w\\a.js' } }, 'win32');
+  assert.deepEqual(file.slice(0, 2), [{ label: 'Open', kb: 'Ctrl+click' }, { label: 'Reveal in File Explorer', kb: 'Ctrl+Alt+click' }]);
+  const dir = termMenuItems({ kind: 'path', text: 'a', st: { exists: true, isDir: true, abs: 'C:\\w\\a' } }, 'win32');
+  assert.deepEqual(dir[0], { label: 'Reveal in File Explorer', kb: 'Ctrl+click' });
+  assert.deepEqual(termMenuItems({ kind: 'url', text: 'https://example.com', st: null }, 'win32')[0], { label: 'Open in browser', kb: 'Ctrl+click' });
+});
+
+test('a Mac menu is the one it has always been, asked for by name or by default', () => {
+  const s = { kind: 'path', text: 'a.js', st: { exists: true, isFile: true, abs: '/w/a.js' } };
+  assert.deepEqual(termMenuItems(s, 'darwin'), termMenuItems(s));
+  assert.deepEqual(termMenuItems(s, 'darwin').slice(0, 2), [{ label: 'Open', kb: '⌘click' }, { label: 'Reveal in Finder', kb: '⌥⌘click' }]);
+});

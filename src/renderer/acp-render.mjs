@@ -6,6 +6,7 @@
 // self-narration. Everything readable is selectable; code gets a copy button.
 
 import { renderMarkdown, renderInline } from './acp-markdown.mjs';
+import { currentPlatform, isWin, sepOf, isPrintedAbsolute, resolveFrom, baseName, splitAll, toFileUrl, fromFileUrl, safeToTouch } from './paths.mjs';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -14,8 +15,86 @@ const KIND_LABEL = {
   search: 'Search', delete: 'Delete', move: 'Move', think: 'Think', other: 'Tool',
 };
 
+// Does a `code` span name a file? A path that says where it starts — /abs on a
+// Mac, C:\abs or \\server\share on Windows — only has to end like a file; a
+// relative one has to end in a type we know, or every dotted identifier in a
+// reply would turn into a dead link. Windows takes `\` as well as `/` between
+// the folders; off Windows a backslash is no separator and the old rule stands
+// to the letter.
+const PATHISH = /^(~\/|\.{0,2}\/)?[\w .@-]*(\/[\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
+const PATHISH_WIN = /^(~[\\/]|\.{0,2}[\\/])?[\w .@-]*([\\/][\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
+export function looksLikePath(text, platform = currentPlatform()) {
+  const t = String(text == null ? '' : text);
+  if (isPrintedAbsolute(t, platform)) return /\.[a-z0-9]{1,5}$/i.test(t);
+  return (isWin(platform) ? PATHISH_WIN : PATHISH).test(t);
+}
+
+// Where a tool's image lives on disk, from the uri it came with: a bare
+// absolute path or a file:// URL. Anything else (a data: URI, a web address)
+// has no file to open. A Windows file URL is decoded, because nearly every
+// home folder there has a space in it; the Mac column is as it always was.
+export function imageOpenPath(uri, platform = currentPlatform()) {
+  const u = String(uri == null ? '' : uri);
+  if (isPrintedAbsolute(u, platform)) return u;
+  if (!u.startsWith('file:')) return '';
+  const p = fromFileUrl(u, platform);
+  if (!isWin(platform)) return p;
+  try { return decodeURIComponent(p); } catch (_) { return p; }
+}
+
+// ---- paths that name another computer ---------------------------------------
+// A reply is text nobody chose, and this file acts on it without a click: a
+// `code` span ending in .png gets a thumbnail, a markdown image is drawn, a
+// tool's image is drawn. On Windows a path can name a server, and pointing an
+// <img> at \\evil\share\a.png logs the PC in to it (the whole argument is in
+// src/main/remote-path.js). So before any of that happens the path is asked
+// about, and one that fails stays what it arrived as: words.
+//
+// `o` is the transcript's options: the session's folder and the home folder
+// are the two places a share may honestly be, so a project kept on
+// \\Mac\Home goes on drawing its own pictures. A Mac has no such paths and
+// every answer here is yes.
+const rootsOf = (o) => [o && o.cwd, o && o.home];
+
+// May this token — a path as a reply wrote it — be linked, statted or opened?
+export function touchable(token, o, platform = currentPlatform()) {
+  return safeToTouch(resolveFrom(token, o && o.cwd, o && o.home, platform), rootsOf(o), platform);
+}
+
+// The last look, at the address itself, read the way Chromium will read it
+// rather than the way it was spelled: FILE://evil/…, file:////evil/…,
+// //evil/… against a file: page, and %5C%5Cevil are all the same server.
+export function imageSrcAllowed(src, roots, platform = currentPlatform()) {
+  if (!isWin(platform)) return true;
+  let u, p;
+  try { u = new URL(String(src == null ? '' : src).trim(), 'file:///C:/'); p = decodeURIComponent(u.pathname).replace(/\\/g, '/'); } catch (_) { return false; }
+  if (u.protocol !== 'file:') return true;
+  if (u.host) return safeToTouch('\\\\' + u.host + p.replace(/\//g, '\\'), roots, platform);
+  return !p.startsWith('//') || safeToTouch(p, roots, platform);
+}
+
+// The file:// address for a thumbnail of `token`, or '' when none may be drawn.
+export function thumbSrc(token, o, platform = currentPlatform()) {
+  if (!touchable(token, o, platform)) return '';
+  const src = toFileUrl(resolveFrom(token, o && o.cwd, o && o.home, platform), platform);
+  return imageSrcAllowed(src, rootsOf(o), platform) ? src : '';
+}
+
+// A tool's image, as HTML. One that may not be drawn is shown as the address it
+// came with, in plain text: no <img>, nothing to click, no `code` span for
+// wire() to make a link of.
+export function toolImageHtml(content, o, platform = currentPlatform()) {
+  const uri = content.uri || '';
+  const src = uri || ('data:' + (content.mimeType || 'image/png') + ';base64,' + (content.data || ''));
+  const onDisk = imageOpenPath(uri, platform);
+  if ((onDisk && !safeToTouch(onDisk, rootsOf(o), platform)) || !imageSrcAllowed(src, rootsOf(o), platform)) return `<div class="cw-tool-text">${esc(uri)}</div>`;
+  const openAttr = onDisk ? ` data-open="${esc(onDisk)}"` : '';
+  return `<img class="cw-imgout"${openAttr} src="${esc(isPrintedAbsolute(src, platform) ? toFileUrl(src, platform) : src)}" alt="">`;
+}
+
 export function createTranscript(container, opts) {
   const o = opts || {};
+  const platform = o.platform || currentPlatform();
   container.classList.add('cw-scroll');
   let openMsg = null, openThought = null, openUser = null, planEl = null;
   const tools = new Map();
@@ -32,26 +111,23 @@ export function createTranscript(container, opts) {
     toBottom();
     return el;
   }
-  const PATHISH = /^(~\/|\.{0,2}\/)?[\w .@-]*(\/[\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
   function wire(root) {
     root.querySelectorAll('code:not([data-wired])').forEach((c) => {
       c.dataset.wired = '1';
       const t = c.textContent.trim();
-      if (t.startsWith('/') ? /\.[a-z0-9]{1,5}$/i.test(t) : PATHISH.test(t)) {
+      // A path on somebody else's server is left as the words it is: no link,
+      // no thumbnail (see touchable, above).
+      if (looksLikePath(t, platform) && touchable(t, o, platform)) {
         c.classList.add('cw-pathlink');
-        const resolve = () => {
-          let path = t;
-          if (path.startsWith('~/')) path = (o.home || '') + path.slice(1);
-          else if (!path.startsWith('/')) path = (o.cwd ? o.cwd + '/' : '') + path.replace(/^\.\//, '');
-          return path;
-        };
+        const resolve = () => resolveFrom(t, o.cwd, o.home, platform);
         c.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
-        if (/\.(png|jpe?g|gif|webp|svg)$/i.test(t) && !c.dataset.thumbed) {
+        const thumb = /\.(png|jpe?g|gif|webp|svg)$/i.test(t) && !c.dataset.thumbed ? thumbSrc(t, o, platform) : '';
+        if (thumb) {
           c.dataset.thumbed = '1';
           const th = document.createElement('button');
           th.className = 'cw-inline-thumb';
           th.innerHTML = '<img alt="">';
-          th.querySelector('img').src = 'file://' + encodeURI(resolve());
+          th.querySelector('img').src = thumb;
           th.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
           th.querySelector('img').onerror = () => th.remove();
           const blk = c.closest('.cw-a, .cw-tool-text');
@@ -61,16 +137,23 @@ export function createTranscript(container, opts) {
     });
     root.querySelectorAll('img[data-imgsrc]').forEach((img) => {
       // markdown images arrive src-less from the emitter (it is DOM- and
-      // cwd-free); only here do we know where the session lives on disk
-      let path = img.dataset.imgsrc;
-      if (path.startsWith('~/')) path = (o.home || '') + path.slice(1);
-      else if (!path.startsWith('/')) path = (o.cwd ? o.cwd + '/' : '') + path.replace(/^\.\//, '');
-      img.src = 'file://' + encodeURI(path);
+      // cwd-free); only here do we know where the session lives on disk —
+      // and whether it is a disk at all, or somebody's server
+      const src = thumbSrc(img.dataset.imgsrc, o, platform);
+      if (!src) { img.replaceWith(document.createTextNode(img.dataset.imgsrc)); return; }
+      img.src = src;
       img.onerror = () => img.remove();
       img.removeAttribute('data-imgsrc');
     });
     root.querySelectorAll('a[data-link]').forEach((a) => {
-      a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (o.onLink) o.onLink(a.getAttribute('href')); };
+      // A link to a web page goes to the browser. Anything else is opened as a
+      // file, so it is asked about first: the words of a link say nothing about
+      // where it leads, and `\\evil\share\notes.md` leads to a server.
+      a.onclick = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const href = a.getAttribute('href');
+        if (o.onLink && (/^https?:/i.test(href) || touchable(href, o, platform))) o.onLink(href);
+      };
     });
     root.querySelectorAll('[data-copy]').forEach((b) => {
       b.onclick = (e) => {
@@ -82,7 +165,7 @@ export function createTranscript(container, opts) {
       };
     });
     root.querySelectorAll('[data-open]').forEach((el) => {
-      el.addEventListener('click', (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(el.dataset.open); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); if (o.onOpenFile && touchable(el.dataset.open, o, platform)) o.onOpenFile(el.dataset.open); });
     });
   }
   function closeStreams() { openMsg = null; openUser = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; } }
@@ -162,7 +245,7 @@ export function createTranscript(container, opts) {
         const oldLines = c.oldText == null ? [] : String(c.oldText).split('\n');
         const newLines = c.newText == null ? [] : String(c.newText).split('\n');
         bd.insertAdjacentHTML('beforeend',
-          `<div class="cw-diff-path"><button class="cw-filelink" data-open="${esc(c.path || '')}">${esc(shortPath(c.path))}</button></div>` +
+          `<div class="cw-diff-path"><button class="cw-filelink" data-open="${esc(c.path || '')}">${esc(shortPath(c.path, platform))}</button></div>` +
           `<pre class="cw-diff">` +
           oldLines.slice(0, 40).map((l) => `<span class="d">- ${esc(l)}</span>`).join('') +
           newLines.slice(0, 40).map((l) => `<span class="a">+ ${esc(l)}</span>`).join('') +
@@ -170,10 +253,7 @@ export function createTranscript(container, opts) {
       } else if (c.type === 'content' && c.content && c.content.type === 'text') {
         bd.insertAdjacentHTML('beforeend', `<div class="cw-tool-text cw-md">${renderMarkdown(c.content.text)}</div>`);
       } else if (c.type === 'content' && c.content && c.content.type === 'image') {
-        const uri = c.content.uri || '';
-        const src = uri || ('data:' + (c.content.mimeType || 'image/png') + ';base64,' + (c.content.data || ''));
-        const openAttr = uri && (uri.startsWith('/') || uri.startsWith('file:')) ? ` data-open="${esc(uri.replace('file://', ''))}"` : '';
-        bd.insertAdjacentHTML('beforeend', `<img class="cw-imgout"${openAttr} src="${esc(src.startsWith('/') ? 'file://' + src : src)}" alt="">`);
+        bd.insertAdjacentHTML('beforeend', toolImageHtml(c.content, { cwd: o.cwd, home: o.home }, platform));
       }
     }
     wire(bd);
@@ -211,7 +291,7 @@ export function createTranscript(container, opts) {
     },
     userTurn(text, files) {
       closeStreams();
-      const chips = (files || []).map((f) => `<button class="cw-u-file" data-open="${esc(f)}">📎 ${esc(f.split('/').pop())}</button>`).join('');
+      const chips = (files || []).map((f) => `<button class="cw-u-file" data-open="${esc(f)}">📎 ${esc(baseName(f, platform))}</button>`).join('');
       block(`<div class="cw-u cw-md">${renderMarkdown(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
     },
     note(text) { block(`<div class="cw-hint">${renderInline(text)}</div>`); },
@@ -326,8 +406,9 @@ export function createTranscript(container, opts) {
   };
 }
 
-function shortPath(p) {
+// The last three pieces of a path, for a diff's one-line header.
+export function shortPath(p, platform = currentPlatform()) {
   if (!p) return '';
-  const parts = String(p).split('/');
-  return parts.length > 3 ? parts.slice(-3).join('/') : p;
+  const parts = splitAll(p, platform);
+  return parts.length > 3 ? parts.slice(-3).join(sepOf(platform)) : p;
 }

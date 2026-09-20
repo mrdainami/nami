@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { writePrivateConfig } = require('./private-config');
 const { serviceById } = require('./services-catalog');
+const { settleEntry } = require('./mcp-entry');
 
 const fsIo = {
   read: (f) => fs.readFileSync(f, 'utf8'),
@@ -17,17 +18,20 @@ function readJson(file, io) {
 }
 function writeJson(file, obj, io) { io.write(file, JSON.stringify(obj, null, 2) + '\n'); }
 
+// settleEntry: a `cmd /c npx` spelling never replaces the plain `npx` one for
+// the same server. These files are committed and shared, and the plain spelling
+// is the one that starts on a teammate's Mac as well (mcp-entry.js).
 function upsertMcpJson({ file, id, entry, io = fsIo }) {
   const doc = readJson(file, io) || {};
   doc.mcpServers = doc.mcpServers || {};
-  doc.mcpServers[id] = entry;
+  doc.mcpServers[id] = settleEntry(doc.mcpServers[id], entry);
   writeJson(file, doc, io);
   return { ok: true, file };
 }
 function upsertOpencode({ file, id, entry, io = fsIo }) {
   const doc = readJson(file, io) || { $schema: 'https://opencode.ai/config.json' };
   doc.mcp = doc.mcp || {};
-  doc.mcp[id] = entry;
+  doc.mcp[id] = settleEntry(doc.mcp[id], entry);
   writeJson(file, doc, io);
   return { ok: true, file };
 }

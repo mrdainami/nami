@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, MAC_GROUP_KEYS, isPickerAgent, shouldLoadMac, macCountLabel } from '../src/renderer/library-groups.mjs';
+import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, shelfGroups, MAC_GROUP_KEYS, isPickerAgent, shouldLoadMac, macCountLabel } from '../src/renderer/library-groups.mjs';
 
 const item = (over) => ({ type: 'agent', platform: 'project', scope: 'project', slug: 'x', ...over });
 
@@ -66,4 +66,13 @@ test('⌘K lists a master and an in-folder Claude agent, not a plugin or ~/.clau
   assert.equal(isPickerAgent(item({ scope: 'user', platform: 'claude' })), false);
   assert.equal(isPickerAgent(item({ type: 'skill', scope: 'project' })), false);
   assert.equal(isPickerAgent(item({ shadows: 'x' })), false);
+});
+
+test('the machine shelves are named for the machine: this Mac, or this PC', () => {
+  const labels = (platform) => shelfGroups(platform).filter((g) => g.mac).map((g) => g.label);
+  assert.deepEqual(labels('darwin'), ['Agents on this Mac', 'Skills on this Mac', 'MCP on this Mac', 'Commands on this Mac']);
+  assert.deepEqual(labels('win32'), ['Agents on this PC', 'Skills on this PC', 'MCP on this PC', 'Commands on this PC']);
+  // Keys are saved state (which shelves are open) and never follow the label.
+  assert.deepEqual(shelfGroups('win32').map((g) => g.key), shelfGroups('darwin').map((g) => g.key));
+  assert.deepEqual(SHELF_GROUPS, shelfGroups('darwin'), 'plain node reads the Mac column');
 });

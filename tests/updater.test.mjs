@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -96,11 +97,15 @@ const stubFs = (files) => ({
   },
   existsSync: (p) => p in files,
 });
+// The cache is walked with path.join, so the stub's keys are built the same way:
+// on a PC the file is asked for as \c\pending\…, and a '/c/pending/…' key is
+// simply never found.
+const pending = (name) => path.join('/c', 'pending', name);
 
 test('a complete staged download is found', () => {
   const io = stubFs({
-    '/c/pending/update-info.json': '{"fileName":"Nami-arm64.zip","sha512":"x"}',
-    '/c/pending/Nami-arm64.zip': 'bytes',
+    [pending('update-info.json')]: '{"fileName":"Nami-arm64.zip","sha512":"x"}',
+    [pending('Nami-arm64.zip')]: 'bytes',
   });
   assert.equal(hasStagedFile('/c', io), true);
 });
@@ -108,7 +113,7 @@ test('a complete staged download is found', () => {
 test('info without the file it names is not a staged download', () => {
   // electron-updater empties this directory on some failures, and a note
   // pointing at a file that is gone must not read as "ready to install".
-  const io = stubFs({ '/c/pending/update-info.json': '{"fileName":"Nami-arm64.zip"}' });
+  const io = stubFs({ [pending('update-info.json')]: '{"fileName":"Nami-arm64.zip"}' });
   assert.equal(hasStagedFile('/c', io), false);
 });
 
@@ -117,11 +122,11 @@ test('an empty cache is not a staged download', () => {
 });
 
 test('unreadable json is not a staged download', () => {
-  const io = stubFs({ '/c/pending/update-info.json': 'not json{' });
+  const io = stubFs({ [pending('update-info.json')]: 'not json{' });
   assert.equal(hasStagedFile('/c', io), false);
 });
 
 test('info with no file name is not a staged download', () => {
-  const io = stubFs({ '/c/pending/update-info.json': '{"sha512":"x"}' });
+  const io = stubFs({ [pending('update-info.json')]: '{"sha512":"x"}' });
   assert.equal(hasStagedFile('/c', io), false);
 });

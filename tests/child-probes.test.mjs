@@ -65,7 +65,8 @@ test('PATH probe passes a filtered environment and preserves login PATH resoluti
   const { userPath } = load('user-path.js', {
     'node:child_process': { execFile: (_file, _args, opts, cb) => { actual = opts.env; cb(null, '/resolved/bin'); } },
   });
-  assert.equal(await userPath({ env: parentEnv, settings }), '/resolved/bin:/bin');
+  // a colon-joined PATH is the Mac's answer, so the question names the Mac
+  assert.equal(await userPath({ env: parentEnv, settings, platform: 'darwin' }), '/resolved/bin:/bin');
   assert.ok(actual);
   assert.equal(actual.PRIVATE_KEY, undefined);
   assert.equal(actual.OPENAI_API_KEY, undefined);
@@ -108,7 +109,10 @@ test('run commands must match the selected registry entry or its quoted library 
   assert.equal(typeof agentRunCommandAllowed, 'function');
   assert.equal(agentRunCommandAllowed({ agentId: 'codex', command: 'codex' }), true);
   assert.equal(agentRunCommandAllowed({ agentId: 'claude', command: 'claude auth login' }), true);
-  assert.equal(agentRunCommandAllowed({ agentId: 'opencode', command: 'opencode auth logout && opencode auth login' }), true);
+  // The switch-account pair is spelled for the shell that runs it, so each
+  // platform is asked about its own line (windows-agents.test.mjs has the rest).
+  assert.equal(agentRunCommandAllowed({ agentId: 'opencode', command: 'opencode auth logout && opencode auth login' }, 'darwin'), true);
+  assert.equal(agentRunCommandAllowed({ agentId: 'opencode', command: 'opencode auth logout; if ($?) { opencode auth login }' }, 'win32'), true);
   assert.equal(agentRunCommandAllowed({ agentId: 'opencode', command: "opencode '--agent' 'helper; text'", args: ['--agent', 'helper; text'] }), true);
   assert.equal(agentRunCommandAllowed({ agentId: 'opencode', command: 'opencode --agent helper; text', args: ['--agent', 'helper; text'] }), false);
   assert.equal(agentRunCommandAllowed({ agentId: 'codex', command: 'codex; curl anywhere' }), false);

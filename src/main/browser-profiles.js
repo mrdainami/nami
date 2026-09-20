@@ -294,7 +294,8 @@ const SAFE_STORAGE = {
   Arc: 'Arc',
   Chromium: 'Chromium',
 };
-function chromeKeychainPassword(browser, execFileSync) {
+function chromeKeychainPassword(browser, execFileSync, platform = process.platform) {
+  if (platform !== 'darwin') return null;   // `security` is the macOS keychain tool
   if (typeof execFileSync !== 'function') return null;
   const label = SAFE_STORAGE[browser] || 'Chrome';
   try {
@@ -386,8 +387,20 @@ function parsePasswordCsv(text) {
   if (entries.length > 5000) throw new Error('Import at most 5,000 passwords at a time.');
   return { entries, skipped };
 }
-function createProfileStore({ directory, safeStorage }) {
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+// What someone is told when the OS will not open its protected storage. On a
+// Mac that is a locked Keychain, which they can unlock. Windows protects the
+// vault with the signed-in account itself (DPAPI): there is nothing to unlock
+// and no Keychain to name, so it says only what is true.
+function vaultUnavailable(reading, platform = process.platform) {
+  if (platform === 'win32') return 'Windows protected password storage is unavailable.';
+  return reading ? 'Unlock macOS Keychain to use saved passwords.' : 'macOS protected password storage is unavailable.';
+}
+function createProfileStore({ directory, safeStorage, platform = process.platform }) {
+  // Windows has no 0o700: the folder is closed to other accounts once, when it
+  // is made, and profiles.json and each vault written into it inherit that. The
+  // vaults are already encrypted by the OS, so none is tightened file by file.
+  const made = fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (made) require('./owner-only').ownerOnly(made, { directory: true });
   const metadataFile = path.join(directory, 'profiles.json');
   let profiles;
   try { profiles = JSON.parse(fs.readFileSync(metadataFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Browser profiles could not be read.'); profiles = [{ id: 'default', name: 'Personal' }]; }
@@ -400,11 +413,11 @@ function createProfileStore({ directory, safeStorage }) {
   function available() { return safeStorage.isEncryptionAvailable(); }
   function readVault(id) {
     const file = vaultPath(id); if (!fs.existsSync(file)) return [];
-    if (!available()) throw new Error('Unlock macOS Keychain to use saved passwords.');
+    if (!available()) throw new Error(vaultUnavailable(true, platform));
     return JSON.parse(safeStorage.decryptString(fs.readFileSync(file)));
   }
   function writeVault(id, entries) {
-    if (!available()) throw new Error('macOS protected password storage is unavailable.');
+    if (!available()) throw new Error(vaultUnavailable(false, platform));
     write(vaultPath(id), safeStorage.encryptString(JSON.stringify(entries)));
   }
   persist();
@@ -484,4 +497,4 @@ module.exports = {
   createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
   popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
   detectChromiumProfiles, selectChromiumImportSource, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
-  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure, popupModeOf };
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure, popupModeOf, vaultUnavailable };

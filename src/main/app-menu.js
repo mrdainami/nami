@@ -64,7 +64,7 @@ const SEP = { type: 'separator' };
 // The last path segment, which is what the folder is called. Recents rows are
 // absolute paths and the menu has room for a name, not a path.
 function folderName(p) {
-  const parts = String(p || '').split('/').filter(Boolean);
+  const parts = String(p || '').split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || p;
 }
 
@@ -119,7 +119,7 @@ function buildMenuTemplate({
     cmd('New Folder', 'new-folder'),
     SEP,
     cmd('Save', 'save', { accelerator: 'CommandOrControl+S' }),
-    cmd('Reveal in Finder', 'reveal'),
+    cmd(mac ? 'Reveal in Finder' : 'Reveal in File Explorer', 'reveal'),
     SEP,
     cmd('Close Pane', 'close-pane', { accelerator: 'CommandOrControl+W' }),
     // Off macOS there is no app submenu, so File is the only place these can go.
@@ -178,11 +178,17 @@ function buildMenuTemplate({
   // role: 'window' rather than a plain label, because that is what tells macOS
   // to append the list of open windows underneath. Nami is a window per project
   // space, so that list is how you get between two folders.
-  const windowSubmenu = [
+  //
+  // zoom and front are roles only macOS has: the green button's resize, and
+  // Bring All to Front. Anywhere else Electron has nothing to bind them to, so
+  // they are left out rather than shown as items that do nothing.
+  const windowSubmenu = mac ? [
     { role: 'minimize' },
     { role: 'zoom' },
     SEP,
     { role: 'front' },
+  ] : [
+    { role: 'minimize' },
   ];
 
   // Docs first: it is the answer to the question that brings anyone here, and
@@ -242,6 +248,59 @@ function menuRoles(template) {
   return menuItems(template).map((i) => i.role).filter(Boolean);
 }
 
+// ---- Windows: what the hidden menu bar takes with it ------------------------
+// The window has no title bar on Windows (titleBarStyle 'hidden', with the
+// caption buttons drawn over the sheet), and a window with no title bar has no
+// menu bar either — Alt does not bring one back. The keys all still work. What
+// goes missing is anything a person could only reach by pointing at the menu.
+//
+// Nearly everything up there has a place in the app already: every command in
+// COMMANDS has a button, a tab or a row somewhere, and the About pane carries
+// the links. tests/app-menu-windows.test.mjs holds the list, item by item, so a
+// new menu item cannot be added without someone deciding where a PC user finds
+// it. These are the ones with nowhere else to live. They hang off the Nami mark
+// at the top left, which is where a Windows window has always kept its menu.
+function buildWindowsExtrasTemplate({ open } = {}) {
+  return [
+    { role: 'zoomIn' },
+    { role: 'zoomOut' },
+    { role: 'resetZoom' },
+    SEP,
+    { role: 'togglefullscreen' },
+    SEP,
+    { label: 'Terms', click: () => open(LINKS.terms) },
+    SEP,
+    { label: 'Developer', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }] },
+  ];
+}
+
+// The other thing the Edit menu was for: Cut, Copy and Paste with the mouse. On
+// a Mac that is the menu bar. On Windows it is a right-click, and Electron
+// draws nothing for one unless asked, so a key pasted into Settings by mouse
+// had no way in. `params` is what Electron's context-menu event reports; null
+// means there is nothing to offer and no menu should open. Anywhere the app
+// already answers a right-click itself (the tree, a tile head, a link in a
+// terminal) the page has taken the event and this is never asked.
+function editContextTemplate(params, platform = process.platform) {
+  if (platform !== 'win32' || !params) return null;
+  const can = params.editFlags || {};
+  if (params.isEditable) {
+    return [
+      { role: 'undo', enabled: !!can.canUndo },
+      { role: 'redo', enabled: !!can.canRedo },
+      SEP,
+      { role: 'cut', enabled: !!can.canCut },
+      { role: 'copy', enabled: !!can.canCopy },
+      { role: 'paste', enabled: !!can.canPaste },
+      { role: 'delete', enabled: !!can.canDelete },
+      SEP,
+      { role: 'selectAll', enabled: !!can.canSelectAll },
+    ];
+  }
+  if (String(params.selectionText || '').trim()) return [{ role: 'copy' }];
+  return null;
+}
+
 // The only part that touches Electron.
 function installAppMenu({ Menu, shell, app: electronApp, send, newWindow, theme, recents }) {
   const template = buildMenuTemplate({
@@ -255,4 +314,4 @@ function installAppMenu({ Menu, shell, app: electronApp, send, newWindow, theme,
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-module.exports = { buildMenuTemplate, menuItems, menuRoles, installAppMenu, LINKS, COMMANDS, REPO };
+module.exports = { buildMenuTemplate, buildWindowsExtrasTemplate, editContextTemplate, menuItems, menuRoles, installAppMenu, LINKS, COMMANDS, REPO };

@@ -18,8 +18,14 @@ function memIo(seed = {}) {
   };
 }
 
-const HOME = '/home/u';
-const PROJ = '/proj';
+// connections.js builds every file name with path.join, so they come out native
+// (C:\proj\.mcp.json on Windows). Roots, expected names and the fake disk's
+// keys are all built the same way, so a key written here is the key it looks up.
+const path = require('path');
+const HOME = path.resolve('/home/u');
+const PROJ = path.resolve('/proj');
+const proj = (rel) => path.join(PROJ, rel);
+const home = (rel) => path.join(HOME, rel);
 const NOTION = { command: 'npx', args: ['-y', '@notionhq/notion-mcp-server'], env: { NOTION_TOKEN: 'ntn_x' } };
 const LINEAR = { url: 'https://mcp.linear.app/mcp' };
 
@@ -38,15 +44,15 @@ test('validServiceId accepts normal ids, rejects shell metacharacters', () => {
 // ---- masters ----------------------------------------------------------------
 
 test('masterPath: project scope in the project, user scope under ~/.nami', () => {
-  assert.equal(masterPath({ scope: 'project', projectPath: PROJ, homeDir: HOME }), '/proj/connections.json');
-  assert.equal(masterPath({ scope: 'user', projectPath: PROJ, homeDir: HOME }), '/home/u/.nami/connections.json');
+  assert.equal(masterPath({ scope: 'project', projectPath: PROJ, homeDir: HOME }), proj('connections.json'));
+  assert.equal(masterPath({ scope: 'user', projectPath: PROJ, homeDir: HOME }), home('.nami/connections.json'));
 });
 
 test('upsertMaster writes the standard mcpServers shape and round-trips', () => {
   const io = memIo();
   upsertMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, id: 'notion', entry: NOTION, io });
   upsertMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, id: 'linear', entry: LINEAR, io });
-  const doc = JSON.parse(io.files['/proj/connections.json']);
+  const doc = JSON.parse(io.files[proj('connections.json')]);
   assert.deepEqual(Object.keys(doc.mcpServers).sort(), ['linear', 'notion']);
   assert.deepEqual(doc.mcpServers.notion, NOTION);
   const masters = readMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, io });
@@ -54,18 +60,18 @@ test('upsertMaster writes the standard mcpServers shape and round-trips', () => 
 });
 
 test('upsertMaster in a git repo adds connections.json to .gitignore once', () => {
-  const io = memIo({ '/proj/.git': '', '/proj/.gitignore': 'node_modules\n' });
+  const io = memIo({ [proj('.git')]: '', [proj('.gitignore')]: 'node_modules\n' });
   upsertMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, id: 'notion', entry: NOTION, io });
-  assert.match(io.files['/proj/.gitignore'], /connections\.json/);
+  assert.match(io.files[proj('.gitignore')], /connections\.json/);
   upsertMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, id: 'linear', entry: LINEAR, io });
-  const hits = io.files['/proj/.gitignore'].split('\n').filter((l) => l === 'connections.json');
+  const hits = io.files[proj('.gitignore')].split('\n').filter((l) => l === 'connections.json');
   assert.equal(hits.length, 1);
 });
 
 test('upsertMaster outside a git repo leaves .gitignore alone', () => {
   const io = memIo();
   upsertMaster({ scope: 'project', projectPath: PROJ, homeDir: HOME, id: 'notion', entry: NOTION, io });
-  assert.ok(!('/proj/.gitignore' in io.files));
+  assert.ok(!(proj('.gitignore') in io.files));
 });
 
 test('removeMaster deletes one entry and keeps the rest', () => {
@@ -113,13 +119,13 @@ test('codexBlock escapes quotes and backslashes in values', () => {
 // ---- the codex marker block (the pointer contract) --------------------------
 
 test('writeCodexBlock appends once, then replaces only between markers', () => {
-  const io = memIo({ '/proj/.codex/config.toml': '# theirs\nmodel = "gpt-5"\n' });
-  writeCodexBlock({ file: '/proj/.codex/config.toml', masters: { notion: NOTION }, io });
-  const first = io.files['/proj/.codex/config.toml'];
+  const io = memIo({ [proj('.codex/config.toml')]: '# theirs\nmodel = "gpt-5"\n' });
+  writeCodexBlock({ file: proj('.codex/config.toml'), masters: { notion: NOTION }, io });
+  const first = io.files[proj('.codex/config.toml')];
   assert.match(first, /^# theirs\nmodel = "gpt-5"\n/);
   assert.match(first, /# nami:connections start/);
-  writeCodexBlock({ file: '/proj/.codex/config.toml', masters: { linear: LINEAR }, io });
-  const second = io.files['/proj/.codex/config.toml'];
+  writeCodexBlock({ file: proj('.codex/config.toml'), masters: { linear: LINEAR }, io });
+  const second = io.files[proj('.codex/config.toml')];
   assert.match(second, /model = "gpt-5"/);
   assert.match(second, /mcp_servers\.linear/);
   assert.ok(!second.includes('mcp_servers.notion'), 'old block fully replaced');
@@ -169,16 +175,16 @@ test('deliveryPlan project scope: json merges for the four natives + opencode tr
     projectPath: PROJ, homeDir: HOME,
   });
   const byAgent = Object.fromEntries(plan.map((s) => [s.agent + ':' + s.kind, s]));
-  assert.equal(byAgent['claude:json'].file, '/proj/.mcp.json');
+  assert.equal(byAgent['claude:json'].file, proj('.mcp.json'));
   assert.equal(byAgent['claude:json'].section, 'mcpServers');
-  assert.equal(byAgent['cursor:json'].file, '/proj/.cursor/mcp.json');
-  assert.equal(byAgent['gemini:json'].file, '/proj/.gemini/settings.json');
-  assert.equal(byAgent['kimi:json'].file, '/proj/.kimi-code/mcp.json');
-  assert.equal(byAgent['opencode:json'].file, '/proj/opencode.json');
+  assert.equal(byAgent['cursor:json'].file, proj('.cursor/mcp.json'));
+  assert.equal(byAgent['gemini:json'].file, proj('.gemini/settings.json'));
+  assert.equal(byAgent['kimi:json'].file, proj('.kimi-code/mcp.json'));
+  assert.equal(byAgent['opencode:json'].file, proj('opencode.json'));
   assert.equal(byAgent['opencode:json'].section, 'mcp');
   assert.equal(byAgent['opencode:json'].entries.notion.type, 'local');
-  assert.equal(byAgent['codex:block'].file, '/proj/.codex/config.toml');
-  assert.equal(byAgent['grok:block'].file, '/proj/.grok/config.toml');
+  assert.equal(byAgent['codex:block'].file, proj('.codex/config.toml'));
+  assert.equal(byAgent['grok:block'].file, proj('.grok/config.toml'));
   assert.equal(byAgent['hermes:manual'].kind, 'manual');
 });
 
@@ -196,9 +202,9 @@ test('deliveryPlan user scope: claude goes via its own CLI, codex block lands in
   assert.equal(cli[0].argv[4], Object.keys({ notion: NOTION, linear: LINEAR })[0]); // the id, discrete
   assert.equal(JSON.parse(cli[0].argv[5]).command !== undefined || typeof cli[0].argv[5] === 'string', true);
   const codex = plan.find((s) => s.agent === 'codex');
-  assert.equal(codex.file, '/home/u/.codex/config.toml');
+  assert.equal(codex.file, home('.codex/config.toml'));
   const cursor = plan.find((s) => s.agent === 'cursor');
-  assert.equal(cursor.file, '/home/u/.cursor/mcp.json');
+  assert.equal(cursor.file, home('.cursor/mcp.json'));
 });
 
 test('deliveryPlan user scope: grok’s notebook is ~/.grok/config.toml', () => {
@@ -208,7 +214,7 @@ test('deliveryPlan user scope: grok’s notebook is ~/.grok/config.toml', () => 
   });
   assert.equal(plan.length, 1);
   assert.equal(plan[0].kind, 'block');
-  assert.equal(plan[0].file, '/home/u/.grok/config.toml');
+  assert.equal(plan[0].file, home('.grok/config.toml'));
 });
 
 test('deliveryPlan refuses a service id with shell metacharacters (no cli step built)', () => {
@@ -232,11 +238,11 @@ test('deliveryPlan only plans for installed agents', () => {
 
 test('readNotebooks + coverage: who has it, who is missing it', () => {
   const io = memIo({
-    '/proj/.mcp.json': JSON.stringify({ mcpServers: { notion: NOTION } }),
-    '/home/u/.cursor/mcp.json': JSON.stringify({ mcpServers: { notion: NOTION, n8n: { command: 'x' } } }),
-    '/home/u/.codex/config.toml': '[mcp_servers.notion]\ncommand = "npx"\n',
-    '/home/u/.grok/config.toml': '[cli]\ninstaller = "internal"\n\n[mcp_servers.notion]\ncommand = "npx"\n',
-    '/home/u/.hermes/config.yaml': 'mcp_servers:\n  other:\n    command: y\n',
+    [proj('.mcp.json')]: JSON.stringify({ mcpServers: { notion: NOTION } }),
+    [home('.cursor/mcp.json')]: JSON.stringify({ mcpServers: { notion: NOTION, n8n: { command: 'x' } } }),
+    [home('.codex/config.toml')]: '[mcp_servers.notion]\ncommand = "npx"\n',
+    [home('.grok/config.toml')]: '[cli]\ninstaller = "internal"\n\n[mcp_servers.notion]\ncommand = "npx"\n',
+    [home('.hermes/config.yaml')]: 'mcp_servers:\n  other:\n    command: y\n',
   });
   const notebooks = readNotebooks({ projectPath: PROJ, homeDir: HOME, agentIds: ['claude', 'cursor', 'codex', 'hermes', 'gemini', 'grok'], io });
   const cov = coverage({ masters: { notion: NOTION }, notebooks });
@@ -249,7 +255,7 @@ test('readNotebooks + coverage: who has it, who is missing it', () => {
 
 test('runPlan merges json, writes the block, records cli and manual honestly', async () => {
   const { runPlan } = require('../src/main/connections-deliver.js');
-  const io = memIo({ '/proj/opencode.json': JSON.stringify({ mcp: { theirs: { type: 'local' } } }) });
+  const io = memIo({ [proj('opencode.json')]: JSON.stringify({ mcp: { theirs: { type: 'local' } } }) });
   const ran = [];
   const plan = deliveryPlan({
     masters: { notion: NOTION }, scope: 'project',
@@ -257,12 +263,12 @@ test('runPlan merges json, writes the block, records cli and manual honestly', a
     projectPath: PROJ, homeDir: HOME,
   });
   const results = await runPlan({ plan, io, execCmd: async (cmd) => { ran.push(cmd); return { ok: true }; } });
-  assert.deepEqual(JSON.parse(io.files['/proj/.mcp.json']).mcpServers.notion, NOTION);
-  const oc = JSON.parse(io.files['/proj/opencode.json']);
+  assert.deepEqual(JSON.parse(io.files[proj('.mcp.json')]).mcpServers.notion, NOTION);
+  const oc = JSON.parse(io.files[proj('opencode.json')]);
   assert.ok(oc.mcp.theirs, 'hand-made opencode entry preserved');
   assert.equal(oc.mcp.notion.type, 'local');
-  assert.match(io.files['/proj/.codex/config.toml'], /mcp_servers\.notion/);
-  assert.match(io.files['/proj/.grok/config.toml'], /mcp_servers\.notion/);
+  assert.match(io.files[proj('.codex/config.toml')], /mcp_servers\.notion/);
+  assert.match(io.files[proj('.grok/config.toml')], /mcp_servers\.notion/);
   assert.equal(ran.length, 0, 'no cli in project scope');
   const hermes = results.find((r) => r.agent === 'hermes');
   assert.equal(hermes.ok, false);
@@ -288,8 +294,8 @@ test('runPlan: cli step passes an argv array to the executor', async () => {
 
 test('antigravity aliases the gemini notebook, and unknown tools never read as missing', () => {
   const plan = deliveryPlan({ masters: { notion: NOTION }, scope: 'project', agentIds: ['antigravity'], projectPath: PROJ, homeDir: HOME });
-  assert.equal(plan[0].file, '/proj/.gemini/settings.json');
-  const io = memIo({ '/proj/.mcp.json': JSON.stringify({ mcpServers: { notion: NOTION } }) });
+  assert.equal(plan[0].file, proj('.gemini/settings.json'));
+  const io = memIo({ [proj('.mcp.json')]: JSON.stringify({ mcpServers: { notion: NOTION } }) });
   const notebooks = readNotebooks({ projectPath: PROJ, homeDir: HOME, agentIds: ['claude', 'someday-tool'], io });
   assert.ok(!('someday-tool' in notebooks), 'no reader, no verdict');
   const cov = coverage({ masters: { notion: NOTION }, notebooks });
@@ -307,12 +313,12 @@ test('nami-browser is reserved and never written to the master', () => {
     entry: { type: 'http', url: 'http://127.0.0.1:9/secret' }, io,
   });
   assert.equal(res.ok, false);
-  assert.ok(!('/proj/connections.json' in io.files), 'file must not be created');
+  assert.ok(!(proj('connections.json') in io.files), 'file must not be created');
 });
 
 test('readMaster drops a hand-pasted nami-browser so delivery cannot copy it', () => {
   const io = memIo({
-    '/proj/connections.json': JSON.stringify({
+    [proj('connections.json')]: JSON.stringify({
       mcpServers: {
         notion: NOTION,
         'nami-browser': { type: 'http', url: 'http://127.0.0.1:9/secret' },
@@ -341,13 +347,13 @@ test('runPlan does not write a nami-browser json entry', async () => {
   const io = memIo();
   const results = await runPlan({
     plan: [{
-      agent: 'claude', kind: 'json', file: '/proj/.mcp.json', section: 'mcpServers',
+      agent: 'claude', kind: 'json', file: proj('.mcp.json'), section: 'mcpServers',
       entries: { notion: NOTION, 'nami-browser': { type: 'http', url: 'http://127.0.0.1:9/secret' } },
     }],
     io, execCmd: async () => ({ ok: true }),
   });
   assert.equal(results[0].ok, true);
-  const doc = JSON.parse(io.files['/proj/.mcp.json']);
+  const doc = JSON.parse(io.files[proj('.mcp.json')]);
   assert.ok(doc.mcpServers.notion);
   assert.equal(doc.mcpServers['nami-browser'], undefined);
 });

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { spawnPlan } = require('./platform');
 const LOCAL_STALE_MS = 30 * 60 * 1000;
 const FEED_STALE_MS = 5 * 60 * 1000;
 const percentage = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.max(0, Math.min(100, 100 - n)) : null;
@@ -133,7 +134,7 @@ function claudeUsage(data, now = Date.now()) {
       const stale = ageStale || (resetsAt != null && resetsAt <= now);
       const label = windowLabel(key);
       rows.push({ id: 'claude:local:' + key, name: 'Claude · ' + label, remaining: stale ? null : Math.round(left * 10) / 10,
-        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: 'Claude on this Mac', windowLabel: label, windowKey: key, source: 'Claude',
+        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: process.platform === 'win32' ? 'Claude on this PC' : 'Claude on this Mac', windowLabel: label, windowKey: key, source: 'Claude',
         status: stale ? 'stale' : 'reported', resetsAt, checkedAt: Number.isFinite(fetchedAtMs) ? fetchedAtMs : now,
         detail: stale ? 'Last report is stale. Use Claude to refresh.' : 'Reported by Claude' + (resetsAt ? ' · resets ' + new Date(resetsAt).toLocaleString() : '') });
     }
@@ -191,7 +192,8 @@ function queryCodex(command, envPath, spawnFn = spawn, { parentEnv = process.env
     let child, buffer = '', done = false;
     const finish = (data) => { if (done) return; done = true; clearTimeout(timer); child?.kill(); resolve(data); };
     const timer = setTimeout(() => finish(null), 6000);
-    try { child = spawnFn(command, ['app-server'], { env: { ...buildChildEnv({ parentEnv, settings, purpose: 'agent', agentId: 'codex' }), PATH: envPath || parentEnv.PATH }, stdio: ['pipe', 'pipe', 'ignore'] }); }
+    const plan = spawnPlan(command, ['app-server']);
+    try { child = spawnFn(plan.file, plan.args, { ...plan.options, env: { ...buildChildEnv({ parentEnv, settings, purpose: 'agent', agentId: 'codex' }), PATH: envPath || parentEnv.PATH }, stdio: ['pipe', 'pipe', 'ignore'] }); }
     catch (_) { finish(null); return; }
     child.on('error', () => finish(null)); child.on('exit', () => finish(null)); child.stdin.on('error', () => finish(null));
     const send = (m) => child.stdin.write(JSON.stringify(m) + '\n');
@@ -209,6 +211,7 @@ function queryCodex(command, envPath, spawnFn = spawn, { parentEnv = process.env
   });
 }
 function claudeTokenFromKeychain() {
+  if (process.platform !== 'darwin') return null;   // `security` is the macOS keychain tool
   const { execFileSync } = require('node:child_process');
   let user = '';
   try { user = os.userInfo().username; } catch { user = process.env.USER || ''; }

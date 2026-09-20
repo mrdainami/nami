@@ -6,6 +6,9 @@
 // State setters returned: setCommands, setSkills, setMode, setModel, setUsage,
 // setBusy, attach, focus.
 
+import { isSlashCommandDraft } from './paths.mjs';
+import { words, kb } from './platform-words.mjs';
+
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export function createComposer(host, o) {
@@ -19,7 +22,7 @@ export function createComposer(host, o) {
       <button class="cw-stopbtn" hidden title="Stop">■</button>
     </div>
     <div class="cw-tools">
-      <button class="cw-tool cw-mode" hidden title="Mode — ⇧⇥ cycles"><span>◈</span> <b></b></button>
+      <button class="cw-tool cw-mode" hidden title="Mode — ${kb(['⇧', '⇥'])} cycles"><span>◈</span> <b></b></button>
       <button class="cw-tool cw-model" hidden title="Model"><span>☰</span> <b></b></button>
       <span class="cw-ctx" hidden title="Context used">ctx <b></b></span>
       <span class="cw-drop">Drop files anywhere</span>
@@ -71,7 +74,7 @@ export function createComposer(host, o) {
     const cmdRows = commands.filter((c) => !q || c.name.toLowerCase().startsWith(q));
     const skRows = q ? [] : skills;
     let html = '';
-    if (!filter) html += '<button class="r files"><b>📎 Add files and folders</b><span>or drop from Finder</span></button>';
+    if (!filter) html += '<button class="r files"><b>📎 Add files and folders</b><span>or drop from ' + words().finder + '</span></button>';
     if (builtins.length) html += '<div class="hd">Session</div>' +
       builtins.map((c) => `<button class="r" data-cmd="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc((c.description || '').slice(0, 44))}</span></button>`).join('');
     if (cmdRows.length) html += '<div class="hd">Commands</div>' +
@@ -131,7 +134,8 @@ export function createComposer(host, o) {
   input.addEventListener('input', () => {
     grow();
     const v = input.value;
-    if (v.startsWith('/') && !v.includes(' ') && !v.includes('\n')) openMenu(v);
+    // a pasted path starts with a slash too, and is not a command
+    if (isSlashCommandDraft(v)) openMenu(v);
     else closeMenu();
   });
   document.addEventListener('click', closeMenu);

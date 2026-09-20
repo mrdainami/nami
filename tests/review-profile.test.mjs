@@ -5,6 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { createReviewProfile } from '../src/main/review-profile.js';
 
+// A home folder the way os.homedir() reports one: absolute for this machine, so
+// on a PC it carries a drive letter and compares equal to a resolved --user-data.
+const HOME = path.resolve('/Users/reviewer');
+// The persistent profile is ~/Library/Application Support, which only a Mac has.
+const MAC_ONLY = process.platform === 'win32' && 'the persistent review profile is ~/Library/Application Support, a folder only macOS has';
+
 test('normal launches retain packaged and development profile paths', () => {
   for (const packaged of [true, false]) {
     const profile = createReviewProfile({ argv: [], normalPath: '/normal', packaged });
@@ -40,7 +46,7 @@ test('explicit profiles are respected and never deleted', () => {
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
-test('persistent review storage is outside protected folders and survives cleanup', () => {
+test('persistent review storage is outside protected folders and survives cleanup', { skip: MAC_ONLY }, () => {
   const args={argv:['--review'],normalPath:'/normal',packaged:true,homePath:'/Users/reviewer'};
   const first=createReviewProfile(args),second=createReviewProfile(args);
   assert.equal(first.review,true);
@@ -50,12 +56,12 @@ test('persistent review storage is outside protected folders and survives cleanu
 });
 test('review launch refuses protected storage before touching it', () => {
   for (const folder of ['Desktop','Documents','Downloads']) {
-    assert.throws(()=>createReviewProfile({argv:['--scene=browser','--user-data',`/Users/reviewer/${folder}/review`],normalPath:'/normal',packaged:true,homePath:'/Users/reviewer'}),/Review data must be outside/);
+    assert.throws(()=>createReviewProfile({argv:['--scene=browser','--user-data',`/Users/reviewer/${folder}/review`],normalPath:'/normal',packaged:true,homePath:HOME}),/Review data must be outside/);
   }
-  const allowed=createReviewProfile({argv:['--review','--user-data','/Users/reviewer/Desktop-copy/review'],normalPath:'/normal',packaged:true,homePath:'/Users/reviewer'});
-  assert.equal(allowed.path,'/Users/reviewer/Desktop-copy/review');
+  const allowed=createReviewProfile({argv:['--review','--user-data','/Users/reviewer/Desktop-copy/review'],normalPath:'/normal',packaged:true,homePath:HOME});
+  assert.equal(allowed.path,path.resolve('/Users/reviewer/Desktop-copy/review'));
 });
-test('double-clicking the review package remains isolated without flags', () => {
+test('double-clicking the review package remains isolated without flags', { skip: MAC_ONLY }, () => {
   const profile=createReviewProfile({argv:[],normalPath:'/normal',packaged:true,reviewBuild:true,homePath:'/Users/reviewer'});
   assert.equal(profile.review,true);
   assert.equal(profile.path,'/Users/reviewer/Library/Application Support/Nami Review');

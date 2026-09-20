@@ -1,4 +1,8 @@
 // Pure file-type + path helpers shared by the renderer and unit tests. No DOM, no Electron.
+// What a path LOOKS like — its separator, its root — is paths.mjs's business;
+// everything here asks it, and takes the platform last the way it does.
+
+import { currentPlatform, isWin, sepOf, rootOf, splitSegments, relativeTo, baseName, dirName, toFileUrl, docUrlFor } from './paths.mjs';
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
 const VIDEO_EXT = new Set(['mp4', 'webm', 'mov', 'm4v']);
@@ -32,18 +36,32 @@ export function fileKind(p) {
 // correctly right up until a path contains a bracket and then silently reorders
 // it. Anything already short enough is returned untouched: an ellipsis that
 // hides nothing is just decoration.
-export function tailPath(p, keep = 2) {
+export function tailPath(p, keep = 2, platform = currentPlatform()) {
   const s = String(p || '');
   if (!s || s === '/') return s;
-  const parts = s.replace(/\/+$/, '').split('/');
-  const lead = parts[0];                       // '' for /abs, '~' for home
-  const segs = parts.slice(1).filter(Boolean);
-  if (segs.length <= keep) return lead + '/' + segs.join('/');
-  return '…/' + segs.slice(-keep).join('/');
+  const sep = sepOf(platform);
+  const root = rootOf(s, platform);
+  const parts = splitSegments(s, platform);
+  // '' for /abs, 'C:' for a drive, '~' for home. A path with no root spends
+  // its first piece as the lead, which is how `~/work` always read.
+  const lead = root ? root.replace(/[\\/]+$/, '') : (parts[0] || '');
+  const segs = root ? parts : parts.slice(1);
+  if (segs.length <= keep) return lead + sep + segs.join(sep);
+  return '…' + sep + segs.slice(-keep).join(sep);
 }
 
-// POSIX single-quoting: safe to paste into a shell or a chat message.
-export function shellQuote(p) { return "'" + String(p).replace(/'/g, "'\\''") + "'"; }
+// Single-quoting: safe to paste into a shell or a chat message. POSIX closes
+// the quote to escape one; PowerShell, which is what a pane runs on Windows,
+// doubles it instead — the same two rules as shellQuote in claude-args.js.
+//
+// PowerShell reads the four curly single quotes as the plain one, so a path
+// with ’ in it ended the string early and the rest ran as a command. All five
+// are doubled, exactly as psQuote does in the main process (platform.js), which
+// this cannot import; tests/powershell-quote.test.mjs feeds both the same text.
+export function shellQuote(p, platform = currentPlatform()) {
+  if (isWin(platform)) return "'" + String(p).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&') + "'";
+  return "'" + String(p).replace(/'/g, "'\\''") + "'";
+}
 
 // The text a dragged path types into a session, trailing space included so no
 // caller has to remember it.
@@ -67,33 +85,37 @@ export function shellQuote(p) { return "'" + String(p).replace(/'/g, "'\\''") + 
 // Unicode letters and digits are in the set deliberately: a project full of
 // Japanese filenames should still mention, and no shell treats them specially.
 // What is left out is every POSIX metacharacter, quote, bracket, and space —
-// plus `~`, which expands, and `\`, because this is POSIX-only for the same
-// reason fileUrl and docUrl are.
+// plus `~`, which expands, and `\`, which escapes. On Windows the part below
+// the root is written with forward slashes before it is judged: every agent
+// reads `@src/app.js` there, and a backslash at a prompt is never just a
+// character. Off Windows a backslash is part of a name, and such a name quotes.
 //
 // The root boundary is the separator, never the prefix: '/Users/cal/nami-other'
-// starts with '/Users/cal/nami' as a string and is a different folder.
+// starts with '/Users/cal/nami' as a string and is a different folder. On
+// Windows the same folder spelled in another case is still the same folder.
 const MENTION_SAFE = /^[\p{L}\p{N}._\-/+@]+$/u;
-export function pathRef(path, root, isDir) {
+export function pathRef(path, root, isDir, platform = currentPlatform()) {
   const abs = String(path || '');
-  const base = String(root || '').replace(/\/+$/, '');
-  const inside = base && abs.indexOf(base + '/') === 0;
-  const rel = inside ? abs.slice(base.length + 1) : '';
-  if (!rel || !MENTION_SAFE.test(rel)) return shellQuote(abs) + ' ';
+  // A project opened at the top of a volume ('/', 'C:\\') has no folder to be
+  // below: pinned as "quote everything" long before Windows, and kept.
+  const base = splitSegments(root, platform).length ? String(root) : '';
+  const below = relativeTo(base, abs, platform) || '';
+  const rel = isWin(platform) ? below.replace(/\\/g, '/') : below;
+  if (!rel || !MENTION_SAFE.test(rel)) return shellQuote(abs, platform) + ' ';
   return '@' + rel + (isDir ? '/' : '') + ' ';
 }
 
-// Absolute POSIX path → file:// URL (renderer has no Node pathToFileURL).
-export function fileUrl(absPath) {
-  return 'file://' + String(absPath).split('/').map(encodeURIComponent).join('/');
+// Absolute path → file:// URL (renderer has no Node pathToFileURL).
+export function fileUrl(absPath, platform = currentPlatform()) {
+  return toFileUrl(absPath, platform);
 }
 
 // A viewed HTML file → its nami-doc:// URL, served from its own folder as root so
 // its relative images resolve while the page stays cross-origin to Nami. Mirrors
-// buildDocUrl in src/main/doc-protocol.js; kept here too because the renderer has
-// no path module and this is the one place a POSIX dirname is enough.
-export function docUrl(absPath) {
-  const parts = String(absPath).split('/');
-  const root = parts.slice(0, -1).join('/') || '/';
-  const rel = parts[parts.length - 1];
-  return 'nami-doc://doc/' + encodeURIComponent(root) + '/' + encodeURIComponent(rel);
+// buildDocUrl in src/main/doc-protocol.js, which is the side that has a real
+// `path`: the root it decodes must be absolute by that module's lights, so on
+// Windows it goes over as the backslashed C:\ folder it is.
+export function docUrl(absPath, platform = currentPlatform()) {
+  const root = dirName(absPath, platform) || sepOf(platform);
+  return docUrlFor(root, [encodeURIComponent(baseName(absPath, platform))]);
 }

@@ -80,22 +80,25 @@ test('detectAgents treats empty output as not found', async () => {
 // kind that reads .zshrc. The cost is that anything the user's rc file prints —
 // a greeting, a version manager, an nvm warning — arrives on stdout ahead of
 // the answer we asked for.
+//
+// What counts as a path depends on who is asked, so the zsh answers below say
+// 'darwin' rather than inheriting the machine the suite happens to run on.
 
 test('the path is picked out of a chatty rc file', () => {
   const noisy = 'nvm: using v22\nWelcome back!\n/Users/x/.opencode/bin/opencode\n';
-  assert.equal(pathFromShellOutput(noisy), '/Users/x/.opencode/bin/opencode');
+  assert.equal(pathFromShellOutput(noisy, 'darwin'), '/Users/x/.opencode/bin/opencode');
 });
 
 test('a shell that prints only a greeting reads as not installed', () => {
-  assert.equal(pathFromShellOutput('Welcome back!\nno agent here\n'), '');
-  assert.equal(pathFromShellOutput(''), '');
-  assert.equal(pathFromShellOutput(undefined), '');
+  assert.equal(pathFromShellOutput('Welcome back!\nno agent here\n', 'darwin'), '');
+  assert.equal(pathFromShellOutput('', 'darwin'), '');
+  assert.equal(pathFromShellOutput(undefined, 'darwin'), '');
 });
 
 test('the answer wins over an rc line that also looks like a path', () => {
   // command -v runs after every startup file, so the last path is ours
   const out = '/some/banner/path\n/opt/homebrew/bin/claude\n';
-  assert.equal(pathFromShellOutput(out), '/opt/homebrew/bin/claude');
+  assert.equal(pathFromShellOutput(out, 'darwin'), '/opt/homebrew/bin/claude');
 });
 
 test('a windows drive letter counts as a path', () => {
@@ -175,7 +178,9 @@ test('agentStatus runs the status command and parses it', async () => {
 test('agentStatus expands ~ and reads files for file-based agents', async () => {
   const seen = [];
   const readFile = async (p) => { seen.push(p); return p.endsWith('auth.json') ? HERMES_AUTH : null; };
-  const s = await agentStatus('hermes', { exec: async () => { throw new Error('must not exec'); }, readFile, home: '/h' });
+  // A Mac question, and it says so: on Windows Hermes keeps these files
+  // somewhere else altogether (see windows-agents.test.mjs).
+  const s = await agentStatus('hermes', { exec: async () => { throw new Error('must not exec'); }, readFile, home: '/h', platform: 'darwin' });
   assert.ok(seen.includes('/h/.hermes/auth.json'), 'did not expand ~');
   assert.equal(s.signedIn, true);
   assert.equal(s.label, '2 sign-ins');
@@ -250,7 +255,7 @@ test('agentStatus: grok account file still wins over a stored key', async () => 
 });
 
 test('detectAgents expands configPath so the renderer never needs $HOME', async () => {
-  const out = await detectAgents({ exec: async () => '/bin/x', home: '/h' });
+  const out = await detectAgents({ exec: async () => '/bin/x', home: '/h', platform: 'darwin' });
   assert.equal(out.find((a) => a.id === 'hermes').configFile, '/h/.hermes/config.yaml');
   assert.equal(out.find((a) => a.id === 'antigravity').configFile, '/h/.gemini/settings.json');
 });

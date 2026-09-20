@@ -2,6 +2,8 @@
 // rich editor bundle. Keeping these outside the bundle lets Read and Markdown
 // mode use path/media helpers without loading ProseMirror.
 
+import { currentPlatform, sepOf, isAbsolute, dirName, splitAll, docUrlFor } from './paths.mjs';
+
 let modulePromise;
 let stylePromise;
 
@@ -56,12 +58,16 @@ function encodePathPart(part) {
   catch (_) { return encodeURIComponent(part); }
 }
 
-export function markdownImageUrl(documentPath, source) {
+// A document's own images go through nami-doc://, served from the document's
+// folder; one that names a place of its own — absolute, or under ~ — is not the
+// document's and gets no URL. On Windows that includes C:\pics\a.png, which
+// would otherwise sail past as "relative" and be glued onto the folder.
+export function markdownImageUrl(documentPath, source, platform = currentPlatform()) {
   const src = String(source || '');
   if (/^(https?:|data:|blob:)/i.test(src)) return src;
-  if (!documentPath || src.startsWith('/') || src.startsWith('~')) return null;
-  const dir = String(documentPath).split('/').slice(0, -1).join('/') || '/';
-  return 'nami-doc://doc/' + encodeURIComponent(dir) + '/' + src.split('/').map(encodePathPart).join('/');
+  if (!documentPath || isAbsolute(src, platform) || src.startsWith('~')) return null;
+  const dir = dirName(documentPath, platform) || sepOf(platform);
+  return docUrlFor(dir, splitAll(src, platform).map(encodePathPart));
 }
 
 function escapeHtml(value) {

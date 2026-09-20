@@ -221,9 +221,20 @@ test('linkNative gives Claude a relative link into the one real folder', () => {
   assert.ok(res.ok, res.error);
   const link = path.join(dir, '.claude/skills/meeting-notes');
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
-  assert.equal(fs.readlinkSync(link), path.join('..', '..', 'skills', 'meeting-notes'), 'relative, so it survives a move or a clone');
+  assert.equal(fs.realpathSync(link), fs.realpathSync(path.join(dir, 'skills/meeting-notes')), 'it lands in the one real folder');
   assert.ok(fs.existsSync(path.join(link, 'SKILL.md')), 'and it resolves');
   assert.equal(fs.existsSync(path.join(dir, '.codex/skills')), false, 'only verified paths get one');
+});
+
+// Its own test because Windows cannot answer it: linkNative makes a junction
+// there (a symlink needs admin rights or Developer Mode), and a junction stores
+// the absolute path whatever it was given.
+test('the link linkNative writes is relative', { skip: process.platform === 'win32' && 'a Windows junction always reads back absolute' }, () => {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'skills/meeting-notes'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills/meeting-notes/SKILL.md'), '---\nname: meeting-notes\n---\nbody\n');
+  linkNative({ dir, slugs: ['meeting-notes'], agentIds: ['claude'] });
+  assert.equal(fs.readlinkSync(path.join(dir, '.claude/skills/meeting-notes')), path.join('..', '..', 'skills', 'meeting-notes'), 'relative, so it survives a move or a clone');
 });
 
 test('linkNative is idempotent and drops links whose skill has gone', () => {
@@ -249,6 +260,24 @@ test('linkNative never touches a real folder someone put in .claude/skills by ha
   linkNative({ dir, slugs: ['ours'], agentIds: ['claude'] });
   assert.equal(fs.readFileSync(path.join(dir, '.claude/skills/hand-made/SKILL.md'), 'utf8'), 'mine\n');
   assert.equal(fs.lstatSync(path.join(dir, '.claude/skills/hand-made')).isSymbolicLink(), false);
+});
+
+test('linkNative leaves a link alone when it points at somebody else\'s skills folder', () => {
+  // The user linked a skill in from elsewhere. Its target has a folder called
+  // skills in it, which is all the sweep used to ask — and on Windows every
+  // link is absolute, so that question matched far more than it meant to.
+  const dir = tmp(), elsewhere = tmp();
+  fs.mkdirSync(path.join(elsewhere, 'skills/borrowed'), { recursive: true });
+  fs.writeFileSync(path.join(elsewhere, 'skills/borrowed/SKILL.md'), 'theirs\n');
+  fs.mkdirSync(path.join(dir, '.claude/skills'), { recursive: true });
+  const at = path.join(dir, '.claude/skills/borrowed');
+  fs.symlinkSync(path.join(elsewhere, 'skills/borrowed'), at, process.platform === 'win32' ? 'junction' : 'dir');
+  fs.mkdirSync(path.join(dir, 'skills/ours'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills/ours/SKILL.md'), 'ours\n');
+  const res = linkNative({ dir, slugs: ['ours'], agentIds: ['claude'] });
+  assert.ok(res.ok);
+  assert.deepEqual(res.swept, []);
+  assert.equal(fs.readFileSync(path.join(at, 'SKILL.md'), 'utf8'), 'theirs\n');
 });
 
 // ---- the stub ---------------------------------------------------------------

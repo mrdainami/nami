@@ -1,0 +1,22 @@
+# One set of line endings, on every machine.
+#
+# Git for Windows rewrites LF to CRLF on checkout unless told otherwise, and then
+# the same file is two different files depending on who cloned it: a test that
+# reads a fixture byte for byte passes on a Mac and fails on a PC, a shell script
+# grows carriage returns it cannot run with, and a hash of a source file stops
+# matching. Text is LF in the repository and LF in the working tree. Git still
+# detects binaries by itself; the ones below are named so a false guess is
+# impossible for the files where it would be silent and expensive.
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.icns binary
+*.woff2 binary
+*.onnx binary
+*.mp4  binary
+*.webm binary
+*.gif  binary
+*.pdf  binary
+*.zip  binary

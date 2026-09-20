@@ -18,6 +18,12 @@
 // Plain data out, no DOM, so the shapes are testable without a terminal —
 // showMenu already knows how to render a list like this, and treeMenu already
 // produces one.
+//
+// The keys and the word for Finder are the platform's (platform-words.mjs):
+// Ctrl+click and File Explorer on Windows. The platform is a parameter so both
+// menus can be checked from one machine.
+import { currentPlatform } from './paths.mjs';
+import { words, kb } from './platform-words.mjs';
 
 // The label a copy row carries. Two, because "Copy link" on a file path reads
 // like it would copy a hyperlink, and "Copy path" on a url reads like a bug.
@@ -25,10 +31,12 @@ function copyRow(kind, value) {
   return { label: kind === 'url' ? 'Copy link' : 'Copy path', copy: value };
 }
 
-export function termMenuItems({ kind, text, st }) {
+export function termMenuItems({ kind, text, st }, platform = currentPlatform()) {
+  const reveal = words(platform).reveal;
+  const click = kb(['⌘', 'click'], platform);
   if (kind === 'url') {
     return [
-      { label: 'Open in browser', kb: '⌘click' },
+      { label: 'Open in browser', kb: click },
       '-',
       // The text as printed, not urlTarget's normalised form: a bare www host
       // opens as https:// but must paste back as what was on screen.
@@ -52,15 +60,15 @@ export function termMenuItems({ kind, text, st }) {
   // nothing different.
   if (st.isDir) {
     return [
-      { label: 'Reveal in Finder', kb: '⌘click' },
+      { label: reveal, kb: click },
       '-',
       copyRow(kind, st.abs || text),
     ];
   }
 
   return [
-    { label: 'Open', kb: '⌘click' },
-    { label: 'Reveal in Finder', kb: '⌥⌘click' },
+    { label: 'Open', kb: click },
+    { label: reveal, kb: kb(['⌥', '⌘', 'click'], platform) },
     '-',
     copyRow(kind, st.abs || text),
   ];

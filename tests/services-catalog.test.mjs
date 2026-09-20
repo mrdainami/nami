@@ -42,7 +42,8 @@ test('folder service points the reference filesystem server at the chosen folder
 test('kie (install kind) points config at the built server with the key in env', () => {
   const s = serviceById('kie');
   assert.equal(s.kind, 'install');
-  const c = s.claudeEntry({ token: 'kie_1', installDir: '/Users/x/.nami/connectors/kie-mcp' });
+  // a Mac's folder, so a Mac is who is asked — a PC's path is in windows-connectors
+  const c = s.claudeEntry({ token: 'kie_1', installDir: '/Users/x/.nami/connectors/kie-mcp' }, 'darwin');
   assert.equal(c.command, 'node');
   assert.ok(c.args[0].endsWith('dist/index.js'));
   assert.equal(c.env.KIE_API_KEY, 'kie_1');

@@ -5,6 +5,12 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { isNewer, releaseFromApi, checkForUpdate, updateStatus } = require('../src/main/update-check.js');
 
+// The releases in this file carry dmgs and nothing else, so every question here
+// is a Mac's question. Said out loud, because the answer for a PC is different
+// on purpose — see tests/windows-paths.test.mjs — and the default is whatever
+// machine happens to be running the suite.
+const MAC = 'darwin';
+
 // --- is there actually a newer version? --------------------------------------
 
 test('a higher patch is newer', () => {
@@ -62,16 +68,16 @@ const release = (over = {}) => ({
 });
 
 test('reads the version off the tag', () => {
-  assert.equal(releaseFromApi(release()).version, '0.2.0');
+  assert.equal(releaseFromApi(release(), 'arm64', MAC).version, '0.2.0');
 });
 
 test('offers the dmg built for this machine', () => {
-  assert.equal(releaseFromApi(release(), 'arm64').url, 'https://example.test/arm64.dmg');
-  assert.equal(releaseFromApi(release(), 'x64').url, 'https://example.test/x64.dmg');
+  assert.equal(releaseFromApi(release(), 'arm64', MAC).url, 'https://example.test/arm64.dmg');
+  assert.equal(releaseFromApi(release(), 'x64', MAC).url, 'https://example.test/x64.dmg');
 });
 
 test('falls back to the release page when no dmg matches', () => {
-  const r = releaseFromApi(release({ assets: [] }), 'arm64');
+  const r = releaseFromApi(release({ assets: [] }), 'arm64', MAC);
   assert.equal(r.url, 'https://github.com/mrdainami/nami/releases/tag/v0.2.0');
 });
 
@@ -93,7 +99,7 @@ test('a malformed answer yields nothing rather than throwing', () => {
 // --- the whole check ----------------------------------------------------------
 
 test('reports an update when the published release is newer', async () => {
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -101,7 +107,7 @@ test('reports an update when the published release is newer', async () => {
 });
 
 test('says nothing when we are already current', async () => {
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.2.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -109,7 +115,7 @@ test('says nothing when we are already current', async () => {
 });
 
 test('says nothing when we are ahead of the release', async () => {
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.3.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -119,7 +125,7 @@ test('says nothing when we are ahead of the release', async () => {
 test('a network failure is silent', async () => {
   // Offline, rate-limited or behind a captive portal must never reach the user:
   // an update check is the app's business, not something it can nag about.
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => { throw new Error('getaddrinfo ENOTFOUND'); },
   });
@@ -127,7 +133,7 @@ test('a network failure is silent', async () => {
 });
 
 test('a rate-limit body is silent', async () => {
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => ({ message: 'API rate limit exceeded' }),
   });
@@ -142,7 +148,7 @@ test('a rate-limit body is silent', async () => {
 // must never be dressed up as "you are up to date".
 
 test('a newer release comes back as an update, with somewhere to get it', async () => {
-  const st = await updateStatus({
+  const st = await updateStatus({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -152,7 +158,7 @@ test('a newer release comes back as an update, with somewhere to get it', async 
 });
 
 test('the same version comes back as current', async () => {
-  const st = await updateStatus({
+  const st = await updateStatus({ platform: MAC,
     currentVersion: '0.2.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -160,7 +166,7 @@ test('the same version comes back as current', async () => {
 });
 
 test('being ahead of the release still reads as current', async () => {
-  const st = await updateStatus({
+  const st = await updateStatus({ platform: MAC,
     currentVersion: '0.3.0', arch: 'arm64',
     fetchJson: async () => release(),
   });
@@ -169,7 +175,7 @@ test('being ahead of the release still reads as current', async () => {
 
 test('a network failure says so instead of claiming we are current', async () => {
   // the whole point of the second entry point
-  const st = await updateStatus({
+  const st = await updateStatus({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => { throw new Error('getaddrinfo ENOTFOUND'); },
   });
@@ -178,7 +184,7 @@ test('a network failure says so instead of claiming we are current', async () =>
 
 test('a draft-only latest reads as current, not as an error', async () => {
   // GitHub answered, there is simply nothing a user could install
-  const st = await updateStatus({
+  const st = await updateStatus({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => release({ draft: true }),
   });
@@ -187,12 +193,12 @@ test('a draft-only latest reads as current, not as an error', async () => {
 
 test('the background poll keeps its old contract exactly', async () => {
   // everything else in the app still calls checkForUpdate and expects null
-  const quiet = await checkForUpdate({
+  const quiet = await checkForUpdate({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => { throw new Error('offline'); },
   });
   assert.equal(quiet, null);
-  const found = await checkForUpdate({
+  const found = await checkForUpdate({ platform: MAC,
     currentVersion: '0.1.0', arch: 'arm64',
     fetchJson: async () => release(),
   });

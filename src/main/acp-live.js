@@ -6,8 +6,10 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { resolveSpawnProgram } = require('./bin-cache');
 const { userPath } = require('./user-path');
+const { spawnPlan, planCwd } = require('./platform');
 const { buildChildEnv, redactChildError } = require('./session-env');
 
 const procs = new Map();
@@ -40,15 +42,23 @@ function wireAcpLive(ipcMain, { readSettings = () => ({}), parentEnv = process.e
       else return { ok: false, error: 'Agent is not installed.' };
     }
     const settings = readSettings();
-    const runCwd = cwd && fs.existsSync(cwd) ? cwd : parentEnv.HOME;
+    const runCwd = cwd && fs.existsSync(cwd) ? cwd : (parentEnv.HOME || os.homedir());
     const envPath = await userPath({ settings, env: parentEnv });
     const diagnostic = (err) => redactChildError(err, { parentEnv, settings });
     let proc;
     try {
-      proc = spawn(cmd, cmdArgs, {
-        cwd: runCwd,
-        env: { ...buildChildEnv({ parentEnv, settings, purpose, agentId }), PATH: envPath || ('/opt/homebrew/bin:/usr/local/bin:' + (parentEnv.PATH || '')) },
+      // Homebrew's folders are a Mac guess; on Windows the PATH we were started
+      // with is the only honest fallback.
+      const fallbackPath = process.platform === 'win32' ? (parentEnv.PATH || '') : ('/opt/homebrew/bin:/usr/local/bin:' + (parentEnv.PATH || ''));
+      const plan = spawnPlan(cmd, cmdArgs);
+      proc = spawn(plan.file, plan.args, {
+        // A project on a network share: cmd.exe would refuse the folder, run the
+        // agent from C:\Windows and complain into the chat. The agent is told
+        // the real folder in session/new either way (platform.js, planCwd).
+        cwd: planCwd(plan, runCwd, { home: os.homedir(), env: parentEnv }),
+        env: { ...buildChildEnv({ parentEnv, settings, purpose, agentId }), PATH: envPath || fallbackPath },
         stdio: ['pipe', 'pipe', 'pipe'],
+        ...plan.options,
       });
     } catch (err) {
       return { ok: false, error: diagnostic(err) };

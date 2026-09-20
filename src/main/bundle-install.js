@@ -7,6 +7,7 @@ const { pipeline } = require('node:stream/promises');
 const { Transform } = require('node:stream');
 const yauzl = require('yauzl');
 const { parseManifest, bundleSlug } = require('./mcpb');
+const { ownerOnly } = require('./owner-only');
 
 async function extract(file, dir, { maxBytes = 512 * 1024 * 1024, maxEntries = 20000, timeout = 30000 } = {}) {
   if ((await fsp.stat(file)).size > maxBytes) throw Error('Bundle is too large');
@@ -52,7 +53,11 @@ async function extract(file, dir, { maxBytes = 512 * 1024 * 1024, maxEntries = 2
 }
 
 async function installBundle(file, parent, limits) {
-  await fsp.mkdir(parent, { recursive: true, mode: 0o700 });
+  // Windows has no 0o700, so the folder is closed to other accounts once, when
+  // it is first made; everything unpacked into it inherits that (owner-only.js).
+  // A bundle is code, not keys, so its files are not tightened one by one.
+  const made = await fsp.mkdir(parent, { recursive: true, mode: 0o700 });
+  if (made) ownerOnly(made, { directory: true });
   parent = await fsp.realpath(parent);
   const tmp = await fsp.mkdtemp(path.join(parent, '.unpacking-'));
   let backup;

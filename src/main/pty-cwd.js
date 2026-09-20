@@ -18,6 +18,12 @@
 // already missed against the frozen cwd, and only while a link is being
 // hovered. execFile is injectable so the tests never shell out — a test that
 // ran the real lsof would pass here and fail on a machine without it.
+//
+// Windows has no lsof and no cheap equivalent, so there the shell is asked to
+// say where it is on every prompt (shell-integration.js), main.js passes what
+// it said to tell(), and the same question is answered from memory. A session
+// that never said anything — an agent tile, which shows no prompt — answers
+// null, and the caller keeps the folder the tile started in.
 
 const { execFile } = require('child_process');
 
@@ -36,8 +42,10 @@ function createPtyCwd({
   max = MAX_PIDS,
 } = {}) {
   const cache = new Map();   // pid -> { at, cwd }
+  const told = new Map();    // pid -> cwd, as the shell itself last reported it
 
   function ptyCwd(pid) {
+    if (pid && platform === 'win32') return Promise.resolve(told.get(pid) || null);
     // lsof is a mac and BSD answer. Everywhere else this feature does not
     // exist, which is the same behaviour as before it was written.
     if (!pid || platform !== 'darwin') return Promise.resolve(null);
@@ -63,8 +71,13 @@ function createPtyCwd({
     });
   }
 
+  // One entry per live pane, dropped when its pty exits, so there is nothing
+  // to cap and nothing to expire: the last thing a shell said stays true until
+  // it says something else.
+  ptyCwd.tell = (pid, cwd) => { if (pid && cwd) told.set(pid, String(cwd)); };
+  ptyCwd.forget = (pid) => { told.delete(pid); cache.delete(pid); };
   ptyCwd.size = () => cache.size;
-  ptyCwd.clear = () => cache.clear();
+  ptyCwd.clear = () => { cache.clear(); told.clear(); };
   return ptyCwd;
 }
 

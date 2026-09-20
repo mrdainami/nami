@@ -1,4 +1,5 @@
-# Tag a version, get an installer. Nothing else publishes.
+# Tag a version, get an installer — for the Mac and for Windows. Nothing else
+# publishes.
 #
 # This is the wall between working and shipping: master moves as freely as you
 # like and nobody downloads it. Only a `v*` tag becomes something a user can
@@ -14,6 +15,11 @@
 #   APPLE_API_KEY_P8    base64 of the App Store Connect .p8  ) omit these and
 #   APPLE_API_KEY_ID    the key's ID                         ) it is signed
 #   APPLE_API_ISSUER    the issuer UUID                      ) but not notarized
+#
+#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+#   AZURE_ENDPOINT, AZURE_CODE_SIGNING_NAME, AZURE_CERT_PROFILE_NAME
+#                       what signs the Windows installers. A release without
+#                       them stops; see windows.yml.
 #
 # Note the name: electron-builder's APPLE_API_KEY is a PATH to the .p8, not its
 # contents, so the secret holds the bytes under a different name and the step
@@ -169,3 +175,40 @@ jobs:
             codesign -dv "$app" 2>&1 | grep -E 'Identifier|TeamIdentifier' || echo "  unsigned"
             spctl -a -vvv -t install "$app" 2>&1 | tail -2 || true
           done
+
+  # The Windows half, side by side with the Mac one. It is windows.yml, the same
+  # steps every push already runs, told this once that unsigned is not good enough.
+  windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      require_signing: true
+    secrets: inherit
+    permissions:
+      contents: read
+
+  # Both halves have to finish before Windows is added to the draft. A Mac build
+  # that failed leaves no draft to add to, and a Windows build that failed leaves
+  # a draft with no Windows in it and a red run — which is what stops it from
+  # being published.
+  attach-windows:
+    needs: [build, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Nami-windows-release
+          path: win
+
+      - name: Add the Windows installers to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ls -l win
+          gh release upload "${GITHUB_REF_NAME}" --repo mrdainami/nami \
+            win/latest.yml win/*.exe win/*.blockmap
+          gh release edit "${GITHUB_REF_NAME}" --repo mrdainami/nami \
+            --notes "Signed and notarized for macOS: Apple Silicon and Intel. Signed for Windows 10 and 11: x64 and ARM64, as an installer or a portable app."

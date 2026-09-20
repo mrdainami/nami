@@ -1,10 +1,14 @@
+import { currentPlatform } from './paths.mjs';
+import { words, clickWith } from './platform-words.mjs';
+
 // Instructions only: never place terminal output, URLs, or local paths in the
 // tooltip. The existing link resolver remains responsible for what can open.
-export function linkHintText({ kind, st }) {
-  if (kind === 'url') return ['⌘ Click to open in browser', 'Right-click for more options'];
+export function linkHintText({ kind, st }, platform = currentPlatform()) {
+  const click = clickWith(['⌘'], platform), finder = words(platform).finder;
+  if (kind === 'url') return [click + ' to open in browser', 'Right-click for more options'];
   if (!st || !st.exists) return null;
-  if (st.isDir) return ['⌘ Click to reveal in Finder', 'Right-click for more options'];
-  if (st.isFile) return ['⌘ Click to open file', '⌥⌘ Click to reveal in Finder', 'Right-click for more options'];
+  if (st.isDir) return [click + ' to reveal in ' + finder, 'Right-click for more options'];
+  if (st.isFile) return [click + ' to open file', clickWith(['⌥', '⌘'], platform) + ' to reveal in ' + finder, 'Right-click for more options'];
   return null;
 }
 

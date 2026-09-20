@@ -7,9 +7,10 @@ const { buildDocUrl, parseDocUrl, resolveWithinRoot } = require('./doc-protocol'
 const { resolveBrowserInput } = require('./browser-file');
 const { serveDocFile } = require('./doc-response');
 const { documentPolicy } = require('./doc-policy');
-const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf } = require('./browser-profiles');
+const { createProfileStore, uniqueDownloadPath, popupDecision, permissionAllowed, detectChromiumProfiles, selectChromiumImportSource, cookieImportStatus, popupModeOf, vaultUnavailable } = require('./browser-profiles');
 const { createImportJobs } = require('./browser-import-jobs');
 const { createImportWorker } = require('./browser-import-worker');
+const { importCapability, importRefusal, importableSources } = require('./browser-import-capability');
 const WELCOME = path.join(__dirname, '../renderer/browser-welcome.html');
 
 function blankMode(settings) {
@@ -393,6 +394,10 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } finally { profileLocks.delete(profileId); }
   }
   async function startImport(w, args) {
+    // Every way into an import comes through here, so this is the door: what the
+    // platform cannot copy is refused in plain words before a source is read.
+    const refusal = importRefusal(args);
+    if (refusal) throw new Error(refusal);
     if (typeof args.profileId !== 'string' || !args.profileId) throw new Error('Choose a destination Nami profile before importing.');
     profiles.get(args.profileId);
     selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
@@ -466,7 +471,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action === 'import-passwords') {
       if (importJobs.active(profileId)) throw new Error('Cancel the running browser import before importing a password CSV.');
       profiles.get(profileId);
-      if (!profiles.available()) throw new Error('macOS protected password storage is unavailable.');
+      if (!profiles.available()) throw new Error(vaultUnavailable(false));
       const chosen = await dialog.showOpenDialog(w, { title: 'Import an exported Chrome password CSV', properties: ['openFile'], filters: [{ name: 'Chrome password export', extensions: ['csv'] }] });
       if (chosen.canceled || !chosen.filePaths[0]) return { canceled: true };
       const file = chosen.filePaths[0];
@@ -526,7 +531,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     } else if (action !== 'list') throw new Error('Unknown browser profile action.');
     // Capability discovery must not unlock the Keychain. Password actions
     // check availability when the user actually requests protected data.
-    return { ...output, profiles: profiles.list(), defaultProfileId: profiles.defaultId(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: cookieImportStatus(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
+    return { ...output, profiles: profiles.list(), defaultProfileId: profiles.defaultId(), importJobs: importJobs.list(w.webContents.id), capabilities: { passwordCsv: typeof safeStorage.encryptString === 'function', cookieImport: importableSources(cookieImportStatus()), import: importCapability(), cookies: true, history: true, newTab: blankMode(readSettings()) } };
   });
   guarded('browser:sync', async (w, { sessions = [] }) => {
     for (const s of sessions.slice(0, 100)) access.register(s.id, w.webContents.id, s.title);

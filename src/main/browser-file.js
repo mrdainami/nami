@@ -20,13 +20,17 @@ function browserFileUrl(file, deps = {}) {
 
 // Only the trusted human address bar uses this resolver. Website and agent
 // navigation continue to use browserUrl, which cannot authorize local files.
-function resolveBrowserInput(value, { homePath = os.homedir() } = {}) {
+//
+// What counts as "a path" is the platform's call: C:\page.html and \\nas\page.html
+// are files on Windows and nothing at all on a Mac.
+function resolveBrowserInput(value, { homePath = os.homedir(), platform = process.platform } = {}) {
+  const LOCAL = platform === 'win32' ? /^(?:[a-zA-Z]:[\\/]|\\\\|\/|~[\\/]|file:)/i : /^(?:\/|~\/|file:)/i;
   let text = String(value || '').trim();
-  if (/^["'](?:\/|~\/|file:)/i.test(text)) {
+  if (/^["']/.test(text) && LOCAL.test(text.slice(1))) {
     if (text.at(-1) !== text[0]) throw new Error('Close the quote around the file path.');
     text = text.slice(1, -1);
   }
-  const local = /^(?:\/|~\/|file:)/i.test(text);
+  const local = LOCAL.test(text);
   if (!local) return { url: userBrowserUrl(text) };
   if (text.includes('\0')) throw new Error('Invalid file path.');
   let file = text, suffix = '';
@@ -36,7 +40,7 @@ function resolveBrowserInput(value, { homePath = os.homedir() } = {}) {
       file = fileURLToPath(url);
       suffix = url.search + url.hash;
     } catch { throw new Error('Enter a valid local file URL.'); }
-  } else if (text.startsWith('~/')) file = path.join(homePath, text.slice(2));
+  } else if (/^~[\\/]/.test(text)) file = path.join(homePath, text.slice(2));
   try {
     file = fs.realpathSync(file);
     if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) throw new Error('Choose an HTML file (.html or .htm).');

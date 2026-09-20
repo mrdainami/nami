@@ -205,6 +205,11 @@ function safeRead(p) { try { return fs.readFileSync(p, 'utf8'); } catch (_) { re
 // These are not the links that rot. Those are absolute, cross-tool, and aimed at
 // a home directory that moved. These are relative, inside one project, one level
 // deep, created and removed by the same code that creates and removes the skill.
+//
+// On Windows they are junctions, and a junction stores an absolute path whatever
+// it was given. So there a moved project has dangling links until this runs
+// again — which it does every time the folder is opened, and the comparison
+// below sees the old place and re-links.
 function linkNative({ dir, slugs, agentIds } = {}) {
   if (!dir) return { ok: false, error: 'No folder open.', linked: [], swept: [] };
   const ids = new Set(agentIds || []);
@@ -222,13 +227,19 @@ function linkNative({ dir, slugs, agentIds } = {}) {
         const at = path.join(nativeDir, slug);
         const target = path.join(rel, slug);
         if (isLink(at)) {
-          if (readLink(at) === target && fs.existsSync(path.join(at, 'SKILL.md'))) continue;
+          // Compared as places, not as strings: a Windows junction stores the
+          // absolute path, so the relative one we asked for never reads back.
+          const pointsAt = path.resolve(nativeDir, readLink(at)).replace(/[\\/]+$/, '');
+          if (pointsAt === path.resolve(nativeDir, target) && fs.existsSync(path.join(at, 'SKILL.md'))) continue;
           fs.rmSync(at, { recursive: true, force: true });
         } else if (fs.existsSync(at)) {
           continue;  // a real folder someone put here by hand is theirs, not ours
         }
         fs.mkdirSync(nativeDir, { recursive: true });
-        fs.symlinkSync(target, at);
+        // A symlink on Windows needs admin rights or Developer Mode, and almost
+        // nobody has either. A junction needs neither and an agent reading the
+        // folder cannot tell the difference.
+        fs.symlinkSync(target, at, process.platform === 'win32' ? 'junction' : 'dir');
         linked.push(path.join(agent.projectSkillsDir, slug));
       }
       // Sweep our own leftovers: a link into skills/ whose skill has gone. Only
@@ -236,8 +247,14 @@ function linkNative({ dir, slugs, agentIds } = {}) {
       for (const name of safeList(nativeDir)) {
         const at = path.join(nativeDir, name);
         if (!isLink(at)) continue;
-        const to = readLink(at);
-        if (!to.split(path.sep).includes('skills')) continue;
+        // Ours only if it lands inside this project's own skills/. Asking whether
+        // the target merely mentions a folder called skills was enough while
+        // every link was relative; a Windows junction is always absolute, and so
+        // is ~/.claude/skills/foo, which somebody linked here by hand.
+        const to = path.resolve(nativeDir, readLink(at));
+        const ours = path.join(dir, 'skills') + path.sep;
+        const fold = (x) => (process.platform === 'win32' ? x.toLowerCase() : x);
+        if (!fold(to + path.sep).startsWith(fold(ours))) continue;
         if (want.has(name) && fs.existsSync(path.join(at, 'SKILL.md'))) continue;
         if (want.has(name)) continue;
         fs.rmSync(at, { force: true });

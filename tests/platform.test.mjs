@@ -36,8 +36,8 @@ test('an unusable $SHELL falls back to zsh rather than failing every probe', () 
 });
 
 test('windows runs powershell without a profile', () => {
-  const sh = loginShell('win32');
-  assert.equal(sh.file, 'powershell.exe');
+  const sh = loginShell('win32', {});
+  assert.equal(sh.file, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
   assert.deepEqual(sh.args('echo hi'), ['-NoProfile', '-Command', 'echo hi']);
 });
 
@@ -134,9 +134,11 @@ test('mac gives the traffic lights Chrome-style air over the 22px deck', () => {
   });
 });
 
-test('windows gets an overlay tinted to the paper header, not a system bar', () => {
+test('windows gets its buttons floated on the desk, not a system bar', () => {
   const c = windowChrome('win32');
   assert.equal(c.titleBarStyle, 'hidden');
-  assert.equal(c.titleBarOverlay.color, '#fffdf6');   // --paper
+  // See-through, so the buttons sit on Nami's own background. Tinted to --paper
+  // they sat in a visible box on every theme whose background is not flat.
+  assert.equal(c.titleBarOverlay.color, '#00000000');
   assert.equal(c.titleBarOverlay.symbolColor, '#2f2b26'); // --ink
 });

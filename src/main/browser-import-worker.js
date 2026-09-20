@@ -5,8 +5,10 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, chromeBlobPrefix, cookieOptions, chromeTimeToMs } = require('./browser-profiles');
 const { browserUrl } = require('./browser-policy');
+const { importCapability, WINDOWS_REFUSAL } = require('./browser-import-capability');
 const LABELS={Edge:'Microsoft Edge',Brave:'Brave',Vivaldi:'Vivaldi',Opera:'Opera',Arc:'Arc',Chromium:'Chromium'};
 function keychainPassword(browser,signal) {
+  if (process.platform !== 'darwin') return Promise.resolve(null);
   const label=LABELS[browser]||'Chrome';
   return new Promise(resolve=>execFile('security',['find-generic-password','-w','-s',label+' Safe Storage','-a',label],
     {encoding:'utf8',timeout:25000,signal,maxBuffer:64*1024},(error,out)=>resolve(error?null:String(out).trim()||null)));
@@ -20,10 +22,14 @@ function createImportWorker(data) {
   } catch(error) {fs.rmSync(directory,{recursive:true,force:true});throw error;}
 }
 // Dependency injection stays in the backend test harness, never renderer IPC.
-async function readImportSource({source,categories,directory,cancelled,signal,send,passwordFor=keychainPassword,batch}) {
+// browser-views.js already refuses what this platform cannot copy. The worker
+// asks again because it is the one place that would otherwise answer a Windows
+// request with zero rows and a sentence about the Keychain.
+async function readImportSource({source,categories,directory,cancelled,signal,send,passwordFor=keychainPassword,batch,platform=process.platform}) {
   if(cancelled()) return;
+  const allowed=importCapability(platform).categories;
   let key=null;
-  if((categories.cookies && source.cookies)||(categories.passwords && source.logins)) {
+  if((categories.cookies && source.cookies && allowed.includes('cookies'))||(categories.passwords && source.logins && allowed.includes('passwords'))) {
     send({type:'stage',stage:'keychain'});
     const password=await passwordFor(source.browser,signal);
     if(cancelled()) return;
@@ -32,6 +38,7 @@ async function readImportSource({source,categories,directory,cancelled,signal,se
   const {DatabaseSync}=require('node:sqlite');
   for(const category of ['cookies','passwords','history']) {
     if(!categories[category] || cancelled()) continue;
+    if(!allowed.includes(category)) {send({type:'result',category,error:WINDOWS_REFUSAL});send({type:'category-done',category});continue;}
     const file=source[category==='passwords'?'logins':category];
     if(!file) {send({type:'result',category,reason:'This source has no '+category+' database.'});send({type:'category-done',category});continue;}
     send({type:'stage',stage:'reading',category});

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { rememberBins, knownBin, forgetBins, resolveClaudeExecutable } = require('../src/main/bin-cache.js');
+const { claudeCandidates } = require('../src/main/platform.js');
 
 // Detection already answers "where does this agent live" properly — it asks the
 // user's interactive login shell and walks the documented install folders. The
@@ -194,6 +195,11 @@ test('spawn flags compose with the scanned-path swap, in that order', () => {
 // Term spawn uses this. The scan goes first; the hardcoded list is the floor.
 const NVM = '/Users/x/.nvm/versions/node/v22.22.0/bin/claude';
 const only = (...ok) => (p) => ok.includes(p);
+// resolveClaudeExecutable takes no platform, so the floor it falls to is the list
+// for the machine running this: ~/.local/bin/claude then /opt/homebrew/bin/claude
+// on a Mac, claude.exe and claude.cmd on a PC. Asked of the same function rather
+// than spelled out; platform.test.mjs pins what each list contains.
+const FLOOR = claudeCandidates({ home: '/Users/x', env: {} });
 
 test('a claude the scan found beats the hardcoded list', () => {
   forgetBins();
@@ -224,14 +230,14 @@ test('an explicit CLAUDE_CODE_EXECUTABLE still beats everything', () => {
 
 test('with nothing scanned it behaves exactly as it did before', () => {
   forgetBins();
-  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/Users/x/.local/bin/claude') }), '/Users/x/.local/bin/claude');
-  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') }), '/opt/homebrew/bin/claude');
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(FLOOR[0]) }), FLOOR[0]);
+  assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(FLOOR[1]) }), FLOOR[1]);
   assert.equal(resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: () => false }), null);
 });
 
 test('a remembered path that no longer exists falls through', () => {
   forgetBins();
   rememberBins([{ id: 'claude', found: true, path: NVM }]);
-  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only('/opt/homebrew/bin/claude') });
-  assert.equal(exe, '/opt/homebrew/bin/claude');
+  const exe = resolveClaudeExecutable({ home: '/Users/x', env: {}, exists: only(FLOOR[1]) });
+  assert.equal(exe, FLOOR[1]);
 });

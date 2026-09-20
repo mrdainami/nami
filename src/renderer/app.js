@@ -1,4 +1,4 @@
-import { createMcpSetup, CONNECT_OVERLAYS } from './mcp-setup.mjs';
+import { createMcpSetup, CONNECT_OVERLAYS, startConnectorInstall, prereqNoteHtml } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
@@ -25,6 +25,7 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
+import { termKeyAction, appChord } from './term-keys.mjs';
 import { createLinkHint } from './link-hint.mjs';
 import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
 import { isTypingTarget } from './typing-target.mjs';
@@ -32,6 +33,8 @@ import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-w
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 import { isOutsideProject } from './path-guard.mjs';
+import { dirName, baseName, isInside, isAbsolute, hasSeparator, toDirUrl, splitSegments } from './paths.mjs';
+import { setHome, shortHome, folderOfUrl } from './home-path.mjs';
 import { decideReload, hashText, changeRange, shiftOffset } from './file-sync.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
@@ -39,8 +42,15 @@ import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail
 
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 import { createBrowserPane } from './browser-pane.mjs';
+import { micErrorText } from './mic-error.mjs';
+import { words, kb, chordText } from './platform-words.mjs';
 
 const api = window.dainami;
+// The machine's own words and keys: "this Mac" and ⌘N here, "this PC" and
+// Ctrl+Shift+T on Windows. Nothing below spells either out by hand, and
+// tests/windows-wording.test.mjs fails the build if something starts to.
+const W = words(api.platform);
+const kbd = (name) => chordText(name, api.platform);
 const terminalHint = createLinkHint({ document, window });
 
 // Finder can send a file the instant the page finishes loading, which is well
@@ -314,13 +324,14 @@ function code2(str) {
   if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
   return (String(str || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2) || 'SS').toUpperCase();
 }
-function baseNameOf(p) { return String(p || '').split(/[\\/]/).filter(Boolean).pop() || '(file)'; }
+// The last piece of a path, by the platform's separators (paths.mjs): on a Mac a
+// backslash is part of a name, and splitting on it cut "notes\draft.md" in two.
+function baseNameOf(p) { return splitSegments(p || '').pop() || '(file)'; }
 // The format a file is in, for a tab that should not call TOML "Markdown".
 function formatLabel(p) {
   const m = baseNameOf(p).match(/\.([A-Za-z0-9]+)$/);
   return m ? m[1].toUpperCase() : 'Raw';
 }
-function shortHome(p) { return String(p || '').replace(/^\/Users\/[^/]+/, '~'); }
 function q(sel, root) { return (root || document).querySelector(sel); }
 // A panel's chip: brand glyph when the session maps to a known brand, else its code.
 function panelChip(p) {
@@ -393,6 +404,9 @@ function dropPathOnPanel(p, path, isDir) {
   buildShell();
   const b = await api.boot();
   S.winId = b.winId || 0;
+  // Before anything draws a path: on Windows `~` is this folder, and no path
+  // can say where it is (home-path.mjs).
+  setHome(b.home);
   S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
   // The wordmark's caption. Rendered empty by buildShell and filled here, so
   // the lockup is never laid out twice — the stack is sized by Nami above it,
@@ -568,7 +582,7 @@ function showScene(name) {
   }
   // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
   if (what === 'chat-live') {
-    const liveCwd = decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
+    const liveCwd = folderOfUrl(new URL('../../../../', location.href).href);
     const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: step || 'Claude Code', agentId: step || 'claude', cwd: liveCwd, status: 'live', started: true };
     S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
     renderGrid(); renderRail(); renderHeader();
@@ -725,7 +739,7 @@ function showScene(name) {
   if (what === 'workspace') {
     // the tree needs a folder; a path in the step opens that one. Fall back
     // to the most recent if none is open.
-    const folder = step && step.startsWith('/') ? step : null;
+    const folder = step && isAbsolute(step) ? step : null;
     const ready = folder ? openFolder(folder)
       : S.project ? Promise.resolve()
       : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
@@ -755,7 +769,7 @@ function showScene(name) {
   S.railTab = 'library';
   // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
   // show project-scoped state (coverage pills need a project's masters).
-  const withFolder = step && step.startsWith('/') && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
+  const withFolder = step && isAbsolute(step) && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
   withFolder.then(() => loadLibrary(true)).then(() => {
     renderRail();
     if (what === 'library') return;
@@ -771,6 +785,26 @@ function showScene(name) {
 // ===========================================================================
 //  The menu bar, from this side
 // ===========================================================================
+// Windows has no menu bar to look in: the window has no title bar, so it has no
+// menu either. Almost everything up there already has a button or a row in the
+// app; the few items that do not (zoom, full screen, Terms, the developer
+// tools — src/main/app-menu.js keeps the list) open from the Nami mark, which is
+// where a Windows window has always kept its menu. The menu is main's and
+// native, so its roles are the real ones. On a Mac the mark stays a picture.
+//
+// The two styles are set here rather than in paper.css because they are not a
+// look: the topbar is a drag strip, and a drag strip swallows clicks.
+function wireBrandMenu() {
+  if (api.platform !== 'win32' || !api.menuExtras) return;
+  const mark = q('.brand-mark');
+  if (!mark) return;
+  mark.setAttribute('role', 'button'); mark.tabIndex = 0; mark.title = 'Menu';
+  mark.style.webkitAppRegion = 'no-drag'; mark.style.cursor = 'pointer';
+  const open = () => { const r = mark.getBoundingClientRect(); api.menuExtras({ x: r.left, y: r.bottom + 4 }); };
+  mark.onclick = open;
+  mark.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+}
+
 // Every Nami item in the application menu arrives here as a string. The rule
 // this file keeps is that a menu item never has its own implementation: it
 // calls the same function the keyboard or the button already called, so there
@@ -904,13 +938,13 @@ function buildShell() {
           <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
           <button class="btn btn-help" id="btn-help" title="Quick start"><span class="uni-i">?</span><span class="pix-i">${pixIcon('help')}</span></button>
           <div class="theme-zone" id="theme-zone"><button class="btn" id="btn-theme" title="Theme"><span class="uni-i">◐</span><span class="pix-i">${pixIcon('theme')}</span></button></div>
-          <button class="btn btn-set" id="btn-settings" title="Settings ⌘,"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
+          <button class="btn btn-set" id="btn-settings" title="Settings ${kbd('settings')}"><span class="uni-i">⚙</span><span class="pix-i">${pixIcon('settings')}</span></button>
           <div class="viewsw" id="viewsw" role="group" aria-label="Workspace view" title="Desk: every card on a grid. Split: one session beside one of its files.">
             <button class="view-choice" data-view="desk">Desk</button>
             <button class="view-choice" data-view="split">Split</button>
           </div>
-          <button class="btn" id="btn-agents">Agents<span class="kb"> ⌘K</span></button>
-          <button class="btn btn--go" id="btn-new"><span class="uni-i">＋ </span><span class="pix-i">${pixIcon('plus')}</span>New<span class="kb2"> session</span><span class="kb"> ⌘N</span></button>
+          <button class="btn" id="btn-agents">Agents<span class="kb"> ${kbd('agents')}</span></button>
+          <button class="btn btn--go" id="btn-new"><span class="uni-i">＋ </span><span class="pix-i">${pixIcon('plus')}</span>New<span class="kb2"> session</span><span class="kb"> ${kbd('new-session')}</span></button>
         </div>
       </div>
       <div class="split">
@@ -928,8 +962,8 @@ function buildShell() {
           <div class="grid" id="grid"></div>
           <div id="update-root"></div>
           <div class="footer">
-            <span>⌘N new session</span><span>⌘K agents</span><span>⌘O folder</span>
-            <span>⌘W close pane</span><span>⌘S save</span><span class="path" id="footer-path"></span>
+            <span>${kbd('new-session')} new session</span><span>${kbd('agents')} agents</span><span>${kbd('open-folder')} folder</span>
+            <span>${kbd('close-pane')} close pane</span><span>${kbd('save')} save</span><span class="path" id="footer-path"></span>
             <button class="btn btn--small footer-shortcuts" id="btn-shortcuts">${helpIcon('shortcuts')} Shortcuts</button>
           </div>
         </div>
@@ -950,6 +984,7 @@ function buildShell() {
   q('#btn-shortcuts').onclick = () => openSettings('shortcuts');
   q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
   q('#btn-settings').onclick = () => openSettings();
+  wireBrandMenu();
   document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
   q('#rail-collapse').onclick = () => { S.railCollapsed = true; S.railPeek = false; applyChrome(); };
   q('#rail-strip').onclick = () => { S.railCollapsed = false; S.railPeek = true; applyChrome(); };
@@ -1106,6 +1141,15 @@ function onGlobalKey(e) {
   if (meta && (e.key === 'Backspace' || e.key === 'Delete') && inTree && (!S.overlay || peeking)) {
     e.preventDefault(); trashTreeItem(S.treeSel, dirName(S.treeSel)); return;
   }
+  // Windows: the chords that still work with a terminal pane focused, which
+  // hands them on to here (term-keys.mjs has the rule and the list). They run
+  // what the menu runs, so there is one behaviour per command. Null on a Mac,
+  // always, so everything below reads a Mac's keys exactly as it always has —
+  // and on Windows it is still what answers a plain Ctrl+N outside a pane.
+  const chord = appChord(e, { platform: api.platform });
+  if (chord === 'new-window') { e.preventDefault(); api.newWindow(); return; }
+  if (chord === 'save') { if (saveActive()) e.preventDefault(); return; }
+  if (chord) { e.preventDefault(); runMenuCommand(chord); return; }
   if (meta && e.shiftKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); api.newWindow(); return; }
   if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
   if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
@@ -1170,8 +1214,8 @@ function toggleProjectsPop() {
     ? group('Pinned', pinned) + group('Recent', rest)
     : group('Recent folders', rest);
   pop.innerHTML = `${body || '<div class="rail-empty">No recent folders yet.</div>'}
-    <button class="project-open-other" id="open-other"><span class="plus">＋</span><span>Open another folder…</span><span class="kbd">⌘O</span></button>
-    <button class="project-open-other" id="open-newwin"><span class="plus">⧉</span><span>New window</span><span class="kbd">⇧⌘N</span></button>`;
+    <button class="project-open-other" id="open-other"><span class="plus">＋</span><span>Open another folder…</span><span class="kbd">${kbd('open-folder')}</span></button>
+    <button class="project-open-other" id="open-newwin"><span class="plus">⧉</span><span>New window</span><span class="kbd">${kbd('new-window')}</span></button>`;
   // fixed + measured + parked on body, not absolute-in-topbar: the topbar clips
   // its descendants (overflow backstop for ⌘+ zoom), and renderHeader() rebuilds
   // topbar-center's innerHTML, which would silently eat the pop.
@@ -1267,7 +1311,7 @@ function refreshSessionsRail(c) {
   head.innerHTML = `<span class="title">Sessions</span>${S.panels.length ? '<span class="action" id="clear-all">close finished</span>' : ''}`;
   c.appendChild(head);
   const cl = q('#clear-all', head); if (cl) cl.onclick = closeFinished;
-  if (!S.panels.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No sessions yet. Press ⌘N, or type a message below.'; c.appendChild(e); return; }
+  if (!S.panels.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No sessions yet. Press ' + kbd('new-session') + ', or type a message below.'; c.appendChild(e); return; }
   // Sessions first, each with the files that joined it folded under it; files
   // with no live session last, under "Desk" (desk-view.mjs). In split the
   // highlight follows the two panes, on the desk the card you last clicked.
@@ -1328,7 +1372,7 @@ function refreshSessionsRail(c) {
 function refreshWorkspaceRail(c) {
   const p = S.project;
   const wrap = document.createElement('div'); wrap.className = 'tree';
-  if (!p) { wrap.innerHTML = '<div class="rail-empty">Open a folder (⌘O) to browse and edit files.</div>'; c.appendChild(wrap); return; }
+  if (!p) { wrap.innerHTML = '<div class="rail-empty">Open a folder (' + kbd('open-folder') + ') to browse and edit files.</div>'; c.appendChild(wrap); return; }
   const head = document.createElement('div'); head.className = 'tree-path';
   const pathSpan = document.createElement('span'); pathSpan.className = 'path'; pathSpan.textContent = p.pathShort;
   const toggle = document.createElement('span'); toggle.className = 'action';
@@ -1361,7 +1405,7 @@ function refreshWorkspaceRail(c) {
   head.oncontextmenu = (e) => {
     e.preventDefault();
     showMenu(e.clientX, e.clientY, [
-      { label: 'Reveal in Finder', run: () => api.revealFile(p.path) },
+      { label: W.reveal, run: () => api.revealFile(p.path) },
       { label: 'New file…', run: () => openFsName('file', p.path) },
       { label: 'New folder…', run: () => openFsName('folder', p.path) },
     ]);
@@ -1527,13 +1571,14 @@ function wireDrop(el, destFn) {
     toast('Moved ' + baseName(src) + '.');
   };
 }
-function dirName(p) { const i = String(p).lastIndexOf('/'); return i > 0 ? p.slice(0, i) : p; }
-function baseName(p) { return String(p).slice(String(p).lastIndexOf('/') + 1); }
+// dirName and baseName are paths.mjs's: the tree's names, the tile titles and
+// the move guards all read a path the way the platform writes it.
+//
 // Same rule as isDescendant in fs-actions.js. Duplicated rather than shared
 // because the renderer cannot require a CommonJS main module — and this copy is
 // only ever cosmetic, shaping the drop cursor. The guard that counts is in main.
 function isUnder(parent, child) {
-  return child === parent || String(child).startsWith(parent + '/');
+  return isInside(parent, child);
 }
 // A brief green on rows that just appeared, so a watcher-driven change is
 // something you notice rather than something you have to diff by eye.
@@ -1741,7 +1786,7 @@ function tileMenu(p) {
     html: (x) => !!x.filePath && fileKind(x.filePath) === 'html',
     openOutside, addToSession: addTileToSession, move: moveMenu,
     copy: (x) => { api.copyText(x.filePath || x.url); toast(x.filePath ? 'Path copied.' : 'Address copied.'); },
-    newWindow: (x) => api.newWindow(x.filePath.replace(/\/[^/]*$/, '') || '/', x.filePath),
+    newWindow: (x) => api.newWindow(dirName(x.filePath), x.filePath),
   });
 }
 function treeMenu(n, parentDir) {
@@ -1761,7 +1806,7 @@ function treeMenu(n, parentDir) {
     if (n.kind === 'dir') api.newWindow(n.path);
     else api.newWindow(parentDir || root, n.path);
   } });
-  items.push({ label: 'Reveal in Finder', run: () => api.revealFile(n.path) });
+  items.push({ label: W.reveal, run: () => api.revealFile(n.path) });
   if (n.kind === 'dir') {
     items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
     items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
@@ -1785,7 +1830,7 @@ function treeMenu(n, parentDir) {
   // Direct to Trash: right-click plus a click below a separator is deliberate,
   // and the Trash is recoverable. The library card's Delete keeps its armed
   // second click because it sits next to Save.
-  items.push({ label: 'Move to Trash', danger: true, kb: '⌘⌫', run: () => trashTreeItem(n.path, parentDir) });
+  items.push({ label: 'Move to ' + W.trash, danger: true, kb: kbd('trash'), run: () => trashTreeItem(n.path, parentDir) });
   return items;
 }
 
@@ -1800,7 +1845,7 @@ async function trashTreeItem(path, parentDir) {
   // longer there — close it rather than leave a stale page up.
   if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel && S.overlay.panel.filePath === path) closeOverlay();
   await refreshTreeDir(parentDir);
-  toast('Moved ' + baseName(path) + ' to Trash.');
+  toast('Moved ' + baseName(path) + ' to ' + W.trash + '.');
 }
 function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
 function renderFsName() {
@@ -1948,7 +1993,7 @@ function availabilityTag(i) {
 // Short on purpose: the tag sits beside the item's name in a 282px rail, and
 // the name is what you are actually scanning for. Longer wording lives on the
 // detail sheets, where there is room for it.
-function scopeTagText(scope) { return scope === 'project' ? 'project' : 'your Mac'; }
+function scopeTagText(scope) { return scope === 'project' ? 'project' : W.yourMac; }
 
 // ---- pointer status: silent when healthy -----------------------------------
 // If every skill is announced there is nothing to say, and a line that always
@@ -2043,7 +2088,7 @@ function appendServiceRow(sect, sv) {
   row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
     <span class="col"><span class="name">${esc(sv.name)}</span>
     <span class="tools">${serviceCovLine(sv)}</span></span>
-    ${missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${sv.scopes && sv.scopes.includes('project') ? 'project' : 'this Mac'}</span>`}`;
+    ${missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${sv.scopes && sv.scopes.includes('project') ? 'project' : W.thisMac}</span>`}`;
   row.onclick = () => openServiceDetails(sv);
   const tell = row.querySelector('.sv-tell');
   if (tell) tell.onclick = async (e) => {
@@ -2208,8 +2253,8 @@ function emptyDeskHtml() {
   const first = !S.recents.length;
   const make = `<button class="btn ${first ? 'btn--go ' : ''}lane-cta" id="lane-make">＋ Make me a folder</button>`;
   const open = first
-    ? `<button class="btn lane-cta" id="lane-open">Choose an existing one<span class="kb"> ⌘O</span></button>`
-    : `<button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ⌘O</span></button>`;
+    ? `<button class="btn lane-cta" id="lane-open">Choose an existing one<span class="kb"> ${kbd('open-folder')}</span></button>`
+    : `<button class="btn btn--go lane-cta" id="lane-open">＋ Open a folder<span class="kb"> ${kbd('open-folder')}</span></button>`;
   return `<div class="lane-empty"><div class="polaroid">no folder</div>
       <div><div class="big">Open a folder to start working</div>
       <div class="hint">Every session runs inside a folder. That is what keeps it resumable.</div>
@@ -2248,7 +2293,7 @@ function renderGrid() {
       ? `<div class="lane-empty"><div class="polaroid">nothing open</div>
       <div><div class="big">Start a session</div>
       <div class="hint">Agents, terminals and harnesses. They all run in this folder.</div>
-      <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ⌘N</span></button></div></div>`
+      <button class="btn btn--go lane-cta" id="lane-new">＋ New session<span class="kb"> ${kbd('new-session')}</span></button></div></div>`
       : emptyDeskHtml();
     const make = q('#lane-make', els.grid); if (make) make.onclick = makeFolderDialog;
     const tour = q('#lane-tour', els.grid); if (tour) tour.onclick = openQuickStart;
@@ -2345,7 +2390,7 @@ function renderSplit() {
     }
   };
   const sess = S.split.sessionId ? S.panels.find((x) => x.id === S.split.sessionId) : null;
-  place(q('.pane-agent', pv), S.split.sessionId, 'No session — ⌘N starts one');
+  place(q('.pane-agent', pv), S.split.sessionId, 'No session — ' + kbd('new-session') + ' starts one');
   place(q('.pane-files', pv), S.split.fileId, sess ? `No files with ${sess.title} yet — open one from the Workspace tab` : 'Open a file from the Workspace tab');
 }
 function syncSplitLayout(pv) {
@@ -2646,7 +2691,7 @@ function spawnTerminalTwin(p, draft) {
   } else if (a && a.bin) {
     spawned = startPanel({ ...terminalAgentOptions(a), title: p.title || a.name, code: code2(a.name), command: a.bin, cwd: p.cwd, acpSid: p.acpSid, cont: !!p.acpSid, seed });
   } else {
-    toast('Open it from ⌘N — new session, pick the agent.');
+    toast('Open it from ' + kbd('new-session') + ' — new session, pick the agent.');
     return;
   }
   if (spawned) closePanel(p.id);
@@ -2880,6 +2925,7 @@ function mountTerminal(p, rec) {
   term.onScroll(() => terminalHint.hide(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
+  if (api.platform === 'win32') wireWindowsKeys(term);
   mountSessionImages(p, rec);
   // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
   // every frame the tile changes size. The delay that used to live here was
@@ -2912,7 +2958,7 @@ function wireFileSelection(p, rec) {
   const update = () => {
     rec.selection = captureFileSelection(p, rec);
     bar.hidden = !rec.selection;
-    if (rec.selection) button.textContent = (rec.selection.startLine ? `${rec.selection.endLine - rec.selection.startLine + 1} lines selected · ` : 'Selection · ') + 'Add to session… ⇧⌘↵';
+    if (rec.selection) button.textContent = (rec.selection.startLine ? `${rec.selection.endLine - rec.selection.startLine + 1} lines selected · ` : 'Selection · ') + 'Add to session… ' + kb(['⇧', '⌘', '↵'], api.platform);
   };
   rec.body.addEventListener('mouseup', update);
   rec.body.addEventListener('keyup', update);
@@ -3143,7 +3189,7 @@ async function collectBases(term, p, anchorTop) {
   while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
     const run = wrappedRow(term, y, true);
     // No slash, no folder — skip the scan without paying for it.
-    if (run.text.indexOf('/') !== -1) {
+    if (hasSeparator(run.text)) {
       for (const b of basesFromText(run.text, 6)) {
         if (seen.has(b)) continue;
         seen.add(b);
@@ -3240,7 +3286,7 @@ function registerTerminalLinks(term, p) {
     // base leaves the row exactly as it was. Misses run concurrently;
     // within one miss the bases stay ordered, most recent folder first.
     const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
-      && r.link.text[0] !== '/' && r.link.text[0] !== '~');
+      && !isAbsolute(r.link.text) && r.link.text[0] !== '~');
     if (relMisses.length) {
       const bases = await collectBases(term, p, strict.top);
       await Promise.all(relMisses.slice(0, 12).map(async (r) => {
@@ -3386,6 +3432,37 @@ function registerTerminalLinks(term, p) {
 // Right-click a link in a session. Away from one this does nothing and the
 // terminal keeps whatever behaviour it had — this is a link menu, not a
 // terminal menu, and copying arbitrary text is what selection is for.
+// Copy and paste the way Windows Terminal does them (term-keys.mjs has the
+// rule and the reasons). xterm asks this before it handles a key; false means
+// "not yours".
+//
+// Copy is done here, by hand, and the key is swallowed. Paste is the opposite:
+// the key is left completely alone, so that Chromium performs its own paste
+// into xterm's textarea. That fires a real paste event, which is what xterm
+// wraps in bracketed-paste markers and what wireImagePaste reads a screenshot
+// out of — a clipboard read of our own would carry text and nothing else.
+//
+// 'app' is one of Nami's own chords — Ctrl+Shift+T, Ctrl+Shift+K and the rest.
+// xterm is told it is not a terminal key, and nothing is cancelled: a cancelled
+// keydown stops here, and this one has to travel on up to onGlobalKey, or to
+// the menu's accelerator for the ones that live only there.
+function wireWindowsKeys(term) {
+  term.attachCustomKeyEventHandler((e) => {
+    const action = termKeyAction(e, { platform: api.platform, hasSelection: term.hasSelection() });
+    if (!action) return true;
+    if (action === 'app') return false;
+    if (action !== 'paste') e.preventDefault();
+    if (e.type !== 'keydown') return false;
+    if (action === 'copy') {
+      const picked = term.getSelection();
+      // Cleared, so the next Ctrl+C is an interrupt again rather than a
+      // second copy of something you have already taken.
+      if (picked) { api.copyText(picked); term.clearSelection(); }
+    } else if (action === 'select-all') term.selectAll();
+    return false;
+  });
+}
+
 function wireTerminalMenu(p, rec) {
   rec.body.addEventListener('contextmenu', (e) => {
     const picked = rec.term?.getSelection();
@@ -3398,7 +3475,7 @@ function wireTerminalMenu(p, rec) {
       if (it.copy != null) return { ...it, run: () => copyLinkText(it.copy) };
       // Reveal is the alt route openTermLink already understands; naming it
       // here keeps the menu and the modifier on one implementation.
-      return { ...it, run: () => openTermLink(hit.link, hit.st, { altKey: it.label === 'Reveal in Finder' }) };
+      return { ...it, run: () => openTermLink(hit.link, hit.st, { altKey: it.label === W.reveal }) };
     });
     if (hit.link.kind === 'url') items.unshift({ label: 'Open in Nami browser', run: () => { browsers.open(urlTarget(hit.link.text), null, p.id); setView('split'); } });
     showMenu(e.clientX, e.clientY, items);
@@ -3457,7 +3534,14 @@ async function startProcess(p, cols, rows) {
   // A name nami chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
-  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  const made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  // Windows only: an agent that npm installed is a .cmd file, and a first
+  // message cannot be handed to one safely (src/main/cmd-shim.js). Rather than
+  // let it vanish, it goes on the clipboard, one paste away from where it was
+  // meant to land.
+  if (made && made.seedHeld && p.seed) {
+    try { await api.copyText(p.seed); toast('First message copied — paste it in when the agent is ready.'); } catch (_) {}
+  }
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
@@ -3571,7 +3655,7 @@ function mountEditor(p, rec) {
     ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><pre class="ed-measure" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
-    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">Finder</button><button class="btn btn--go ed-save">Save ⌘S</button></div>`;
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">${W.finderShort}</button><button class="btn btn--go ed-save">Save<span class="kb"> ${kbd('save')}</span></button></div>`;
   wrap.classList.toggle('editor--md', md);
   wrap.classList.toggle('editor--rich', rich);
   wrap.classList.toggle('editor--html', html);
@@ -3896,7 +3980,7 @@ function mountEditor(p, rec) {
           // would let it read the app.
           f.setAttribute('sandbox', 'allow-scripts');
           const text = p.text || '';
-          const dir = 'file://' + String(p.filePath).split('/').slice(0, -1).map(encodeURIComponent).join('/') + '/';
+          const dir = toDirUrl(dirName(p.filePath));
           f.srcdoc = /<base[\s>]/i.test(text) ? text : `<base href="${dir}">` + text;
         } else {
           // Saved → served from nami-doc://, its own origin. Relative images
@@ -3948,7 +4032,7 @@ function mountEditor(p, rec) {
     };
   });
   const edPath = q('.ed-path', wrap);
-  if (edPath) { edPath.title = 'Reveal in Finder'; edPath.onclick = () => api.revealFile(p.filePath); }
+  if (edPath) { edPath.title = W.reveal; edPath.onclick = () => api.revealFile(p.filePath); }
   bindBrowserButton(q('.ed-browser', wrap), p);
   q('.ed-finder', wrap).onclick = () => api.revealFile(p.filePath);
   q('.ed-save', wrap).onclick = () => saveEditor(p);
@@ -3977,7 +4061,7 @@ function mountViewer(p, rec) {
   const fallback = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">▣</div>
       <div class="vw-name">${esc(p.title)}</div>
       <div class="vw-note">${esc(p.note || "Can't preview this file here.")}</div>
-      <button class="btn vw-reveal">Reveal in Finder</button></div>`;
+      <button class="btn vw-reveal">${W.reveal}</button></div>`;
   if (p.sub === 'image') wrap.innerHTML = `<div class="vw-stage"><img src="${esc(url)}" alt="${esc(p.title)}" /></div>`;
   else if (p.sub === 'video') wrap.innerHTML = `<div class="vw-stage vw-stage--dark"><video src="${esc(url)}" controls playsinline></video></div>`;
   else if (p.sub === 'audio') wrap.innerHTML = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">♪</div><div class="vw-name">${esc(p.title)}</div><audio src="${esc(url)}" controls></audio></div>`;
@@ -3989,9 +4073,9 @@ function mountViewer(p, rec) {
   else if (p.sub === 'html') wrap.innerHTML = `<iframe class="vw-pdf vw-html" sandbox="allow-scripts allow-same-origin" src="${esc(docUrl(p.filePath))}"></iframe>`;
   else wrap.innerHTML = fallback;
   wrap.insertAdjacentHTML('beforeend',
-    `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">Finder</button></div>`);
+    `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">${W.finderShort}</button></div>`);
   rec.body.appendChild(wrap);
-  wrap.querySelectorAll('.vw-reveal, .vw-finder, .ed-path').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); if (b.classList.contains('ed-path')) b.title = 'Reveal in Finder'; });
+  wrap.querySelectorAll('.vw-reveal, .vw-finder, .ed-path').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); if (b.classList.contains('ed-path')) b.title = W.reveal; });
   // A rewritten PNG keeps its cached bitmap forever otherwise: the src is the
   // same URL, so nothing re-fetches and the tile shows yesterday's image. The
   // counter is the whole mechanism. A viewer has no buffer and nothing unsaved,
@@ -4095,13 +4179,13 @@ function mountCard(p, rec) {
     <div class="card-links"></div>
     <div class="ed-bar">
       <span class="ed-path">${esc(shortHome(p.filePath))}</span>
-      <button class="btn card-finder">Finder</button>
+      <button class="btn card-finder">${W.finderShort}</button>
       ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
       ${canAdopt(p.item) ? '<button class="btn btn--go card-adopt">Make it everyone’s</button>' : ''}
       ${useHereLabel(p.item) ? `<button class="btn btn--go card-dup">${esc(useHereLabel(p.item))}</button>` : ''}
       ${p.item.broken ? '<button class="btn btn--go card-del">Remove this dead link</button>'
         : ro ? ''
-        : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ⌘S</button>'}
+        : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ' + kbd('save') + '</button>'}
     </div>`;
   rec.body.appendChild(wrap);
   const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
@@ -4150,7 +4234,7 @@ function mountCard(p, rec) {
   } else linksEl.style.display = 'none';
 
   const cardPath = q('.ed-path', wrap);
-  if (cardPath) { cardPath.title = 'Reveal in Finder'; cardPath.onclick = () => api.revealFile(p.filePath); }
+  if (cardPath) { cardPath.title = W.reveal; cardPath.onclick = () => api.revealFile(p.filePath); }
   const cardFinder = q('.card-finder', wrap);
   if (cardFinder) cardFinder.onclick = () => api.revealFile(p.filePath);
   const useBtn = q('.card-use', wrap);
@@ -4198,11 +4282,11 @@ function mountCard(p, rec) {
   };
   const delBtn = q('.card-del', wrap);
   if (delBtn) delBtn.onclick = async () => {
-    if (!delBtn.dataset.armed) { delBtn.dataset.armed = '1'; delBtn.textContent = 'Really move to Trash?'; delBtn.classList.add('armed'); return; }
+    if (!delBtn.dataset.armed) { delBtn.dataset.armed = '1'; delBtn.textContent = 'Really move to ' + W.trash + '?'; delBtn.classList.add('armed'); return; }
     const res = await api.libraryDelete({ filePath: p.item.filePath, projectPath: S.project && S.project.path });
     if (!res.ok) { toast(res.error || 'Could not delete'); return; }
     if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
-    loadLibrary(true); toast('Moved to Trash.');
+    loadLibrary(true); toast('Moved to ' + W.trash + '.');
     // and stop advertising it, along with any native link that pointed at it
     if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
       api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
@@ -4304,7 +4388,7 @@ function startAnnotationDictation({ onState, onText, onError }) {
         finally { if(annotationRecording===handle)annotationRecording=null; if (!cancelled) onState('idle'); }
       };
       recorder.start(); onState('recording');
-    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(error.message); } }
+    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(micErrorText(error, api.platform)); } }
   })();
   return handle;
 }
@@ -4344,7 +4428,7 @@ async function toggleMic(p) {
     rec.start(); recording = { panelId: p.id, recorder: rec, stream };
     setMicState(p, 'recording');
     toast('Recording… click the mic again to stop.');
-  } catch (e) { toast('Mic error: ' + e.message); }
+  } catch (e) { toast('Mic error: ' + micErrorText(e, api.platform)); }
 }
 function stopMic() { if (recording) { try { recording.recorder.stop(); } catch (_) {} recording = null; } }
 async function pasteDictation(p) {
@@ -4733,12 +4817,12 @@ function renderFolderFirst() {
           <span class="col"><span class="name">${esc(r.name)}</span><span class="desc">${esc(r.pathShort)}</span></span>
           ${r.pinned ? '<span class="ff-pin">pinned</span>' : ''}
         </div>`).join('')}</div>
-      <button class="ff-other" id="ff-pick"><span class="plus">＋</span><span>Choose another folder…</span><span class="kbd">opens the Mac dialog</span></button>`
+      <button class="ff-other" id="ff-pick"><span class="plus">＋</span><span>Choose another folder…</span><span class="kbd">opens the ${W.os} dialog</span></button>`
     : `<div class="ff-empty">
         <div class="ff-msg">No folders here yet</div>
         <div class="ff-sub">a folder is where your files and the session live. One of your projects, or an empty one to start in</div>
         <button class="btn btn--go" id="ff-pick">Choose a folder…</button>
-        <div class="ff-hint">opens the Mac folder dialog</div>
+        <div class="ff-hint">opens the ${W.os} folder dialog</div>
       </div>`}`, { top: true });
   // A pick has to outlive the overlay: closeOverlay() nulls S.overlay, so the
   // continuation is captured before anything closes.
@@ -4811,7 +4895,7 @@ function renderLauncher() {
 
   if (!S.agents) {
     const row = document.createElement('div'); row.className = 'picker-row';
-    row.innerHTML = `<span class="col"><span class="desc">looking for agents on this Mac…</span></span>`;
+    row.innerHTML = `<span class="col"><span class="desc">looking for agents on ${W.thisMac}…</span></span>`;
     list.appendChild(row);
   }
   for (const a of ready) {
@@ -4853,7 +4937,7 @@ function renderLauncher() {
         const live = CHAT_READY.includes(a.id);
         // a chat session stands where your other sessions stand — the project
         const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
-          : decodeURIComponent(new URL('../../../../', location.href).pathname).replace(/\/$/, '');
+          : folderOfUrl(new URL('../../../../', location.href).href);
         const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
         seedTitleSource(np);
         S.panels.unshift(np); S.activeId = np.id;
@@ -4876,7 +4960,7 @@ function renderLauncher() {
   // add section: every not-yet-installed agent from the curated registry
   if (missing.length) {
     const div = document.createElement('div'); div.className = 'picker-divider';
-    div.textContent = 'add an agent to this Mac'; list.appendChild(div);
+    div.textContent = 'add an agent to ' + W.thisMac; list.appendChild(div);
     const grid = document.createElement('div'); grid.className = 'add-grid'; list.appendChild(grid);
     for (const a of missing) {
       const card = document.createElement('div'); card.className = 'add-card'; card.tabIndex = 0;
@@ -4952,7 +5036,7 @@ function renderAgentInstalled(a) {
       <span class="desc"><span class="ok${st && st.signedIn === false ? ' ok--warn' : ''}">●</span> ${line}</span></span></div>
 
     <div class="scan-box ag-scan">
-      <div class="label">this Mac${st && st.source ? `<span class="scan-src">${esc(st.source)}</span>` : ''}</div>
+      <div class="label">${W.thisMac}${st && st.source ? `<span class="scan-src">${esc(st.source)}</span>` : ''}</div>
       ${scan}
       <div class="scan-row"><span class="mark">✓</span><span class="label2">Program</span><span class="value">${esc(a.pathShort || a.path || 'installed')}</span></div>
     </div>
@@ -4967,13 +5051,15 @@ function renderAgentInstalled(a) {
       <span class="action" id="ag-docs">Read the guide</span>
     </div>
     <div class="ag-danger">
-      <button class="btn btn--ghost" id="ag-remove">Remove from this Mac</button>
+      <button class="btn btn--ghost" id="ag-remove">Remove from ${W.thisMac}</button>
       <span class="why">Asks first, and names every file it would delete.</span>
     </div>`);
 
   q('.su-back', modal).onclick = () => openLauncher();
   const on = (id, fn) => { const el = q('#' + id, modal); if (el) el.onclick = fn; };
-  on('ag-switch', () => runAgentCommand(a, lc.switchCmd || `${lc.logout} && ${lc.login}`, `${a.name} · sign in`));
+  // Sign out, then in — joined by main for the shell this machine runs, because
+  // the `&&` that used to be written here is a syntax error in PowerShell.
+  on('ag-switch', () => runAgentCommand(a, a.switchAccount, `${a.name} · sign in`));
   on('ag-out', () => runAgentCommand(a, lc.logout, `${a.name} · sign out`));
   on('ag-in', () => runAgentCommand(a, lc.login, `${a.name} · sign in`));
   on('ag-key-switch', () => runAgentCommand(a, lc.logout, `${a.name} · switch to API key`));
@@ -5028,7 +5114,7 @@ function renderAgentRemove() {
     : plan.mode === 'none'
       ? `<p class="setup-copy">${esc(plan.reason)}</p>`
       : `<div class="warn-box">
-           <div class="wb-head">This ${plan.mode === 'uninstall' ? 'runs' : 'deletes, on this Mac'}:</div>
+           <div class="wb-head">This ${plan.mode === 'uninstall' ? 'runs' : 'deletes, on ' + W.thisMac}:</div>
            <ul>${(plan.describe || []).map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
          </div>
          <p class="setup-copy">Your projects and files are untouched. You can install ${esc(a.name)} again later,
@@ -5062,7 +5148,7 @@ function renderAgentInstall(a) {
     <div class="setup-head"><button class="t-btn su-back" title="Back to new session">←</button>
       ${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
       <span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.sub)}</span></span></div>
-    <p class="setup-copy">${esc(a.name)} is not on this Mac yet. One command installs it, and I can run that
+    <p class="setup-copy">${esc(a.name)} is not on ${W.thisMac} yet. One command installs it, and I can run that
       for you in a terminal right here. The first time it starts, it will ask you to sign in, right in the tile.</p>
     <div class="setup-cmd">${esc(a.install)}</div>
     <div class="setup-actions">
@@ -5073,7 +5159,17 @@ function renderAgentInstall(a) {
     <p class="setup-note">Install it for me opens a terminal tile and runs the line above. Copy puts it on
       your clipboard. Read the guide opens the official ${esc(a.name)} page in your browser.</p>`);
   q('.su-back', modal).onclick = () => openLauncher();
-  q('#su-run', modal).onclick = () => {
+  // A PC comes with neither Node nor Git, and two of these installs are npm.
+  // Asked when the sheet opens, so what is missing is named above the button
+  // rather than by PowerShell after it — and asked again on the click, because
+  // the fix is a winget line the user runs somewhere else. A Mac is never asked.
+  const onPc = api.platform === 'win32';
+  if (onPc) api.installPlan({ agentId: a.id }).then((plan) => {
+    if (plan && plan.prereq && modal.isConnected) q('.setup-actions', modal).insertAdjacentHTML('beforebegin', prereqNoteHtml(plan.prereq, esc));
+  });
+  q('#su-run', modal).onclick = async () => {
+    const plan = onPc ? await api.installPlan({ agentId: a.id }) : null;
+    if (plan && plan.prereq) { toast(plan.prereq.short); return; }
     closeOverlay();
     // oneShot + watchDone: this tile exists to run one command Nami chose, and
     // the tile itself reports when that command lands. Before, the only signal
@@ -5143,7 +5239,7 @@ async function finishAgentInstall(p, code) {
   refreshTileHead(p); refreshRail();
 
   if (!ok) {
-    setTileNote(p, `<span class="tn-tx"><b>${esc(name)} is still not on this Mac.</b>
+    setTileNote(p, `<span class="tn-tx"><b>${esc(name)} is still not on ${W.thisMac}.</b>
       ${code === 0 ? 'The command ran to the end but left nothing Nami can find — the output above should say why.'
         : `The install exited with <b>${esc(String(code))}</b>.`}</span>
       <span class="tn-bt"><button class="btn btn--small" id="tn-docs">Read the guide</button>
@@ -5158,7 +5254,7 @@ async function finishAgentInstall(p, code) {
   const a = agent();
   S.justAdded = a.id;
   const signedOut = !(S.agentStatus[a.id] && S.agentStatus[a.id].signedIn);
-  setTileNote(p, `<span class="tn-tx"><b>${esc(a.name)} is on this Mac.</b>
+  setTileNote(p, `<span class="tn-tx"><b>${esc(a.name)} is on ${W.thisMac}.</b>
     ${signedOut ? 'Signed out — your first session signs you in.' : 'Signed in and ready.'}</span>
     <span class="tn-bt"><button class="btn btn--go btn--small" id="tn-go">Back to New session</button></span>`, 'ok');
   const t = tileEls.get(p.id); if (!t) return;
@@ -5315,7 +5411,7 @@ function launchAgent(item, toolId) {
 }
 async function reallyLaunchAgent(item, toolId) {
   const worker = toolById(toolId);
-  if (!worker || !worker.found) { toast(`${toolNameOf(toolId)} is not on this Mac.`); return; }
+  if (!worker || !worker.found) { toast(`${toolNameOf(toolId)} is not on ${W.thisMac}.`); return; }
   rememberTool(item, toolId);
   const was = await ensureDelivered(item, toolId);
   // How the session becomes the agent comes from the launch table, which knows
@@ -5567,7 +5663,7 @@ function renderCreateStep3(o) {
     ${knowsLine(o.kind) ? `<div class="ni-where ni-knows">${knowsLine(o.kind)}</div>` : ''}
     <div class="ni-agent" style="margin:10px 18px 0">${worker
       ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> builds it with you`
-      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
+      : W.noAgentYet}</div>
     <div class="ni-row ni-actions"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Build it with my agent</button>
       <span class="action" id="ni-blank" role="button" tabindex="0">write it myself</span></div>`, { top: true });
   const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
@@ -5582,7 +5678,7 @@ function renderCreateStep3(o) {
     keep();
     const w = chosenAgent(o);
     if (!o.desc.trim()) { toast('Describe what it should do first.'); return; }
-    if (!w) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
+    if (!w) { toast(W.noAgentYet); return; }
     if (!S.project) { toast(`Open a folder first — ${skill ? 'skills' : 'agents'} live in the project.`); return; }
     const seed = buildCreateSeed({ type: o.kind, platform: o.platform, scope: o.scope, name: o.name, desc: o.desc, projectPath: S.project && S.project.path });
     closeOverlay();
@@ -5642,7 +5738,7 @@ function renderImproveItem() {
     <input class="text-input" id="imp-ask" placeholder="what should change? e.g. give it a real description and sharper instructions" spellcheck="false" />
     <div class="ni-agent">${worker
       ? `a new session with <select class="agent-pick" id="imp-agent">${agentOptionsHtml(worker.id)}</select> edits it for you`
-      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
+      : W.noAgentYet}</div>
     <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="imp-go" ${worker ? '' : 'disabled'}>Go</button></div>`);
   const input = q('#imp-ask', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
   input.oninput = () => { o.text = input.value; };
@@ -5754,7 +5850,7 @@ function renderSettings() {
           : sec.id === 'look' ? lookPaneHtml()
             : sec.id === 'browser' ? browsers.settingsHtml() : sec.id === 'usage' ? usagePaneHtml() : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
     </div></div>
-    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">⌘ Command · ⌥ Option · ⇧ Shift</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on this Mac only, nothing syncs.</span>'}
+    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">' + esc(W.keyLegend) + '</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on ' + W.thisMac + ' only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
 
   modal.querySelectorAll('.set-nav .rail-tab').forEach((b) => {
@@ -5889,7 +5985,7 @@ function voiceRowBodyHtml(p) {
   // and what would make it survive the next launch.
   if (p.needsKey && p.ready && !p.keySaved) {
     return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Nami was started in.
-        Open Nami from the Dock and it will not be there.
+        Open Nami from the ${W.dock} and it will not be there.
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">Save it in Keys</span> to make it stick.</div></div>`;
   }
   if (p.id === 'local' && !p.ready && p.downloadBytes) {
@@ -5946,7 +6042,8 @@ function wireVoicePane(modal) {
     const res = await api.sttPrepare();
     off();
     await refreshSttInfo();
-    if (!res || !res.ok) toast('Download failed: ' + (res && res.error || '?'));
+    // `fault` is the engine failing to start (Windows, see stt.js) — the download worked
+    if (!res || !res.ok) toast(res && res.fault ? res.error : 'Download failed: ' + (res && res.error || '?'));
     if (isSettingsOpen()) renderOverlay();
   };
   const mic = q('#set-mic', modal);
@@ -5977,7 +6074,7 @@ function toggleSettingsMic(modal) {
     if (out) out.textContent = 'listening — say something, then stop.';
     // a forgotten recording shouldn't run forever
     setTimeout(() => { if (settingsRec === rec) { try { rec.stop(); } catch (_) {} } }, 15000);
-  }).catch((e) => { o.test = 'Mic error: ' + e.message; renderOverlay(); });
+  }).catch((e) => { o.test = 'Mic error: ' + micErrorText(e, api.platform); renderOverlay(); });
 }
 
 // ---- Look ------------------------------------------------------------------
@@ -6340,7 +6437,7 @@ function renderConnectOwn() {
     ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
     <div class="chip-row" id="own-scope" style="margin:8px 0">
       <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
-      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">this Mac</span></div>
+      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">${W.thisMac}</span></div>
     <div class="setup-actions">
       <button class="btn btn--go" id="own-go">Connect</button>
       ${b ? '<button class="btn" id="own-clear">Different bundle</button>' : '<button class="btn" id="own-bundle">Choose a bundle…</button>'}</div>`);
@@ -6401,17 +6498,17 @@ function renderConnectForm() {
     ${guided
       ? `<p class="setup-copy">${esc(svc.guide)}</p><div class="ni-agent">${chosenAgent(o)
           ? `a new session with <select class="agent-pick" id="sv-agent">${agentOptionsHtml(o.workerId)}</select> walks you through it`
-          : 'No agent is installed yet. Press ⌘N to add one first.'}</div>`
+          : W.noAgentYet}</div>`
       : folder
         ? `<p class="setup-copy">Pick the one folder your agents may read and edit. Nothing outside it is reachable.</p><button class="btn" id="sv-pick-folder">Choose a folder…</button><div class="setup-note" id="sv-folder-note">${esc(o.values.folder ? shortHome(o.values.folder) : '')}</div>`
-        : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on your Mac.</p>${keyRows}`}
+        : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on ${W.yourMac}.</p>${keyRows}`}
     ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
     <details class="sv-fold"${o.foldOpen ? ' open' : ''}><summary>choices (fine as they are)</summary>
       <div class="sv-fold-body">
         <div class="sv-lab">works in</div>
         <div class="chip-row" id="sv-scope">
           <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
-          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">this Mac</span></div>
+          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">${W.thisMac}</span></div>
       </div></details>
     <div class="setup-actions">
       <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>
@@ -6431,11 +6528,11 @@ function renderConnectForm() {
   // Install kind (kie): two honest clicks. First click installs in a visible
   // terminal tile; reopening the sheet finds the build and offers Connect.
   const install = svc.kind === 'install';
-  const installDirOf = () => '~/.nami/connectors/' + svc.docs.split('/').pop();
   if (install && o.installed === undefined) {
     q('#sv-connect', modal).textContent = 'Install first';
-    api.statPath({ token: installDirOf() + '/dist/index.js' }).then((st) => {
-      o.installed = !!(st && st.exists);
+    api.installPlan({ connectorId: svc.id }).then((plan) => {
+      o.installed = !!(plan && plan.built);
+      o.installDir = plan && plan.dir;
       const b = q('#sv-connect', modal);
       if (b && b.textContent !== 'Connecting…') b.textContent = o.installed ? 'Connect' : 'Install first';
     });
@@ -6445,15 +6542,12 @@ function renderConnectForm() {
   q('#sv-connect', modal).onclick = async () => {
     if (guided) return startGuidedSetup(svc, chosenAgent(o));
     if (install && !o.installed) {
-      const dir = installDirOf();
-      closeOverlay();
-      startPanel({ kind: 'run', purpose: 'installer', oneShot: true, watchDone: true, title: 'install ' + svc.name, code: svc.code,
-        command: 'git clone ' + svc.docs + ' ' + dir + ' && cd ' + dir + ' && npm install && npm run build' });
-      toast('When the install finishes, open Connect again: one more click.');
+      const res = await startConnectorInstall({ svc, api, startPanel, toast, closeOverlay, panel: { purpose: 'installer', oneShot: true, watchDone: true } });
+      if (res.prereq) toast(res.prereq.short);
       return;
     }
     saveKeys();
-    if (install) o.values.installDir = installDirOf();
+    if (install) o.values.installDir = o.installDir;
     if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
     q('#sv-connect', modal).textContent = 'Connecting…';
     const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path });
@@ -6512,7 +6606,7 @@ function renderConnectCustom() {
     <input class="text-input" id="svc-desc" placeholder="our internal wiki at wiki.acme.dev, read-only is fine" spellcheck="false" />
     <div class="ni-agent">${worker
       ? `a new session with <select class="agent-pick" id="svc-agent">${agentOptionsHtml(worker.id)}</select> builds it for you`
-      : 'No agent is installed yet. Press ⌘N to add one first.'}</div>
+      : W.noAgentYet}</div>
     <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="svc-go" ${worker ? '' : 'disabled'}>Go</button></div>
     <p class="setup-note">Watch it work, talk to it if you want. It appears under MCP in the Library when it lands.</p>`);
   const agentSel = q('#svc-agent', modal);
@@ -6535,7 +6629,7 @@ function renderConnectCustom() {
 }
 function startGuidedSetup(svc, worker) {
   worker = worker || bestAgent();
-  if (!worker) { toast('No agent is installed yet. Press ⌘N to add one first.'); return; }
+  if (!worker) { toast(W.noAgentYet); return; }
   closeOverlay();
   agentSession(worker, { title: 'set up ' + svc.name, code: svc.code, seed:
     `Walk me through connecting ${svc.name} step by step (${svc.docs}). Do every step you can yourself, ask me only when a browser sign-in needs me, and when it works register it for this project.` });
@@ -6581,9 +6675,9 @@ function quickStartRows() {
     },
     {
       n: 2, title: 'Press New session and pick who runs it',
-      sub: 'The list shows what is on your Mac. Anything missing installs from the same list.',
+      sub: 'The list shows what is on ' + W.yourMac + '. Anything missing installs from the same list.',
       acts: [
-        { label: 'New session ⌘N', go: true, run: () => { closeOverlay(); openLauncher(); } },
+        { label: 'New session ' + kbd('new-session'), go: true, run: () => { closeOverlay(); openLauncher(); } },
         { label: '▶ Watch · 2 min', play: 'getting-started' },
       ],
     },
@@ -6608,7 +6702,7 @@ function quickStartRows() {
     {
       n: 6, title: 'Open what your agent makes',
       sub: OPEN_OUTPUT_COPY,
-      acts: [{ label: '⌘ Shortcuts & gestures', run: () => openSettings('shortcuts') }],
+      acts: [{ label: W.shortcutsLabel, run: () => openSettings('shortcuts') }],
     },
   ];
 }

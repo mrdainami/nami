@@ -1,6 +1,8 @@
 import { createBrowserAnnotations } from './browser-annotations.mjs';
 import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs';
 import { createBrowserOverlays } from './browser-overlays.mjs';
+import { baseName } from './paths.mjs';
+import { importCategories, importNote } from './browser-import-note.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
   show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, panelIcon, tileMenu, showMenu, openOutside }) {
@@ -51,7 +53,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   // resizing the browser viewport itself. Observe geometry-affecting DOM state.
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'data-theme', 'data-glass', 'data-soft'] });
   function open(url = 'about:blank', filePath = null, owner = null, id = null, deferred = false, profileId = null) {
-    const p = { id: id || uid('p_'), kind: 'browser', chipKind: 'viewer', code: 'WEB', title: filePath ? filePath.split('/').pop() : 'Browser', url, filePath, status: 'live', browserDeferred: deferred, profileId };
+    const p = { id: id || uid('p_'), kind: 'browser', chipKind: 'viewer', code: 'WEB', title: filePath ? baseName(filePath) : 'Browser', url, filePath, status: 'live', browserDeferred: deferred, profileId };
     pin(p, owner ? { owner } : {}); if (owner) { p.owner = owner; refresh(); } return p;
   }
   function newBrowser(owner) {
@@ -276,13 +278,17 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const dest=r.profiles.find(p=>p.id===profileId);
     if(profileId!=null && !dest)contextError='The original profile is no longer available. Choose a destination profile.';
     const checked=key=>o.importCategories?.[key]===false?'':' checked';
+    // Main says what this platform can copy. Where sign-ins cannot be, their
+    // boxes give way to one sentence, and a box that is not drawn is not picked.
+    const offered=importCategories(r.capabilities?.import), unavailable=importNote(r.capabilities?.import);
+    const picked=key=>!!q('#import-'+key,host)?.checked;
     host.innerHTML=`<label class="field-label">From<select id="import-source"><option value=""${source?'':' selected'} disabled>${sources.length?'Choose a browser profile':'No browser profile found'}</option>${sources.map(s=>`<option value="${esc(s.id)}"${s.id===source?.id?' selected':''}>${esc(s.browser)} · ${esc(s.name)}</option>`).join('')}</select></label>
       <div class="browser-import-refresh"><button class="btn btn--small" id="import-refresh" type="button">Refresh list</button></div>
       <label class="field-label">Into<select id="import-destination"><option value=""${dest?'':' selected'} disabled>Choose a Nami profile</option>${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===dest?.id?' selected':''}>Nami · ${esc(p.name)}</option>`).join('')}</select></label>
-      <p class="note">Allow Keychain access if macOS asks.</p>
-      <label class="browser-check"><input type="checkbox" id="import-passwords"${checked('passwords')}><span>Saved passwords</span></label>
-      <label class="browser-check"><input type="checkbox" id="import-cookies"${checked('cookies')}><span>Cookies</span></label>
-      <label class="browser-check"><input type="checkbox" id="import-history"${checked('history')}><span>Browsing history</span></label>
+      ${unavailable?`<p class="note">${esc(unavailable)}</p>`:'<p class="note">Allow Keychain access if macOS asks.</p>'}
+      ${offered.includes('passwords')?`<label class="browser-check"><input type="checkbox" id="import-passwords"${checked('passwords')}><span>Saved passwords</span></label>`:''}
+      ${offered.includes('cookies')?`<label class="browser-check"><input type="checkbox" id="import-cookies"${checked('cookies')}><span>Cookies</span></label>`:''}
+      ${offered.includes('history')?`<label class="browser-check"><input type="checkbox" id="import-history"${checked('history')}><span>Browsing history</span></label>`:''}
       <div class="browser-profile-result" role="status"></div><div class="browser-import-running"></div>`;
     const go=q('#import-go',modal), result=q('.browser-profile-result',host), destination=q('#import-destination',host);
     const sourceInput=q('#import-source',host), refreshSources=q('#import-refresh',host);
@@ -299,12 +305,12 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     importView=()=>{if(current())update();};
     destination.onchange=()=>{result.textContent='';update();};
     sourceInput.onchange=()=>{result.textContent='';update();};
-    refreshSources.onclick=()=>show({...o,sourceId:sourceInput.value||o.sourceId,profileId:destination.value||undefined,importCategories:{passwords:q('#import-passwords',host).checked,cookies:q('#import-cookies',host).checked,history:q('#import-history',host).checked}});
+    refreshSources.onclick=()=>show({...o,sourceId:sourceInput.value||o.sourceId,profileId:destination.value||undefined,importCategories:{passwords:picked('passwords'),cookies:picked('cookies'),history:picked('history')}});
     host.querySelectorAll('input').forEach(input=>input.onchange=update);
     result.textContent=[contextError,sourceError].filter(Boolean).join(' '); update();
     go.onclick=async()=>{
       const profile=selected(); if(go.disabled || !profile)return;
-      const args={action:'import-browser',profileId:profile.id,sourceId:sourceInput.value,passwords:q('#import-passwords',host).checked,cookies:q('#import-cookies',host).checked,history:q('#import-history',host).checked};
+      const args={action:'import-browser',profileId:profile.id,sourceId:sourceInput.value,passwords:picked('passwords'),cookies:picked('cookies'),history:picked('history')};
       go.disabled=true; controls.forEach(input=>input.disabled=true);
       result.textContent='Importing into '+profile.name+'…';
       try{

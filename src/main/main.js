@@ -13,14 +13,18 @@ const { readTailTitle } = require('./session-title');
 const { wireAcpLive } = require('./acp-live');
 const { agentForCommand, resumeCommand, sessionExists, startDiscovery, readSessionTitle } = require('./agent-resume.js');
 const { feedOscTitle } = require('./osc-title');
-const { installAppMenu } = require('./app-menu.js');
+const { installAppMenu, buildWindowsExtrasTemplate, editContextTemplate } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
-const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv } = require('./seed-launch');
+const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld, withPromptArgs } = require('./seed-launch');
+const { reachesCmd, shimSafe, shimSafeArgs, directLaunch } = require('./cmd-shim');
+const { realProgram } = require('./real-program');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { buildChildEnv, terminalLaunchPolicy, customAgents, redactChildError } = require('./session-env');
 const { detectAgents, agentStatus, findOnDisk, agentRunCommandAllowed } = require('./agents-detect');
-const { handles: opensHere, chooseTarget } = require('./open-with');
+const { handles: opensHere, chooseTarget, chooseFolderTarget } = require('./open-with');
+const { launchArgs, fromHandoff } = require('./launch-args');
+const { statToken } = require('./path-stat');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -35,10 +39,13 @@ const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
 const { fmtSize, listDirectory, readTree } = require('./workspace-tree');
 const { ptyCwd } = require('./pty-cwd');
+const { reportingArgs, feedCwd } = require('./shell-integration');
+const { findPwsh } = require('./pwsh-find');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
-const { windowChrome } = require('./platform');
+const { windowChrome, paneShell, scriptArgs, spawnPlan } = require('./platform');
 const { seedStartHere } = require('./start-here');
+const { rememberedWindows } = require('./window-memory');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
@@ -110,6 +117,50 @@ const reviewProfile = createReviewProfile({
 });
 app.setPath('userData', reviewProfile.path);
 const REVIEW = reviewProfile.review;
+
+// One Nami per profile, on Windows. There a file opened with Nami, and a second
+// double-click on the icon, both start a whole new process with the path in
+// its argv. The lock turns that second process into a messenger: it hands over
+// what it was asked to open and leaves, and the running app opens it (see
+// 'second-instance' below). It reads its own command line and sends the answer,
+// because the argv Electron relays has had its switches reordered by Chromium.
+// Must sit after setPath: the lock is keyed on userData, which is what lets a
+// dev run, the installed app and a review profile each keep their own.
+//
+// Windows only, on purpose. macOS already runs one Nami per bundle and delivers
+// files as open-file events, so the lock would add nothing there and take two
+// things away: a second `npm start`, and a second run against a --review
+// profile, both of which share a userData and both of which work today. A
+// screenshot or demo run is a tool that must finish, so it never yields either.
+const ONE_INSTANCE = process.platform === 'win32' && !SHOT_PATH && !DEMO;
+const statPath = (p) => fs.statSync(p);
+const LAUNCH = ONE_INSTANCE
+  ? launchArgs({ argv: process.argv, cwd: process.cwd(), isPackaged: app.isPackaged, stat: statPath })
+  : { files: [], folders: [] };
+if (ONE_INSTANCE && !app.requestSingleInstanceLock(LAUNCH)) {
+  console.log('[launch] handed to the running Nami:', LAUNCH.files.length, 'file(s),', LAUNCH.folders.length, 'folder(s)');
+  app.exit(0);
+}
+
+// Nami's own working folder, on Windows, is the home folder from here on.
+//
+// Opened from a file in Explorer, the process starts life inside that file's
+// folder — a repo someone just cloned, a Downloads folder. Windows looks in the
+// current folder for every program started by bare name, and ahead of PATH, so
+// a powershell.exe or a git.cmd lying in that folder would be the one that ran.
+// The shells are started by full path now (platform.js) and cmd.exe is told not
+// to look there (spawnPlan); this is the same door shut from the other side,
+// for whatever is started by name that nobody has thought of yet. It also lets
+// go of the folder, which Windows will not rename or delete while a process
+// sits in it.
+//
+// It has to come after LAUNCH above: a relative argument (`nami .`) is read
+// against the folder the launch came from. A screenshot run is left where it
+// was, because it writes to a path given relative to there. A Mac is left
+// alone: launchd starts an app in /, and nothing there searches the cwd.
+if (process.platform === 'win32' && !SHOT_PATH) {
+  try { process.chdir(os.homedir()); } catch (_) { /* a home folder that is gone costs nothing here */ }
+}
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
@@ -311,13 +362,17 @@ function startUpdatePolling() {
 // reopens each window on its own folder, where you left it. A window you close
 // on purpose drops out of the list and does not come back.
 let winSnapTimer = null;
+let lastClosedWindow = null;        // see window-memory.js: off the Mac, closing the last window is quitting
+function openWindowRecords() {
+  return [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
+    folder: winFolders.get(w.webContents.id) || null,
+    bounds: w.getNormalBounds(),
+  }));
+}
 function snapshotWindows() {
   clearTimeout(winSnapTimer);
   winSnapTimer = setTimeout(() => {
-    state.windows = [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
-      folder: winFolders.get(w.webContents.id) || null,
-      bounds: w.getNormalBounds(),
-    }));
+    state.windows = rememberedWindows({ open: openWindowRecords(), lastClosed: lastClosedWindow });
     persist();
   }, 300);
 }
@@ -370,6 +425,57 @@ function routeOpenFile(filePath) {
   sendOpen(w, filePath, target.folder, target.action === 'adopt');
 }
 
+// The Windows road to the same place. A path on the command line is a file, which
+// takes the route above exactly as one from Finder does, or a folder
+// (`Nami.exe C:\work`), which is the desk already open on it or a new window —
+// never somebody else's desk switched underneath them. Returns whether anything
+// was opened, so a launch that asked for nothing can just bring Nami forward.
+function routeOpenFolder(folder) {
+  const live = [...wins].filter((w) => !w.isDestroyed());
+  const focused = BrowserWindow.getFocusedWindow() || win;
+  const target = chooseFolderTarget({
+    folder,
+    windows: live.map((w) => ({ id: w.webContents.id, folder: winFolders.get(w.webContents.id) || null })),
+    focusedId: focused && !focused.isDestroyed() ? focused.webContents.id : null,
+  });
+  if (target.action === 'replace-empty') {
+    // The new window first, in the old one's place, so there is never a moment
+    // with no windows — which off a Mac is the moment Nami quits.
+    const old = live.find((x) => x.webContents.id === target.id);
+    createWindow(folder, old ? old.getNormalBounds() : undefined);
+    if (old && !old.isDestroyed()) old.close();
+    return;
+  }
+  const w = target.action === 'here' ? live.find((x) => x.webContents.id === target.id) : null;
+  if (!w) { createWindow(folder); return; }
+  if (w.isMinimized()) w.restore();
+  w.focus();
+}
+function routeLaunch(asked) {
+  const files = asked.files.filter((f) => opensHere(f));
+  for (const folder of asked.folders) routeOpenFolder(folder);
+  for (const filePath of files) routeOpenFile(filePath);
+  return asked.folders.length + files.length > 0;
+}
+
+// A second Nami was started and has already left; this is what it was asked to
+// open. `handed` is its own reading of its own command line (see ONE_INSTANCE
+// above) and is checked again here, since it crossed a process boundary. argv
+// is the fallback for a sender that handed nothing over.
+app.on('second-instance', (_e, argv, cwd, handed) => {
+  const asked = handed && typeof handed === 'object'
+    ? fromHandoff(handed, { stat: statPath })
+    : launchArgs({ argv, cwd, isPackaged: app.isPackaged, stat: statPath });
+  console.log('[launch] second instance:', asked.files.length, 'file(s),', asked.folders.length, 'folder(s)');
+  if (!app.isReady()) { LAUNCH.files.push(...asked.files); LAUNCH.folders.push(...asked.folders); return; }
+  if (routeLaunch(asked)) return;
+  // Nothing to open: the icon was clicked again. Show them the Nami they have.
+  const w = (win && !win.isDestroyed()) ? win : [...wins].find((x) => !x.isDestroyed());
+  if (!w) { createWindow(); return; }
+  if (w.isMinimized()) w.restore();
+  w.focus();
+});
+
 // One send, three callers: the cold start, a window made for the file, and the
 // switch sheet's "open in a new window". A window that has not finished loading
 // has no listener yet, so the message waits for the load rather than vanishing.
@@ -390,7 +496,7 @@ function createWindow(folder, bounds) {
     // at the foot of paper.css.
     width: 1360, height: 940, minWidth: 560, minHeight: 480,
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
-    ...windowChrome(),
+    ...windowChrome(process.platform, settingsStore.themeBackground(readSettings().theme)),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true },
   });
@@ -408,6 +514,18 @@ function createWindow(folder, bounds) {
   // deck it reserves for them; it needs to hear both edges of the transition.
   w.on('enter-full-screen', () => w.webContents.send('window:fullscreen', true));
   w.on('leave-full-screen', () => w.webContents.send('window:fullscreen', false));
+  // Windows only, and only where the page has not answered the right-click
+  // itself: Cut, Copy and Paste by mouse, which on a Mac is the Edit menu.
+  w.webContents.on('context-menu', (_e, params) => {
+    const template = editContextTemplate(params);
+    // At the click, which the event reports, rather than wherever the pointer
+    // is by the time this runs — the two differ whenever the click was not made
+    // by the pointer: a touch, a pen, a screen reader, an automated test.
+    if (template) Menu.buildFromTemplate(template).popup({ window: w, x: params.x, y: params.y });
+  });
+  // Read while the window still exists: by 'closed' its bounds and its folder
+  // are both gone, and on Windows that is the moment they are needed most.
+  w.on('close', () => { lastClosedWindow = { folder: winFolders.get(wcId) || null, bounds: w.getNormalBounds() }; });
   w.on('closed', () => {
     wins.delete(w);
     windowThemes.delete(wcId);
@@ -489,7 +607,9 @@ app.whenReady().then(() => {
   // desk the developer happened to leave open.
   const restore = (!SHOT_PATH && !DEMO && state.windows.length) ? state.windows.slice(0, 8) : null;
   if (restore) for (const w of restore) createWindow(w.folder || null, w.bounds);
-  else createWindow();
+  // `Nami.exe C:\work` with nothing to restore: that folder is the window, so
+  // the usual one on the last-used folder would only be a second, unasked-for.
+  else if (!LAUNCH.folders.length) createWindow();
   if (process.argv.includes('--second-window')) createWindow(null); // dev: multi-window smoke test
   startUpdatePolling();
   // The silent ping — anonymous "launched today" note, deduped server-side to
@@ -504,16 +624,16 @@ app.whenReady().then(() => {
   // Anything Finder sent while the app was still starting. Drained last, so
   // the restored windows are already in wins and can be chosen between.
   while (coldOpens.length) routeOpenFile(coldOpens.shift());
+  // The same for Windows, where the file or folder came in on the command line
+  // (and anything a second launch handed over before there was a window).
+  routeLaunch(LAUNCH);
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
   // The snapshot is debounced; quitting mid-debounce would lose the last move
   // or the folder a window switched to a moment ago.
   clearTimeout(winSnapTimer);
-  state.windows = [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
-    folder: winFolders.get(w.webContents.id) || null,
-    bounds: w.getNormalBounds(),
-  }));
+  state.windows = rememberedWindows({ open: openWindowRecords(), lastClosed: lastClosedWindow });
   clearTimeout(saveTimer);
   try {
     fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
@@ -587,6 +707,9 @@ ipcMain.handle('boot', (e) => {
   bootSeq += 1;
   return {
     winId: bootSeq,
+    // Where `~` is. The renderer used to read it off the front of a path, which
+    // works for /Users/you and says nothing about a project on D:\.
+    home: os.homedir(),
     // A window opened after the check already ran would otherwise never hear
     // about the update — the event has been and gone.
     update: lastOffered,
@@ -650,6 +773,19 @@ ipcMain.handle('window:new', (_e, args) => {
   // The switch sheet sends the file along: it declined to take over this desk,
   // so the file has to follow into the window that was made for it instead.
   if (args && args.openFile) sendOpen(w, args.openFile, folder, false);
+  return { ok: true };
+});
+
+// The Nami mark, clicked on Windows: the few menu items with nowhere else to
+// live (app-menu.js says which, and why). The renderer sends where the mark is
+// in its own pixels; a zoomed page has bigger pixels than the window does.
+ipcMain.handle('menu:extras', (e, at) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (process.platform !== 'win32' || !w) return { ok: false };
+  const zoom = e.sender.getZoomFactor();
+  const px = (v) => Math.max(0, Math.round((Number(v) || 0) * zoom));
+  Menu.buildFromTemplate(buildWindowsExtrasTemplate({ open: (url) => shell.openExternal(url) }))
+    .popup({ window: w, x: px(at && at.x), y: px(at && at.y) });
   return { ok: true };
 });
 
@@ -768,10 +904,15 @@ function catalogForRenderer() {
 // CLI delivery steps run the resolved `claude` binary directly with an argv
 // array — no login shell, so nothing in an id or entry can be parsed as a
 // command. Falls back to the bare name when the bin scan has not run.
+// `mcp add-json` carries a connector's JSON, which is other people's text. To
+// npm's claude.cmd on Windows it goes round the shim when it can
+// (real-program.js) — the claude.exe or the node script behind it, and no
+// cmd.exe at all — and through spawnPlan's escaping when it cannot.
 function claudeExec(argv) {
   return new Promise((resolve) => {
-    const bin = knownBin('claude') || 'claude';
-    execFile(bin, argv, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }) }, (err) => {
+    const run = realProgram(knownBin('claude') || 'claude');
+    const plan = spawnPlan(run.file, [...run.args, ...argv]);
+    execFile(plan.file, plan.args, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }), ...plan.options }, (err) => {
       resolve(err ? { ok: false, error: redactChildError(err, { settings: readSettings() }).split('\n')[0] } : { ok: true });
     });
   });
@@ -786,11 +927,25 @@ async function deliverConnections({ scope, projectPath, agentIds }) {
   return runPlan({ plan, execCmd: claudeExec });
 }
 // What a delivery looked like, in the words the connect-done sheet shows.
-function shortHome(p) { return String(p || '').replace(os.homedir(), '~'); }
+// Windows writes the same home folder in more than one case and ends it at
+// either separator, so there the shortening is agents-detect's, which knows.
+function shortHome(p) {
+  if (process.platform === 'win32') return require('./agents-detect').shortHome(p, os.homedir(), 'win32');
+  return String(p || '').replace(os.homedir(), '~');
+}
 function deliveredNames(results) {
   return results.filter((r) => r.ok).map((r) => (r.via === 'cli' ? r.agent + ' (its own CLI)' : shortHome(r.wrote)));
 }
-ipcMain.handle('services:list', (_e, { projectPath, agentIds } = {}) => {
+// What an install will take here, asked before it runs: the line for this
+// shell, and anything it needs that a PC does not come with (install-plan.js).
+// Programs are looked for on the PATH a tile is given, not on Nami's own.
+const { installPlan } = require('./install-plan');
+ipcMain.handle('install:plan', (_e, { connectorId, agentId } = {}) => installPlan({
+  connectorId, agentId, home: os.homedir(), shell: paneShell(process.platform, process.env),
+  exists: (p) => fs.existsSync(p), refresh: refreshUserPath,
+  findBin: async (bin) => findOnDisk(bin, { env: { ...process.env, PATH: await userPath({ settings: readSettings() }) } }),
+}));
+ipcMain.handle('services:list',(_e, { projectPath, agentIds } = {}) => {
   const home = os.homedir();
   const masters = {
     ...readMaster({ scope: 'user', projectPath, homeDir: home }),
@@ -901,7 +1056,8 @@ ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
   }
   const viaCli = validServiceId(id) ? await new Promise((resolve) => {
     const bin = knownBin('claude') || 'claude';
-    execFile(bin, ['mcp', 'remove', '--scope', 'user', id], { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }) }, (err) => resolve(!err));
+    const plan = spawnPlan(bin, ['mcp', 'remove', '--scope', 'user', id]);
+    execFile(plan.file, plan.args, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }), ...plan.options }, (err) => resolve(!err));
   }) : false;
   if (viaCli) changed.push('claude user settings');
   return { changed };
@@ -915,8 +1071,13 @@ ipcMain.handle('url:open', (_e, url) => {
 
 // Theme lives in settings.json so the window background matches on next launch.
 ipcMain.on('theme:applied', (e, theme) => {
-  if (!wins.has(BrowserWindow.fromWebContents(e.sender))) return;
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!wins.has(w)) return;
   windowThemes.set(e.sender.id, settingsStore.normalizeTheme(theme));
+  // The Windows caption buttons are painted by the system on a colour we chose
+  // at creation, so a theme change has to repaint them or they stay behind.
+  const overlay = windowChrome(process.platform, settingsStore.themeBackground(theme)).titleBarOverlay;
+  if (overlay && !w.isDestroyed()) w.setTitleBarOverlay(overlay);
   refreshAppMenu();
 });
 ipcMain.handle('theme:set', (_e, theme) => {
@@ -1094,33 +1255,24 @@ ipcMain.handle('file:save', async (_e, { file, text }) => {
   try { fs.writeFileSync(file, text); } catch (e) { return { ok: false, error: e.message }; }
   return { ok: true, hash: await savedHash(text) };
 });
-// Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
-// `relative` is reported because it is the only case a second base could
-// change: an absolute path that is missing is missing everywhere.
-function statToken(token, base) {
-  let relative = false;
-  try {
-    let p = String(token || '').trim().replace(/[)>,.:'"]+$/, '');
-    if (!p) return { exists: false, relative: false };
-    const tilde = p.startsWith('~');
-    if (tilde) p = path.join(os.homedir(), p.slice(1));
-    relative = !tilde && !path.isAbsolute(p);
-    if (relative) p = path.resolve(base || os.homedir(), p);
-    const st = fs.statSync(p);
-    return { exists: true, isFile: st.isFile(), isDir: st.isDirectory(), abs: p, relative };
-  } catch (_) { return { exists: false, relative }; }
-}
+// Resolve a token clicked in a terminal: statToken, in path-stat.js.
+//
 // The session's own cwd is tried first and wins outright, so the retry below
 // can only ever turn a dead link live — never the reverse. Only a relative
 // miss pays for the lsof, and only while a link is being hovered.
+//
+// `roots` is what lets a project on a network share keep its links while a
+// printed \\evil\share path is never so much as statted (remote-path.js): the
+// folder the tile was opened on, which somebody chose, and the home folder.
 ipcMain.handle('path:stat', async (_e, { token, cwd, id }) => {
-  const hit = statToken(token, cwd);
+  const roots = [cwd, os.homedir()];
+  const hit = await statToken(token, cwd, { roots });
   if (hit.exists || !hit.relative) return hit;
   const term = id ? termSessions.get(id) : null;
   if (!term || !term.pid) return hit;
   const live = await ptyCwd(term.pid);
   if (!live || live === cwd) return hit;
-  return statToken(token, live);
+  return statToken(token, live, { roots });
 });
 
 // ---- IPC: agents & skills library ------------------------------------------
@@ -1371,12 +1523,29 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // settled; the await only ever bites on a session created within the first
   // second of launch.
   const envPath = await userPath({ settings: readSettings() });
-  const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+  // PowerShell 7 when the PC has it, looked for on the PATH the pane is about
+  // to be given. Only Windows looks: a Mac pane is the user's own shell.
+  const onWindows = process.platform === 'win32';
+  const shellPath = paneShell(process.platform, process.env, onWindows ? findPwsh({ pathValue: envPath || undefined }) : '');
+  const quote = (a) => shellQuote(a, shellPath);
   const claudeExe = resolveClaudeExecutable();
   const launch = { kind, purpose, agentId, program, command, args, watchDone, oneShot };
   const policy = sessionPolicy(launch);
   const seedAgent = seedAgentForLaunch(launch);
-  const promptArgs = initialPromptArgs(seedAgent, seed);
+  // What a found program really is. On Windows npm's claude.cmd and codex.cmd
+  // are shims, and one that plainly runs node on a script, or a .exe of the
+  // package's own, is started as that instead (real-program.js), so from here
+  // down it is a real .exe like any other. Anything else, and everything on a
+  // Mac, is itself.
+  const real = (found) => realProgram(found, { platform: process.platform, pathValue: envPath || undefined });
+  const claudeRun = real(claudeExe);
+  // Where the agent the message is for really is. On Windows that decides
+  // whether it may travel as an argument at all: a shim Nami could not go round
+  // is read by cmd.exe, and a message is not something cmd.exe may read
+  // (cmd-shim.js). On a Mac the answer is always yes and nothing changes.
+  const seedProgram = kind === 'claude' ? claudeRun.file : real(knownBin(seedAgent)).file;
+  const promptArgs = initialPromptArgs(seedAgent, seed, { program: seedProgram, platform: process.platform });
+  const held = seedHeld(seedAgent, seed, { program: seedProgram, platform: process.platform });
 
   let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null, discoverAgent = null, storeWatch = null;
   if (kind === 'claude') {
@@ -1396,8 +1565,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (transcript) claudeWatch = { transcript, sid, cwd };
     // Extra args ride along — the agents picker launches claude as the agent
     // with `--agent <slug>` (probe-backed; see agent-launch.mjs).
+    // To npm's claude.cmd the name and the agent's slug go reduced to what
+    // cmd.exe cannot act on; a real claude.exe, and a Mac, get them whole. With
+    // no resolved binary the shell will find whichever claude it finds, so the
+    // typed line is written for the shim it may turn out to be.
     const extraArgs = Array.isArray(args) ? args : [];
-    if (claudeExe) { file = claudeExe; spawnArgs = [...claudeArgs, ...extraArgs, ...promptArgs]; }
+    const ownArgs = shimSafeArgs([...claudeArgs, ...extraArgs], claudeRun.file, process.platform);
+    if (claudeExe) { file = claudeRun.file; spawnArgs = [...claudeRun.args, ...ownArgs, ...promptArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
     // into a marker branch below that typed a bare `claude`, dropping
@@ -1409,9 +1583,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // this tile carries claude's keys, so it must not outlive claude.
     else {
       file = shellPath;
-      const displayLine = ['claude', ...claudeArgs, ...extraArgs].map(shellQuote).join(' ');
-      const line = displayLine + (promptArgs.length ? ' ' + promptArgs.map(shellQuote).join(' ') : '');
-      if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = ['-i', '-c', line]; echoLine = displayLine; }
+      const displayLine = ['claude', ...ownArgs].map(quote).join(' ');
+      const line = displayLine + (promptArgs.length ? ' ' + promptArgs.map(quote).join(' ') : '');
+      if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = scriptArgs(shellPath, line); echoLine = displayLine; }
       else afterStart = line;
     }
   } else if (kind === 'harness' && program) {
@@ -1425,11 +1599,22 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // interactive shell's PATH can miss a binary the launcher calls ready
     // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
+    // A library agent's slug is a file name out of the project, and a file may
+    // be called `x&calc.md`. On its way to opencode.cmd that is a command
+    // (cmd-shim.js), and the line was written and checked by the renderer, so it
+    // cannot be reduced here without ceasing to be the line that was checked.
+    // It is turned away instead, with the reason where the agent would be.
+    const head = (/^[A-Za-z][\w.-]*/.exec(String(command)) || [''])[0];
+    if (Array.isArray(args) && reachesCmd(real(knownBin(head)).file, process.platform) && args.some((a) => shimSafe(a) !== String(a))) {
+      sendWc(wc, 'term:data', { id, data: `\r\n[not started: this agent's name has a character in it that cannot be handed to ${head} safely on Windows — one of " % & | < > ^ ! ( )]\r\n` });
+      return { ok: false };
+    }
     // withSpawnFlags first, while the head is still a bare name: it is keyed
     // by binary, and resolveRunCommand may replace the head with a full path.
     // This is where grok gets --minimal; see the table in bin-cache.js for why
     // the flag is not stored on the panel.
-    let typed = resolveRunCommand(withSpawnFlags(command));
+    let bare = withSpawnFlags(command);   // the line before anything resolves it, for directLaunch below
+    let typed = resolveRunCommand(bare, shellPath, real);
     // A known agent tile restoring with a saved conversation id gets its
     // resume line typed instead of the bare bin — but only while the agent's
     // store still holds that session (the same restored-but-unused guard as
@@ -1444,22 +1629,35 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume)); storeWatch = { agent, sid: acpSid }; }
+        if (resume) { bare = withSpawnFlags(resume); typed = resolveRunCommand(bare, shellPath, real); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
 
-    if (promptArgs.length) typed += ' ' + promptArgs.map(shellQuote).join(' ');
-    if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
+    // On Windows an agent tile whose line is just a program and plain words is
+    // started by the pty itself, the way a claude tile already is: PowerShell
+    // 5.1 cannot hand a quote to a Bun-built program intact (see directLaunch).
+    // The platform test comes first so nothing else is even looked up on a Mac.
+    const direct = (process.platform === 'win32' && !watchDone && (policy.purpose === 'agent' || promptArgs.length))
+      ? directLaunch(bare, { real, knownBin, platform: process.platform }) : null;
+    typed = withPromptArgs(typed, promptArgs, { quote, shell: shellPath });
+    if (direct) { file = direct.file; spawnArgs = [...direct.args, ...promptArgs]; echoLine = command; }
+    else if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     // An agent tile: the shell runs the line as its script and exits with the
     // agent, so the keys in its environment die with it. Still `-i`, so the
     // user's rc file is read and `a && b` registry commands work; no `exec`
     // prefix for the same reason. Unlike a one-shot there is no trailing
     // `exec <shell> -i` — a fresh prompt is exactly the thing to avoid here.
-    else if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = ['-i', '-c', typed]; echoLine = command; }
+    else if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = scriptArgs(shellPath, typed); echoLine = command; }
     else afterStart = typed;
   } else {
     file = shellPath;
   }
+
+  // Windows cannot be asked where a shell is, so a PowerShell that will show a
+  // prompt is started with a hook that says (shell-integration.js). It rides
+  // in on the launch arguments — never typed, so never echoed into the tile.
+  const tellsCwd = onWindows && file === shellPath;
+  if (tellsCwd) spawnArgs = reportingArgs(shellPath, spawnArgs);
 
   let p;
   try {
@@ -1499,11 +1697,16 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 
   const osc = { last: null };
   const done = { buf: '' };
+  // roots: the shares this pane may honestly report being on (cleanCwd).
+  const where = tellsCwd ? { buf: '', roots: [(cwd && fs.existsSync(cwd)) ? cwd : os.homedir(), os.homedir()] } : null;
   let reported = false;
   let seedGate = null;
   p.onData((data) => {
     sendWc(wc, 'term:data', { id, data });
     if (seedGate) seedGate.onData(data);
+    // The shell saying which folder it is in now. path:stat asks ptyCwd for it
+    // when a relative path printed after a `cd` misses against the tile's own.
+    if (where) { const at = feedCwd(where, data); if (at) ptyCwd.tell(p.pid, at); }
     // A one-shot command announcing its own exit code. Same channel as the
     // title below, opposite direction: the shell talking to Nami.
     if (watchDone && !reported) {
@@ -1524,6 +1727,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   p.onExit(({ exitCode, signal }) => {
     if (seedGate) { seedGate.stop(); seedGate = null; }
     if (stopDiscovery) stopDiscovery(); // a closed tile stops polling agent stores
+    if (where) ptyCwd.forget(p.pid); // Windows hands the pid to the next process
     termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
     // The note is built here rather than in the renderer because only main knows
     // whether this teardown was Nami's own doing.
@@ -1545,7 +1749,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     });
     p.namiSeedGate = seedGate;
   }
-  return { ok: true };
+  // `seedHeld`: there was a first message and it could not be sent (a shim on
+  // Windows, see above). The renderer puts it on the clipboard and says so.
+  return held ? { ok: true, seedHeld: true } : { ok: true };
 });
 // ---- claude's own name for a session ---------------------------------------
 // Claude titles its conversations and writes the title into the transcript.

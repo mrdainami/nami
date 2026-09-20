@@ -3,10 +3,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { parseManifest, bundleSlug } = require('../src/main/mcpb');
+
+// A minimal zip: every entry stored uncompressed, marked as made on Unix so the
+// mode bits (a symlink is 0o120777) mean what an extractor takes them to mean.
+function storedZip(entries) {
+  const locals = [], central = [];
+  let offset = 0;
+  for (const [entryName, text, mode = 0o600] of entries) {
+    const name = Buffer.from(entryName), data = Buffer.from(text);
+    // shared by both headers: version needed, flags, method, time, date, crc, sizes, name/extra length
+    const shared = Buffer.alloc(26);
+    shared.writeUInt16LE(20, 0); shared.writeUInt16LE(0x21, 8);
+    shared.writeUInt32LE(zlib.crc32(data), 10);
+    shared.writeUInt32LE(data.length, 14); shared.writeUInt32LE(data.length, 18);
+    shared.writeUInt16LE(name.length, 22);
+    const local = Buffer.alloc(4); local.writeUInt32LE(0x04034b50);
+    const head = Buffer.alloc(6); head.writeUInt32LE(0x02014b50); head.writeUInt16LE((3 << 8) | 20, 4);
+    const rest = Buffer.alloc(14); // comment length, disk, internal attrs, then:
+    rest.writeUInt32LE((mode * 0x10000) >>> 0, 6); rest.writeUInt32LE(offset, 10);
+    locals.push(local, shared, name, data);
+    central.push(head, shared, rest, name);
+    offset += 4 + 26 + name.length + data.length;
+  }
+  const dir = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
+}
 
 test('bundle names cannot select the install root or its parent', () => {
   for (const name of ['.', '..', '...', '/', ' ', '---']) {
@@ -20,22 +48,19 @@ test('bundle extraction rejects escaping paths, symlinks and oversized data with
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nami-bundle-fixture-'));
   const bundles = path.join(root, 'bundles');
   try {
-    // Python's standard zip writer lets the fixture describe hostile entries
-    // without ever extracting them with a system utility.
+    // The fixture writes its own zips, byte by byte, so it can describe hostile
+    // entries no well-behaved zip library would agree to — and so it needs
+    // nothing but node, which is all a Windows machine is sure to have. Nothing
+    // here is ever extracted by a system utility.
     const zip = async (kind, name = 'fixture') => {
       const file = path.join(root, kind + '.zip');
-      execFileSync('/usr/bin/python3', ['-c', `
-import zipfile,json,sys
-file,kind,name=sys.argv[1:]
-with zipfile.ZipFile(file,'w') as z:
- z.writestr('manifest.json',json.dumps({'name':name,'server':{'mcp_config':{'command':'node'}}}))
- if kind=='escape': z.writestr('../outside.txt','bad')
- elif kind=='absolute': z.writestr('/outside.txt','bad')
- elif kind=='link':
-  i=zipfile.ZipInfo('link'); i.create_system=3; i.external_attr=0o120777<<16; z.writestr(i,'../')
- elif kind=='large': z.writestr('large.txt','a'*1024)
- else: z.writestr('server/index.js','// fixture')
-`, file, kind, name], { timeout: 5000 });
+      const entries = [['manifest.json', JSON.stringify({ name, server: { mcp_config: { command: 'node' } } })]];
+      if (kind === 'escape') entries.push(['../outside.txt', 'bad']);
+      else if (kind === 'absolute') entries.push(['/outside.txt', 'bad']);
+      else if (kind === 'link') entries.push(['link', '../', 0o120777]);
+      else if (kind === 'large') entries.push(['large.txt', 'a'.repeat(1024)]);
+      else entries.push(['server/index.js', '// fixture']);
+      await fs.writeFile(file, storedZip(entries));
       return file;
     };
     const good = await installBundle(await zip('valid'), bundles);

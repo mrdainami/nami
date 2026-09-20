@@ -10,6 +10,8 @@ import {
   connectDoneHtml,
   connectCatalogHtml,
   createMcpSetup,
+  prereqNoteHtml,
+  startConnectorInstall,
 } from '../src/renderer/mcp-setup.mjs';
 
 const GMAIL = {
@@ -180,4 +182,70 @@ test('openConnect shows the catalog sheet and refreshes services', () => {
   assert.equal(state.overlay.type, 'connect');
   assert.ok(calls.some((c) => c[0] === 'renderOverlay'));
   assert.ok(calls.some((c) => c[0] === 'refreshServices'));
+});
+
+// ---- install a connector from its repo --------------------------------------
+
+const KIE = { id: 'kie', name: 'Creative models', code: 'CM', kind: 'install', docs: 'https://github.com/mrdainami/kie-mcp' };
+
+function installHarness(plan) {
+  const calls = [];
+  return {
+    calls,
+    deps: {
+      svc: KIE,
+      api: { installPlan: async (args) => { calls.push(['installPlan', args]); return plan; } },
+      startPanel: (opts) => calls.push(['startPanel', opts]),
+      toast: (m) => calls.push(['toast', m]),
+      closeOverlay: () => calls.push(['closeOverlay']),
+    },
+  };
+}
+
+test('the install line comes from main, and the tile that runs it is the one the user watches', async () => {
+  const line = 'git clone https://github.com/mrdainami/kie-mcp ~/.nami/connectors/kie-mcp && cd ~/.nami/connectors/kie-mcp && npm install && npm run build';
+  const { calls, deps } = installHarness({ ok: true, command: line, dir: '~/.nami/connectors/kie-mcp', built: false, prereq: null });
+  const res = await startConnectorInstall(deps);
+  assert.deepEqual(res, { started: true });
+  assert.deepEqual(calls[0], ['installPlan', { connectorId: 'kie' }]);
+  assert.deepEqual(calls.map((c) => c[0]), ['installPlan', 'closeOverlay', 'startPanel', 'toast']);
+  assert.deepEqual(calls[2][1], { kind: 'run', title: 'install Creative models', code: 'CM', command: line });
+  assert.match(calls[3][1], /open Connect again/);
+});
+
+test('a caller\'s own tile options ride along, but never over the command', async () => {
+  const { calls, deps } = installHarness({ ok: true, command: 'the line', prereq: null });
+  await startConnectorInstall({ ...deps, panel: { purpose: 'installer', oneShot: true, watchDone: true, command: 'not this' } });
+  assert.deepEqual(calls.find((c) => c[0] === 'startPanel')[1], {
+    kind: 'run', purpose: 'installer', oneShot: true, watchDone: true, title: 'install Creative models', code: 'CM', command: 'the line',
+  });
+});
+
+test('something missing stops the install before a tile opens, and the sheet stays up to say so', async () => {
+  const prereq = { missing: ['git'], short: 'Git is not on this PC yet.', message: 'Git is not on this PC yet, and this install needs it. Run this in a terminal first, then come back:', commands: ['winget install --id Git.Git -e'] };
+  const { calls, deps } = installHarness({ ok: true, command: 'the line', prereq });
+  const res = await startConnectorInstall(deps);
+  assert.deepEqual(res, { started: false, prereq });
+  assert.deepEqual(calls.map((c) => c[0]), ['installPlan']);
+});
+
+test('no plan, no tile', async () => {
+  const { calls, deps } = installHarness({ ok: false });
+  assert.deepEqual(await startConnectorInstall(deps), { started: false });
+  assert.ok(!calls.some((c) => c[0] === 'startPanel' || c[0] === 'closeOverlay'));
+  assert.match(calls.find((c) => c[0] === 'toast')[1], /Creative models/);
+});
+
+test('the missing-prerequisite note is the sheet\'s own copy and command styles, escaped, and nothing at all on a Mac', () => {
+  assert.equal(prereqNoteHtml(null, esc), '');
+  assert.equal(prereqNoteHtml(undefined, esc), '');
+  const html = prereqNoteHtml({ message: 'Git & Node.js are not on this PC yet', commands: ['winget install --id Git.Git -e', 'winget install --id OpenJS.NodeJS.LTS -e'] }, esc);
+  assert.equal(html, '<p class="setup-copy">Git &amp; Node.js are not on this PC yet</p>'
+    + '<div class="setup-cmd">winget install --id Git.Git -e</div><div class="setup-cmd">winget install --id OpenJS.NodeJS.LTS -e</div>');
+});
+
+test('this module builds no shell line and guesses no home folder', () => {
+  assert.doesNotMatch(src, /git clone/);
+  assert.doesNotMatch(src, /~\/\.nami/);
+  assert.doesNotMatch(src, /&&\s*(cd|npm)/);
 });
