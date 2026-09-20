@@ -95,7 +95,13 @@ function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}
     join(home, '.local', 'bin'),
     join(env.APPDATA, 'npm'),
     join(env.LOCALAPPDATA, 'Programs'),
+    join(env.LOCALAPPDATA, 'agy', 'bin'),
+    join(env.LOCALAPPDATA, 'hermes', 'bin'),
+    join(env.LOCALAPPDATA, 'hermes', 'hermes-agent', 'bin'),
+    join(home, '.kimi-code', 'bin'),
     join(home, '.bun', 'bin'),
+    join(home, '.cargo', 'bin'),
+    join(home, '.claude', 'local'),
   ] : [
     join(home, '.local/bin'),
     '/opt/homebrew/bin',
