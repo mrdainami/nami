@@ -2,12 +2,14 @@
 // "Connected" in the UI is this function saying so, never an assumption.
 const { spawn } = require('child_process');
 const { buildChildEnv, redactChildError } = require('./session-env');
+const { spawnPlan } = require('./platform');
 
 function checkServer({ command, args = [], env = {}, spawnFn = spawn, timeoutMs = 15000, parentEnv = process.env, settings = {} }) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnFn(command, args, { env: buildChildEnv({ parentEnv, settings, purpose: 'connector', explicitEnv: env }), stdio: ['pipe', 'pipe', 'pipe'] });
+      const plan = spawnPlan(command, args);
+      child = spawnFn(plan.file, plan.args, { env: buildChildEnv({ parentEnv, settings, purpose: 'connector', explicitEnv: env }), stdio: ['pipe', 'pipe', 'pipe'], ...plan.options });
     } catch (e) {
       resolve({ ok: false, error: 'could not start: ' + redactChildError(e, { parentEnv, settings, explicitEnv: env }) });
       return;

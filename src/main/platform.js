@@ -78,6 +78,38 @@ function scriptArgs(shell, line) {
   return isPowerShell(shell) ? ['-NoLogo', '-Command', line] : ['-i', '-c', line];
 }
 
+// How to start a program without a shell getting a say in its arguments.
+//
+// npm installs every CLI on Windows as a .cmd file, and Node refuses to spawn
+// one directly. `shell: true` gets past that by joining the arguments with
+// spaces and handing the line to cmd.exe unquoted — so "my server" arrives as
+// two arguments, and "x & calc" arrives as two commands. This goes through
+// cmd.exe as well, because it has to, but escapes the line first: each argument
+// quoted the way the C runtime unquotes it, then every character cmd.exe would
+// act on given a caret. windowsVerbatimArguments stops Node quoting it again.
+//
+// A bare name takes the same road, since only cmd.exe will find claude.cmd for
+// `claude`. A real .exe, and everything on a Mac, is handed back as it came.
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+function cmdArg(arg) {
+  let s = String(arg == null ? '' : arg);
+  s = s.replace(/(\\*)"/g, '$1$1\\"');   // backslashes before a quote are doubled, the quote escaped
+  s = s.replace(/(\\*)$/, '$1$1');         // and so are the ones the closing quote would otherwise eat
+  return `"${s}"`.replace(CMD_META, '^$1');
+}
+
+function spawnPlan(file, args = [], platform = process.platform, env = process.env) {
+  const list = Array.isArray(args) ? args : [];
+  if (platform !== WIN || /\.(exe|com)$/i.test(String(file))) return { file, args: list, options: {} };
+  const line = [String(file).replace(CMD_META, '^$1'), ...list.map(cmdArg)].join(' ');
+  return {
+    file: (env && env.ComSpec) || 'cmd.exe',
+    args: ['/d', '/s', '/c', `"${line}"`],
+    options: { windowsVerbatimArguments: true },
+  };
+}
+
 // What separates one PATH entry from the next.
 function pathDelimiter(platform = process.platform) { return platform === WIN ? ';' : ':'; }
 
@@ -164,4 +196,4 @@ function windowChrome(platform = process.platform) {
   return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 11 } };
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs };
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs, spawnPlan };

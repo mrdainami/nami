@@ -6,8 +6,10 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { resolveSpawnProgram } = require('./bin-cache');
 const { userPath } = require('./user-path');
+const { spawnPlan } = require('./platform');
 const { buildChildEnv, redactChildError } = require('./session-env');
 
 const procs = new Map();
@@ -40,15 +42,20 @@ function wireAcpLive(ipcMain, { readSettings = () => ({}), parentEnv = process.e
       else return { ok: false, error: 'Agent is not installed.' };
     }
     const settings = readSettings();
-    const runCwd = cwd && fs.existsSync(cwd) ? cwd : parentEnv.HOME;
+    const runCwd = cwd && fs.existsSync(cwd) ? cwd : (parentEnv.HOME || os.homedir());
     const envPath = await userPath({ settings, env: parentEnv });
     const diagnostic = (err) => redactChildError(err, { parentEnv, settings });
     let proc;
     try {
-      proc = spawn(cmd, cmdArgs, {
+      // Homebrew's folders are a Mac guess; on Windows the PATH we were started
+      // with is the only honest fallback.
+      const fallbackPath = process.platform === 'win32' ? (parentEnv.PATH || '') : ('/opt/homebrew/bin:/usr/local/bin:' + (parentEnv.PATH || ''));
+      const plan = spawnPlan(cmd, cmdArgs);
+      proc = spawn(plan.file, plan.args, {
         cwd: runCwd,
-        env: { ...buildChildEnv({ parentEnv, settings, purpose, agentId }), PATH: envPath || ('/opt/homebrew/bin:/usr/local/bin:' + (parentEnv.PATH || '')) },
+        env: { ...buildChildEnv({ parentEnv, settings, purpose, agentId }), PATH: envPath || fallbackPath },
         stdio: ['pipe', 'pipe', 'pipe'],
+        ...plan.options,
       });
     } catch (err) {
       return { ok: false, error: diagnostic(err) };

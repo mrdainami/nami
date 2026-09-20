@@ -37,7 +37,7 @@ const { fmtSize, listDirectory, readTree } = require('./workspace-tree');
 const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
-const { windowChrome, paneShell, scriptArgs } = require('./platform');
+const { windowChrome, paneShell, scriptArgs, spawnPlan } = require('./platform');
 const { seedStartHere } = require('./start-here');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
@@ -771,7 +771,8 @@ function catalogForRenderer() {
 function claudeExec(argv) {
   return new Promise((resolve) => {
     const bin = knownBin('claude') || 'claude';
-    execFile(bin, argv, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }) }, (err) => {
+    const plan = spawnPlan(bin, argv);
+    execFile(plan.file, plan.args, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }), ...plan.options }, (err) => {
       resolve(err ? { ok: false, error: redactChildError(err, { settings: readSettings() }).split('\n')[0] } : { ok: true });
     });
   });
@@ -901,7 +902,8 @@ ipcMain.handle('services:disconnect', async (_e, { id, projectPath }) => {
   }
   const viaCli = validServiceId(id) ? await new Promise((resolve) => {
     const bin = knownBin('claude') || 'claude';
-    execFile(bin, ['mcp', 'remove', '--scope', 'user', id], { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }) }, (err) => resolve(!err));
+    const plan = spawnPlan(bin, ['mcp', 'remove', '--scope', 'user', id]);
+    execFile(plan.file, plan.args, { timeout: 20000, env: buildChildEnv({ settings: readSettings(), purpose: 'agent', agentId: 'claude' }), ...plan.options }, (err) => resolve(!err));
   }) : false;
   if (viaCli) changed.push('claude user settings');
   return { changed };
