@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { resolveSpawnProgram } = require('./bin-cache');
 const { userPath } = require('./user-path');
-const { spawnPlan } = require('./platform');
+const { spawnPlan, planCwd } = require('./platform');
 const { buildChildEnv, redactChildError } = require('./session-env');
 
 const procs = new Map();
@@ -52,7 +52,10 @@ function wireAcpLive(ipcMain, { readSettings = () => ({}), parentEnv = process.e
       const fallbackPath = process.platform === 'win32' ? (parentEnv.PATH || '') : ('/opt/homebrew/bin:/usr/local/bin:' + (parentEnv.PATH || ''));
       const plan = spawnPlan(cmd, cmdArgs);
       proc = spawn(plan.file, plan.args, {
-        cwd: runCwd,
+        // A project on a network share: cmd.exe would refuse the folder, run the
+        // agent from C:\Windows and complain into the chat. The agent is told
+        // the real folder in session/new either way (platform.js, planCwd).
+        cwd: planCwd(plan, runCwd, { home: os.homedir(), env: parentEnv }),
         env: { ...buildChildEnv({ parentEnv, settings, purpose, agentId }), PATH: envPath || fallbackPath },
         stdio: ['pipe', 'pipe', 'pipe'],
         ...plan.options,

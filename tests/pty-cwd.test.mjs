@@ -114,3 +114,41 @@ test('the cache is bounded — a long session must not grow it forever', async (
   for (let i = 1; i <= 205; i++) await ptyCwd(i);
   assert.ok(ptyCwd.size() <= 100, 'cache grew past its cap: ' + ptyCwd.size());
 });
+
+// Windows: nothing to ask, so the shell reports on every prompt and main.js
+// passes it on (shell-integration.js). Same question, answered from memory.
+test('on Windows it answers with what the shell last said, and runs nothing', async () => {
+  const run = fakeExec([]);
+  const ptyCwd = createPtyCwd({ run, platform: 'win32', now: clock() });
+  ptyCwd.tell(4312, 'C:\\work\\atlas');
+  assert.equal(await ptyCwd(4312), 'C:\\work\\atlas');
+  ptyCwd.tell(4312, '\\\\Mac\\Home\\Documents');
+  assert.equal(await ptyCwd(4312), '\\\\Mac\\Home\\Documents', 'a cd must be picked up at once — there is no TTL to wait out');
+  assert.equal(await ptyCwd(9), null, 'another pane is another answer');
+  assert.equal(run.calls.length, 0);
+});
+
+// An agent tile shows no prompt, so its shell never reports. null is what makes
+// path:stat keep the folder the tile was started in.
+test('a Windows session that never reported is null', async () => {
+  const ptyCwd = createPtyCwd({ run: fakeExec([]), platform: 'win32', now: clock() });
+  ptyCwd.tell(4312, '');
+  ptyCwd.tell(0, 'C:\\x');
+  assert.equal(await ptyCwd(4312), null);
+  assert.equal(await ptyCwd(0), null);
+});
+
+test('a closed pane is forgotten — Windows reuses pids quickly', async () => {
+  const ptyCwd = createPtyCwd({ run: fakeExec([]), platform: 'win32', now: clock() });
+  ptyCwd.tell(4312, 'C:\\work');
+  ptyCwd.forget(4312);
+  assert.equal(await ptyCwd(4312), null);
+});
+
+test('what a shell says is never believed on a Mac, where the OS is asked instead', async () => {
+  const run = fakeExec([{ out: LSOF_OUT }]);
+  const ptyCwd = createPtyCwd({ run, platform: 'darwin', now: clock() });
+  ptyCwd.tell(48221, '/somewhere/else');
+  assert.equal(await ptyCwd(48221), '/Users/cal/work/atlas/src/renderer');
+  assert.equal(run.calls.length, 1);
+});
