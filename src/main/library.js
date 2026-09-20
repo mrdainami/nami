@@ -482,8 +482,13 @@ async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = 
   }
   for (const s of USER_SKILL_SOURCES) roots.push(path.join(home, s.rel));
   roots.push(path.join(home, '.claude', 'agents'), path.join(home, '.config', 'opencode'));
-  const inRoot = roots.some((r) => abs.startsWith(r + path.sep));
-  const inPluginCache = abs.includes(path.sep + path.join('.claude', 'plugins') + path.sep);
+  // Compared as the OS compares them. The file path is resolved, so the roots
+  // are too — on Windows that is what gives both a drive letter — and there
+  // c:\proj and C:\proj are one folder, which a letter-for-letter match would
+  // answer with "not deletable" for something the library had just listed.
+  const fold = (x) => (process.platform === 'win32' ? x.toLowerCase() : x);
+  const inRoot = roots.some((r) => fold(abs).startsWith(fold(path.resolve(r)) + path.sep));
+  const inPluginCache = fold(abs).includes(path.sep + path.join('.claude', 'plugins') + path.sep);
   if (!inRoot || inPluginCache) return { ok: false, error: 'Not a deletable library item' };
   const target = path.basename(abs) === 'SKILL.md' ? path.dirname(abs) : abs;
   if (!existsFn(target)) return { ok: false, error: 'Already gone' };
