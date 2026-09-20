@@ -141,6 +141,12 @@ test('run-session metadata cannot grant keys to a different or compound command'
   }
 });
 
+// Everything else here fakes the pty and asks about 'darwin', so it runs anywhere.
+// Two tests hand the line to a real POSIX shell to see what it does with it, and
+// a PC has neither /bin/zsh nor /bin/sh. What PowerShell is handed instead is
+// pinned in windows-shell.test.mjs.
+const NO_POSIX_SHELL = process.platform === 'win32' && 'spawns a real /bin/zsh or /bin/sh, and a shebang script made executable by file mode; Windows has none of these';
+
 // A pty stand-in that records what Nami writes into it and never exits.
 function recordingPty() {
   const writes = [];
@@ -204,7 +210,7 @@ test('the claude-in-shell fallback runs as the shell script too', async () => {
 // rc files) runs a dummy agent that reports the key it saw and exits 7. No
 // input is ever sent, so a shell that stayed at a prompt would hang — and the
 // timeout, not the test runner, is what fails it.
-test('an agent tile exits with the agent, and the shell still reads its rc file', async () => {
+test('an agent tile exits with the agent, and the shell still reads its rc file', { skip: NO_POSIX_SHELL }, async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-agent-tile-'));
   const agentScript = path.join(home, 'dummy-codex');
   fs.writeFileSync(path.join(home, '.zshrc'), 'export NAMI_RC=read\n');
@@ -274,7 +280,7 @@ test('resumed native agents receive a deliberate message once; ordinary restore 
   }
 });
 
-test('the actual shell preserves every prompt character without interpreting it', async () => {
+test('the actual shell preserves every prompt character without interpreting it', { skip: NO_POSIX_SHELL }, async () => {
   const pty = recordingPty();
   const executable = shellQuote(process.execPath) + ' -e ' + shellQuote('process.stdout.write(JSON.stringify(process.argv.slice(1)))');
   await spawnBoundary({ kind: 'run', command: 'codex', purpose: 'agent', agentId: 'codex', seed: longSeed }, settings,

@@ -10,6 +10,9 @@ const { deliverAgents } = require('../src/main/agent-master.js');
 
 let home, project;
 function write(p, text) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); }
+// A filePath is built with path.join, so its tail is agents\x.md on Windows —
+// the expected tail is joined the same way rather than spelled with slashes.
+function endsWith(file, ...tail) { assert.ok(file.endsWith(path.join(...tail)), `${file} does not end with ${path.join(...tail)}`); }
 
 before(() => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dainami-masters-'));
@@ -26,7 +29,7 @@ test('a delivered master is one row — the master — never six', () => {
   const rows = items.filter((i) => i.type === 'agent' && i.slug === 'release-scribe');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].platform, 'project');
-  assert.match(rows[0].filePath, /agents\/release-scribe\.md$/);
+  endsWith(rows[0].filePath, 'agents', 'release-scribe.md');
 });
 
 test('the copies really landed, marker and all', () => {
@@ -47,7 +50,7 @@ test('a hand-made platform agent still shows, on its own platform', () => {
 test('createItem writes a neutral master for platform project', () => {
   const res = createItem({ projectPath: project, homeDir: home, type: 'agent', platform: 'project', scope: 'project', name: 'Fact Checker' });
   assert.equal(res.ok, true);
-  assert.match(res.filePath, /agents\/fact-checker\.md$/);
+  endsWith(res.filePath, 'agents', 'fact-checker.md');
   const text = fs.readFileSync(res.filePath, 'utf8');
   assert.match(text, /name: fact-checker/);
   assert.ok(!text.includes('made by Nami'), 'a master is nobody\'s copy');

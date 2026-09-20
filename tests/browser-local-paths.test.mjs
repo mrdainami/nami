@@ -17,6 +17,20 @@ function fixture(t) {
   return { root, file };
 }
 
+// Reach `file` through a link. A Mac symlinks the file itself. Windows refuses
+// that without admin rights or Developer Mode (EPERM) but lets anyone make a
+// junction to a folder, so there the folder is the link and the file is reached
+// through it. Either way realpath has a link to undo, which is the point.
+function linkTo(file, root) {
+  const link = path.join(root, 'linked.html');
+  try { fs.symlinkSync(file, link); return link; } catch (error) {
+    if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
+  }
+  const via = path.join(root, 'via');
+  fs.symlinkSync(root, via, 'junction');
+  return path.join(via, path.basename(file));
+}
+
 test('human local path input opens the same real HTML file in its supported forms', t => {
   const { root, file } = fixture(t);
   for (const input of [file, '  ' + file + '  ', '"' + file + '"', "'" + file + "'", pathToFileURL(file).href, '~/' + path.basename(file)]) {
@@ -27,8 +41,8 @@ test('human local path input opens the same real HTML file in its supported form
 });
 
 test('file links are canonicalized and escaped without granting arbitrary browser URL schemes', t => {
-  const { root, file } = fixture(t), link = path.join(root, 'linked.html');
-  fs.symlinkSync(file, link);
+  const { root, file } = fixture(t), link = linkTo(file, root);
+  assert.notEqual(link, file);
   assert.equal(resolveBrowserInput(link).filePath, file);
   assert.throws(() => browserUrl(pathToFileURL(file).href));
   for (const value of ['javascript:alert(1)', 'data:text/html,x', 'nami-doc://doc/x/y', 'file://remote-host/share/index.html', 'https://user:pass@example.com']) assert.throws(() => resolveBrowserInput(value), value);

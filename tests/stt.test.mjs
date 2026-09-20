@@ -172,12 +172,16 @@ test('an HTTP failure comes back as {ok:false} rather than throwing', async () =
   assert.match(res.error, /OpenAI Whisper: 401/);
 });
 
+// The local provider is named after the machine it runs on, and that is settled
+// when stt.js loads, not passed in — so the name expected here is this machine's.
+const HERE = process.platform === 'win32' ? 'On this PC' : 'On this Mac';
+
 test('an engine that throws is reported, not propagated', async () => {
   const engine = fakeEngine();
   engine.transcribe = async () => { throw new Error('model exploded'); };
   const res = await transcribe({ clip: clip(), settings: {}, env: {}, deps: { engine } });
   assert.equal(res.ok, false);
-  assert.match(res.error, /On this Mac: model exploded/);
+  assert.match(res.error, new RegExp(`${HERE}: model exploded`));
 });
 
 test('a clip that failed to decode gives a human error, not a crash', async () => {

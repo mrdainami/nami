@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { upsertMcpJson, upsertOpencode, removeService, detectServices } = require('../src/main/mcp-config.js');
 
@@ -40,9 +41,11 @@ test('opencode entries land under mcp and removal cleans both shapes', () => {
 });
 
 test('detectServices merges catalog names, flags strangers as custom, reports scope and platform', () => {
+  // detectServices path.join()s its way to each file, so the seeds are keyed the
+  // same way — on Windows that is \proj\.mcp.json, and a '/' key is never asked for
   const io = memIo({
-    '/proj/.mcp.json': JSON.stringify({ mcpServers: { notion: { command: 'npx' }, wiki: { command: 'node' } } }),
-    '/home/u/.config/opencode/opencode.json': JSON.stringify({ mcp: { notion: { type: 'local' } } }),
+    [path.join('/proj', '.mcp.json')]: JSON.stringify({ mcpServers: { notion: { command: 'npx' }, wiki: { command: 'node' } } }),
+    [path.join('/home/u', '.config', 'opencode', 'opencode.json')]: JSON.stringify({ mcp: { notion: { type: 'local' } } }),
   });
   const out = detectServices({ projectPath: '/proj', home: '/home/u', io });
   const notion = out.find((s) => s.id === 'notion');

@@ -8,6 +8,16 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { listDirectory, readTree } = require('../src/main/workspace-tree.js');
 
+// Windows lets anyone make a junction (a link to a folder), but a link to a
+// *file* needs Developer Mode or an admin shell. Asked of the machine rather
+// than assumed, so a Windows box that can make them still runs everything.
+const canLinkFiles = process.platform !== 'win32' || (() => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-link-probe-'));
+  try { fs.symlinkSync(path.join(dir, 'target'), path.join(dir, 'link'), 'file'); return true; }
+  catch (_) { return false; }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+})();
+
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-workspace-tree-'));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -20,13 +30,17 @@ function fixture(t) {
   fs.writeFileSync(path.join(skill, 'SKILL.md'), '# Skill\n');
   fs.writeFileSync(file, '# File\n');
   fs.writeFileSync(path.join(root, 'ordinary.txt'), 'ordinary\n');
-  fs.symlinkSync(skill, path.join(root, 'linked-skill'));
-  fs.symlinkSync(file, path.join(root, 'linked-file.md'));
-  fs.symlinkSync(path.join(base, 'missing'), path.join(root, 'broken-link'));
+  // 'junction' is what makes the folder links possible on Windows; every other
+  // OS ignores the type and makes the same symlink as before
+  fs.symlinkSync(skill, path.join(root, 'linked-skill'), 'junction');
+  if (canLinkFiles) fs.symlinkSync(file, path.join(root, 'linked-file.md'));
+  fs.symlinkSync(path.join(base, 'missing'), path.join(root, 'broken-link'), 'junction');
   return root;
 }
 
-test('directory listing treats a live link to a directory as a folder', (t) => {
+const needsFileLink = !canLinkFiles && 'the listing includes a symlink to a file, which this Windows account may not create (no Developer Mode / admin)';
+
+test('directory listing treats a live link to a directory as a folder', { skip: needsFileLink }, (t) => {
   const root = fixture(t);
   const rows = listDirectory(root, true);
 

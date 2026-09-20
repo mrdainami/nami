@@ -80,22 +80,25 @@ test('detectAgents treats empty output as not found', async () => {
 // kind that reads .zshrc. The cost is that anything the user's rc file prints —
 // a greeting, a version manager, an nvm warning — arrives on stdout ahead of
 // the answer we asked for.
+//
+// What counts as a path depends on who is asked, so the zsh answers below say
+// 'darwin' rather than inheriting the machine the suite happens to run on.
 
 test('the path is picked out of a chatty rc file', () => {
   const noisy = 'nvm: using v22\nWelcome back!\n/Users/x/.opencode/bin/opencode\n';
-  assert.equal(pathFromShellOutput(noisy), '/Users/x/.opencode/bin/opencode');
+  assert.equal(pathFromShellOutput(noisy, 'darwin'), '/Users/x/.opencode/bin/opencode');
 });
 
 test('a shell that prints only a greeting reads as not installed', () => {
-  assert.equal(pathFromShellOutput('Welcome back!\nno agent here\n'), '');
-  assert.equal(pathFromShellOutput(''), '');
-  assert.equal(pathFromShellOutput(undefined), '');
+  assert.equal(pathFromShellOutput('Welcome back!\nno agent here\n', 'darwin'), '');
+  assert.equal(pathFromShellOutput('', 'darwin'), '');
+  assert.equal(pathFromShellOutput(undefined, 'darwin'), '');
 });
 
 test('the answer wins over an rc line that also looks like a path', () => {
   // command -v runs after every startup file, so the last path is ours
   const out = '/some/banner/path\n/opt/homebrew/bin/claude\n';
-  assert.equal(pathFromShellOutput(out), '/opt/homebrew/bin/claude');
+  assert.equal(pathFromShellOutput(out, 'darwin'), '/opt/homebrew/bin/claude');
 });
 
 test('a windows drive letter counts as a path', () => {
