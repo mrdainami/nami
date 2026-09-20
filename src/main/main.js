@@ -20,7 +20,8 @@ const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv } = require('./s
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { buildChildEnv, terminalLaunchPolicy, customAgents, redactChildError } = require('./session-env');
 const { detectAgents, agentStatus, findOnDisk, agentRunCommandAllowed } = require('./agents-detect');
-const { handles: opensHere, chooseTarget } = require('./open-with');
+const { handles: opensHere, chooseTarget, chooseFolderTarget } = require('./open-with');
+const { launchArgs, fromHandoff } = require('./launch-args');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -35,6 +36,8 @@ const fsActions = require('./fs-actions');
 const { createDirWatch } = require('./dir-watch');
 const { fmtSize, listDirectory, readTree } = require('./workspace-tree');
 const { ptyCwd } = require('./pty-cwd');
+const { reportingArgs, feedCwd } = require('./shell-integration');
+const { findPwsh } = require('./pwsh-find');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { windowChrome, paneShell, scriptArgs, spawnPlan } = require('./platform');
@@ -110,6 +113,30 @@ const reviewProfile = createReviewProfile({
 });
 app.setPath('userData', reviewProfile.path);
 const REVIEW = reviewProfile.review;
+
+// One Nami per profile, on Windows. There a file opened with Nami, and a second
+// double-click on the icon, both start a whole new process with the path in
+// its argv. The lock turns that second process into a messenger: it hands over
+// what it was asked to open and leaves, and the running app opens it (see
+// 'second-instance' below). It reads its own command line and sends the answer,
+// because the argv Electron relays has had its switches reordered by Chromium.
+// Must sit after setPath: the lock is keyed on userData, which is what lets a
+// dev run, the installed app and a review profile each keep their own.
+//
+// Windows only, on purpose. macOS already runs one Nami per bundle and delivers
+// files as open-file events, so the lock would add nothing there and take two
+// things away: a second `npm start`, and a second run against a --review
+// profile, both of which share a userData and both of which work today. A
+// screenshot or demo run is a tool that must finish, so it never yields either.
+const ONE_INSTANCE = process.platform === 'win32' && !SHOT_PATH && !DEMO;
+const statPath = (p) => fs.statSync(p);
+const LAUNCH = ONE_INSTANCE
+  ? launchArgs({ argv: process.argv, cwd: process.cwd(), isPackaged: app.isPackaged, stat: statPath })
+  : { files: [], folders: [] };
+if (ONE_INSTANCE && !app.requestSingleInstanceLock(LAUNCH)) {
+  console.log('[launch] handed to the running Nami:', LAUNCH.files.length, 'file(s),', LAUNCH.folders.length, 'folder(s)');
+  app.exit(0);
+}
 
 let win = null;                   // most recently created window (fallback target)
 const wins = new Set();           // every open window — each is its own project space
@@ -370,6 +397,49 @@ function routeOpenFile(filePath) {
   sendOpen(w, filePath, target.folder, target.action === 'adopt');
 }
 
+// The Windows road to the same place. A path on the command line is a file, which
+// takes the route above exactly as one from Finder does, or a folder
+// (`Nami.exe C:\work`), which is the desk already open on it or a new window —
+// never somebody else's desk switched underneath them. Returns whether anything
+// was opened, so a launch that asked for nothing can just bring Nami forward.
+function routeOpenFolder(folder) {
+  const live = [...wins].filter((w) => !w.isDestroyed());
+  const focused = BrowserWindow.getFocusedWindow() || win;
+  const target = chooseFolderTarget({
+    folder,
+    windows: live.map((w) => ({ id: w.webContents.id, folder: winFolders.get(w.webContents.id) || null })),
+    focusedId: focused && !focused.isDestroyed() ? focused.webContents.id : null,
+  });
+  const w = target.action === 'here' ? live.find((x) => x.webContents.id === target.id) : null;
+  if (!w) { createWindow(folder); return; }
+  if (w.isMinimized()) w.restore();
+  w.focus();
+}
+function routeLaunch(asked) {
+  const files = asked.files.filter((f) => opensHere(f));
+  for (const folder of asked.folders) routeOpenFolder(folder);
+  for (const filePath of files) routeOpenFile(filePath);
+  return asked.folders.length + files.length > 0;
+}
+
+// A second Nami was started and has already left; this is what it was asked to
+// open. `handed` is its own reading of its own command line (see ONE_INSTANCE
+// above) and is checked again here, since it crossed a process boundary. argv
+// is the fallback for a sender that handed nothing over.
+app.on('second-instance', (_e, argv, cwd, handed) => {
+  const asked = handed && typeof handed === 'object'
+    ? fromHandoff(handed, { stat: statPath })
+    : launchArgs({ argv, cwd, isPackaged: app.isPackaged, stat: statPath });
+  console.log('[launch] second instance:', asked.files.length, 'file(s),', asked.folders.length, 'folder(s)');
+  if (!app.isReady()) { LAUNCH.files.push(...asked.files); LAUNCH.folders.push(...asked.folders); return; }
+  if (routeLaunch(asked)) return;
+  // Nothing to open: the icon was clicked again. Show them the Nami they have.
+  const w = (win && !win.isDestroyed()) ? win : [...wins].find((x) => !x.isDestroyed());
+  if (!w) { createWindow(); return; }
+  if (w.isMinimized()) w.restore();
+  w.focus();
+});
+
 // One send, three callers: the cold start, a window made for the file, and the
 // switch sheet's "open in a new window". A window that has not finished loading
 // has no listener yet, so the message waits for the load rather than vanishing.
@@ -489,7 +559,9 @@ app.whenReady().then(() => {
   // desk the developer happened to leave open.
   const restore = (!SHOT_PATH && !DEMO && state.windows.length) ? state.windows.slice(0, 8) : null;
   if (restore) for (const w of restore) createWindow(w.folder || null, w.bounds);
-  else createWindow();
+  // `Nami.exe C:\work` with nothing to restore: that folder is the window, so
+  // the usual one on the last-used folder would only be a second, unasked-for.
+  else if (!LAUNCH.folders.length) createWindow();
   if (process.argv.includes('--second-window')) createWindow(null); // dev: multi-window smoke test
   startUpdatePolling();
   // The silent ping — anonymous "launched today" note, deduped server-side to
@@ -504,6 +576,9 @@ app.whenReady().then(() => {
   // Anything Finder sent while the app was still starting. Drained last, so
   // the restored windows are already in wins and can be chosen between.
   while (coldOpens.length) routeOpenFile(coldOpens.shift());
+  // The same for Windows, where the file or folder came in on the command line
+  // (and anything a second launch handed over before there was a window).
+  routeLaunch(LAUNCH);
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
@@ -791,7 +866,16 @@ function shortHome(p) { return String(p || '').replace(os.homedir(), '~'); }
 function deliveredNames(results) {
   return results.filter((r) => r.ok).map((r) => (r.via === 'cli' ? r.agent + ' (its own CLI)' : shortHome(r.wrote)));
 }
-ipcMain.handle('services:list', (_e, { projectPath, agentIds } = {}) => {
+// What an install will take here, asked before it runs: the line for this
+// shell, and anything it needs that a PC does not come with (install-plan.js).
+// Programs are looked for on the PATH a tile is given, not on Nami's own.
+const { installPlan } = require('./install-plan');
+ipcMain.handle('install:plan', (_e, { connectorId, agentId } = {}) => installPlan({
+  connectorId, agentId, home: os.homedir(), shell: paneShell(process.platform, process.env),
+  exists: (p) => fs.existsSync(p), refresh: refreshUserPath,
+  findBin: async (bin) => findOnDisk(bin, { env: { ...process.env, PATH: await userPath({ settings: readSettings() }) } }),
+}));
+ipcMain.handle('services:list',(_e, { projectPath, agentIds } = {}) => {
   const home = os.homedir();
   const masters = {
     ...readMaster({ scope: 'user', projectPath, homeDir: home }),
@@ -1378,7 +1462,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // settled; the await only ever bites on a session created within the first
   // second of launch.
   const envPath = await userPath({ settings: readSettings() });
-  const shellPath = paneShell(process.platform, process.env);
+  // PowerShell 7 when the PC has it, looked for on the PATH the pane is about
+  // to be given. Only Windows looks: a Mac pane is the user's own shell.
+  const onWindows = process.platform === 'win32';
+  const shellPath = paneShell(process.platform, process.env, onWindows ? findPwsh({ pathValue: envPath || undefined }) : '');
   const quote = (a) => shellQuote(a, shellPath);
   const claudeExe = resolveClaudeExecutable();
   const launch = { kind, purpose, agentId, program, command, args, watchDone, oneShot };
@@ -1469,6 +1556,12 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     file = shellPath;
   }
 
+  // Windows cannot be asked where a shell is, so a PowerShell that will show a
+  // prompt is started with a hook that says (shell-integration.js). It rides
+  // in on the launch arguments — never typed, so never echoed into the tile.
+  const tellsCwd = onWindows && file === shellPath;
+  if (tellsCwd) spawnArgs = reportingArgs(shellPath, spawnArgs);
+
   let p;
   try {
     p = pty.spawn(file, spawnArgs, {
@@ -1507,11 +1600,15 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 
   const osc = { last: null };
   const done = { buf: '' };
+  const where = tellsCwd ? { buf: '' } : null;
   let reported = false;
   let seedGate = null;
   p.onData((data) => {
     sendWc(wc, 'term:data', { id, data });
     if (seedGate) seedGate.onData(data);
+    // The shell saying which folder it is in now. path:stat asks ptyCwd for it
+    // when a relative path printed after a `cd` misses against the tile's own.
+    if (where) { const at = feedCwd(where, data); if (at) ptyCwd.tell(p.pid, at); }
     // A one-shot command announcing its own exit code. Same channel as the
     // title below, opposite direction: the shell talking to Nami.
     if (watchDone && !reported) {
@@ -1532,6 +1629,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   p.onExit(({ exitCode, signal }) => {
     if (seedGate) { seedGate.stop(); seedGate = null; }
     if (stopDiscovery) stopDiscovery(); // a closed tile stops polling agent stores
+    if (where) ptyCwd.forget(p.pid); // Windows hands the pid to the next process
     termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
     // The note is built here rather than in the renderer because only main knows
     // whether this teardown was Nami's own doing.

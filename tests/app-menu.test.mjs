@@ -80,6 +80,20 @@ test('off macOS there is no app submenu, so File exists to hold quit', () => {
   assert.ok(menuRoles([file]).includes('quit'), 'nothing would quit the app');
 });
 
+// zoom and front exist on macOS only. Electron documents both roles as such,
+// and an item built from one has nothing behind it anywhere else.
+test('off macOS the Window menu drops the two roles only a Mac has', () => {
+  const roles = (platform) => menuRoles([build({ platform }).find((m) => m.label === 'Window')]);
+  for (const platform of ['win32', 'linux']) {
+    assert.ok(roles(platform).includes('minimize'), `${platform}: nothing would minimise the window`);
+    assert.ok(!roles(platform).includes('zoom'), `${platform}: zoom is a macOS role`);
+    assert.ok(!roles(platform).includes('front'), `${platform}: front is a macOS role`);
+  }
+  const win = build({ platform: 'win32' }).find((m) => m.label === 'Window');
+  assert.ok(!win.submenu.some((i) => i.type === 'separator'), 'a separator with nothing under it');
+  assert.deepEqual(roles('darwin').filter((r) => r !== 'window'), ['minimize', 'zoom', 'front']);
+});
+
 // A command is a string that has to match a string in app.js. A typo here is a
 // dead menu item that throws nothing, so the set is declared and checked
 // against rather than trusted.

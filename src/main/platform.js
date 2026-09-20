@@ -66,8 +66,15 @@ function isPowerShell(shell) {
 // The shell a pane runs. On a Mac that is the user's own. On Windows SHELL is
 // ignored on purpose: nothing native sets it, and Git Bash sets it to
 // /usr/bin/bash, which is a path that does not exist outside Git Bash.
-function paneShell(platform = process.platform, env = process.env) {
-  if (platform === WIN) return 'powershell.exe';
+//
+// `pwsh` is where PowerShell 7 was found, or nothing (pwsh-find.js does the
+// looking, because this module does no I/O). Someone who installed 7 expects
+// to be in it: it chains with `&&`, speaks UTF-8 and draws better. Windows
+// PowerShell 5.1 is on every PC and is what everyone else gets — which is why
+// a command line Nami builds itself must always run on 5.1, whatever this
+// returns.
+function paneShell(platform = process.platform, env = process.env, pwsh = '') {
+  if (platform === WIN) return pwsh || 'powershell.exe';
   return (env && env.SHELL) || '/bin/zsh';
 }
 
@@ -155,7 +162,12 @@ function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}
 // nothing at all. Must stay silent on failure: a missing agent is an ordinary
 // answer here, not an error.
 function whichCommand(bin, platform = process.platform) {
-  if (platform === WIN) return `(Get-Command ${bin} -ErrorAction SilentlyContinue).Source`;
+  // Applications only. npm writes three shims for every CLI — codex, codex.cmd
+  // and codex.ps1 — and PowerShell prefers the .ps1. A stock Windows refuses to
+  // run script files at all (ExecutionPolicy Restricted), so the path it would
+  // hand back by default is the one form of the program that cannot start. The
+  // .cmd is an application, runs under any policy, and is what this returns.
+  if (platform === WIN) return `(Get-Command ${bin} -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source`;
   return `command -v ${bin}`;
 }
 
@@ -206,4 +218,43 @@ function windowChrome(platform = process.platform, background = '#fffdf6') {
   return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 11 } };
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs, spawnPlan };
+// Where PowerShell 7 might be, best guess first. PATH leads because it is what
+// the user would get by typing `pwsh` — the MSI, winget, scoop and the Store
+// alias all put it there — and the MSI's own folder follows for a Nami that
+// was started before the installer's PATH edit reached it. Candidates only:
+// the caller checks them, because this module does no I/O. Nothing off
+// Windows, where the pane shell is the user's own and is never second-guessed.
+function pwshCandidates({ env = {}, pathValue, platform = process.platform } = {}) {
+  if (platform !== WIN) return [];
+  const e = env || {};
+  const dirs = String(pathValue != null ? pathValue : (e.PATH || e.Path || '')).split(';')
+    .map((d) => d.trim().replace(/^"(.*)"$/, '$1').replace(/\\+$/, '')).filter(Boolean);
+  for (const root of [e.ProgramFiles, e.ProgramW6432]) if (root) dirs.push(`${root}\\PowerShell\\7`);
+  const seen = new Set();
+  return dirs.map((d) => `${d}\\pwsh.exe`).filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+}
+
+// The folder to start a spawnPlan child in.
+//
+// cmd.exe will not run in a network folder. Started in \\server\share\work it
+// prints three lines about UNC paths to stderr and carries on from C:\Windows —
+// so the tool behind the .cmd shim runs in the Windows directory, and the
+// complaint lands in a chat as though the agent had said it (measured on
+// Windows 11). A plan that does not go through cmd.exe is unaffected: a real
+// .exe starts in a UNC folder without comment.
+//
+// So a cmd.exe plan is started from the home folder instead, and the caller
+// passes the real folder to the tool in words (ACP sends it in session/new).
+// `pushd` would get cmd.exe into the share, but by mapping a drive letter: the
+// tool would then report U:\ paths that match nothing Nami knows, and handing
+// out drive letters on someone's PC is not a thing a helper process should do.
+const UNC_RE = /^[\\/]{2}[^\\/]/;
+function planCwd(plan, cwd, { home = '', env = {}, platform = process.platform } = {}) {
+  const viaCmd = !!(plan && plan.options && plan.options.windowsVerbatimArguments);
+  if (platform !== WIN || !viaCmd || !UNC_RE.test(String(cwd || ''))) return cwd;
+  // A redirected profile can be on a share too; the Windows folder is where
+  // cmd.exe would have ended up anyway, only now without the complaint.
+  return [home, env && env.SystemRoot].find((d) => d && !UNC_RE.test(d)) || 'C:\\Windows';
+}
+
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs, spawnPlan, pwshCandidates, planCwd };

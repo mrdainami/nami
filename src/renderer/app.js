@@ -1,4 +1,4 @@
-import { createMcpSetup, CONNECT_OVERLAYS } from './mcp-setup.mjs';
+import { createMcpSetup, CONNECT_OVERLAYS, startConnectorInstall, prereqNoteHtml } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 // Nami — the agent workbench, by Dainami (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a paper tile in a grid you
@@ -25,6 +25,7 @@ import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from
 import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
 import { scanLinks, urlTarget } from './term-links.mjs';
 import { termMenuItems } from './term-menu.mjs';
+import { termKeyAction } from './term-keys.mjs';
 import { createLinkHint } from './link-hint.mjs';
 import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
 import { isTypingTarget } from './typing-target.mjs';
@@ -32,6 +33,7 @@ import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-w
 import { basesFromText, joinBase } from './path-bases.mjs';
 import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
 import { isOutsideProject } from './path-guard.mjs';
+import { dirName, baseName, isInside, isAbsolute, hasSeparator, toDirUrl } from './paths.mjs';
 import { decideReload, hashText, changeRange, shiftOffset } from './file-sync.mjs';
 import { createClockB } from './pty-notify.mjs';
 import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
@@ -39,6 +41,7 @@ import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail
 
 import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
 import { createBrowserPane } from './browser-pane.mjs';
+import { micErrorText } from './mic-error.mjs';
 
 const api = window.dainami;
 const terminalHint = createLinkHint({ document, window });
@@ -725,7 +728,7 @@ function showScene(name) {
   if (what === 'workspace') {
     // the tree needs a folder; a path in the step opens that one. Fall back
     // to the most recent if none is open.
-    const folder = step && step.startsWith('/') ? step : null;
+    const folder = step && isAbsolute(step) ? step : null;
     const ready = folder ? openFolder(folder)
       : S.project ? Promise.resolve()
       : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
@@ -755,7 +758,7 @@ function showScene(name) {
   S.railTab = 'library';
   // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
   // show project-scoped state (coverage pills need a project's masters).
-  const withFolder = step && step.startsWith('/') && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
+  const withFolder = step && isAbsolute(step) && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
   withFolder.then(() => loadLibrary(true)).then(() => {
     renderRail();
     if (what === 'library') return;
@@ -1527,13 +1530,14 @@ function wireDrop(el, destFn) {
     toast('Moved ' + baseName(src) + '.');
   };
 }
-function dirName(p) { const i = String(p).lastIndexOf('/'); return i > 0 ? p.slice(0, i) : p; }
-function baseName(p) { return String(p).slice(String(p).lastIndexOf('/') + 1); }
+// dirName and baseName are paths.mjs's: the tree's names, the tile titles and
+// the move guards all read a path the way the platform writes it.
+//
 // Same rule as isDescendant in fs-actions.js. Duplicated rather than shared
 // because the renderer cannot require a CommonJS main module — and this copy is
 // only ever cosmetic, shaping the drop cursor. The guard that counts is in main.
 function isUnder(parent, child) {
-  return child === parent || String(child).startsWith(parent + '/');
+  return isInside(parent, child);
 }
 // A brief green on rows that just appeared, so a watcher-driven change is
 // something you notice rather than something you have to diff by eye.
@@ -1741,7 +1745,7 @@ function tileMenu(p) {
     html: (x) => !!x.filePath && fileKind(x.filePath) === 'html',
     openOutside, addToSession: addTileToSession, move: moveMenu,
     copy: (x) => { api.copyText(x.filePath || x.url); toast(x.filePath ? 'Path copied.' : 'Address copied.'); },
-    newWindow: (x) => api.newWindow(x.filePath.replace(/\/[^/]*$/, '') || '/', x.filePath),
+    newWindow: (x) => api.newWindow(dirName(x.filePath), x.filePath),
   });
 }
 function treeMenu(n, parentDir) {
@@ -2880,6 +2884,7 @@ function mountTerminal(p, rec) {
   term.onScroll(() => terminalHint.hide(p));
   registerTerminalLinks(term, p);
   wireTerminalMenu(p, rec);
+  if (api.platform === 'win32') wireWindowsKeys(term);
   mountSessionImages(p, rec);
   // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
   // every frame the tile changes size. The delay that used to live here was
@@ -3143,7 +3148,7 @@ async function collectBases(term, p, anchorTop) {
   while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
     const run = wrappedRow(term, y, true);
     // No slash, no folder — skip the scan without paying for it.
-    if (run.text.indexOf('/') !== -1) {
+    if (hasSeparator(run.text)) {
       for (const b of basesFromText(run.text, 6)) {
         if (seen.has(b)) continue;
         seen.add(b);
@@ -3240,7 +3245,7 @@ function registerTerminalLinks(term, p) {
     // base leaves the row exactly as it was. Misses run concurrently;
     // within one miss the bases stay ordered, most recent folder first.
     const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
-      && r.link.text[0] !== '/' && r.link.text[0] !== '~');
+      && !isAbsolute(r.link.text) && r.link.text[0] !== '~');
     if (relMisses.length) {
       const bases = await collectBases(term, p, strict.top);
       await Promise.all(relMisses.slice(0, 12).map(async (r) => {
@@ -3386,6 +3391,31 @@ function registerTerminalLinks(term, p) {
 // Right-click a link in a session. Away from one this does nothing and the
 // terminal keeps whatever behaviour it had — this is a link menu, not a
 // terminal menu, and copying arbitrary text is what selection is for.
+// Copy and paste the way Windows Terminal does them (term-keys.mjs has the
+// rule and the reasons). xterm asks this before it handles a key; false means
+// "not yours".
+//
+// Copy is done here, by hand, and the key is swallowed. Paste is the opposite:
+// the key is left completely alone, so that Chromium performs its own paste
+// into xterm's textarea. That fires a real paste event, which is what xterm
+// wraps in bracketed-paste markers and what wireImagePaste reads a screenshot
+// out of — a clipboard read of our own would carry text and nothing else.
+function wireWindowsKeys(term) {
+  term.attachCustomKeyEventHandler((e) => {
+    const action = termKeyAction(e, { platform: api.platform, hasSelection: term.hasSelection() });
+    if (!action) return true;
+    if (action !== 'paste') e.preventDefault();
+    if (e.type !== 'keydown') return false;
+    if (action === 'copy') {
+      const picked = term.getSelection();
+      // Cleared, so the next Ctrl+C is an interrupt again rather than a
+      // second copy of something you have already taken.
+      if (picked) { api.copyText(picked); term.clearSelection(); }
+    } else if (action === 'select-all') term.selectAll();
+    return false;
+  });
+}
+
 function wireTerminalMenu(p, rec) {
   rec.body.addEventListener('contextmenu', (e) => {
     const picked = rec.term?.getSelection();
@@ -3896,7 +3926,7 @@ function mountEditor(p, rec) {
           // would let it read the app.
           f.setAttribute('sandbox', 'allow-scripts');
           const text = p.text || '';
-          const dir = 'file://' + String(p.filePath).split('/').slice(0, -1).map(encodeURIComponent).join('/') + '/';
+          const dir = toDirUrl(dirName(p.filePath));
           f.srcdoc = /<base[\s>]/i.test(text) ? text : `<base href="${dir}">` + text;
         } else {
           // Saved → served from nami-doc://, its own origin. Relative images
@@ -4304,7 +4334,7 @@ function startAnnotationDictation({ onState, onText, onError }) {
         finally { if(annotationRecording===handle)annotationRecording=null; if (!cancelled) onState('idle'); }
       };
       recorder.start(); onState('recording');
-    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(error.message); } }
+    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(micErrorText(error, api.platform)); } }
   })();
   return handle;
 }
@@ -4344,7 +4374,7 @@ async function toggleMic(p) {
     rec.start(); recording = { panelId: p.id, recorder: rec, stream };
     setMicState(p, 'recording');
     toast('Recording… click the mic again to stop.');
-  } catch (e) { toast('Mic error: ' + e.message); }
+  } catch (e) { toast('Mic error: ' + micErrorText(e, api.platform)); }
 }
 function stopMic() { if (recording) { try { recording.recorder.stop(); } catch (_) {} recording = null; } }
 async function pasteDictation(p) {
@@ -4973,7 +5003,9 @@ function renderAgentInstalled(a) {
 
   q('.su-back', modal).onclick = () => openLauncher();
   const on = (id, fn) => { const el = q('#' + id, modal); if (el) el.onclick = fn; };
-  on('ag-switch', () => runAgentCommand(a, lc.switchCmd || `${lc.logout} && ${lc.login}`, `${a.name} · sign in`));
+  // Sign out, then in — joined by main for the shell this machine runs, because
+  // the `&&` that used to be written here is a syntax error in PowerShell.
+  on('ag-switch', () => runAgentCommand(a, a.switchAccount, `${a.name} · sign in`));
   on('ag-out', () => runAgentCommand(a, lc.logout, `${a.name} · sign out`));
   on('ag-in', () => runAgentCommand(a, lc.login, `${a.name} · sign in`));
   on('ag-key-switch', () => runAgentCommand(a, lc.logout, `${a.name} · switch to API key`));
@@ -5073,7 +5105,17 @@ function renderAgentInstall(a) {
     <p class="setup-note">Install it for me opens a terminal tile and runs the line above. Copy puts it on
       your clipboard. Read the guide opens the official ${esc(a.name)} page in your browser.</p>`);
   q('.su-back', modal).onclick = () => openLauncher();
-  q('#su-run', modal).onclick = () => {
+  // A PC comes with neither Node nor Git, and two of these installs are npm.
+  // Asked when the sheet opens, so what is missing is named above the button
+  // rather than by PowerShell after it — and asked again on the click, because
+  // the fix is a winget line the user runs somewhere else. A Mac is never asked.
+  const onPc = api.platform === 'win32';
+  if (onPc) api.installPlan({ agentId: a.id }).then((plan) => {
+    if (plan && plan.prereq && modal.isConnected) q('.setup-actions', modal).insertAdjacentHTML('beforebegin', prereqNoteHtml(plan.prereq, esc));
+  });
+  q('#su-run', modal).onclick = async () => {
+    const plan = onPc ? await api.installPlan({ agentId: a.id }) : null;
+    if (plan && plan.prereq) { toast(plan.prereq.short); return; }
     closeOverlay();
     // oneShot + watchDone: this tile exists to run one command Nami chose, and
     // the tile itself reports when that command lands. Before, the only signal
@@ -5946,7 +5988,8 @@ function wireVoicePane(modal) {
     const res = await api.sttPrepare();
     off();
     await refreshSttInfo();
-    if (!res || !res.ok) toast('Download failed: ' + (res && res.error || '?'));
+    // `fault` is the engine failing to start (Windows, see stt.js) — the download worked
+    if (!res || !res.ok) toast(res && res.fault ? res.error : 'Download failed: ' + (res && res.error || '?'));
     if (isSettingsOpen()) renderOverlay();
   };
   const mic = q('#set-mic', modal);
@@ -5977,7 +6020,7 @@ function toggleSettingsMic(modal) {
     if (out) out.textContent = 'listening — say something, then stop.';
     // a forgotten recording shouldn't run forever
     setTimeout(() => { if (settingsRec === rec) { try { rec.stop(); } catch (_) {} } }, 15000);
-  }).catch((e) => { o.test = 'Mic error: ' + e.message; renderOverlay(); });
+  }).catch((e) => { o.test = 'Mic error: ' + micErrorText(e, api.platform); renderOverlay(); });
 }
 
 // ---- Look ------------------------------------------------------------------
@@ -6431,11 +6474,11 @@ function renderConnectForm() {
   // Install kind (kie): two honest clicks. First click installs in a visible
   // terminal tile; reopening the sheet finds the build and offers Connect.
   const install = svc.kind === 'install';
-  const installDirOf = () => '~/.nami/connectors/' + svc.docs.split('/').pop();
   if (install && o.installed === undefined) {
     q('#sv-connect', modal).textContent = 'Install first';
-    api.statPath({ token: installDirOf() + '/dist/index.js' }).then((st) => {
-      o.installed = !!(st && st.exists);
+    api.installPlan({ connectorId: svc.id }).then((plan) => {
+      o.installed = !!(plan && plan.built);
+      o.installDir = plan && plan.dir;
       const b = q('#sv-connect', modal);
       if (b && b.textContent !== 'Connecting…') b.textContent = o.installed ? 'Connect' : 'Install first';
     });
@@ -6445,15 +6488,12 @@ function renderConnectForm() {
   q('#sv-connect', modal).onclick = async () => {
     if (guided) return startGuidedSetup(svc, chosenAgent(o));
     if (install && !o.installed) {
-      const dir = installDirOf();
-      closeOverlay();
-      startPanel({ kind: 'run', purpose: 'installer', oneShot: true, watchDone: true, title: 'install ' + svc.name, code: svc.code,
-        command: 'git clone ' + svc.docs + ' ' + dir + ' && cd ' + dir + ' && npm install && npm run build' });
-      toast('When the install finishes, open Connect again: one more click.');
+      const res = await startConnectorInstall({ svc, api, startPanel, toast, closeOverlay, panel: { purpose: 'installer', oneShot: true, watchDone: true } });
+      if (res.prereq) toast(res.prereq.short);
       return;
     }
     saveKeys();
-    if (install) o.values.installDir = installDirOf();
+    if (install) o.values.installDir = o.installDir;
     if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
     q('#sv-connect', modal).textContent = 'Connecting…';
     const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path });

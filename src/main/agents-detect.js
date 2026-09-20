@@ -9,7 +9,8 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { parseAgentStatus } = require('./agent-status.js');
-const { loginShell, whichCommand, binSearchDirs } = require('./platform.js');
+const { loginShell, whichCommand, binSearchDirs, paneShell } = require('./platform.js');
+const { chainLine } = require('./shell-chain.js');
 
 // Every one of these keeps skills somewhere of its own — ~/.claude/skills,
 // ~/.codex/skills, ~/.hermes/skills and so on — so writing a skill into all of
@@ -45,6 +46,9 @@ const KNOWN_AGENTS = [
   { id: 'codex', name: 'Codex', bin: 'codex', kind: 'run',
     sub: "OpenAI's coding agent",
     install: 'npm install -g @openai/codex',
+    // npm.cmd by name: in PowerShell a bare `npm` is npm.ps1, and a stock
+    // Windows will not run script files (ExecutionPolicy Restricted).
+    installWin: 'npm.cmd install -g @openai/codex',
     docs: 'https://developers.openai.com/codex/cli',
     contextFile: 'AGENTS.md',
     // File-verified only. Its login/logout commands are unconfirmed, so the
@@ -57,7 +61,7 @@ const KNOWN_AGENTS = [
   { id: 'opencode', name: 'OpenCode', bin: 'opencode', kind: 'run',
     sub: 'open-source agent · bring any model',
     install: 'curl -fsSL https://opencode.ai/install | bash',
-    installWin: 'npm install -g opencode-ai',
+    installWin: 'npm.cmd install -g opencode-ai',
     docs: 'https://opencode.ai/docs',
     contextFile: 'AGENTS.md',
     lifecycle: {
@@ -119,6 +123,12 @@ const KNOWN_AGENTS = [
       // prints prose, so identity comes from the JSON it already keeps.
       statusFiles: ['~/.hermes/auth.json', '~/.hermes/config.yaml'],
       source: 'reads ~/.hermes',
+      // The one agent whose home moves on Windows: install.ps1 sets HERMES_HOME
+      // to %LOCALAPPDATA%\hermes, and hermes_constants.py defaults to the same
+      // folder, so nothing is ever written to a .hermes under the profile.
+      statusFilesWin: ['%LOCALAPPDATA%\\hermes\\auth.json', '%LOCALAPPDATA%\\hermes\\config.yaml'],
+      sourceWin: 'reads %LOCALAPPDATA%\\hermes',
+      configPathWin: '%LOCALAPPDATA%\\hermes\\config.yaml',
       // Hermes holds several sign-ins at once, so switching is its own picker
       // rather than a logout/login pair.
       login: 'hermes login',
@@ -213,17 +223,71 @@ function installCommand(agent, platform = process.platform) {
   return (platform === 'win32' && agent.installWin) || agent.install;
 }
 
+// The same idea for everything under `lifecycle`: a field that is different on
+// Windows has a `...Win` twin beside it, and this folds the twins in. Checked
+// against each CLI's own Windows build, 2026-09-20 — every command is the same
+// program with the same arguments, so the only twins are Hermes's file
+// locations. Off Windows the registry entry is handed back untouched.
+function lifecycleFor(agent, platform = process.platform) {
+  const lc = agent && agent.lifecycle;
+  if (!lc) return null;
+  if (platform !== 'win32') return lc;
+  const out = {};
+  for (const [k, v] of Object.entries(lc)) if (!k.endsWith('Win')) out[k] = v;
+  for (const [k, v] of Object.entries(lc)) if (k.endsWith('Win')) out[k.slice(0, -3)] = v;
+  return out;
+}
+
+// "Switch account" is sign out, then sign in — and the sign-in only if the
+// sign-out worked, or a failed logout leaves the old account quietly in place
+// behind a fresh login prompt. On a Mac that is `a && b`. Windows PowerShell
+// reads `&&` as a syntax error and runs neither half, so the pair is joined in
+// the words of the shell the tile will run (see shell-chain.js). An agent with
+// a switch command of its own uses that instead, everywhere.
+//
+// The shell is asked for with an empty environment on purpose. A Mac has always
+// been handed `&&` whatever $SHELL says, and main compares this string with the
+// one the sheet sends, so it has to come out the same every time it is built.
+function logoutThenLogin(lc, platform) {
+  return chainLine([lc.logout, lc.login], paneShell(platform, {}));
+}
+function switchAccountCommand(agent, platform = process.platform) {
+  const lc = lifecycleFor(agent, platform) || {};
+  if (lc.switchCmd) return lc.switchCmd;
+  if (!lc.logout || !lc.login) return '';
+  return logoutThenLogin(lc, platform);
+}
+
+// A `statusFiles` or `configPath` entry as a real path on the machine being
+// asked about. On Windows that means %NAME% filled in from the environment —
+// with the usual place under the profile when the variable is not set, since a
+// GUI app is not promised either — and the separators made the platform's own,
+// because the result is shown to people and handed to the file viewer.
+const WIN_FOLDERS = { LOCALAPPDATA: ['AppData', 'Local'], APPDATA: ['AppData', 'Roaming'] };
+function lifecyclePath(p, { home = os.homedir(), env = process.env, platform = process.platform } = {}) {
+  if (platform !== 'win32') return expandHome(p, home, platform);
+  const filled = String(p || '').replace(/%([A-Za-z_]+)%/g, (whole, name) => {
+    const set = env && env[name.toUpperCase()];
+    if (set) return set;
+    const usual = WIN_FOLDERS[name.toUpperCase()];
+    return usual ? path.win32.join(home, ...usual) : whole;
+  });
+  return path.win32.normalize(expandHome(filled, home, platform));
+}
+
 async function detectAgents({ exec = shellWhich, home = os.homedir(), settings = {}, env = process.env, platform = process.platform } = {}) {
   return Promise.all(KNOWN_AGENTS.map(async (a) => {
     let p = '';
     try { p = String((await exec(a.bin, { settings, env })) || '').trim(); } catch (_) { p = ''; }
     // configFile is the ~-expanded twin of lifecycle.configPath, so the renderer
     // can hand it straight to openFile() without knowing where home is.
-    const configFile = a.lifecycle && a.lifecycle.configPath
-      ? expandHome(a.lifecycle.configPath, home) : '';
+    const lifecycle = lifecycleFor(a, platform);
+    const configFile = lifecycle && lifecycle.configPath
+      ? lifecyclePath(lifecycle.configPath, { home, env, platform }) : '';
     // The renderer shows and runs `install` as it finds it, so it is handed the
-    // one for this machine and never learns there was a choice.
-    return { ...a, install: installCommand(a, platform), found: !!p, path: p, pathShort: shortHome(p, home), configFile };
+    // one for this machine and never learns there was a choice. The same goes
+    // for the lifecycle commands and the switch-account line built from them.
+    return { ...a, lifecycle, install: installCommand(a, platform), switchAccount: switchAccountCommand(a, platform), found: !!p, path: p, pathShort: shortHome(p, home, platform), configFile };
   }));
 }
 
@@ -235,13 +299,25 @@ async function detectAgents({ exec = shellWhich, home = os.homedir(), settings =
 
 function agentById(id) { return KNOWN_AGENTS.find((a) => a.id === id) || null; }
 
-function expandHome(p, home) {
-  return String(p || '').replace(/^~(?=\/|$)/, home);
+// On Windows `~\.claude` is as likely as `~/.claude`, and what comes back is
+// written the way Windows writes it — this path is shown to people and handed
+// to the file viewer, and C:\Users\you/.claude/x reads like a mistake even
+// though it opens. A path with no `~` in front is returned untouched.
+function expandHome(p, home, platform = process.platform) {
+  if (platform !== 'win32') return String(p || '').replace(/^~(?=\/|$)/, home);
+  const s = String(p || '');
+  return /^~(?=[\\/]|$)/.test(s) ? home + s.slice(1).replace(/\//g, '\\') : s;
 }
 // The display twin: ~/.local/bin/hermes reads better than /Users/you/.local/...
-function shortHome(p, home) {
+// Windows ends the home folder at either separator and does not care how it was
+// capitalised: `where` answers c:\users\you as readily as C:\Users\You.
+function shortHome(p, home, platform = process.platform) {
   const s = String(p || '');
-  return home && s.startsWith(home + '/') ? '~' + s.slice(home.length) : s;
+  if (platform !== 'win32') return home && s.startsWith(home + '/') ? '~' + s.slice(home.length) : s;
+  const h = String(home || '').replace(/[\\/]+$/, '');
+  const same = (a) => a.replace(/\//g, '\\').toLowerCase();
+  const under = h && same(s.slice(0, h.length)) === same(h) && /^[\\/]/.test(s.slice(h.length));
+  return under ? '~' + s.slice(h.length) : s;
 }
 
 const shellRun = runLoginShell;
@@ -259,10 +335,10 @@ function grokApiKeyPresent(envKeys, env) {
     || nonemptyEnv(env, 'XAI_API_KEY') || nonemptyEnv(env, 'GROK_CODE_XAI_API_KEY');
 }
 
-async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home = os.homedir(), envKeys = {}, env = process.env, settings = {} } = {}) {
+async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home = os.homedir(), envKeys = {}, env = process.env, settings = {}, platform = process.platform } = {}) {
   const blank = { id, signedIn: null, label: '', rows: [], source: '' };
   const agent = agentById(id);
-  const lc = agent && agent.lifecycle;
+  const lc = lifecycleFor(agent, platform);
   if (!lc) return blank;
   try {
     let payload;
@@ -271,7 +347,7 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
     } else if (lc.statusFiles && lc.statusFiles.length) {
       const files = {};
       await Promise.all(lc.statusFiles.map(async (rel) => {
-        const abs = expandHome(rel, home);
+        const abs = lifecyclePath(rel, { home, env, platform });
         files[abs] = await readFile(abs);
       }));
       payload = { files };
@@ -288,16 +364,18 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
   }
 }
 
-module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, installCommand, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
+module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, installCommand, lifecycleFor, lifecyclePath, switchAccountCommand, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
 
 // The selected ID comes from launch metadata. Validate its command against
 // main's registry before granting credentials; never infer identity from text.
-function agentRunCommandAllowed({ agentId, command, args } = {}) {
+function agentRunCommandAllowed({ agentId, command, args } = {}, platform = process.platform) {
   const agent = agentById(agentId);
   if (!agent || typeof command !== 'string') return false;
-  const lc = agent.lifecycle || {};
+  const lc = lifecycleFor(agent, platform) || {};
   const commands = [agent.bin, lc.login, lc.logout, lc.health, lc.setup, lc.switchCmd, lc.uninstall];
-  if (lc.logout && lc.login) commands.push(`${lc.logout} && ${lc.login}`);
+  // The logout-then-login pair, spelled for this platform's shell and no other:
+  // it must be the very string the sheet was handed (see switchAccountCommand).
+  if (lc.logout && lc.login) commands.push(logoutThenLogin(lc, platform));
   if (commands.some((candidate) => typeof candidate === 'string' && command === candidate)) return true;
   if (!['opencode', 'antigravity'].includes(agentId) || !Array.isArray(args)
     || args.length !== 2 || args[0] !== '--agent' || typeof args[1] !== 'string' || args[1].includes('\0')) return false;

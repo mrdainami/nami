@@ -178,11 +178,17 @@ function buildMenuTemplate({
   // role: 'window' rather than a plain label, because that is what tells macOS
   // to append the list of open windows underneath. Nami is a window per project
   // space, so that list is how you get between two folders.
-  const windowSubmenu = [
+  //
+  // zoom and front are roles only macOS has: the green button's resize, and
+  // Bring All to Front. Anywhere else Electron has nothing to bind them to, so
+  // they are left out rather than shown as items that do nothing.
+  const windowSubmenu = mac ? [
     { role: 'minimize' },
     { role: 'zoom' },
     SEP,
     { role: 'front' },
+  ] : [
+    { role: 'minimize' },
   ];
 
   // Docs first: it is the answer to the question that brings anyone here, and

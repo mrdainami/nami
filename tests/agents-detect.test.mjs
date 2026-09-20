@@ -178,7 +178,9 @@ test('agentStatus runs the status command and parses it', async () => {
 test('agentStatus expands ~ and reads files for file-based agents', async () => {
   const seen = [];
   const readFile = async (p) => { seen.push(p); return p.endsWith('auth.json') ? HERMES_AUTH : null; };
-  const s = await agentStatus('hermes', { exec: async () => { throw new Error('must not exec'); }, readFile, home: '/h' });
+  // A Mac question, and it says so: on Windows Hermes keeps these files
+  // somewhere else altogether (see windows-agents.test.mjs).
+  const s = await agentStatus('hermes', { exec: async () => { throw new Error('must not exec'); }, readFile, home: '/h', platform: 'darwin' });
   assert.ok(seen.includes('/h/.hermes/auth.json'), 'did not expand ~');
   assert.equal(s.signedIn, true);
   assert.equal(s.label, '2 sign-ins');
@@ -253,7 +255,7 @@ test('agentStatus: grok account file still wins over a stored key', async () => 
 });
 
 test('detectAgents expands configPath so the renderer never needs $HOME', async () => {
-  const out = await detectAgents({ exec: async () => '/bin/x', home: '/h' });
+  const out = await detectAgents({ exec: async () => '/bin/x', home: '/h', platform: 'darwin' });
   assert.equal(out.find((a) => a.id === 'hermes').configFile, '/h/.hermes/config.yaml');
   assert.equal(out.find((a) => a.id === 'antigravity').configFile, '/h/.gemini/settings.json');
 });

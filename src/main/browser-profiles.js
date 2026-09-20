@@ -294,7 +294,8 @@ const SAFE_STORAGE = {
   Arc: 'Arc',
   Chromium: 'Chromium',
 };
-function chromeKeychainPassword(browser, execFileSync) {
+function chromeKeychainPassword(browser, execFileSync, platform = process.platform) {
+  if (platform !== 'darwin') return null;   // `security` is the macOS keychain tool
   if (typeof execFileSync !== 'function') return null;
   const label = SAFE_STORAGE[browser] || 'Chrome';
   try {
@@ -387,7 +388,11 @@ function parsePasswordCsv(text) {
   return { entries, skipped };
 }
 function createProfileStore({ directory, safeStorage }) {
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  // Windows has no 0o700: the folder is closed to other accounts once, when it
+  // is made, and profiles.json and each vault written into it inherit that. The
+  // vaults are already encrypted by the OS, so none is tightened file by file.
+  const made = fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (made) require('./owner-only').ownerOnly(made, { directory: true });
   const metadataFile = path.join(directory, 'profiles.json');
   let profiles;
   try { profiles = JSON.parse(fs.readFileSync(metadataFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Browser profiles could not be read.'); profiles = [{ id: 'default', name: 'Personal' }]; }

@@ -110,3 +110,16 @@ test('the Windows caption buttons take the theme and stay readable on it', () =>
   // and a Mac has no overlay at all
   assert.equal(windowChrome('darwin', '#121212').titleBarOverlay, undefined);
 });
+
+test('a tool is looked up by the form of it a stock Windows will run', () => {
+  const { whichCommand } = require('../src/main/platform.js');
+  const { KNOWN_AGENTS, installCommand } = require('../src/main/agents-detect.js');
+  // Measured on a clean Windows 11: `Get-Command npm` answers npm.ps1, which
+  // ExecutionPolicy Restricted refuses; -CommandType Application answers npm.cmd.
+  const cmd = whichCommand('codex', 'win32');
+  assert.match(cmd, /-CommandType Application/);
+  assert.match(cmd, /Select-Object -First 1/);   // two dirs on PATH must not come back as two lines
+  assert.equal(whichCommand('codex', 'darwin'), 'command -v codex');
+  // and nothing Nami types on Windows starts with a bare `npm`, for the same reason
+  for (const a of KNOWN_AGENTS) assert.doesNotMatch(installCommand(a, 'win32'), /^npm\s/, a.id);
+});

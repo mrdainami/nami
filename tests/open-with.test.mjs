@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { handles, chooseTarget, OPEN_EXT } = require('../src/main/open-with.js');
+const { handles, chooseTarget, chooseFolderTarget, OPEN_EXT } = require('../src/main/open-with.js');
 
 test('handles the declared extensions, case-insensitively', () => {
   for (const e of OPEN_EXT) assert.equal(handles('/a/b/note.' + e), true, e);
@@ -70,6 +70,56 @@ test('a stale focusedId falls back to the last window rather than spawning', () 
 test('with no windows at all, one is made for the parent folder', () => {
   const r = pick({ windows: [], focusedId: null });
   assert.deepEqual(r, { action: 'new-window', id: null, folder: '/proj/docs' });
+});
+
+// ---- Windows ---------------------------------------------------------------
+// The same four cases, reached from a command line instead of from Finder. The
+// one thing that differs is how names compare: `C:\Work` and `c:\work` are one
+// folder, and a path typed into a terminal arrives in whatever case it was typed.
+const winPick = (over = {}) => chooseTarget({
+  filePath: 'C:\\proj\\docs\\note.md', windows: [], focusedId: null, platform: 'win32', ...over,
+});
+
+test('windows: a window holding the folder takes the file, whatever case either was written in', () => {
+  assert.deepEqual(winPick({ windows: [{ id: 1, folder: 'C:\\proj' }], focusedId: 1 }), { action: 'here', id: 1, folder: 'C:\\proj' });
+  assert.deepEqual(winPick({ windows: [{ id: 1, folder: 'c:\\PROJ\\' }], focusedId: 1 }), { action: 'here', id: 1, folder: 'c:\\PROJ\\' });
+  assert.equal(winPick({ windows: [{ id: 1, folder: 'C:\\proj' }, { id: 2, folder: 'C:\\Proj\\Docs' }], focusedId: 1 }).id, 2);
+});
+
+test('windows: a sibling that only shares a name prefix is still not a match', () => {
+  assert.deepEqual(winPick({ windows: [{ id: 1, folder: 'C:\\proj-evil' }], focusedId: 1 }), { action: 'adopt', id: 1, folder: 'C:\\proj\\docs' });
+});
+
+test('windows: with no windows at all, one is made for the parent folder', () => {
+  assert.deepEqual(winPick(), { action: 'new-window', id: null, folder: 'C:\\proj\\docs' });
+  assert.deepEqual(winPick({ filePath: 'C:\\note.md' }), { action: 'new-window', id: null, folder: 'C:\\' });
+});
+
+test('on a Mac names still differ by case, as they always have here', () => {
+  const r = pick({ windows: [{ id: 1, folder: '/PROJ' }], focusedId: 1, platform: 'darwin' });
+  assert.deepEqual(r, { action: 'adopt', id: 1, folder: '/proj/docs' });
+});
+
+// `Nami.exe C:\work` — a folder has no parent to fall back on and nothing to
+// adopt: it is either a desk that is already open, or a new one.
+test('a folder that a window already has open goes to that window', () => {
+  const windows = [{ id: 1, folder: 'C:\\other' }, { id: 2, folder: 'C:\\work' }];
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows, platform: 'win32' }), { action: 'here', id: 2, folder: 'C:\\work' });
+  assert.deepEqual(chooseFolderTarget({ folder: 'c:\\WORK\\', windows, platform: 'win32' }), { action: 'here', id: 2, folder: 'C:\\work' });
+  assert.deepEqual(chooseFolderTarget({ folder: '/work/', windows: [{ id: 5, folder: '/work' }], platform: 'darwin' }), { action: 'here', id: 5, folder: '/work' });
+});
+
+test('a folder nobody has open gets a window of its own, never somebody else\'s desk', () => {
+  const windows = [{ id: 1, folder: 'C:\\work\\docs' }, { id: 2, folder: 'C:\\' }, { id: 3, folder: null }];
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows, platform: 'win32' }), { action: 'new-window', id: null, folder: 'C:\\work' });
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [], platform: 'win32' }), { action: 'new-window', id: null, folder: 'C:\\work' });
+  assert.deepEqual(chooseFolderTarget({ folder: '/Work', windows: [{ id: 1, folder: '/work' }], platform: 'darwin' }), { action: 'new-window', id: null, folder: '/Work' });
+});
+
+test('among windows on the same folder the focused one is chosen', () => {
+  const windows = [{ id: 1, folder: 'C:\\work' }, { id: 2, folder: 'C:\\work' }];
+  assert.equal(chooseFolderTarget({ folder: 'C:\\work', windows, focusedId: 2, platform: 'win32' }).id, 2);
+  assert.equal(chooseFolderTarget({ folder: 'C:\\work', windows, focusedId: 9, platform: 'win32' }).id, 1);
 });
 
 // The two lists have to agree or the app advertises a type it then refuses to

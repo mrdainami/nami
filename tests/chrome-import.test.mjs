@@ -141,17 +141,27 @@ test('each browser is asked for its own Keychain key, never Chrome\'s', () => {
   // Handing Brave's cookies Chrome's key is worse than finding no key at all:
   // the key is truthy, so the "allow Keychain access" hint is suppressed, and
   // every blob then fails its padding check and is silently counted as skipped.
-  assert.equal(chromeKeychainPassword('Brave', spy), 'key-for-Brave');
-  assert.equal(chromeKeychainPassword('Vivaldi', spy), 'key-for-Vivaldi');
-  assert.equal(chromeKeychainPassword('Opera', spy), 'key-for-Opera');
-  assert.equal(chromeKeychainPassword('Arc', spy), 'key-for-Arc');
-  assert.equal(chromeKeychainPassword('Chromium', spy), 'key-for-Chromium');
-  assert.equal(chromeKeychainPassword('Edge', spy), 'key-for-Microsoft Edge');
+  assert.equal(chromeKeychainPassword('Brave', spy, 'darwin'), 'key-for-Brave');
+  assert.equal(chromeKeychainPassword('Vivaldi', spy, 'darwin'), 'key-for-Vivaldi');
+  assert.equal(chromeKeychainPassword('Opera', spy, 'darwin'), 'key-for-Opera');
+  assert.equal(chromeKeychainPassword('Arc', spy, 'darwin'), 'key-for-Arc');
+  assert.equal(chromeKeychainPassword('Chromium', spy, 'darwin'), 'key-for-Chromium');
+  assert.equal(chromeKeychainPassword('Edge', spy, 'darwin'), 'key-for-Microsoft Edge');
   assert.deepEqual(asked, ['Brave Safe Storage', 'Vivaldi Safe Storage', 'Opera Safe Storage', 'Arc Safe Storage', 'Chromium Safe Storage', 'Microsoft Edge Safe Storage']);
   // Chrome's own channels share Google Chrome's item, which is the default.
   for (const channel of ['Chrome', 'Chrome Beta', 'Chrome Canary']) {
-    assert.equal(chromeKeychainPassword(channel, spy), 'key-for-Chrome');
+    assert.equal(chromeKeychainPassword(channel, spy, 'darwin'), 'key-for-Chrome');
   }
+});
+
+// `security` is a macOS program. Anywhere else the question is not asked at
+// all, rather than spawned and left to fail.
+test('off a Mac the Keychain is never asked', () => {
+  let asked = 0;
+  const spy = () => { asked++; return 'a-key'; };
+  assert.equal(chromeKeychainPassword('Chrome', spy, 'win32'), null);
+  assert.equal(chromeKeychainPassword('Edge', spy, 'linux'), null);
+  assert.equal(asked, 0);
 });
 
 test('a permission denial is not a lock, so it never says to quit the browser', () => {

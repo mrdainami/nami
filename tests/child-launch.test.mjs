@@ -22,7 +22,7 @@ async function spawnBoundary(request, config = settings, overrides = {}) {
   const messages = [];
   const context = {
     ...require('../src/main/seed-launch'), startSeedGate: require('../src/main/seed-gate').startSeedGate,
-    ...policy, agentRunCommandAllowed: require('../src/main/agents-detect').agentRunCommandAllowed, process: { env: parentEnv, platform: 'darwin' }, readSettings: () => config,
+    ...policy, agentRunCommandAllowed: (launch) => require('../src/main/agents-detect').agentRunCommandAllowed(launch, 'darwin'), process: { env: parentEnv, platform: 'darwin' }, readSettings: () => config,
     storedEnvKeys: () => config.envKeys, settingsStore: require('../src/main/settings'),
     ipcMain: { handle: (_channel, fn) => { handler = fn; } }, browserViews: { registerSession() {} },
     pty: { spawn: (file, args, opts) => { captured = { file, args, ...opts }; throw Error('saved-other'); } },
