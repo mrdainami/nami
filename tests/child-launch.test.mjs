@@ -308,11 +308,11 @@ test('Hermes startup messages are scoped to its launch and omitted on normal res
 // (measured in the Windows 11 VM; the reasoning is in src/main/cmd-shim.js).
 // The handler is the real one, told it is on Windows.
 const HOSTILE = 'resize it to 5" wide & echo PWNED\nuse %USERNAME% here';
-const { psNativeArg, PS_NATIVE_HEAD } = require('../src/main/platform');
+const { psNativeArg } = require('../src/main/platform');
 const onWindows = (overrides) => ({
   process: { env: { ...parentEnv, SystemRoot: 'C:\\Windows' }, platform: 'win32' }, findPwsh: () => '',
   reportingArgs: require('../src/main/shell-integration').reportingArgs, feedCwd: () => null, ptyCwd: { tell() {}, forget() {} },
-  shellQuote: require('../src/main/claude-args').shellQuote, ...overrides,
+  shellQuote: require('../src/main/claude-args').shellQuote, directLaunch: require('../src/main/cmd-shim').directLaunch, ...overrides,
 });
 
 test('windows: npm\'s claude.cmd is never handed a first message, and gets a name cmd.exe cannot act on', async () => {
@@ -339,14 +339,17 @@ test('windows: a run tile\'s first message reaches a real .exe and never a shim 
     const fake = recordingPty();
     const { result } = await spawnBoundary({ kind: 'run', command: 'codex', agentId: 'codex', purpose: 'agent', seed: HOSTILE }, settings,
       onWindows({ pty: fake, knownBin: (id) => (id === 'codex' ? where : '') }));
-    assert.equal(fake.captured.file, PS);
-    const line = fake.captured.args[fake.captured.args.length - 1];
-    assert.equal(line.includes('PWNED'), sent, line);
-    // HOSTILE has a quote in it, and PowerShell 5.1 escapes none on the way to
-    // a program: in single quotes alone it reached node as five arguments
-    // (measured in the VM). It goes written for the PowerShell it lands in —
-    // psNativeArg, and tests/powershell-quote.test.mjs reads both forms back.
-    assert.equal(line, sent ? PS_NATIVE_HEAD + 'codex -- ' + psNativeArg(HOSTILE) : 'codex');
+    // A real .exe is started by the pty itself and handed the message as one
+    // argument, exactly: no shell sits between, so there is no quoting to get
+    // wrong (PowerShell 5.1 could not deliver a quote to a Bun-built program).
+    // A shim or an unresolved name still goes through PowerShell, bare.
+    if (sent) {
+      assert.equal(fake.captured.file, where);
+      assert.deepEqual([...fake.captured.args], ['--', HOSTILE]);
+    } else {
+      assert.equal(fake.captured.file, PS);
+      assert.equal(fake.captured.args[fake.captured.args.length - 1], 'codex');
+    }
     assert.deepEqual({ ...result }, sent ? { ok: true } : { ok: true, seedHeld: true });
     assert.deepEqual(fake.writes, []);
   }
@@ -386,25 +389,23 @@ test('windows: npm\'s claude.cmd, started as node and its script, gets the messa
   assert.deepEqual(fake.writes, []);
 });
 
-test('windows: a run tile for npm\'s codex.cmd types node and the script, with the message, and still says `codex`', async () => {
-  const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+test('windows: a run tile for npm\'s codex.cmd starts node on the script itself, with the message, and still says `codex`', async () => {
   const shim = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\codex.cmd', script = 'C:\\Users\\cal\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js';
   const { rememberBins, forgetBins, resolveRunCommand, knownBin, withSpawnFlags } = require('../src/main/bin-cache');
   forgetBins(); rememberBins([{ id: 'codex', bin: 'codex', found: true, path: shim }]);
   try {
-    const head = "& '" + NODE_EXE + "' '" + script + "'";
-    for (const [request, line] of [
-      [{ seed: 'fix the export button' }, head + " -- 'fix the export button'"],
-      [{ seed: HOSTILE }, PS_NATIVE_HEAD + head + ' -- ' + psNativeArg(HOSTILE)],
-      [{}, head],
-      [{ cont: true, acpSid: 'conv-1' }, head + ' resume conv-1'],
+    for (const [request, argv] of [
+      [{ seed: 'fix the export button' }, [script, '--', 'fix the export button']],
+      [{ seed: HOSTILE }, [script, '--', HOSTILE]],
+      [{}, [script]],
+      [{ cont: true, acpSid: 'conv-1' }, [script, 'resume', 'conv-1']],
     ]) {
       const fake = recordingPty(), messages = [];
       const { result } = await spawnBoundary({ kind: 'run', command: 'codex', agentId: 'codex', purpose: 'agent', ...request }, settings,
         onWindows({ pty: fake, knownBin, resolveRunCommand, withSpawnFlags, realProgram: roundTheShim(shim, script), sendWc: (_wc, _channel, m) => messages.push(m),
           agentForCommand: (c) => (c === 'codex' ? 'codex' : null), resumeCommand: (_a, sid) => 'codex resume ' + sid }));
-      assert.equal(fake.captured.file, PS);
-      assert.equal(fake.captured.args[fake.captured.args.length - 1], line);
+      assert.equal(fake.captured.file, NODE_EXE);
+      assert.deepEqual([...fake.captured.args], argv);
       assert.deepEqual({ ...result }, { ok: true }, 'nothing was held');
       // the tile's header is the name the user knows it by, not a path to node
       assert.ok(messages.some((m) => typeof m.data === 'string' && m.data.includes('$ codex\x1b')), JSON.stringify(messages));

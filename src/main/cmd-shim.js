@@ -130,4 +130,31 @@ function shimTarget(text, shimPath, { exists, node = '' } = {}) {
   return reachesCmd(program, WIN) ? null : { file: program, args: [found] };
 }
 
-module.exports = { reachesCmd, shimSafe, shimSafeArgs, shimTarget };
+// A known agent's command line, as a program and its arguments, for the pty to
+// start by itself — or null when the line needs a shell to mean what it says.
+//
+// Going through PowerShell 5.1 means guessing how the program at the other end
+// unquotes its command line. The guess that is right for node ("" for a quote)
+// splits an argument in two for a Bun-built program, and opencode.exe and
+// claude.exe are both Bun-built: a first message of `five" wide` reached
+// opencode as a message and a folder called `wide` (measured). node-pty writes
+// the one form both families read the same way, so the program goes to it and
+// the question never comes up.
+//
+// Strict on purpose. The head must be a bare name the scan found, leading to a
+// real .exe (through a shim, if real-program.js could see through it), and every
+// word after it must be plain — no quotes, no operators, no variables. Such a
+// line has nothing a shell would add. Anything else keeps the shell it had.
+const PLAIN_WORD = /^[A-Za-z0-9_@+=:,.\/\\-]+$/;
+function directLaunch(line, { real, knownBin, platform = process.platform } = {}) {
+  if (platform !== WIN || typeof real !== 'function' || typeof knownBin !== 'function') return null;
+  const words = String(line || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length || !/^[A-Za-z][\w.-]*$/.test(words[0]) || !words.every((w) => PLAIN_WORD.test(w))) return null;
+  const found = knownBin(words[0]);
+  if (!found) return null;
+  const target = real(found);
+  if (!target || reachesCmd(target.file, platform)) return null;
+  return { file: target.file, args: [...(target.args || []), ...words.slice(1)] };
+}
+
+module.exports = { reachesCmd, shimSafe, shimSafeArgs, shimTarget, directLaunch };

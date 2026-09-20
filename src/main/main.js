@@ -17,7 +17,7 @@ const { installAppMenu, buildWindowsExtrasTemplate, editContextTemplate } = requ
 const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
 const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld, withPromptArgs } = require('./seed-launch');
-const { reachesCmd, shimSafe, shimSafeArgs } = require('./cmd-shim');
+const { reachesCmd, shimSafe, shimSafeArgs, directLaunch } = require('./cmd-shim');
 const { realProgram } = require('./real-program');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { buildChildEnv, terminalLaunchPolicy, customAgents, redactChildError } = require('./session-env');
@@ -1613,7 +1613,8 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // by binary, and resolveRunCommand may replace the head with a full path.
     // This is where grok gets --minimal; see the table in bin-cache.js for why
     // the flag is not stored on the panel.
-    let typed = resolveRunCommand(withSpawnFlags(command), shellPath, real);
+    let bare = withSpawnFlags(command);   // the line before anything resolves it, for directLaunch below
+    let typed = resolveRunCommand(bare, shellPath, real);
     // A known agent tile restoring with a saved conversation id gets its
     // resume line typed instead of the bare bin — but only while the agent's
     // store still holds that session (the same restored-but-unused guard as
@@ -1628,12 +1629,19 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume), shellPath, real); storeWatch = { agent, sid: acpSid }; }
+        if (resume) { bare = withSpawnFlags(resume); typed = resolveRunCommand(bare, shellPath, real); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
 
+    // On Windows an agent tile whose line is just a program and plain words is
+    // started by the pty itself, the way a claude tile already is: PowerShell
+    // 5.1 cannot hand a quote to a Bun-built program intact (see directLaunch).
+    // The platform test comes first so nothing else is even looked up on a Mac.
+    const direct = (process.platform === 'win32' && !watchDone && (policy.purpose === 'agent' || promptArgs.length))
+      ? directLaunch(bare, { real, knownBin, platform: process.platform }) : null;
     typed = withPromptArgs(typed, promptArgs, { quote, shell: shellPath });
-    if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
+    if (direct) { file = direct.file; spawnArgs = [...direct.args, ...promptArgs]; echoLine = command; }
+    else if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     // An agent tile: the shell runs the line as its script and exits with the
     // agent, so the keys in its environment die with it. Still `-i`, so the
     // user's rc file is read and `a && b` registry commands work; no `exec`
