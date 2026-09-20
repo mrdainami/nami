@@ -36,7 +36,16 @@ function loginShell(platform = process.platform, env = process.env) {
   if (platform === WIN) {
     // -NoProfile is deliberate and differs from the Unix branch: PowerShell
     // profiles are slow and are not where PATH comes from on Windows.
-    return { file: 'powershell.exe', args: (cmd) => ['-NoProfile', '-Command', cmd] };
+    //
+    // The PATH question is asked of the registry, not of $env:PATH. A child
+    // PowerShell inherits Nami's own environment, so $env:PATH would hand back
+    // exactly what we already have — and miss the entry an installer wrote a
+    // minute ago, which is the one case the probe exists for.
+    return {
+      file: 'powershell.exe',
+      args: (cmd) => ['-NoProfile', '-Command', cmd],
+      pathCmd: "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
+    };
   }
   // Ask people in their own shell — a bash user's PATH lives in .bashrc, and
   // zsh would never read it. Anything that is not plainly an absolute path to a
@@ -44,8 +53,33 @@ function loginShell(platform = process.platform, env = process.env) {
   // app and a wrong guess costs every detection.
   const shell = String((env && env.SHELL) || '');
   const file = shell.startsWith('/') && !DEAD_SHELLS.has(shell) ? shell : '/bin/zsh';
-  return { file, args: (cmd) => ['-l', '-i', '-c', cmd] };
+  return { file, args: (cmd) => ['-l', '-i', '-c', cmd], pathCmd: 'printf %s "$PATH"' };
 }
+
+// PowerShell by any of its names: Windows PowerShell, pwsh, with or without a
+// path in front or .exe behind. Everything that builds a command line asks
+// this, because quoting, chaining and exit codes all differ from a POSIX shell.
+function isPowerShell(shell) {
+  return /(^|[\\/])(powershell|pwsh)(\.exe)?$/i.test(String(shell || ''));
+}
+
+// The shell a pane runs. On a Mac that is the user's own. On Windows SHELL is
+// ignored on purpose: nothing native sets it, and Git Bash sets it to
+// /usr/bin/bash, which is a path that does not exist outside Git Bash.
+function paneShell(platform = process.platform, env = process.env) {
+  if (platform === WIN) return 'powershell.exe';
+  return (env && env.SHELL) || '/bin/zsh';
+}
+
+// Arguments that make `shell` run `line` as its script and end when it ends.
+// Interactive on POSIX so the rc file is read; PowerShell reads its profile
+// either way.
+function scriptArgs(shell, line) {
+  return isPowerShell(shell) ? ['-NoLogo', '-Command', line] : ['-i', '-c', line];
+}
+
+// What separates one PATH entry from the next.
+function pathDelimiter(platform = process.platform) { return platform === WIN ? ';' : ':'; }
 
 // Where to look when the shell probe comes back empty — a .zshrc that prints a
 // banner, refuses to run without a tty, or does not exist must degrade to a
@@ -124,4 +158,4 @@ function windowChrome(platform = process.platform) {
   return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 11 } };
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs };
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs };

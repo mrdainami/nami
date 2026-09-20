@@ -37,7 +37,7 @@ const { fmtSize, listDirectory, readTree } = require('./workspace-tree');
 const { ptyCwd } = require('./pty-cwd');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
-const { windowChrome } = require('./platform');
+const { windowChrome, paneShell, scriptArgs } = require('./platform');
 const { seedStartHere } = require('./start-here');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
@@ -1371,7 +1371,8 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // settled; the await only ever bites on a session created within the first
   // second of launch.
   const envPath = await userPath({ settings: readSettings() });
-  const shellPath = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+  const shellPath = paneShell(process.platform, process.env);
+  const quote = (a) => shellQuote(a, shellPath);
   const claudeExe = resolveClaudeExecutable();
   const launch = { kind, purpose, agentId, program, command, args, watchDone, oneShot };
   const policy = sessionPolicy(launch);
@@ -1409,9 +1410,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // this tile carries claude's keys, so it must not outlive claude.
     else {
       file = shellPath;
-      const displayLine = ['claude', ...claudeArgs, ...extraArgs].map(shellQuote).join(' ');
-      const line = displayLine + (promptArgs.length ? ' ' + promptArgs.map(shellQuote).join(' ') : '');
-      if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = ['-i', '-c', line]; echoLine = displayLine; }
+      const displayLine = ['claude', ...claudeArgs, ...extraArgs].map(quote).join(' ');
+      const line = displayLine + (promptArgs.length ? ' ' + promptArgs.map(quote).join(' ') : '');
+      if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = scriptArgs(shellPath, line); echoLine = displayLine; }
       else afterStart = line;
     }
   } else if (kind === 'harness' && program) {
@@ -1429,7 +1430,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // by binary, and resolveRunCommand may replace the head with a full path.
     // This is where grok gets --minimal; see the table in bin-cache.js for why
     // the flag is not stored on the panel.
-    let typed = resolveRunCommand(withSpawnFlags(command));
+    let typed = resolveRunCommand(withSpawnFlags(command), shellPath);
     // A known agent tile restoring with a saved conversation id gets its
     // resume line typed instead of the bare bin — but only while the agent's
     // store still holds that session (the same restored-but-unused guard as
@@ -1444,18 +1445,18 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (agent) {
       if (cont && acpSid) {
         const resume = sessionExists(agent, cwd, acpSid) ? resumeCommand(agent, acpSid) : null;
-        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume)); storeWatch = { agent, sid: acpSid }; }
+        if (resume) { typed = resolveRunCommand(withSpawnFlags(resume), shellPath); storeWatch = { agent, sid: acpSid }; }
       } else if (!acpSid) discoverAgent = agent;
     }
 
-    if (promptArgs.length) typed += ' ' + promptArgs.map(shellQuote).join(' ');
+    if (promptArgs.length) typed += ' ' + promptArgs.map(quote).join(' ');
     if (watchDone) { spawnArgs = oneShotArgs(shellPath, typed); echoLine = command; }
     // An agent tile: the shell runs the line as its script and exits with the
     // agent, so the keys in its environment die with it. Still `-i`, so the
     // user's rc file is read and `a && b` registry commands work; no `exec`
     // prefix for the same reason. Unlike a one-shot there is no trailing
     // `exec <shell> -i` — a fresh prompt is exactly the thing to avoid here.
-    else if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = ['-i', '-c', typed]; echoLine = command; }
+    else if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = scriptArgs(shellPath, typed); echoLine = command; }
     else afterStart = typed;
   } else {
     file = shellPath;

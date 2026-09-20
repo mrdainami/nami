@@ -24,7 +24,7 @@
 
 const fs = require('fs');
 const os = require('os');
-const { claudeCandidates } = require('./platform.js');
+const { claudeCandidates, isPowerShell } = require('./platform.js');
 
 const bins = new Map();
 
@@ -85,12 +85,18 @@ function resolveClaudeExecutable({ home = os.homedir(), env = process.env, exist
 // command-not-found in a tile while the launcher says ready. When the scan
 // already knows where the binary lives, the command is typed by that
 // absolute path instead. Anything the scan doesn't know passes untouched.
-function resolveRunCommand(command) {
+function resolveRunCommand(command, shell = '') {
   const s = String(command || '');
   const m = /^([A-Za-z][\w.-]*)(\s[\s\S]*)?$/.exec(s);
   if (!m) return s;
   const found = knownBin(m[1]);
   if (!found || found === m[1]) return s;
+  // PowerShell reads a quoted string at the head of a line as a string, not as
+  // a program. The call operator is what runs it.
+  if (isPowerShell(shell)) {
+    const plain = /^[\w@%+=:,.\\/-]+$/.test(found);
+    return (plain ? found : `& '${found.replace(/'/g, "''")}'`) + (m[2] || '');
+  }
   const head = /[^\w@%+=:,./-]/.test(found) ? `'${found.replace(/'/g, `'\\''`)}'` : found;
   return head + (m[2] || '');
 }

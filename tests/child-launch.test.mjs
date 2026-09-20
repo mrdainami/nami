@@ -30,6 +30,7 @@ async function spawnBoundary(request, config = settings, overrides = {}) {
     resolveClaudeExecutable: () => '/bin/claude', path, os: { homedir: () => '/home/test' }, fs: { existsSync: () => true },
     claudeSpawnArgs: require('../src/main/claude-args').claudeSpawnArgs, projectSlug: () => 'test',
     shellQuote, resolveRunCommand: (s) => s, withSpawnFlags: (s) => s,
+    paneShell: require('../src/main/platform').paneShell, scriptArgs: require('../src/main/platform').scriptArgs,
     agentForCommand: () => null, sessionExists: () => true, resumeCommand: () => null,
     oneShotArgs: () => ['-c', 'dummy-install'],
     // Module state the exit path touches; the throwing pty above never gets there.

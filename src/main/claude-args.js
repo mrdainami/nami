@@ -12,6 +12,8 @@
 // writes a custom-title into the transcript, so the session reads the same in
 // `claude --resume` and `claude agents` as it does in the rail. Verified to
 // work alongside --resume, not only on a fresh spawn.
+const { isPowerShell } = require('./platform.js');
+
 function claudeSpawnArgs({ cont, sid, hasTranscript, name }) {
   const named = String(name || '').trim();
   const tail = named ? ['--name', named] : [];
@@ -35,11 +37,14 @@ function projectSlug(cwd) {
 // backtick, no glob, no history bang. The one character single quotes cannot
 // carry is a single quote, which is why it is closed, escaped and reopened.
 // A session named "Cal's export button" is an ordinary thing to have.
-function shellQuote(arg) {
+function shellQuote(arg, shell = '') {
   const s = String(arg == null ? '' : arg);
   if (s === '') return "''";
   // plain enough to need nothing — keeps the common command readable in the tile
   if (/^[A-Za-z0-9_\-./:=@]+$/.test(s)) return s;
+  // PowerShell's single quotes are as literal as a POSIX shell's, but the one
+  // character they cannot carry is written by doubling it, not by escaping it.
+  if (isPowerShell(shell)) return "'" + s.replace(/'/g, "''") + "'";
   return "'" + s.replace(/'/g, `'\\''`) + "'";
 }
 

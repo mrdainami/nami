@@ -43,12 +43,22 @@
 //
 // Pure: main.js owns the pty, this owns the parsing.
 
+const { isPowerShell } = require('./platform.js');
+
 const OPEN = ']1337;NamiRunDone=';
 const DONE_RE = /\]1337;NamiRunDone=(-?\d{1,5})(?:|\\)/;
 
 // The suffix appended to a run command. Single-quoted so the shell expands
 // nothing in it; "$?" quoted so an empty status cannot swallow the argument.
-function doneSuffix(command) {
+//
+// PowerShell has no printf and no "$?" that is a number. $LASTEXITCODE is only
+// set by a real program, so a cmdlet that fails leaves it empty and $? is what
+// says so — read into a variable first, because every statement resets it.
+function doneSuffix(command, shell = '') {
+  if (isPowerShell(shell)) {
+    return `${command}; $namiOk = $?; $namiCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } elseif ($namiOk) { 0 } else { 1 }; `
+      + `[Console]::Write([char]27 + ']1337;NamiRunDone=' + $namiCode + [char]7)`;
+  }
   return `${command}; printf '\\033]1337;NamiRunDone=%s\\007' "$?"`;
 }
 
@@ -67,7 +77,12 @@ function doneSuffix(command) {
 // the rc file the installer just wrote a PATH line into. The prompt you are
 // left with can run the thing that was installed; the one that ran the install
 // could not.
+//
+// PowerShell cannot exec, and does not need to: -NoExit leaves the same shell
+// at a prompt, and a Windows install changes PATH in the registry rather than
+// in a file a new shell would re-read.
 function oneShotArgs(shell, command) {
+  if (isPowerShell(shell)) return ['-NoLogo', '-NoExit', '-Command', doneSuffix(command, shell)];
   return ['-i', '-c', `${doneSuffix(command)}; exec ${shell} -i`];
 }
 
