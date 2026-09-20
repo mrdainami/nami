@@ -38,12 +38,8 @@ files:
   - '!**/*.map'
 
   # --- weight, in descending order of how much it saves -------------------
-  # 170 MB: the ORT tarball carries every platform. win32 + linux is DirectML and
-  # CUDA that a Mac build can never load.
-  - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
-  - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
-  # 34 MB: and of the two Mac slices, keep only the one being built.
-  - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/!(${arch})/**'
+  # 170 MB: the ORT tarball carries every platform. Which slices go depends on
+  # what is being built, so that cut lives under `mac.files` and `win.files`.
 
   # 68 MB: transformers declares onnxruntime-web as a hard dependency, but the
   # build we actually load (dist/transformers.node.mjs) imports only node:*,
@@ -67,6 +63,10 @@ extraResources:
 asarUnpack:
   - '**/node_modules/onnxruntime-node/bin/**'
   - '**/node_modules/@lydell/node-pty/**'
+  # node-pty and sharp keep their Windows binaries in per-arch sibling packages,
+  # and conpty ships an .exe and .dll beside its .node that the glob below misses.
+  - '**/node_modules/@lydell/node-pty-win32-*/**'
+  - '**/node_modules/@img/sharp-win32-*/**'
   - '**/*.node'
 
 # The dmg is what the user downloads, so it is what carries the quarantine flag
@@ -88,6 +88,12 @@ afterAllArtifactBuild: scripts/notarize-dmg.mjs
 artifactName: ${productName}-${arch}.${ext}
 
 mac:
+  files:
+    # win32 + linux is DirectML and CUDA that a Mac build can never load.
+    - '!node_modules/onnxruntime-node/bin/napi-v3/win32/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
+    # 34 MB: and of the two Mac slices, keep only the one being built.
+    - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/!(${arch})/**'
   category: public.app-category.developer-tools
   target:
     # What a person downloads. Carries the quarantine flag, gets judged by
@@ -130,3 +136,32 @@ mac:
     NSMicrophoneUsageDescription: >-
       Nami uses your microphone so you can dictate into a session instead of
       typing.
+
+win:
+  icon: build/icon.ico
+  files:
+    - '!node_modules/onnxruntime-node/bin/napi-v3/darwin/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v3/linux/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v3/win32/!(${arch})/**'
+  target:
+    # What a person downloads and what an update installs.
+    - target: nsis
+      arch: [x64, arm64]
+    # Runs from wherever it is dropped, for a machine that refuses installers.
+    # It cannot update itself, so it is never what the website links to.
+    - target: portable
+      arch: [x64, arm64]
+
+# The top-level artifactName would give both Windows targets the same file name
+# and the second would overwrite the first. Still no version, for the same
+# reason as above: the site's download link has to survive a release.
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Nami
+  artifactName: ${productName}-Setup-${arch}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${arch}.${ext}
