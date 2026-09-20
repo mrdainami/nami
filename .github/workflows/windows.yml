@@ -1,0 +1,80 @@
+# Nami on Windows — tested and built, never released.
+#
+# This is the proof that the Windows column still works, run on real Windows on
+# every push that could break it. It produces installers a person can download
+# from the run page and try. It does NOT publish anything: shipping is
+# release.yml's job, and a Windows release joins it only once these builds have
+# been lived in.
+#
+# The installers are unsigned, so Windows will warn about an unknown publisher
+# when one is opened. That is expected here and is not a build failure.
+
+name: windows
+
+on:
+  push:
+    branches: [master, windows]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # One machine per arch, on purpose. npm only installs the node-pty and sharp
+    # binaries that match the machine it runs on, so an arm64 installer built on
+    # an x64 runner would ship with no terminal in it and no error to say so.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      # Without this, git rewrites every line ending on checkout and the tests
+      # that read fixtures byte for byte fail for a reason that is not theirs.
+      - run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Same cache as release.yml, keyed per OS so the two never share a folder.
+      - name: Cache Whisper weights
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/fetch-model.mjs', 'src/main/stt-model.js') }}
+
+      - run: npm ci
+
+      # The gate, the same one release.yml has. A red test never becomes a build.
+      - run: npm test
+
+      - name: Build the installer and the portable app
+        env:
+          # No certificate yet. Say so, or electron-builder goes looking for one.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:win -- --${{ matrix.arch }}
+
+      - name: Keep what was built
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nami-windows-${{ matrix.arch }}
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
