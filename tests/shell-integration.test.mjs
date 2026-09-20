@@ -76,7 +76,8 @@ test('the hook wraps the prompt that was there rather than replacing it', () => 
 test('a reported folder is read out of the stream', () => {
   assert.equal(feedCwd({}, 'PS C:\\> cd work\r\n' + SEQ('C:\\work') + 'PS C:\\work> '), 'C:\\work');
   assert.equal(feedCwd({}, SEQ('C:\\Users\\Cal Hia\\My Work')), 'C:\\Users\\Cal Hia\\My Work');
-  assert.equal(feedCwd({}, SEQ('\\\\Mac\\Home\\Documents')), '\\\\Mac\\Home\\Documents');
+  // a pane that was started on a share may say it is still on it
+  assert.equal(feedCwd({ roots: ['\\\\Mac\\Home\\nami'] }, SEQ('\\\\Mac\\Home\\Documents')), '\\\\Mac\\Home\\Documents');
   assert.equal(feedCwd({}, SEQ('/Users/cal/work')), '/Users/cal/work');
 });
 
@@ -108,6 +109,36 @@ test('only an absolute folder is believed', () => {
   assert.equal(cleanCwd('C:\\a\nb'), null);
   assert.equal(cleanCwd('D:/work'), 'D:/work');
   assert.equal(feedCwd({}, SEQ('work')), null);
+});
+
+// Any program can print OSC 9;9, and what it names becomes the folder the next
+// relative path is statted in. `\\\\evil\\share` there is a login to that server
+// the first time a link is hovered (remote-path.js).
+test('a report naming another computer is not believed', () => {
+  const evil = ['\\\\evil\\share\\x', '\\\\evil\\share', '"\\\\10.0.0.5\\c$"', '//evil/share', '\\\\?\\C:\\x', '\\\\?\\UNC\\evil\\s', '\\\\.\\pipe\\x', '\\\\evil@SSL@443\\dav'];
+  for (const p of evil) {
+    assert.equal(cleanCwd(p), null, p);
+    assert.equal(cleanCwd(p, ['C:\\work', 'C:\\Users\\cal']), null, p);
+    assert.equal(cleanCwd(p, ['\\\\Mac\\Home\\nami']), null, p);
+    assert.equal(feedCwd({ roots: ['C:\\work'] }, SEQ(p.replace(/"/g, ''))), null, p);
+  }
+  // the last report wins, so a refused one leaves the honest one standing
+  assert.equal(feedCwd({ roots: ['C:\\work'] }, SEQ('C:\\good') + ' junk ' + SEQ('\\\\10.0.0.5\\c$')), 'C:\\good');
+  // split across two reads, it is still one report and still refused
+  const st = { roots: ['C:\\work'] };
+  assert.equal(feedCwd(st, 'x\x1b]9;9;\\\\evil\\sh'), null);
+  assert.equal(feedCwd(st, 'are\\p\x07y'), null);
+});
+
+test('a project on a share keeps its cwd reports, in whatever case the shell spells it', () => {
+  const roots = ['\\\\Mac\\Home\\Documents\\nami', 'C:\\Users\\cal'];
+  assert.equal(cleanCwd('\\\\Mac\\Home\\Documents\\nami\\src', roots), '\\\\Mac\\Home\\Documents\\nami\\src');
+  assert.equal(cleanCwd('\\\\MAC\\home\\elsewhere', roots), '\\\\MAC\\home\\elsewhere');
+  assert.equal(cleanCwd('C:\\work', roots), 'C:\\work');
+  assert.equal(cleanCwd('\\\\Mac\\Other\\x', roots), null);
+  const st = { roots };
+  assert.equal(feedCwd(st, SEQ('\\\\Mac\\Home\\Documents\\nami\\src')), '\\\\Mac\\Home\\Documents\\nami\\src');
+  assert.deepEqual(st.roots, roots);
 });
 
 // pty chunks are whatever was ready, and a path is long enough that the

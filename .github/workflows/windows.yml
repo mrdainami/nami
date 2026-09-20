@@ -79,6 +79,25 @@ jobs:
       - name: Collect the C++ runtime for this arch
         run: node scripts/stage-vc-runtime.mjs ${{ matrix.arch }}
 
+      # Those DLLs come off this machine and go to every user, inside an
+      # installer that carries Nami's name. Being in the right folder with the
+      # right name is not proof of where a file came from; Microsoft's signature
+      # is. Windows checks it here, and one DLL that is unsigned, tampered with,
+      # or signed by anybody else stops the build before anything is packed.
+      - name: Check that Microsoft signed every one of them
+        shell: pwsh
+        run: |
+          $dlls = @(Get-ChildItem -Path build/vc-runtime -Recurse -Filter *.dll)
+          if ($dlls.Count -eq 0) { throw 'build/vc-runtime holds no DLLs, so there is nothing to ship and nothing was checked.' }
+          $bad = 0
+          foreach ($dll in $dlls) {
+            $sig = Get-AuthenticodeSignature -LiteralPath $dll.FullName
+            $who = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '(no signer)' }
+            if ($sig.Status -eq 'Valid' -and $who -like '*O=Microsoft Corporation*') { Write-Host "ok   $($dll.FullName)" }
+            else { Write-Host "BAD  $($dll.FullName): $($sig.Status), $who"; $bad++ }
+          }
+          if ($bad) { throw "$bad of $($dlls.Count) runtime DLLs are not validly signed by Microsoft." }
+
       - name: Build the installer and the portable app
         env:
           # No certificate yet. Say so, or electron-builder goes looking for one.

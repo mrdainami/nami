@@ -66,7 +66,7 @@ test('on a PC a cmd /c entry is started as the program inside it, not as cmd ins
     spawnFn: (_file, args) => { line = args[args.length - 1]; return fakeChild(answers(2)); },
   });
   assert.deepEqual(out, { ok: true, tools: 2 });
-  assert.equal(line, '"npx ^"-y^" ^"some-pkg^""');
+  assert.equal(line, '"set NoDefaultCurrentDirectoryInExePath=1&& npx ^"-y^" ^"some-pkg^""');
 });
 
 test('on a Mac the same entry is spawned as written, as it always was', async () => {

@@ -19,6 +19,8 @@
 // a parameter, so the Windows reading is tested from a Mac. The caller supplies
 // `stat`, which answers for one path or throws.
 const path = require('node:path');
+const { handles } = require('./open-with');
+const { looksRemote } = require('./remote-path');
 
 // Nami's switches whose value is the argument after them. Every other switch
 // either stands alone or carries its value after an equals sign.
@@ -33,6 +35,19 @@ function kindOf(p, stat) {
   return '';
 }
 
+// Is this worth a look at the disk? Everything is, except a path on a network
+// share that could not be opened whatever the disk said. Statting
+// \\server\share logs the PC in to that server (remote-path.js), and a command
+// line is written by whoever starts the process — a shortcut, another program.
+// Nami opens a folder, or a file of a type open-with.js lists, so a share path
+// ending in any other extension is a file it would turn away: it is passed over
+// on its name alone. The price is a folder on a share with a dot in its name,
+// which has to be opened from inside Nami instead.
+function worthAsking(p, platform) {
+  if (!looksRemote(p, platform)) return true;
+  return handles(p) || !/\.[^\\/.]+$/.test(p);
+}
+
 // Sorts paths into files and folders, in the order given, each one once. Names
 // on Windows differ by more than case only when they are different names.
 function sortPaths(paths, stat, platform) {
@@ -42,6 +57,7 @@ function sortPaths(paths, stat, platform) {
     const key = platform === 'win32' ? p.toLowerCase() : p;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (!worthAsking(p, platform)) continue;
     const kind = kindOf(p, stat);
     if (kind === 'file') out.files.push(p);
     else if (kind === 'folder') out.folders.push(p);

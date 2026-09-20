@@ -1,6 +1,7 @@
 // Use each CLI's interactive initial-message interface. These options keep
 // startup questions and subsequent conversation under the CLI's control.
 const { KNOWN_AGENTS, agentRunCommandAllowed } = require('./agents-detect');
+const { reachesCmd } = require('./cmd-shim');
 
 function seedAgentForLaunch({ kind, command, agentId, args, watchDone, oneShot } = {}) {
   if (watchDone || oneShot) return null;
@@ -16,7 +17,27 @@ function seedAgentForLaunch({ kind, command, agentId, args, watchDone, oneShot }
   return null;
 }
 
-function initialPromptArgs(agentId, seed) {
+// `program` is where the scan found the agent. On Windows an agent installed by
+// npm is a .cmd shim, and an argument to one is read by cmd.exe as a command
+// (cmd-shim.js): a first message is other people's text as often as not — a
+// connector's description, an agent's name — so to a shim it is not sent as an
+// argument at all, and main falls back to what it does for an agent with no
+// such option. A real .exe, and every Mac, gets it exactly as before.
+function initialPromptArgs(agentId, seed, { program = '', platform = process.platform } = {}) {
+  if (reachesCmd(program, platform)) return [];
+  return nativePromptArgs(agentId, seed);
+}
+
+// True when this agent would have been handed `seed` as an argument and was
+// not, because it is a shim. Nothing else can carry it: typing a message in
+// (seed-gate.js) needs to know what the agent's empty input box looks like, and
+// that is known for Kimi and Hermes only. So main says so, and the renderer
+// puts the message on the clipboard instead of letting it vanish.
+function seedHeld(agentId, seed, { program = '', platform = process.platform } = {}) {
+  return reachesCmd(program, platform) && nativePromptArgs(agentId, seed).length > 0;
+}
+
+function nativePromptArgs(agentId, seed) {
   if (typeof seed !== 'string' || !seed || seed.includes('\0')) return [];
   switch (agentId) {
     case 'claude': case 'codex': case 'grok': return ['--', seed];
@@ -40,4 +61,4 @@ function initialPromptEnv(env, agentId, seed) {
   return out;
 }
 
-module.exports = { seedAgentForLaunch, initialPromptArgs, initialPromptEnv };
+module.exports = { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld };

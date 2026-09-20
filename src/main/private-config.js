@@ -30,9 +30,14 @@ function writePrivateConfig(file, text, options = {}) {
   let kept = true;
   try {
     if (platform === 'win32') {
-      fs.writeFileSync(tmp, '', { flag: 'wx', mode: 0o600 });
-      kept = ownerOnly(tmp, { ...options, directory: false });
-      fs.writeFileSync(tmp, text);
+      // Held open from the moment it is made, and written through that handle:
+      // opened again by name, the key would go to whatever was at that name by
+      // then, which need not be the file icacls has just closed.
+      const fd = fs.openSync(tmp, 'wx', 0o600);
+      try {
+        kept = ownerOnly(tmp, { ...options, directory: false });
+        fs.writeFileSync(fd, text);
+      } finally { fs.closeSync(fd); }
     } else fs.writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
     fs.renameSync(tmp, file);
   } finally { try { fs.unlinkSync(tmp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }

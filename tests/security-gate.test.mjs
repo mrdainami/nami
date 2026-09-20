@@ -36,7 +36,7 @@ test('npm is started through cmd.exe on Windows and exactly as before on a Mac',
   startTool({ spawn, platform: 'win32' })('npm', ['view', 'electron@43', 'version', '--json'], options);
   assert.match(seen[1].file, /cmd\.exe$/i);
   assert.deepEqual(seen[1].args.slice(0, 3), ['/d', '/s', '/c']);
-  assert.match(seen[1].args[3], /^"npm /);
+  assert.match(seen[1].args[3], /^"set NoDefaultCurrentDirectoryInExePath=1&& npm /);
   assert.match(seen[1].args[3], /electron@43/);
   assert.equal(seen[1].options.windowsVerbatimArguments, true);
   assert.equal(seen[1].options.cwd, '/repo');

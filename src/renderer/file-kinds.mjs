@@ -53,8 +53,13 @@ export function tailPath(p, keep = 2, platform = currentPlatform()) {
 // Single-quoting: safe to paste into a shell or a chat message. POSIX closes
 // the quote to escape one; PowerShell, which is what a pane runs on Windows,
 // doubles it instead — the same two rules as shellQuote in claude-args.js.
+//
+// PowerShell reads the four curly single quotes as the plain one, so a path
+// with ’ in it ended the string early and the rest ran as a command. All five
+// are doubled, exactly as psQuote does in the main process (platform.js), which
+// this cannot import; tests/powershell-quote.test.mjs feeds both the same text.
 export function shellQuote(p, platform = currentPlatform()) {
-  if (isWin(platform)) return "'" + String(p).replace(/'/g, "''") + "'";
+  if (isWin(platform)) return "'" + String(p).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&') + "'";
   return "'" + String(p).replace(/'/g, "'\\''") + "'";
 }
 

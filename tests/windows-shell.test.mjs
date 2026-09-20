@@ -22,9 +22,9 @@ test('PowerShell is recognised under every name it goes by', () => {
 });
 
 test('a Windows pane runs PowerShell whatever SHELL says', () => {
-  assert.equal(paneShell('win32', {}), PS);
+  assert.equal(paneShell('win32', {}), 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\' + PS);
   // Git Bash exports this, and it is not a path Windows can spawn.
-  assert.equal(paneShell('win32', { SHELL: '/usr/bin/bash' }), PS);
+  assert.equal(paneShell('win32', { SHELL: '/usr/bin/bash' }), 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\' + PS);
   assert.equal(paneShell('darwin', { SHELL: '/bin/bash' }), '/bin/bash');
   assert.equal(paneShell('darwin', {}), '/bin/zsh');
 });

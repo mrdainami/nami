@@ -6,19 +6,36 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { paneShell, pwshCandidates, planCwd, spawnPlan, isPowerShell, scriptArgs } = require('../src/main/platform.js');
+const { paneShell, loginShell, pwshCandidates, planCwd, spawnPlan, isPowerShell, scriptArgs } = require('../src/main/platform.js');
 const { findPwsh } = require('../src/main/pwsh-find.js');
 const { oneShotArgs } = require('../src/main/run-done.js');
 const { shellQuote } = require('../src/main/claude-args.js');
 
 const MSI = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
+const WPS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 const ENV = { Path: 'C:\\Windows\\system32;C:\\Users\\cal\\AppData\\Local\\Microsoft\\WindowsApps\\;"C:\\tools\\my bin"', ProgramFiles: 'C:\\Program Files', ProgramW6432: 'C:\\Program Files' };
 
 test('PowerShell 7 is the pane shell when it was found, Windows PowerShell when it was not', () => {
   assert.equal(paneShell('win32', {}, MSI), MSI);
-  assert.equal(paneShell('win32', {}, ''), 'powershell.exe');
-  assert.equal(paneShell('win32', {}), 'powershell.exe');
-  assert.equal(paneShell('win32', { SHELL: '/usr/bin/bash' }, null), 'powershell.exe');
+  assert.equal(paneShell('win32', {}, ''), WPS);
+  assert.equal(paneShell('win32', {}), WPS);
+  assert.equal(paneShell('win32', { SHELL: '/usr/bin/bash' }, null), WPS);
+});
+
+// Windows looks for a bare `powershell.exe` in Nami's own folder and in the
+// current folder before it looks in System32, so a project that ships a file
+// of that name would be the pane. The full path leaves nothing to look for.
+test('Windows PowerShell is named by its full path under the Windows folder', () => {
+  assert.equal(paneShell('win32', { SystemRoot: 'D:\\WinNT' }), 'D:\\WinNT\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.equal(paneShell('win32', { SYSTEMROOT: 'D:\\WinNT\\' }), 'D:\\WinNT\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.equal(paneShell('win32', { windir: 'E:\\W' }), 'E:\\W\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  // a Windows folder that is not a full drive path is somebody's idea, not Windows'
+  for (const bad of ['', 'Windows', '.\\evil', '..', '\\\\evil\\share', '\\Windows', 'C:', 'C:relative']) {
+    assert.equal(paneShell('win32', { SystemRoot: bad }), WPS, bad);
+    assert.equal(loginShell('win32', { SystemRoot: bad }).file, WPS, bad);
+  }
+  assert.equal(loginShell('win32', { SystemRoot: 'D:\\WinNT' }).file, 'D:\\WinNT\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.equal(isPowerShell(WPS), true);
 });
 
 test('a Mac pane is the user\'s own shell whatever was found', () => {

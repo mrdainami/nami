@@ -16,12 +16,14 @@ const { feedOscTitle } = require('./osc-title');
 const { installAppMenu, buildWindowsExtrasTemplate, editContextTemplate } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
-const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv } = require('./seed-launch');
+const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv, seedHeld } = require('./seed-launch');
+const { reachesCmd, shimSafe, shimSafeArgs } = require('./cmd-shim');
 const { readLiveSession, liveSessionChanged } = require('./session-registry');
 const { buildChildEnv, terminalLaunchPolicy, customAgents, redactChildError } = require('./session-env');
 const { detectAgents, agentStatus, findOnDisk, agentRunCommandAllowed } = require('./agents-detect');
 const { handles: opensHere, chooseTarget, chooseFolderTarget } = require('./open-with');
 const { launchArgs, fromHandoff } = require('./launch-args');
+const { statToken } = require('./path-stat');
 const { planRemoval, removeAgent } = require('./agent-remove');
 const { KNOWN_SERVICES, serviceById } = require('./services-catalog');
 const { upsertMcpJson, upsertOpencode, removeService, detectServices, knownFiles } = require('./mcp-config');
@@ -137,6 +139,26 @@ const LAUNCH = ONE_INSTANCE
 if (ONE_INSTANCE && !app.requestSingleInstanceLock(LAUNCH)) {
   console.log('[launch] handed to the running Nami:', LAUNCH.files.length, 'file(s),', LAUNCH.folders.length, 'folder(s)');
   app.exit(0);
+}
+
+// Nami's own working folder, on Windows, is the home folder from here on.
+//
+// Opened from a file in Explorer, the process starts life inside that file's
+// folder — a repo someone just cloned, a Downloads folder. Windows looks in the
+// current folder for every program started by bare name, and ahead of PATH, so
+// a powershell.exe or a git.cmd lying in that folder would be the one that ran.
+// The shells are started by full path now (platform.js) and cmd.exe is told not
+// to look there (spawnPlan); this is the same door shut from the other side,
+// for whatever is started by name that nobody has thought of yet. It also lets
+// go of the folder, which Windows will not rename or delete while a process
+// sits in it.
+//
+// It has to come after LAUNCH above: a relative argument (`nami .`) is read
+// against the folder the launch came from. A screenshot run is left where it
+// was, because it writes to a path given relative to there. A Mac is left
+// alone: launchd starts an app in /, and nothing there searches the cwd.
+if (process.platform === 'win32' && !SHOT_PATH) {
+  try { process.chdir(os.homedir()); } catch (_) { /* a home folder that is gone costs nothing here */ }
 }
 
 let win = null;                   // most recently created window (fallback target)
@@ -1228,33 +1250,24 @@ ipcMain.handle('file:save', async (_e, { file, text }) => {
   try { fs.writeFileSync(file, text); } catch (e) { return { ok: false, error: e.message }; }
   return { ok: true, hash: await savedHash(text) };
 });
-// Resolve a token clicked in a terminal (absolute, ~, or relative to a base).
-// `relative` is reported because it is the only case a second base could
-// change: an absolute path that is missing is missing everywhere.
-function statToken(token, base) {
-  let relative = false;
-  try {
-    let p = String(token || '').trim().replace(/[)>,.:'"]+$/, '');
-    if (!p) return { exists: false, relative: false };
-    const tilde = p.startsWith('~');
-    if (tilde) p = path.join(os.homedir(), p.slice(1));
-    relative = !tilde && !path.isAbsolute(p);
-    if (relative) p = path.resolve(base || os.homedir(), p);
-    const st = fs.statSync(p);
-    return { exists: true, isFile: st.isFile(), isDir: st.isDirectory(), abs: p, relative };
-  } catch (_) { return { exists: false, relative }; }
-}
+// Resolve a token clicked in a terminal: statToken, in path-stat.js.
+//
 // The session's own cwd is tried first and wins outright, so the retry below
 // can only ever turn a dead link live — never the reverse. Only a relative
 // miss pays for the lsof, and only while a link is being hovered.
+//
+// `roots` is what lets a project on a network share keep its links while a
+// printed \\evil\share path is never so much as statted (remote-path.js): the
+// folder the tile was opened on, which somebody chose, and the home folder.
 ipcMain.handle('path:stat', async (_e, { token, cwd, id }) => {
-  const hit = statToken(token, cwd);
+  const roots = [cwd, os.homedir()];
+  const hit = await statToken(token, cwd, { roots });
   if (hit.exists || !hit.relative) return hit;
   const term = id ? termSessions.get(id) : null;
   if (!term || !term.pid) return hit;
   const live = await ptyCwd(term.pid);
   if (!live || live === cwd) return hit;
-  return statToken(token, live);
+  return statToken(token, live, { roots });
 });
 
 // ---- IPC: agents & skills library ------------------------------------------
@@ -1514,7 +1527,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const launch = { kind, purpose, agentId, program, command, args, watchDone, oneShot };
   const policy = sessionPolicy(launch);
   const seedAgent = seedAgentForLaunch(launch);
-  const promptArgs = initialPromptArgs(seedAgent, seed);
+  // Where the agent the message is for really is. On Windows that decides
+  // whether it may travel as an argument at all: npm's claude.cmd and codex.cmd
+  // are read by cmd.exe, and a message is not something cmd.exe may read
+  // (cmd-shim.js). On a Mac the answer is always yes and nothing changes.
+  const seedProgram = kind === 'claude' ? claudeExe : knownBin(seedAgent);
+  const promptArgs = initialPromptArgs(seedAgent, seed, { program: seedProgram, platform: process.platform });
+  const held = seedHeld(seedAgent, seed, { program: seedProgram, platform: process.platform });
 
   let file = shellPath, spawnArgs = [], afterStart = null, claudeWatch = null, echoLine = null, discoverAgent = null, storeWatch = null;
   if (kind === 'claude') {
@@ -1534,8 +1553,13 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (transcript) claudeWatch = { transcript, sid, cwd };
     // Extra args ride along — the agents picker launches claude as the agent
     // with `--agent <slug>` (probe-backed; see agent-launch.mjs).
+    // To npm's claude.cmd the name and the agent's slug go reduced to what
+    // cmd.exe cannot act on; a real claude.exe, and a Mac, get them whole. With
+    // no resolved binary the shell will find whichever claude it finds, so the
+    // typed line is written for the shim it may turn out to be.
     const extraArgs = Array.isArray(args) ? args : [];
-    if (claudeExe) { file = claudeExe; spawnArgs = [...claudeArgs, ...extraArgs, ...promptArgs]; }
+    const ownArgs = shimSafeArgs([...claudeArgs, ...extraArgs], claudeExe, process.platform);
+    if (claudeExe) { file = claudeExe; spawnArgs = [...ownArgs, ...promptArgs]; }
     // No resolvable binary: type the command into a shell instead. It has to be
     // the WHOLE command. A session spawned with a first message used to fall
     // into a marker branch below that typed a bare `claude`, dropping
@@ -1547,7 +1571,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // this tile carries claude's keys, so it must not outlive claude.
     else {
       file = shellPath;
-      const displayLine = ['claude', ...claudeArgs, ...extraArgs].map(quote).join(' ');
+      const displayLine = ['claude', ...ownArgs].map(quote).join(' ');
       const line = displayLine + (promptArgs.length ? ' ' + promptArgs.map(quote).join(' ') : '');
       if (policy.purpose === 'agent' || promptArgs.length) { spawnArgs = scriptArgs(shellPath, line); echoLine = displayLine; }
       else afterStart = line;
@@ -1563,6 +1587,16 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // interactive shell's PATH can miss a binary the launcher calls ready
     // (see resolveRunCommand). The echo keeps the pretty bare name.
     file = shellPath;
+    // A library agent's slug is a file name out of the project, and a file may
+    // be called `x&calc.md`. On its way to opencode.cmd that is a command
+    // (cmd-shim.js), and the line was written and checked by the renderer, so it
+    // cannot be reduced here without ceasing to be the line that was checked.
+    // It is turned away instead, with the reason where the agent would be.
+    const head = (/^[A-Za-z][\w.-]*/.exec(String(command)) || [''])[0];
+    if (Array.isArray(args) && reachesCmd(knownBin(head), process.platform) && args.some((a) => shimSafe(a) !== String(a))) {
+      sendWc(wc, 'term:data', { id, data: `\r\n[not started: this agent's name has a character in it that cannot be handed to ${head} safely on Windows — one of " % & | < > ^ ! ( )]\r\n` });
+      return { ok: false };
+    }
     // withSpawnFlags first, while the head is still a bare name: it is keyed
     // by binary, and resolveRunCommand may replace the head with a full path.
     // This is where grok gets --minimal; see the table in bin-cache.js for why
@@ -1643,7 +1677,8 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
 
   const osc = { last: null };
   const done = { buf: '' };
-  const where = tellsCwd ? { buf: '' } : null;
+  // roots: the shares this pane may honestly report being on (cleanCwd).
+  const where = tellsCwd ? { buf: '', roots: [(cwd && fs.existsSync(cwd)) ? cwd : os.homedir(), os.homedir()] } : null;
   let reported = false;
   let seedGate = null;
   p.onData((data) => {
@@ -1694,7 +1729,9 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     });
     p.namiSeedGate = seedGate;
   }
-  return { ok: true };
+  // `seedHeld`: there was a first message and it could not be sent (a shim on
+  // Windows, see above). The renderer puts it on the clipboard and says so.
+  return held ? { ok: true, seedHeld: true } : { ok: true };
 });
 // ---- claude's own name for a session ---------------------------------------
 // Claude titles its conversations and writes the title into the transcript.

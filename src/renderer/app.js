@@ -3534,7 +3534,14 @@ async function startProcess(p, cols, rows) {
   // A name nami chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
-  await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  const made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  // Windows only: an agent that npm installed is a .cmd file, and a first
+  // message cannot be handed to one safely (src/main/cmd-shim.js). Rather than
+  // let it vanish, it goes on the clipboard, one paste away from where it was
+  // meant to land.
+  if (made && made.seedHeld && p.seed) {
+    try { await api.copyText(p.seed); toast('First message copied — paste it in when the agent is ready.'); } catch (_) {}
+  }
 }
 function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
 function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }

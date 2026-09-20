@@ -85,6 +85,26 @@ test('on Windows the temporary file is closed to everyone else while it is still
     assert.deepEqual(fs.readdirSync(path.dirname(file)), ['agent.json']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+// The file that was tightened and the file that gets the key have to be the
+// same file, not merely the same name. Reopened by path, the key would go to
+// whatever was sitting at that path by then — and anyone who can write to the
+// folder can put something there in the forty milliseconds icacls takes.
+test('on Windows the key is written to the very file that was tightened, whatever is at its path by then', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-private-config-'));
+  try {
+    const file = path.join(root, 'agent.json'), aside = path.join(root, 'the-tightened-one');
+    let planted = '';
+    const run = (program, args) => {
+      if (/whoami/.test(program)) return `"pc\\me","${SID}"`;
+      if (args.length > 1 && /\.tmp$/.test(args[0])) { planted = args[0]; fs.renameSync(args[0], aside); fs.writeFileSync(args[0], 'planted'); }
+      return TIGHT;
+    };
+    writePrivateConfig(file, '{"key":"not-a-real-key"}', { platform: 'win32', run, cache: {} });
+    assert.ok(planted);
+    assert.equal(fs.readFileSync(aside, 'utf8'), '{"key":"not-a-real-key"}', 'the key belongs in the file icacls was pointed at');
+    for (const name of fs.readdirSync(root)) if (name !== 'the-tightened-one') assert.doesNotMatch(fs.readFileSync(path.join(root, name), 'utf8'), /not-a-real-key/, name);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 test('a volume that cannot hold permissions costs a false, never the save', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-private-config-'));
   try {

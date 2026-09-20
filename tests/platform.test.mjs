@@ -36,8 +36,8 @@ test('an unusable $SHELL falls back to zsh rather than failing every probe', () 
 });
 
 test('windows runs powershell without a profile', () => {
-  const sh = loginShell('win32');
-  assert.equal(sh.file, 'powershell.exe');
+  const sh = loginShell('win32', {});
+  assert.equal(sh.file, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
   assert.deepEqual(sh.args('echo hi'), ['-NoProfile', '-Command', 'echo hi']);
 });
 

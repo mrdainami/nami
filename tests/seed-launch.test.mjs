@@ -5,9 +5,14 @@ const { initialPromptArgs, seedAgentForLaunch } = seedLaunch;
 const seed = "--not-a-flag\nO'Brien $(touch /tmp/unwanted) `echo no`\n" + 'Long description. '.repeat(400);
 
 test('interactive initial messages preserve long multiline text as one argument', () => {
-  for (const id of ['claude', 'codex', 'grok']) assert.deepEqual(initialPromptArgs(id, seed), ['--', seed]);
-  assert.deepEqual(initialPromptArgs('opencode', seed), ['--prompt=' + seed]);
-  assert.deepEqual(initialPromptArgs('antigravity', seed), ['--prompt-interactive=' + seed]);
+  // The platform is said out loud, and the program is a real one: on Windows a
+  // .cmd shim gets no message this way at all (tests/cmd-shim.test.mjs).
+  for (const at of [{ platform: 'darwin' }, { platform: 'linux' }, { platform: 'win32', program: 'C:\\tools\\agent.exe' }]) {
+    for (const id of ['claude', 'codex', 'grok']) assert.deepEqual(initialPromptArgs(id, seed, at), ['--', seed]);
+    assert.deepEqual(initialPromptArgs('opencode', seed, at), ['--prompt=' + seed]);
+    assert.deepEqual(initialPromptArgs('antigravity', seed, at), ['--prompt-interactive=' + seed]);
+  }
+  if (process.platform !== 'win32') assert.deepEqual(initialPromptArgs('claude', seed), ['--', seed], 'and with nothing said, a Mac is a Mac');
 });
 test('agents without interactive initial-message flags never get a headless flag', () => {
   for (const id of ['kimi', 'hermes', 'unknown']) assert.deepEqual(initialPromptArgs(id, seed), []);

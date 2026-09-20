@@ -150,3 +150,42 @@ test('main asks for the single-instance lock on Windows only, after userData is 
   assert.ok(main.includes("app.on('second-instance'"), 'nothing receives the handoff');
   assert.ok(main.includes("app.on('open-file'"), 'the Mac route is gone');
 });
+
+// Statting \\server\share is a login to that server (remote-path.js). A path on
+// the command line was at least put there by somebody, so one that Nami would
+// open is looked at — but one it would never open is not worth a login to find
+// out whether it exists.
+test('windows: a path on a share is only looked at when it is something Nami would open', () => {
+  const asked = [];
+  const there = disk({ files: ['\\\\evil\\share\\x.md', '\\\\evil\\share\\x.png', '\\\\evil\\share\\run.bat', 'C:\\work\\run.bat'], folders: ['\\\\evil\\share', '\\\\evil\\share\\work'] }, 'win32');
+  const stat = (p) => { asked.push(p); return there(p); };
+  const argv = ['Nami.exe', '\\\\evil\\share\\x.png', '\\\\evil\\share\\run.bat', '//evil/share/a.exe', '\\\\?\\C:\\work\\a.lnk', '\\\\evil\\share\\x.md', '\\\\evil\\share\\work', 'C:\\work\\run.bat'];
+  const out = launchArgs({ argv, cwd: 'C:\\work', platform: 'win32', stat });
+  assert.deepEqual(out, { files: ['\\\\evil\\share\\x.md', 'C:\\work\\run.bat'], folders: ['\\\\evil\\share\\work'] });
+  assert.deepEqual(asked, ['\\\\evil\\share\\x.md', '\\\\evil\\share\\work', 'C:\\work\\run.bat']);
+  // the same for what a second launch hands over
+  asked.length = 0;
+  const handed = fromHandoff({ files: ['\\\\evil\\share\\x.png', '\\\\evil\\share\\x.md'], folders: ['\\\\evil\\share\\work'] }, { platform: 'win32', stat });
+  assert.deepEqual(handed, { files: ['\\\\evil\\share\\x.md'], folders: ['\\\\evil\\share\\work'] });
+  assert.deepEqual(asked, ['\\\\evil\\share\\x.md', '\\\\evil\\share\\work']);
+});
+
+test('a Mac stats every argument as it always did', () => {
+  const asked = [];
+  const stat = (p) => { asked.push(p); throw new Error('ENOENT'); };
+  launchArgs({ argv: ['nami', '//evil/share/x.png', '/work/run.bat'], cwd: '/work', platform: 'darwin', stat });
+  assert.deepEqual(asked, ['/evil/share/x.png', '/work/run.bat']);
+});
+
+// Windows runs a program named without a folder from the CURRENT folder first,
+// and a Nami opened from a file starts life in that file's folder.
+test('main leaves the folder it was started in, on Windows only, once the command line has been read', () => {
+  const main = readFileSync(new URL('../src/main/main.js', import.meta.url), 'utf8');
+  const lines = main.split('\n').filter((l) => l.includes('process.chdir('));
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes('os.homedir()'), lines[0]);
+  const at = main.indexOf('process.chdir(');
+  assert.ok(main.lastIndexOf("process.platform === 'win32'", at) > main.lastIndexOf('\n\n', at), 'the chdir is not gated on Windows');
+  assert.ok(main.indexOf('cwd: process.cwd()') < at, 'a relative argument must be read against the original folder first');
+  assert.ok(main.indexOf('requestSingleInstanceLock(') < at);
+});

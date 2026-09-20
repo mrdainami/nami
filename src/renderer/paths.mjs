@@ -222,6 +222,36 @@ export function relativeTo(parent, child, platform = currentPlatform()) {
   return s.slice(i);
 }
 
+// A path that names another computer, and whether it may be touched unasked.
+//
+// On Windows, drawing `\\evil\share\a.png` in an <img> — or asking main to stat
+// it — logs the PC in to that server with the owner's account, and a reply from
+// an agent can put such a path on screen with nobody clicking anything. So a
+// path beginning with two separators of either kind looks remote, and is left
+// alone unless one of `roots` (the session's folder, the home folder) is on
+// that same \\server\share: a project kept on a share goes on working. The
+// whole argument is in src/main/remote-path.js, which holds the same three
+// functions for the main process; tests/remote-path.test.mjs feeds both the
+// same table, because this file cannot import that one.
+export function looksRemote(p, platform = currentPlatform()) {
+  return platform === WIN && /^[\\/]{2}/.test(String(p == null ? '' : p));
+}
+
+// '\\server\share' in one spelling; '' for a local path, a server alone, and
+// the device forms \\?\ and \\.\, which name no share.
+export function shareOf(p, platform = currentPlatform()) {
+  if (platform !== WIN) return '';
+  const m = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/.exec(String(p == null ? '' : p));
+  if (!m || m[1] === '?' || m[1] === '.') return '';
+  return `\\\\${m[1]}\\${m[2]}`.toLowerCase();
+}
+
+export function safeToTouch(p, roots = [], platform = currentPlatform()) {
+  if (!looksRemote(p, platform)) return true;
+  const share = shareOf(p, platform);
+  return !!share && (Array.isArray(roots) ? roots : []).some((r) => typeof r === 'string' && shareOf(r, platform) === share);
+}
+
 // Absolute path → file:// URL; the renderer has no pathToFileURL. Each segment
 // is encoded on its own so a `#` or a space in a name survives, but a drive's
 // colon must not be — file:///C%3A/ is not a drive to Chromium. A UNC server

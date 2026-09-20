@@ -24,6 +24,23 @@ const WIN = 'win32';
 // accounts, and picking one would silently break every probe.
 const DEAD_SHELLS = new Set(['/usr/bin/false', '/bin/false', '/usr/sbin/nologin', '/sbin/nologin', '/usr/bin/true', '/bin/true']);
 
+// Windows' own shells, by full path. Asked to start a bare `powershell.exe`,
+// Windows looks in the folder Nami runs from and then in the CURRENT folder
+// before it gets to System32 — so a project holding a file of that name would
+// be the pane, the PATH probe and every helper. A full path leaves nothing to
+// look for (owner-only.js runs icacls the same way, for the same reason).
+//
+// The Windows folder comes from the environment, under the three spellings a
+// copied environment can carry it in. A value that is not a full drive path is
+// not believed: a relative one would put the search right back in the project.
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+function system32(env) {
+  const e = env || {};
+  const root = [e.SystemRoot, e.SYSTEMROOT, e.windir].find((v) => DRIVE_PATH.test(String(v || ''))) || 'C:\\Windows';
+  return String(root).replace(/[\\/]+$/, '') + '\\System32';
+}
+function windowsPowerShell(env) { return system32(env) + '\\WindowsPowerShell\\v1.0\\powershell.exe'; }
+
 // The shell used to ask the user's own environment a question — "is claude on
 // your PATH", "add this MCP server". It must be a login shell AND an
 // interactive one. Login alone is not enough: zsh reads .zshrc only when
@@ -42,7 +59,7 @@ function loginShell(platform = process.platform, env = process.env) {
     // exactly what we already have — and miss the entry an installer wrote a
     // minute ago, which is the one case the probe exists for.
     return {
-      file: 'powershell.exe',
+      file: windowsPowerShell(env),
       args: (cmd) => ['-NoProfile', '-Command', cmd],
       pathCmd: "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
     };
@@ -63,6 +80,20 @@ function isPowerShell(shell) {
   return /(^|[\\/])(powershell|pwsh)(\.exe)?$/i.test(String(shell || ''));
 }
 
+// One string, in PowerShell's single quotes, where nothing is expanded. The
+// character they cannot carry is written twice — and PowerShell has five of
+// it. Its tokenizer reads the curly quotes U+2018, U+2019, U+201A and U+201B
+// as the plain one, so each of them opens and closes a string too: with only
+// U+0027 doubled, `a’; Write-Output INJECTED #` ended the string at the ’ and
+// ran the rest (measured in the VM on Windows PowerShell 5.1). All five are
+// doubled, and what the program receives is the original text. Every
+// main-process line that quotes for PowerShell comes through here; the
+// renderer keeps a copy in file-kinds.mjs, and tests/powershell-quote.test.mjs
+// holds the two together.
+function psQuote(text) {
+  return "'" + String(text == null ? '' : text).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&') + "'";
+}
+
 // The shell a pane runs. On a Mac that is the user's own. On Windows SHELL is
 // ignored on purpose: nothing native sets it, and Git Bash sets it to
 // /usr/bin/bash, which is a path that does not exist outside Git Bash.
@@ -74,7 +105,7 @@ function isPowerShell(shell) {
 // a command line Nami builds itself must always run on 5.1, whatever this
 // returns.
 function paneShell(platform = process.platform, env = process.env, pwsh = '') {
-  if (platform === WIN) return pwsh || 'powershell.exe';
+  if (platform === WIN) return pwsh || windowsPowerShell(env);
   return (env && env.SHELL) || '/bin/zsh';
 }
 
@@ -97,21 +128,45 @@ function scriptArgs(shell, line) {
 //
 // A bare name takes the same road, since only cmd.exe will find claude.cmd for
 // `claude`. A real .exe, and everything on a Mac, is handed back as it came.
+//
+// A quote inside an argument is written "" and not \". Both mean a quote to the
+// C runtime, but only one survives a shim: a .cmd passes its arguments on as
+// %*, which sends them through cmd.exe a second time with the carets already
+// gone, and cmd.exe has never heard of \". It took that quote as the end of the
+// quoted stretch, so in `{"K":"v&echo PWNED"}` the & was outside the quotes and
+// echo ran (measured in the VM, through `claude mcp add-json`). Doubled, every
+// quote opens and shuts in one step and the whole argument stays quoted.
+//
+// A line break becomes a space. cmd.exe stops reading at the first one, so
+// everything after it, the rest of the arguments included, was dropped without
+// a word; nothing written here can carry one through.
 const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 
 function cmdArg(arg) {
-  let s = String(arg == null ? '' : arg);
-  s = s.replace(/(\\*)"/g, '$1$1\\"');   // backslashes before a quote are doubled, the quote escaped
+  let s = String(arg == null ? '' : arg).replace(/[\r\n]+/g, ' ');
+  s = s.replace(/(\\*)"/g, '$1$1""');     // backslashes before a quote are doubled, and so is the quote
   s = s.replace(/(\\*)$/, '$1$1');         // and so are the ones the closing quote would otherwise eat
   return `"${s}"`.replace(CMD_META, '^$1');
 }
 
+// cmd.exe looks for a program in the current folder before it looks on PATH,
+// and an agent's helper is started in the project: a repo holding npx.cmd was
+// run in place of npx, and one holding node.cmd was run by every npm shim, which
+// all end in a bare `node` (both measured in the VM). This variable is Windows'
+// own switch for that. It is set on the line itself rather than handed back as
+// an environment, because every caller builds its own env and spreads the
+// plan's options over it, and the one that forgot would be the hole. `set` is
+// built into cmd.exe, so no file in the project can stand in for it, and the
+// shim and whatever it starts inherit the setting.
+const CMD_GUARD = 'set NoDefaultCurrentDirectoryInExePath=1&& ';
+
 function spawnPlan(file, args = [], platform = process.platform, env = process.env) {
   const list = Array.isArray(args) ? args : [];
   if (platform !== WIN || /\.(exe|com)$/i.test(String(file))) return { file, args: list, options: {} };
-  const line = [String(file).replace(CMD_META, '^$1'), ...list.map(cmdArg)].join(' ');
+  const line = CMD_GUARD + [String(file).replace(CMD_META, '^$1'), ...list.map(cmdArg)].join(' ');
+  const comSpec = String((env && env.ComSpec) || '');
   return {
-    file: (env && env.ComSpec) || 'cmd.exe',
+    file: DRIVE_PATH.test(comSpec) ? comSpec : system32(env) + '\\cmd.exe',
     args: ['/d', '/s', '/c', `"${line}"`],
     options: { windowsVerbatimArguments: true },
   };
@@ -257,4 +312,4 @@ function planCwd(plan, cwd, { home = '', env = {}, platform = process.platform }
   return [home, env && env.SystemRoot].find((d) => d && !UNC_RE.test(d)) || 'C:\\Windows';
 }
 
-module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, paneShell, scriptArgs, spawnPlan, pwshCandidates, planCwd };
+module.exports = { loginShell, whichCommand, claudeCandidates, windowChrome, binSearchDirs, pathDelimiter, isPowerShell, psQuote, paneShell, scriptArgs, spawnPlan, pwshCandidates, planCwd };

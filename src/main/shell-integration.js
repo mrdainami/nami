@@ -50,6 +50,7 @@
 // Pure: main.js owns the pty, this owns the text and the parsing.
 
 const { isPowerShell } = require('./platform.js');
+const { safeToTouch } = require('./remote-path.js');
 
 const WIN = 'win32';
 
@@ -110,9 +111,19 @@ const MAX_CARRY = 4096;
 // accepts it bare; take both. Only an absolute path is believed — this becomes
 // the base a relative token is resolved against, and a relative base would
 // quietly mean "relative to wherever Nami itself was started".
-function cleanCwd(raw) {
+//
+// And not a folder on somebody else's server. The hook is not the only thing
+// that can write OSC 9;9: any program in the pane can, a `type` of a hostile
+// file included, and whatever it names is where the next relative path is
+// statted — a login to \\evil\share on the first hover (remote-path.js).
+// `roots` are the folders this pane may honestly be in a share of: the one it
+// was started in, and the home folder. A pane opened on \\Mac\Home\work goes
+// on reporting folders there; one opened on C:\work cannot be told it is on a
+// share, and keeps the last folder it honestly reported.
+function cleanCwd(raw, roots = []) {
   const p = String(raw || '').replace(/^"(.*)"$/, '$1');
   if (!p || /[\x00-\x1f\x7f]/.test(p)) return null;
+  if (!safeToTouch(p, roots, WIN)) return null;
   return /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(p) ? p : null;
 }
 
@@ -122,7 +133,7 @@ function cleanCwd(raw) {
 // Stateful for the same reason feedRunDone is: pty chunks are whatever was
 // ready, and a sequence carrying a long path straddles two reads more often
 // than run-done's short one does. `st` is a per-session { buf } scratchpad
-// owned by the caller.
+// owned by the caller, who also puts the pane's `roots` in it (see cleanCwd).
 function feedCwd(st, chunk) {
   const s = String(chunk || '');
   if (!s) return null;
@@ -131,7 +142,7 @@ function feedCwd(st, chunk) {
   const re = new RegExp(CWD_RE.source, 'g'); // fresh lastIndex per call
   while ((m = re.exec(buf))) {
     end = re.lastIndex;
-    const p = cleanCwd(m[1]);
+    const p = cleanCwd(m[1], st.roots);
     if (p) found = p; // last one in the chunk wins
   }
   // Carry only what could still become a sequence: one that has opened and not

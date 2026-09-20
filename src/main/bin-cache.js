@@ -24,7 +24,7 @@
 
 const fs = require('fs');
 const os = require('os');
-const { claudeCandidates, isPowerShell } = require('./platform.js');
+const { claudeCandidates, isPowerShell, psQuote } = require('./platform.js');
 
 const bins = new Map();
 
@@ -95,7 +95,7 @@ function resolveRunCommand(command, shell = '') {
   // a program. The call operator is what runs it.
   if (isPowerShell(shell)) {
     const plain = /^[\w@%+=:,.\\/-]+$/.test(found);
-    return (plain ? found : `& '${found.replace(/'/g, "''")}'`) + (m[2] || '');
+    return (plain ? found : `& ${psQuote(found)}`) + (m[2] || '');
   }
   const head = /[^\w@%+=:,./-]/.test(found) ? `'${found.replace(/'/g, `'\\''`)}'` : found;
   return head + (m[2] || '');
