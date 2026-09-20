@@ -108,10 +108,6 @@ Made by [Cal](https://dainami.ai/links?utm_source=github&utm_medium=readme) —
 and made **in Nami**. Every release on this page was built in the app you are
 looking at.
 
-Nami for Windows stands on work by [Hamza](https://github.com/aisha811923-cloud)
-and [Aditya Chakraborty](https://github.com/BrocodeADI), who each ported it on
-their own before there was a Windows build to ask for.
-
 **Want Nami for your team?** Custom builds, or Nami wired into your own stack —
 [dainami.ai](https://dainami.ai/?utm_source=github&utm_medium=readme&utm_campaign=teams)
 or [cal@dainami.ai](mailto:cal@dainami.ai).
