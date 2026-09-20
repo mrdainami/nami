@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { ownerOnly, icaclsArgs, parseSid, isOwnerOnly, system32, SYSTEM_SID } = require('../src/main/owner-only');
 const { storePng } = require('../src/main/pasted-images');
-const { WINDOWS_ONLY, parseSddl, readAcl, me, assertOwnerOnly } = require('./windows-acl-helper.cjs');
+const { WINDOWS_ONLY, parseSddl, readAcl, assertOwnerOnly, handDownAReadForUsers, whoHas } = require('./windows-acl-helper.cjs');
 
 const SID = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
 const WHOAMI = `"desktop-pc\\ana","${SID}"\r\n`;
@@ -112,6 +112,44 @@ test('it never throws into the caller, and says false when it could not be done'
   if (process.platform !== 'win32') assert.equal(ownerOnly(path.join(os.tmpdir(), 'nope'), { platform: 'win32', cache: {} }), false);
 });
 
+test('entries set on the file itself are replaced, not added to', () => {
+  // A folder that hands nothing down leaves a new file with entries of its own
+  // (the token's defaults: on a build server, Administrators; elsewhere it can be
+  // Users). /inheritance:r has nothing to remove and /grant:r only adds ours, so
+  // the first read-back still shows a stranger. Then the whole list is written
+  // in one go, and read back again.
+  const STRANGER = TIGHT.replace('\r\n\r\n', '\r\n                BUILTIN\\Users:(R)\r\n\r\n');
+  const calls = []; let reads = 0;
+  const run = (file, args, env) => {
+    calls.push({ file, args, env });
+    if (/whoami/.test(file)) return WHOAMI;
+    if (/icacls/.test(file) && args.length === 1) return ++reads === 1 ? STRANGER : TIGHT;
+    return 'ok';
+  };
+  assert.equal(ownerOnly("C:\\proj\\it's; $(calc).json", { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run, cache: {} }), true);
+  const ps = calls.find((c) => /powershell\.exe$/i.test(c.file));
+  assert.ok(ps, 'the exact form was used');
+  assert.equal(ps.file, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');   // by full path, never found on PATH
+  // the file name and the SID travel as data, never as part of the script
+  assert.equal(ps.env.NAMI_ACL_TARGET, "C:\\proj\\it's; $(calc).json");
+  assert.equal(ps.env.NAMI_ACL_SID, SID);
+  assert.ok(!ps.args.join(' ').includes('calc'), 'nothing of the path is in the command line');
+  assert.equal(reads, 2, 'and it was read back again afterwards');
+});
+
+test('a volume with no permissions at all is not worth a second try', () => {
+  const calls = [];
+  const run = (file, args) => { calls.push(file); return /whoami/.test(file) ? WHOAMI : args.length === 1 ? NO_ACL : 'ok'; };
+  assert.equal(ownerOnly('\\\\Mac\\Home\\share.txt', { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run, cache: {} }), false);
+  assert.ok(!calls.some((f) => /powershell/i.test(f)), 'three quarters of a second per save, for nothing');
+});
+
+test('the usual case never pays for the exact form', () => {
+  const { calls, run } = recorder();
+  assert.equal(ownerOnly('C:\\proj\\x.json', { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run, cache: {} }), true);
+  assert.ok(!calls.some((c) => /powershell/i.test(c[0])));
+});
+
 test('the SDDL that icacls saves is read the same way on any machine', () => {
   const loose = parseSddl('D:AI(A;ID;FA;;;BA)(A;ID;FA;;;SY)(A;ID;0x1200a9;;;BU)(A;ID;0x1301bf;;;AU)');
   assert.equal(loose.isProtected, false);
@@ -126,10 +164,11 @@ test('the SDDL that icacls saves is read the same way on any machine', () => {
 test('on a real Windows a file and a folder end up with the user and SYSTEM and nobody else', { skip: WINDOWS_ONLY }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-owner-only-'));
   try {
+    handDownAReadForUsers(root);
     const file = path.join(root, 'key.json'), dir = path.join(root, 'keys');
     fs.writeFileSync(file, 'not-a-real-key');
     fs.mkdirSync(dir);
-    assert.ok(readAcl(file).entries.some((e) => e.flags.includes('ID')), 'a new file starts with what its folder hands down');
+    assert.ok(readAcl(file).entries.some((e) => e.who === 'BU' && e.flags.includes('ID')), 'a new file starts readable by Users, handed down by its folder');
     assert.equal(ownerOnly(file), true);
     assertOwnerOnly(file);
     assert.equal(ownerOnly(dir, { directory: true }), true);
@@ -142,8 +181,33 @@ test('on a real Windows a file and a folder end up with the user and SYSTEM and 
     const inside = path.join(dir, 'later.json');
     fs.writeFileSync(inside, '{}');
     const acl = readAcl(inside);
-    assert.deepEqual(acl.entries.map((e) => e.who).sort(), ['SY', me()].sort(), acl.sddl);
+    assert.deepEqual(whoHas(acl), ['SY', 'me'], acl.sddl);
     assert.equal(ownerOnly(path.join(root, 'missing.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// The case a build server found: a folder that hands nothing down, so what a
+// new file starts with is set on the file itself and icacls alone cannot take it
+// off. Built here on purpose, with a read for Users standing in for whatever a
+// token's defaults might be, and a folder name chosen to be trouble.
+test('on a real Windows entries set on the file itself are replaced too', { skip: WINDOWS_ONLY }, () => {
+  const { execFileSync } = require('node:child_process');
+  const icacls = (...a) => execFileSync(path.join(process.env.SystemRoot, 'System32', 'icacls.exe'), a, { stdio: 'ignore' });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nami own'er; $(calc) "));
+  try {
+    const file = path.join(root, 'key file.json'), dir = path.join(root, 'keys');
+    fs.writeFileSync(file, 'not-a-real-key');
+    fs.mkdirSync(dir);
+    icacls(file, '/inheritance:r', '/grant', '*S-1-5-32-545:(R)');
+    icacls(dir, '/inheritance:r', '/grant', '*S-1-5-32-545:(OI)(CI)(R)');
+    assert.ok(readAcl(file).entries.some((e) => e.who === 'BU' && !e.flags.includes('ID')), 'Users can read it, and not by inheritance');
+    assert.equal(ownerOnly(file), true);
+    assertOwnerOnly(file);
+    assert.equal(ownerOnly(dir, { directory: true }), true);
+    assertOwnerOnly(dir, { directory: true });
+    assert.equal(fs.readFileSync(file, 'utf8'), 'not-a-real-key');
+    fs.writeFileSync(path.join(dir, 'later.json'), '{}');
+    assert.deepEqual(whoHas(readAcl(path.join(dir, 'later.json'))), ['SY', 'me']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -155,7 +219,7 @@ test('on a real Windows the folder Nami makes for pasted images is owner-only, a
     const file = storePng(dir, png);
     assertOwnerOnly(dir, { directory: true });
     const acl = readAcl(file);
-    assert.deepEqual(acl.entries.map((e) => e.who).sort(), ['SY', me()].sort(), acl.sddl);
+    assert.deepEqual(whoHas(acl), ['SY', 'me'], acl.sddl);
     assert.deepEqual(fs.readFileSync(file), png);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

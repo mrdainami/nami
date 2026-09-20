@@ -26,16 +26,29 @@ function readAcl(target) {
     return parseSddl(fs.readFileSync(out, 'utf16le').split(/\r?\n/)[1] || '');
   } finally { fs.rmSync(out, { force: true }); }
 }
+// Makes `root` hand a read for BUILTIN\Users down to whatever is made inside
+// it: the loose starting point these tests need, built rather than assumed. A
+// PC's temp folder hands things down by itself; a build server's does not, and
+// a new file there starts with entries of its own instead.
+function handDownAReadForUsers(root) {
+  execFileSync(path.join(system32(), 'icacls.exe'), [root, '/grant', '*S-1-5-32-545:(OI)(CI)(RX)'], { stdio: 'ignore' });
+}
+// SDDL writes some accounts by a two-letter alias rather than by SID. The one
+// that matters here is LA, the machine's built-in Administrator (…-500), which
+// is who a build server runs as — so "LA" and the user's own SID can be the
+// same person.
+function isMe(who) { const mine = me(); return who === mine || (who === 'LA' && /-500$/.test(mine)); }
+function whoHas(acl) { return acl.entries.map((e) => (isMe(e.who) ? 'me' : e.who)).sort(); }
 function me() { return parseSid(execFileSync(path.join(system32(), 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' })); }
 // The user and SYSTEM, full control each, granted on the thing itself.
 function assertOwnerOnly(target, { directory = false } = {}) {
   const acl = readAcl(target);
   assert.equal(acl.isProtected, true, acl.sddl);
-  assert.deepEqual(acl.entries.map((e) => e.who).sort(), ['SY', me()].sort(), acl.sddl);
+  assert.deepEqual(whoHas(acl), ['SY', 'me'], acl.sddl);
   for (const e of acl.entries) {
     assert.equal(e.type, 'A', acl.sddl);
     assert.equal(e.rights, 'FA', acl.sddl);
     assert.equal(e.flags, directory ? 'OICI' : '', acl.sddl);
   }
 }
-module.exports = { WINDOWS_ONLY, parseSddl, readAcl, me, assertOwnerOnly };
+module.exports = { WINDOWS_ONLY, parseSddl, readAcl, me, assertOwnerOnly, handDownAReadForUsers, whoHas };

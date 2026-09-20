@@ -74,17 +74,42 @@ function isOwnerOnly(listing) {
 // programs. That is fine for a settings save and wrong for anything in a loop,
 // so callers that write often tighten the folder once when they make it and let
 // the files inherit.
-function exec(file, args) {
-  return execFileSync(file, args, { encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+function exec(file, args, env) {
+  return execFileSync(file, args, { encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], ...(env ? { env: { ...process.env, ...env } } : {}) });
 }
+
+// The whole list, written in one go: nothing inherited, the user and SYSTEM,
+// full control each. icacls can only add to a list and take inherited entries
+// off it, so an entry that was set on the file itself survives it — and a folder
+// that hands nothing down gives a new file exactly such entries, out of the
+// token's defaults (measured: Administrators on a build server, and on an
+// ordinary PC a read for BUILTIN\Users stayed on a key file). `icacls /restore`
+// would do, but needs a privilege an ordinary user does not hold; the owner of a
+// file may always replace its list through .NET, which is what this is.
+//
+// The path and the SID travel in the environment and are read as data. Nothing
+// about a file name is ever part of the script, so a folder called
+// `it's; $(calc)` is a folder. About three quarters of a second, which is why it
+// is the second thing tried and not the first.
+const SET_EXACT = "$ErrorActionPreference='Stop'; $t=$env:NAMI_ACL_TARGET; $dir=Test-Path -LiteralPath $t -PathType Container; "
+  + "$s = if ($dir) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }; "
+  + "$s.SetAccessRuleProtection($true, $false); "
+  + "$inh = if ($dir) { [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit' } else { [System.Security.AccessControl.InheritanceFlags]::None }; "
+  + "foreach ($who in @($env:NAMI_ACL_SID, 'S-1-5-18')) { $r = New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', $inh, 'None', 'Allow'); $s.AddAccessRule($r) }; "
+  + "if ($dir) { [System.IO.Directory]::SetAccessControl($t, $s) } else { [System.IO.File]::SetAccessControl($t, $s) }";
+
+// Does the listing name anybody at all? A share with no permissions to set
+// lists nobody, and no second attempt will change that.
+function namesSomeone(listing) { return /:(\([A-Za-z,]+\))+\s*$/m.test(String(listing || '')); }
 
 // Makes `target` readable by its owner alone and says whether it is. Never
 // throws: a volume with no permissions (FAT, exFAT, a shared folder) or a
 // locked-down PC with no icacls must cost the caller nothing but a false, the
 // same way a chmod that did not take would never lose a save on a Mac.
 //
-// Meant for something just created. Anything it finds granted explicitly to
-// someone else is left there, and then the answer is false.
+// Meant for something just created. The quick way first (two icacls runs); if
+// the read-back still shows somebody else, the list is replaced whole and read
+// back once more.
 function ownerOnly(target, { directory = false, platform = process.platform, env = process.env, run = exec, cache = CACHE } = {}) {
   if (platform !== WIN) return true;
   try {
@@ -93,6 +118,11 @@ function ownerOnly(target, { directory = false, platform = process.platform, env
     if (!cache.sid) return false;
     const icacls = path.win32.join(bin, 'icacls.exe');
     run(icacls, icaclsArgs(String(target), cache.sid, directory));
+    const listing = run(icacls, [String(target)]);
+    if (isOwnerOnly(listing)) return true;
+    if (!namesSomeone(listing)) return false;
+    run(path.win32.join(bin, 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', SET_EXACT],
+      { NAMI_ACL_TARGET: String(target), NAMI_ACL_SID: cache.sid });
     return isOwnerOnly(run(icacls, [String(target)]));
   } catch (_) { return false; }
 }

@@ -10,7 +10,7 @@ const { upsertMaster } = require('../src/main/connections');
 const { writeSettings, readSettings } = require('../src/main/settings');
 const { readMaster } = require('../src/main/connections');
 const { writePrivateConfig } = require('../src/main/private-config');
-const { WINDOWS_ONLY, readAcl, assertOwnerOnly } = require('./windows-acl-helper.cjs');
+const { WINDOWS_ONLY, readAcl, assertOwnerOnly, handDownAReadForUsers } = require('./windows-acl-helper.cjs');
 // Owner-only is a POSIX mode, and Windows has no such bits to read back (stat
 // reports 0o666 whatever was asked for); a file symlink there needs admin rights
 // or Developer Mode. The save itself is covered for every OS by the test below.
@@ -126,9 +126,10 @@ test('a volume that cannot hold permissions costs a false, never the save', () =
 test('on a real Windows configuration saves keep fake keys readable by the user and SYSTEM alone', { skip: WINDOWS_ONLY }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-private-config-'));
   try {
+    handDownAReadForUsers(root);
     const file = path.join(root, 'agent.json');
     fs.writeFileSync(file, JSON.stringify({ keep: true }));
-    assert.ok(readAcl(file).entries.every((e) => e.flags.includes('ID')), 'before: only what the folder hands down');
+    assert.ok(readAcl(file).entries.some((e) => e.who === 'BU' && e.flags.includes('ID')), 'before: readable by Users, handed down by the folder');
     upsertMcpJson({ file, id: 'fixture', entry: { env: { FIXTURE_KEY: 'not-a-real-key' } } });
     assertOwnerOnly(file);
     assert.equal(JSON.parse(fs.readFileSync(file)).keep, true);
