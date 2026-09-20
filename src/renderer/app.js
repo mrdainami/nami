@@ -3655,7 +3655,7 @@ function mountEditor(p, rec) {
     ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
     <div class="ed-pane"><div class="ed-gutter"></div>
       <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><pre class="ed-measure" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
-    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">${W.finderShort}</button><button class="btn btn--go ed-save">Save ${kbd('save')}</button></div>`;
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">${W.finderShort}</button><button class="btn btn--go ed-save">Save<span class="kb"> ${kbd('save')}</span></button></div>`;
   wrap.classList.toggle('editor--md', md);
   wrap.classList.toggle('editor--rich', rich);
   wrap.classList.toggle('editor--html', html);

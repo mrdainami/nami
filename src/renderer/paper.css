@@ -197,6 +197,11 @@ body[data-platform="win32"] .lights-deck {
   -webkit-app-region: drag;
 }
 body[data-platform="win32"].is-fullscreen .lights-deck { height: 0; }
+/* A shortcut hint on a button is two characters on a Mac (⌘N) and twelve on
+   Windows (Ctrl+Shift+T), so there it crowds the header instead of decorating
+   it. Windows buttons say what they do and nothing else; the keys are still in
+   the Shortcuts sheet, in right-click menus and in the footer strip. */
+body[data-platform="win32"] .btn .kb { display: none; }
 /* ---- header ------------------------------------------------------------- */
 
 .topbar {
