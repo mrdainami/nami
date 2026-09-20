@@ -42,6 +42,7 @@ const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
 const { windowChrome, paneShell, scriptArgs, spawnPlan } = require('./platform');
 const { seedStartHere } = require('./start-here');
+const { rememberedWindows } = require('./window-memory');
 const { userPath, refreshUserPath } = require('./user-path');
 const { exitNote } = require('./exit-note');
 const { checkForUpdate, updateStatus } = require('./update-check');
@@ -338,13 +339,17 @@ function startUpdatePolling() {
 // reopens each window on its own folder, where you left it. A window you close
 // on purpose drops out of the list and does not come back.
 let winSnapTimer = null;
+let lastClosedWindow = null;        // see window-memory.js: off the Mac, closing the last window is quitting
+function openWindowRecords() {
+  return [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
+    folder: winFolders.get(w.webContents.id) || null,
+    bounds: w.getNormalBounds(),
+  }));
+}
 function snapshotWindows() {
   clearTimeout(winSnapTimer);
   winSnapTimer = setTimeout(() => {
-    state.windows = [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
-      folder: winFolders.get(w.webContents.id) || null,
-      bounds: w.getNormalBounds(),
-    }));
+    state.windows = rememberedWindows({ open: openWindowRecords(), lastClosed: lastClosedWindow });
     persist();
   }, 300);
 }
@@ -487,6 +492,9 @@ function createWindow(folder, bounds) {
     // by the pointer: a touch, a pen, a screen reader, an automated test.
     if (template) Menu.buildFromTemplate(template).popup({ window: w, x: params.x, y: params.y });
   });
+  // Read while the window still exists: by 'closed' its bounds and its folder
+  // are both gone, and on Windows that is the moment they are needed most.
+  w.on('close', () => { lastClosedWindow = { folder: winFolders.get(wcId) || null, bounds: w.getNormalBounds() }; });
   w.on('closed', () => {
     wins.delete(w);
     windowThemes.delete(wcId);
@@ -594,10 +602,7 @@ app.on('before-quit', () => {
   // The snapshot is debounced; quitting mid-debounce would lose the last move
   // or the folder a window switched to a moment ago.
   clearTimeout(winSnapTimer);
-  state.windows = [...wins].filter((w) => !w.isDestroyed()).map((w) => ({
-    folder: winFolders.get(w.webContents.id) || null,
-    bounds: w.getNormalBounds(),
-  }));
+  state.windows = rememberedWindows({ open: openWindowRecords(), lastClosed: lastClosedWindow });
   clearTimeout(saveTimer);
   try {
     fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
