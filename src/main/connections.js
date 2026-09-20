@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { writePrivateConfig } = require('./private-config');
+const { entryFor } = require('./mcp-entry');
 
 const fsIo = {
   read: (f) => fs.readFileSync(f, 'utf8'),
@@ -219,13 +220,22 @@ function notebookTargets({ scope, projectPath, homeDir }) {
 
 // One step per agent (json/block/manual), or one per entry (cli). Pure: the
 // executor that touches disk or spawns commands lives in connections-deliver.
-function deliveryPlan({ masters, scope, agentIds, projectPath, homeDir }) {
-  masters = publicMasters(masters);
+//
+// On a PC, a client that cannot start a bare `npx` (it is npx.cmd there) is
+// handed `cmd /c npx` instead. Today that is Cursor alone — mcp-entry.js keeps
+// the evidence per client — so every other notebook, and every notebook on a
+// Mac, gets the master's entry exactly as it stands.
+const WINDOWS_WRAPPED = new Set(['cursor']);
+
+function deliveryPlan({ masters: all, scope, agentIds, projectPath, homeDir, platform = process.platform }) {
+  all = publicMasters(all);
   const targets = notebookTargets({ scope, projectPath, homeDir });
   const plan = [];
   for (const agent of agentIds) {
     const t = targets[agent];
     if (!t) continue;
+    const masters = {};
+    for (const id of Object.keys(all)) masters[id] = entryFor(all[id], { platform, wrap: WINDOWS_WRAPPED.has(agent) });
     if (t.kind === 'cli') {
       for (const id of Object.keys(masters)) {
         if (!validServiceId(id)) continue; // refuse ids that could smuggle a flag/command

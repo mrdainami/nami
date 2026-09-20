@@ -7,6 +7,7 @@
 // connections.js translates on delivery, so adding a platform never reopens the
 // catalog. claudeEntry/opencodeEntry remain as thin derivations for callers not
 // yet moved to the master flow.
+const path = require('path');
 const { toOpencode } = require('./connections');
 
 const KNOWN_SERVICES = [
@@ -37,7 +38,9 @@ const KNOWN_SERVICES = [
     keyHelpUrl: 'https://kie.ai',
     docs: 'https://github.com/mrdainami/kie-mcp',
     repo: 'https://github.com/mrdainami/kie-mcp',
-    entry: (v) => ({ command: 'node', args: [v.installDir + '/dist/index.js'], env: { KIE_API_KEY: v.token } }),
+    // The one entry that names a file on this machine, so the one entry that has
+    // to be told which machine: a PC's config gets a PC's path, all backslashes.
+    entry: (v, platform = process.platform) => ({ command: 'node', args: [platform === 'win32' ? path.win32.join(String(v.installDir), 'dist', 'index.js') : v.installDir + '/dist/index.js'], env: { KIE_API_KEY: v.token } }),
   },
   {
     id: 'folder', name: 'A folder', desc: 'read and edit one chosen folder', code: 'FS', kind: 'folder',
@@ -62,7 +65,7 @@ const KNOWN_SERVICES = [
 ];
 for (const s of KNOWN_SERVICES) {
   s.claudeEntry = s.entry;
-  s.opencodeEntry = (v) => toOpencode(s.entry(v));
+  s.opencodeEntry = (v, platform) => toOpencode(s.entry(v, platform));
 }
 function serviceById(id) { return KNOWN_SERVICES.find((s) => s.id === id) || null; }
 

@@ -3,12 +3,27 @@
 const { spawn } = require('child_process');
 const { buildChildEnv, redactChildError } = require('./session-env');
 const { spawnPlan } = require('./platform');
+const { unwrapCmd } = require('./mcp-entry');
 
-function checkServer({ command, args = [], env = {}, spawnFn = spawn, timeoutMs = 15000, parentEnv = process.env, settings = {} }) {
+// Two things differ on a PC, both measured in the Windows 11 VM.
+//
+// An entry spelled `cmd /c npx …` is started as the `npx …` inside it.
+// spawnPlan already goes through cmd.exe, and cmd inside cmd is handed a quoted
+// "/c" it does not read as a switch — so it sat at a prompt nobody could see
+// until the timeout, and a working connector was reported as not answering.
+//
+// And a program that is not there cannot fail to spawn: cmd.exe always starts,
+// says "is not recognized" and exits. With no 'error' to catch, that used to
+// wait out the whole timeout too. So here a child that ends before the
+// handshake is the answer, in the first thing it said — on 'close', not
+// 'exit', so stderr has been read to the end. A Mac keeps the behaviour it had.
+function checkServer({ command, args = [], env = {}, spawnFn = spawn, timeoutMs = 15000, parentEnv = process.env, settings = {}, platform = process.platform }) {
   return new Promise((resolve) => {
+    const win = platform === 'win32';
     let child;
     try {
-      const plan = spawnPlan(command, args);
+      if (win) ({ command, args = [] } = unwrapCmd({ command, args }));
+      const plan = spawnPlan(command, args, platform, parentEnv);
       child = spawnFn(plan.file, plan.args, { env: buildChildEnv({ parentEnv, settings, purpose: 'connector', explicitEnv: env }), stdio: ['pipe', 'pipe', 'pipe'], ...plan.options });
     } catch (e) {
       resolve({ ok: false, error: 'could not start: ' + redactChildError(e, { parentEnv, settings, explicitEnv: env }) });
@@ -20,6 +35,14 @@ function checkServer({ command, args = [], env = {}, spawnFn = spawn, timeoutMs 
     const send = (method, params) => { id += 1; try { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'); } catch (_) {} return id; };
     let initId = null, listId = null;
     child.on('error', (e) => finish({ ok: false, error: 'could not start: ' + redactChildError(e, { parentEnv, settings, explicitEnv: env }) }));
+    if (win) {
+      let said = '';
+      if (child.stderr) child.stderr.on('data', (d) => { said = (said + d.toString()).slice(-2000); });
+      child.on('close', (code) => {
+        const line = said.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0] || 'it stopped before answering (exit ' + code + ')';
+        finish({ ok: false, error: 'could not start: ' + redactChildError(line, { parentEnv, settings, explicitEnv: env }) });
+      });
+    }
     child.stdout.on('data', (d) => {
       buf += d.toString();
       let nl;

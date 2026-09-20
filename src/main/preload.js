@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld('dainami', {
   agentStatus: (id) => ipcRenderer.invoke('agents:status', { id }),
   agentRemovalPlan: (id, binPath) => ipcRenderer.invoke('agents:removalPlan', { id, binPath }),
   agentRemove: (id, binPath) => ipcRenderer.invoke('agents:remove', { id, binPath }),
+  // { connectorId } or { agentId } → the line to run here and what is missing for it
+  installPlan: (args) => ipcRenderer.invoke('install:plan', args),
   listServices: (args) => ipcRenderer.invoke('services:list', args),
   connectService: (args) => ipcRenderer.invoke('services:connect', args),
   deliverServices: (args) => ipcRenderer.invoke('services:deliver', args),

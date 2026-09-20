@@ -81,6 +81,29 @@ export function connectDoneHtml({ svc, result, esc }) {
       <button class="btn" id="sv-more">Connect another</button></div>`;
 }
 
+// What a PC is missing for an install, in the sheet that was about to start it:
+// the sentence, then each command on its own line, selectable in one click like
+// every other command Nami shows. Null in, nothing out — which is every Mac.
+export function prereqNoteHtml(prereq, esc) {
+  if (!prereq) return '';
+  return `<p class="setup-copy">${esc(prereq.message)}</p>`
+    + (prereq.commands || []).map((c) => `<div class="setup-cmd">${esc(c)}</div>`).join('');
+}
+
+// "Install first", for both sheets that offer it. Main composes the line — it
+// knows the shell, the home folder and the PATH, and this file knows none of
+// them — and says what is missing before anything runs. `panel` carries the
+// caller's own tile options; the tile is still where the user watches it happen.
+export async function startConnectorInstall({ svc, api, startPanel, toast, closeOverlay, panel = {} }) {
+  const plan = await api.installPlan({ connectorId: svc.id });
+  if (!plan || !plan.ok) { toast('Could not work out how to install ' + svc.name + '.'); return { started: false }; }
+  if (plan.prereq) return { started: false, prereq: plan.prereq };
+  closeOverlay();
+  startPanel({ kind: 'run', ...panel, title: 'install ' + svc.name, code: svc.code, command: plan.command });
+  toast('When the install finishes, open Connect again: one more click.');
+  return { started: true };
+}
+
 export function createMcpSetup(deps) {
   const {
     state, overlay, q, esc, api, toast, closeOverlay, renderOverlay,
@@ -235,6 +258,7 @@ export function createMcpSetup(deps) {
           <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
           <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">this Mac</span></div>
       </div></details>
+    ${prereqNoteHtml(o.prereq, esc)}
     <div class="setup-actions">
       <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>
       <button class="btn" id="sv-docs">Guide</button></div>`);
@@ -249,11 +273,11 @@ export function createMcpSetup(deps) {
     const pickBtn = q('#sv-pick-folder', modal);
     if (pickBtn) pickBtn.onclick = async () => { const info = await api.pickFolder(); if (info) { o.values.folder = info.path; q('#sv-folder-note', modal).textContent = info.pathShort; } };
     const install = svc.kind === 'install';
-    const installDirOf = () => '~/.nami/connectors/' + svc.docs.split('/').pop();
     if (install && o.installed === undefined) {
       q('#sv-connect', modal).textContent = 'Install first';
-      api.statPath({ token: installDirOf() + '/dist/index.js' }).then((st) => {
-        o.installed = !!(st && st.exists);
+      api.installPlan({ connectorId: svc.id }).then((plan) => {
+        o.installed = !!(plan && plan.built);
+        o.installDir = plan && plan.dir;
         const btn = q('#sv-connect', modal);
         if (btn && btn.textContent !== 'Connecting…') btn.textContent = o.installed ? 'Connect' : 'Install first';
       });
@@ -263,15 +287,12 @@ export function createMcpSetup(deps) {
     q('#sv-connect', modal).onclick = async () => {
       if (guided) return startGuidedSetup(svc, chosenAgent(o));
       if (install && !o.installed) {
-        const dir = installDirOf();
-        closeOverlay();
-        startPanel({ kind: 'run', title: 'install ' + svc.name, code: svc.code,
-          command: 'git clone ' + svc.docs + ' ' + dir + ' && cd ' + dir + ' && npm install && npm run build' });
-        toast('When the install finishes, open Connect again: one more click.');
+        const res = await startConnectorInstall({ svc, api, startPanel, toast, closeOverlay });
+        if (res.prereq) { saveKeys(); o.prereq = res.prereq; renderOverlay(); }
         return;
       }
       saveKeys();
-      if (install) o.values.installDir = installDirOf();
+      if (install) o.values.installDir = o.installDir;
       if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
       q('#sv-connect', modal).textContent = 'Connecting…';
       const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, agentIds: installedAgentIds(), projectPath: projectPathOf() });
