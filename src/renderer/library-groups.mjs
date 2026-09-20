@@ -1,15 +1,26 @@
 // Where a library item sits on the rail: this project vs this Mac, by type.
 // Pure — no DOM — so the grouping is tested without a window.
+//
+// "Mac" in a key or a flag here means "this machine, not this project". Those
+// are names in the code and in saved state, and they stay; only the label a
+// person reads changes with the platform (platform-words.mjs).
+import { currentPlatform } from './paths.mjs';
+import { words } from './platform-words.mjs';
 
-export const SHELF_GROUPS = [
-  { key: 'agents', label: 'Agents' },
-  { key: 'skills', label: 'Skills' },
-  { key: 'services', label: 'MCP' },
-  { key: 'mac-agents', label: 'Agents on this Mac', mac: true },
-  { key: 'mac-skills', label: 'Skills on this Mac', mac: true },
-  { key: 'mac-services', label: 'MCP on this Mac', mac: true },
-  { key: 'mac-commands', label: 'Commands on this Mac', mac: true },
-];
+export function shelfGroups(platform = currentPlatform()) {
+  const here = words(platform).thisMac;
+  return [
+    { key: 'agents', label: 'Agents' },
+    { key: 'skills', label: 'Skills' },
+    { key: 'services', label: 'MCP' },
+    { key: 'mac-agents', label: 'Agents on ' + here, mac: true },
+    { key: 'mac-skills', label: 'Skills on ' + here, mac: true },
+    { key: 'mac-services', label: 'MCP on ' + here, mac: true },
+    { key: 'mac-commands', label: 'Commands on ' + here, mac: true },
+  ];
+}
+
+export const SHELF_GROUPS = shelfGroups();
 
 export const CLI_ORDER = [
   'claude', 'codex', 'opencode', 'grok', 'kimi', 'antigravity', 'hermes', 'cursor', 'agents',

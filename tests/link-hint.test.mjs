@@ -11,6 +11,20 @@ test('hints only promise actions available for the resolved target', () => {
   assert.equal(linkHintText({ kind: 'path', st: { exists: true, isDir: true } })[0], '⌘ Click to reveal in Finder');
 });
 
+test('on Windows the hint names Ctrl, Alt and File Explorer', () => {
+  assert.deepEqual(linkHintText({ kind: 'url' }, 'win32'), ['Ctrl+Click to open in browser', 'Right-click for more options']);
+  assert.deepEqual(linkHintText({ kind: 'path', st: { exists: true, isDir: true } }, 'win32'), ['Ctrl+Click to reveal in File Explorer', 'Right-click for more options']);
+  assert.deepEqual(linkHintText({ kind: 'path', st: { exists: true, isFile: true } }, 'win32'),
+    ['Ctrl+Click to open file', 'Ctrl+Alt+Click to reveal in File Explorer', 'Right-click for more options']);
+  assert.equal(linkHintText({ kind: 'path', st: { exists: false } }, 'win32'), null);
+});
+
+test('the Mac hint is the one it has always been', () => {
+  assert.deepEqual(linkHintText({ kind: 'path', st: { exists: true, isFile: true } }, 'darwin'),
+    ['⌘ Click to open file', '⌥⌘ Click to reveal in Finder', 'Right-click for more options']);
+  assert.deepEqual(linkHintText({ kind: 'path', st: { exists: true, isFile: true } }), linkHintText({ kind: 'path', st: { exists: true, isFile: true } }, 'darwin'));
+});
+
 function fixture() {
   const pending = new Map(), nodes = [];
   let serial = 0;

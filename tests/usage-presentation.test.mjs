@@ -112,3 +112,16 @@ test('browser settings lead with downloads and import, with no agent-access shee
   assert.match(html, /&lt;private&gt;/);
   assert.doesNotMatch(html, /Agent browser access|Access configured|browser-agent-details|Enable local browser/);
 });
+
+test('the pane names the machine it is on: this Mac, or this PC', () => {
+  const rows = [{ id: 'codex', providerId: 'codex', providerName: 'Codex', name: 'Codex', status: 'unavailable' }];
+  const mac = usageContent({ accounts: rows }, 'darwin'), win = usageContent({ accounts: rows }, 'win32');
+  assert.match(mac, /Allowance from CLIs installed on this Mac\./);
+  assert.match(mac, /No quota on this Mac yet/);
+  assert.match(win, /Allowance from CLIs installed on this PC\./);
+  assert.match(win, /No quota on this PC yet/);
+  assert.doesNotMatch(win, /Mac/);
+  assert.equal(usageContent({ accounts: rows }), mac, 'plain node reads the Mac column');
+  // Nothing but the words: the same markup either way.
+  assert.equal(win.replaceAll('this PC', 'this Mac'), mac);
+});

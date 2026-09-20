@@ -20,13 +20,18 @@ const NOTE_NAME = 'Start here.md';
 // Written for somebody who has never run an agent. Five sections, in the order
 // they will hit them, and every heading is a sentence rather than a noun — this
 // is a note, not a manual. The example asks are deliberately not about code.
-function startHereNote(folderName) {
+function startHereNote(folderName, platform = process.platform) {
+  // The note is a file on the user's disk, read long after it was written, so it
+  // says the machine and the key of whoever it was written for.
+  const win = platform === 'win32';
+  const machine = win ? 'your PC' : 'your Mac';
+  const newSession = win ? 'Ctrl+Shift+T' : '⌘N';
   const name = folderName || 'this folder';
   return `# Start here
 
 This is **${name}**, the folder you just gave Nami.
 
-Nami can read and change things in here, and nowhere else on your Mac. That is
+Nami can read and change things in here, and nowhere else on ${machine}. That is
 the whole safety model, and it is why every session asks you for a folder first.
 
 ## Nami runs agents. It isn't one.
@@ -78,7 +83,7 @@ carries on without it. Nothing happens behind your back.
 
 ## Run more than one at a time
 
-Every job gets its own pane. Start a second with **⌘N** while the first is still
+Every job gets its own pane. Start a second with **${newSession}** while the first is still
 working, and watch both. That is the point of the desk.
 
 ---

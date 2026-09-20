@@ -1,3 +1,6 @@
+import { currentPlatform } from './paths.mjs';
+import { words } from './platform-words.mjs';
+
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const validPercent = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100;
 const validTime = (n) => Number.isFinite(n) && !Number.isNaN(new Date(n).valueOf());
@@ -68,23 +71,25 @@ function cardHtml(group) {
   return `<section class="usage-card"><div class="usage-card-head"><strong>${esc(group.name)}</strong><span class="usage-value${tightest.status === 'stale' ? ' usage-stale' : ''}">${esc(labelOf(tightest))} · ${value}</span></div>${reported ? meter(tightest) : ''}${metaHtml(tightest)}${open.length ? `<div class="usage-windows">${open.map(windowHtml).join('')}</div>` : ''}${folded.length ? `<details class="usage-more"><summary>${esc(foldedSummary(folded))}</summary>${folded.map(windowHtml).join('')}</details>` : ''}</section>`;
 }
 
-function quietCard(row) {
-  return `<section class="usage-card usage-card--quiet"><div class="usage-card-head"><strong>${esc(row.providerName || row.name)}</strong><span class="usage-value">${esc(row.detail || 'No quota on this Mac yet')}</span></div></section>`;
+function quietCard(row, here) {
+  return `<section class="usage-card usage-card--quiet"><div class="usage-card-head"><strong>${esc(row.providerName || row.name)}</strong><span class="usage-value">${esc(row.detail || `No quota on ${here} yet`)}</span></div></section>`;
 }
 
-function unavailableBlock(rows) {
+function unavailableBlock(rows, here) {
   if (!rows.length) return '';
   const label = rows.length === 1
     ? (rows[0].detail || `Sign in with ${rows[0].providerName || rows[0].name}`)
     : `${rows.length} CLIs have nothing to show yet`;
-  return `<details class="usage-unavailable"><summary>${esc(label)}</summary>${rows.map(quietCard).join('')}</details>`;
+  return `<details class="usage-unavailable"><summary>${esc(label)}</summary>${rows.map((row) => quietCard(row, here)).join('')}</details>`;
 }
 
-export function usageContent(result = {}) {
+// `platform` only chooses the words: "this Mac" or "this PC".
+export function usageContent(result = {}, platform = currentPlatform()) {
   const { groups, unavailable } = groupUsage(result.accounts);
-  return `<div class="usage-tools"><p class="bs-note">Allowance from CLIs installed on this Mac.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
+  const here = words(platform).thisMac;
+  return `<div class="usage-tools"><p class="bs-note">Allowance from CLIs installed on ${here}.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
     ${groups.map(cardHtml).join('')}
-    ${unavailableBlock(unavailable)}
+    ${unavailableBlock(unavailable, here)}
     ${!groups.length && !unavailable.length ? '<p class="bs-note">No coding CLI is installed yet.</p>' : ''}`;
 }
 

@@ -134,7 +134,7 @@ function claudeUsage(data, now = Date.now()) {
       const stale = ageStale || (resetsAt != null && resetsAt <= now);
       const label = windowLabel(key);
       rows.push({ id: 'claude:local:' + key, name: 'Claude · ' + label, remaining: stale ? null : Math.round(left * 10) / 10,
-        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: 'Claude on this Mac', windowLabel: label, windowKey: key, source: 'Claude',
+        providerId: 'claude', providerName: 'Claude', accountId: 'claude:local', accountName: process.platform === 'win32' ? 'Claude on this PC' : 'Claude on this Mac', windowLabel: label, windowKey: key, source: 'Claude',
         status: stale ? 'stale' : 'reported', resetsAt, checkedAt: Number.isFinite(fetchedAtMs) ? fetchedAtMs : now,
         detail: stale ? 'Last report is stale. Use Claude to refresh.' : 'Reported by Claude' + (resetsAt ? ' · resets ' + new Date(resetsAt).toLocaleString() : '') });
     }
