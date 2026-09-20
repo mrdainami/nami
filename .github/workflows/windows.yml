@@ -98,11 +98,61 @@ jobs:
           }
           if ($bad) { throw "$bad of $($dlls.Count) runtime DLLs are not validly signed by Microsoft." }
 
+      # Signed by Microsoft's Artifact Signing service, in Dainami's name, when the
+      # six AZURE_* secrets are there to sign with. A pull request from a fork gets
+      # no secrets, and neither does anybody's own fork of this repo: there the
+      # same step builds unsigned installers, which is all a stranger's code should
+      # ever be able to make. Nothing about the signing is in electron-builder.yml
+      # for that reason — a config that always asks for a signature fails every
+      # build that cannot give one.
+      #
+      # The three AZURE_TENANT_ID / CLIENT_ID / CLIENT_SECRET values are read out
+      # of the environment by the signing module itself and appear nowhere on a
+      # command line. publisherName is the certificate's subject, letter for
+      # letter; the updater compares against it, so it is written out here rather
+      # than guessed from the secrets.
       - name: Build the installer and the portable app
+        shell: pwsh
         env:
-          # No certificate yet. Say so, or electron-builder goes looking for one.
+          # No .pfx certificate, ever: say so, or electron-builder goes looking for one.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist:win -- --${{ matrix.arch }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGN_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_NAME }}
+          SIGN_PROFILE: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+        run: |
+          if ($env:AZURE_CLIENT_SECRET -and $env:SIGN_ENDPOINT -and $env:SIGN_ACCOUNT -and $env:SIGN_PROFILE) {
+            Write-Host 'signing: yes (Artifact Signing)'
+            npm run dist:win -- --${{ matrix.arch }} `
+              "-c.win.azureSignOptions.publisherName=DAINAMI PTE. LTD." `
+              "-c.win.azureSignOptions.endpoint=$env:SIGN_ENDPOINT" `
+              "-c.win.azureSignOptions.codeSigningAccountName=$env:SIGN_ACCOUNT" `
+              "-c.win.azureSignOptions.certificateProfileName=$env:SIGN_PROFILE"
+          } else {
+            Write-Host 'signing: no (no signing secrets in this run) — the installers will be unsigned'
+            npm run dist:win -- --${{ matrix.arch }}
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # A signature that was asked for and did not happen must not pass quietly:
+      # electron-builder logs a failed signing call and can still finish. Windows
+      # is asked what it thinks of each installer, the same question a user's PC
+      # will ask. When this run had no secrets, there is nothing to insist on.
+      - name: Check who Windows says signed the installers
+        shell: pwsh
+        env:
+          EXPECT_SIGNED: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+        run: |
+          $bad = 0
+          foreach ($exe in Get-ChildItem release/*.exe) {
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            $who = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '(nobody)' }
+            Write-Host ("{0,-28} {1,-10} {2}" -f $exe.Name, $sig.Status, $who)
+            if ($env:EXPECT_SIGNED -eq 'true' -and ($sig.Status -ne 'Valid' -or $who -notmatch 'DAINAMI')) { $bad++ }
+          }
+          if ($bad) { throw "$bad installer(s) were meant to be signed by Dainami and are not." }
 
       # Opens what was actually built. A Windows app that is missing a native
       # module, or a DLL one of them needs, still installs and still opens; it
