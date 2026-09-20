@@ -5,10 +5,20 @@
 // reach the DOM through esc(). DOM-free on purpose — tests/acp-markdown.test.mjs
 // runs it in plain node.
 import { Lexer } from './vendor/marked.mjs';
+import { currentPlatform, isAbsolute } from './paths.mjs';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const OPTS = { gfm: true, breaks: true };
 const IMG_EXT = /\.(png|jpe?g|gif|webp|svg)$/i;
+
+// Does this href leave the machine? Anything with a scheme does — except that
+// `C:` in C:\pics\a.png has the shape of one and is a drive. Which it is cannot
+// be read off the text (on a Mac `c:/x` is a URL with an odd scheme and stays a
+// link), so the platform decides: on Windows an absolute path is a path first.
+export function hasScheme(href, platform = currentPlatform()) {
+  if (platform === 'win32' && isAbsolute(href, platform)) return false;
+  return /^[a-z][a-z0-9+.-]*:/i.test(href);
+}
 
 function inline(tokens) {
   let out = '';
@@ -32,7 +42,7 @@ function inline(tokens) {
         const href = String(t.href || '');
         // local image paths get a real thumbnail (wire() fills the file:// src);
         // anything remote stays a link — a reply must not make the app fetch.
-        if (!/^[a-z][a-z0-9+.-]*:/i.test(href) && IMG_EXT.test(href)) {
+        if (!hasScheme(href) && IMG_EXT.test(href)) {
           out += `<img class="cw-imgout" data-open="${esc(href)}" data-imgsrc="${esc(href)}" alt="${esc(t.text || '')}">`;
         } else if (/^javascript:/i.test(href.trim())) {
           out += esc(t.text || href);

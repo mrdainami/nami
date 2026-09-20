@@ -13,7 +13,7 @@ const { readTailTitle } = require('./session-title');
 const { wireAcpLive } = require('./acp-live');
 const { agentForCommand, resumeCommand, sessionExists, startDiscovery, readSessionTitle } = require('./agent-resume.js');
 const { feedOscTitle } = require('./osc-title');
-const { installAppMenu } = require('./app-menu.js');
+const { installAppMenu, buildWindowsExtrasTemplate, editContextTemplate } = require('./app-menu.js');
 const { oneShotArgs, feedRunDone } = require('./run-done');
 const { startSeedGate } = require('./seed-gate');
 const { seedAgentForLaunch, initialPromptArgs, initialPromptEnv } = require('./seed-launch');
@@ -478,6 +478,12 @@ function createWindow(folder, bounds) {
   // deck it reserves for them; it needs to hear both edges of the transition.
   w.on('enter-full-screen', () => w.webContents.send('window:fullscreen', true));
   w.on('leave-full-screen', () => w.webContents.send('window:fullscreen', false));
+  // Windows only, and only where the page has not answered the right-click
+  // itself: Cut, Copy and Paste by mouse, which on a Mac is the Edit menu.
+  w.webContents.on('context-menu', (_e, params) => {
+    const template = editContextTemplate(params);
+    if (template) Menu.buildFromTemplate(template).popup({ window: w });
+  });
   w.on('closed', () => {
     wins.delete(w);
     windowThemes.delete(wcId);
@@ -662,6 +668,9 @@ ipcMain.handle('boot', (e) => {
   bootSeq += 1;
   return {
     winId: bootSeq,
+    // Where `~` is. The renderer used to read it off the front of a path, which
+    // works for /Users/you and says nothing about a project on D:\.
+    home: os.homedir(),
     // A window opened after the check already ran would otherwise never hear
     // about the update — the event has been and gone.
     update: lastOffered,
@@ -725,6 +734,19 @@ ipcMain.handle('window:new', (_e, args) => {
   // The switch sheet sends the file along: it declined to take over this desk,
   // so the file has to follow into the window that was made for it instead.
   if (args && args.openFile) sendOpen(w, args.openFile, folder, false);
+  return { ok: true };
+});
+
+// The Nami mark, clicked on Windows: the few menu items with nowhere else to
+// live (app-menu.js says which, and why). The renderer sends where the mark is
+// in its own pixels; a zoomed page has bigger pixels than the window does.
+ipcMain.handle('menu:extras', (e, at) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (process.platform !== 'win32' || !w) return { ok: false };
+  const zoom = e.sender.getZoomFactor();
+  const px = (v) => Math.max(0, Math.round((Number(v) || 0) * zoom));
+  Menu.buildFromTemplate(buildWindowsExtrasTemplate({ open: (url) => shell.openExternal(url) }))
+    .popup({ window: w, x: px(at && at.x), y: px(at && at.y) });
   return { ok: true };
 });
 
@@ -862,7 +884,12 @@ async function deliverConnections({ scope, projectPath, agentIds }) {
   return runPlan({ plan, execCmd: claudeExec });
 }
 // What a delivery looked like, in the words the connect-done sheet shows.
-function shortHome(p) { return String(p || '').replace(os.homedir(), '~'); }
+// Windows writes the same home folder in more than one case and ends it at
+// either separator, so there the shortening is agents-detect's, which knows.
+function shortHome(p) {
+  if (process.platform === 'win32') return require('./agents-detect').shortHome(p, os.homedir(), 'win32');
+  return String(p || '').replace(os.homedir(), '~');
+}
 function deliveredNames(results) {
   return results.filter((r) => r.ok).map((r) => (r.via === 'cli' ? r.agent + ' (its own CLI)' : shortHome(r.wrote)));
 }

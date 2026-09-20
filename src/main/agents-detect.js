@@ -364,7 +364,7 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
   }
 }
 
-module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, installCommand, lifecycleFor, lifecyclePath, switchAccountCommand, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
+module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, installCommand, lifecycleFor, lifecyclePath, switchAccountCommand, agentStatus, agentById, expandHome, shortHome, pathFromShellOutput, findOnDisk };
 
 // The selected ID comes from launch metadata. Validate its command against
 // main's registry before granting credentials; never infer identity from text.

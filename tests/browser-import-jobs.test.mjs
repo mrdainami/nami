@@ -87,7 +87,7 @@ test('reader reports unsupported encryption and denied Keychain separately, with
   insert.run('example.test','two','',Buffer.from('v20xxxxxxxx'),'/',0,1,1,1);
   insert.run('example.test','three','',Buffer.from('v10xxxxxxxx'),'/',0,1,1,1);db.close();
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'nami-reader-')),events=[],batches=[];
-  try{await readImportSource({source:{...h.source,cookies:file},categories:{cookies:true},directory:temp,cancelled:()=>false,passwordFor:async()=>null,send:e=>events.push(e),batch:async(_k,rows)=>batches.push(...rows)});
+  try{await readImportSource({source:{...h.source,cookies:file},categories:{cookies:true},directory:temp,platform:'darwin',cancelled:()=>false,passwordFor:async()=>null,send:e=>events.push(e),batch:async(_k,rows)=>batches.push(...rows)});
     assert.equal(batches.length,1);assert.equal(batches[0].value,'synthetic-secret');
     assert.equal(events.find(e=>e.skipped)?.skipped,2);assert.match(JSON.stringify(events),/Unsupported browser encryption/);assert.match(JSON.stringify(events),/Keychain access/);assert.doesNotMatch(JSON.stringify(events),/synthetic-secret/);
     assert.deepEqual(fs.readdirSync(temp),[]);
@@ -125,7 +125,7 @@ test('encrypted password reader decrypts only supported rows and never includes 
   db.prepare('INSERT INTO logins VALUES(?,?,?)').run('https://example.test/login','fixture-user',blob);
   db.prepare('INSERT INTO logins VALUES(?,?,?)').run('https://example.test/login','unsupported',Buffer.from('v20xxxx'));db.close();
   const events=[],rows=[];
-  try{await readImportSource({source:{logins:file,browser:'Chrome'},categories:{passwords:true},directory,cancelled:()=>false,passwordFor:async()=>'fixture-key',send:e=>events.push(e),batch:async(_k,batch)=>rows.push(...batch)});
+  try{await readImportSource({source:{logins:file,browser:'Chrome'},categories:{passwords:true},directory,platform:'darwin',cancelled:()=>false,passwordFor:async()=>'fixture-key',send:e=>events.push(e),batch:async(_k,batch)=>rows.push(...batch)});
     assert.deepEqual(rows,[{origin:'https://example.test',username:'fixture-user',password:['synthetic','password'].join('-')}]);
     assert.equal(events.find(e=>e.skipped)?.skipped,1);assert.doesNotMatch(JSON.stringify(events),/synthetic-password|fixture-user/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}

@@ -200,3 +200,17 @@ test('cookie import can keep Google cookies when asked', async () => {
     assert.ok(kept.includes('SID:google-keep'));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a vault the OS will not open is described in the words of the platform it is on', () => {
+  const { vaultUnavailable } = require('../src/main/browser-profiles');
+  assert.equal(vaultUnavailable(true, 'darwin'), 'Unlock macOS Keychain to use saved passwords.');
+  assert.equal(vaultUnavailable(false, 'darwin'), 'macOS protected password storage is unavailable.');
+  for (const reading of [true, false]) assert.doesNotMatch(vaultUnavailable(reading, 'win32'), /macOS|Keychain|\bMac\b/);
+  for (const [platform, said] of [['darwin', /macOS protected password storage/], ['win32', /Windows protected password storage is unavailable\.$/]]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-vault-words-'));
+    try {
+      const locked = createProfileStore({ directory, platform, safeStorage: { isEncryptionAvailable: () => false } });
+      assert.throws(() => locked.importPasswords('default', 'url,username,password\nhttps://example.com,u,p'), said);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  }
+});

@@ -112,3 +112,37 @@ test('loose task list (blank lines between items) never leaks the [x] text', () 
   assert.doesNotMatch(html, /\[x\]|\[ \]/);
   assert.match(html, /<li class="task"><input type="checkbox" checked disabled> done thing<\/li>/);
 });
+
+// A drive letter has the shape of a URL scheme. Which one `C:` is, is the
+// platform's call — never the text's.
+test('hasScheme: on Windows a drive path is a path, and a real scheme is still a scheme', async () => {
+  const { hasScheme } = await import('../src/renderer/acp-markdown.mjs');
+  for (const p of ['C:\\pics\\a.png', 'C:/pics/a.png', 'd:\\a.png', '\\\\nas\\share\\a.png']) assert.equal(hasScheme(p, 'win32'), false, p);
+  for (const u of ['https://x.test/a.png', 'file:///C:/pics/a.png', 'data:image/png;base64,AA', 'javascript:alert(1)', 'mailto:a@b.c']) assert.equal(hasScheme(u, 'win32'), true, u);
+  assert.equal(hasScheme('pics\\a.png', 'win32'), false);
+  assert.equal(hasScheme('C:a.png', 'win32'), true, 'drive-relative is not absolute, and nobody writes it; it stays a link');
+});
+
+test('hasScheme: the Mac column is what it always was — c:/x is a URL there', async () => {
+  const { hasScheme } = await import('../src/renderer/acp-markdown.mjs');
+  for (const platform of ['darwin', '']) {
+    assert.equal(hasScheme('C:/pics/a.png', platform), true);
+    assert.equal(hasScheme('C:\\pics\\a.png', platform), true);
+    assert.equal(hasScheme('/Users/x/a.png', platform), false);
+    assert.equal(hasScheme('https://x.test/a.png', platform), true);
+  }
+});
+
+test('a Windows absolute image path becomes an inline image on Windows and stays a link on a Mac', () => {
+  const was = globalThis.dainami;
+  try {
+    globalThis.dainami = { platform: 'win32' };
+    assert.match(renderMarkdown('![shot](C:\\pics\\a.png)'), /<img class="cw-imgout" data-open="C:\\pics\\a\.png" data-imgsrc="C:\\pics\\a\.png" alt="shot">/);
+    assert.match(renderMarkdown('![shot](C:/pics/a.png)'), /<img class="cw-imgout" data-open="C:\/pics\/a\.png"/);
+    assert.match(renderMarkdown('![shot](https://x.test/a.png)'), /<a href="https:\/\/x\.test\/a\.png" data-link>shot<\/a>/, 'a reply still cannot make the app fetch');
+    assert.doesNotMatch(renderMarkdown('![x](javascript:alert(1).png)'), /<img|href/);
+    globalThis.dainami = { platform: 'darwin' };
+    assert.match(renderMarkdown('![shot](C:/pics/a.png)'), /<a href="C:\/pics\/a\.png" data-link>shot<\/a>/);
+    assert.match(renderMarkdown('![shot](/Users/x/a.png)'), /<img class="cw-imgout" data-open="\/Users\/x\/a\.png"/);
+  } finally { if (was === undefined) delete globalThis.dainami; else globalThis.dainami = was; }
+});

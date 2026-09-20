@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld('dainami', {
   // window turns into the same call the keyboard already made, so the menu adds
   // labels rather than a second way for anything to work.
   onMenuCommand: (cb) => { const h = (_e, cmd) => cb(cmd); ipcRenderer.on('menu:command', h); return () => ipcRenderer.removeListener('menu:command', h); },
+  // Windows has no menu bar; the Nami mark opens what would otherwise be lost.
+  menuExtras: (at) => ipcRenderer.invoke('menu:extras', at),
   detectAgents: () => ipcRenderer.invoke('agents:detect'),
   agentStatus: (id) => ipcRenderer.invoke('agents:status', { id }),
   agentRemovalPlan: (id, binPath) => ipcRenderer.invoke('agents:removalPlan', { id, binPath }),
