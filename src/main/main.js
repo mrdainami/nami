@@ -482,7 +482,10 @@ function createWindow(folder, bounds) {
   // itself: Cut, Copy and Paste by mouse, which on a Mac is the Edit menu.
   w.webContents.on('context-menu', (_e, params) => {
     const template = editContextTemplate(params);
-    if (template) Menu.buildFromTemplate(template).popup({ window: w });
+    // At the click, which the event reports, rather than wherever the pointer
+    // is by the time this runs — the two differ whenever the click was not made
+    // by the pointer: a touch, a pen, a screen reader, an automated test.
+    if (template) Menu.buildFromTemplate(template).popup({ window: w, x: params.x, y: params.y });
   });
   w.on('closed', () => {
     wins.delete(w);
