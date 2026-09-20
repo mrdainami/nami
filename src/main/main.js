@@ -415,6 +415,14 @@ function routeOpenFolder(folder) {
     windows: live.map((w) => ({ id: w.webContents.id, folder: winFolders.get(w.webContents.id) || null })),
     focusedId: focused && !focused.isDestroyed() ? focused.webContents.id : null,
   });
+  if (target.action === 'replace-empty') {
+    // The new window first, in the old one's place, so there is never a moment
+    // with no windows — which off a Mac is the moment Nami quits.
+    const old = live.find((x) => x.webContents.id === target.id);
+    createWindow(folder, old ? old.getNormalBounds() : undefined);
+    if (old && !old.isDestroyed()) old.close();
+    return;
+  }
   const w = target.action === 'here' ? live.find((x) => x.webContents.id === target.id) : null;
   if (!w) { createWindow(folder); return; }
   if (w.isMinimized()) w.restore();

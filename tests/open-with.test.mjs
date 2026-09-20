@@ -110,7 +110,8 @@ test('a folder that a window already has open goes to that window', () => {
 });
 
 test('a folder nobody has open gets a window of its own, never somebody else\'s desk', () => {
-  const windows = [{ id: 1, folder: 'C:\\work\\docs' }, { id: 2, folder: 'C:\\' }, { id: 3, folder: null }];
+  // Both of these are somebody's desk: a child folder and a parent folder are not the folder.
+  const windows = [{ id: 1, folder: 'C:\\work\\docs' }, { id: 2, folder: 'C:\\' }];
   assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows, platform: 'win32' }), { action: 'new-window', id: null, folder: 'C:\\work' });
   assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [], platform: 'win32' }), { action: 'new-window', id: null, folder: 'C:\\work' });
   assert.deepEqual(chooseFolderTarget({ folder: '/Work', windows: [{ id: 1, folder: '/work' }], platform: 'darwin' }), { action: 'new-window', id: null, folder: '/Work' });
@@ -134,4 +135,15 @@ test('electron-builder declares exactly the extensions open-with routes', () => 
   const declared = [...body.matchAll(/ext:\s*\[([^\]]+)\]/g)]
     .flatMap((m) => m[1].split(',').map((e) => e.trim()));
   assert.deepEqual([...declared].sort(), [...OPEN_EXT].sort());
+});
+
+test('a folder from outside takes the place of an empty window rather than joining it', () => {
+  const empty = { id: 1, folder: null }, busy = { id: 2, folder: 'C:\\other' };
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [empty], platform: 'win32' }), { action: 'replace-empty', id: 1, folder: 'C:\\work' });
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [busy, empty], platform: 'win32' }), { action: 'replace-empty', id: 1, folder: 'C:\\work' });
+  // a window that is working on something else is never taken over
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [busy], platform: 'win32' }), { action: 'new-window', id: null, folder: 'C:\\work' });
+  // and a window already on that folder still wins over an empty one
+  assert.deepEqual(chooseFolderTarget({ folder: 'C:\\work', windows: [empty, { id: 3, folder: 'c:\\WORK' }], platform: 'win32' }), { action: 'here', id: 3, folder: 'c:\\WORK' });
+  assert.deepEqual(chooseFolderTarget({ folder: '/work', windows: [{ id: 7, folder: null }], platform: 'darwin' }), { action: 'replace-empty', id: 7, folder: '/work' });
 });

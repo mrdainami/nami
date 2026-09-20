@@ -85,12 +85,22 @@ function chooseTarget({ filePath, windows = [], focusedId = null, platform = pro
 // back on and nothing to adopt — switching somebody's desk to another folder
 // because a command was typed elsewhere would take their sessions with it. So
 // it is the window already open on that folder, or a new one.
+//
+// One exception, because it takes nothing from anybody: a window with no folder
+// open has no sessions and no desk to lose. Leaving it there and opening a
+// second window beside it hands the user an empty Nami to close by hand every
+// time — and on Windows, where that empty window is what a plain relaunch
+// restores, it was the normal case rather than the odd one.
 function chooseFolderTarget({ folder, windows = [], focusedId = null, platform = process.platform }) {
   const same = (a) => folded(a, platform).replace(/[\\/]+$/, '') === folded(folder, platform).replace(/[\\/]+$/, '');
   const open = windows.filter((w) => w.folder && same(w.folder));
-  if (!open.length) return { action: 'new-window', id: null, folder };
-  const best = open.find((w) => w.id === focusedId) || open[0];
-  return { action: 'here', id: best.id, folder: best.folder };
+  if (open.length) {
+    const best = open.find((w) => w.id === focusedId) || open[0];
+    return { action: 'here', id: best.id, folder: best.folder };
+  }
+  const empty = windows.filter((w) => !w.folder);
+  if (empty.length) return { action: 'replace-empty', id: (empty.find((w) => w.id === focusedId) || empty[0]).id, folder };
+  return { action: 'new-window', id: null, folder };
 }
 
 module.exports = { OPEN_EXT, handles, chooseTarget, chooseFolderTarget };
