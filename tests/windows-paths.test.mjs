@@ -71,3 +71,18 @@ test('a PC is only offered a release that has a Windows installer on it', () => 
   assert.ok(releaseFromApi(both, 'arm64', 'darwin').url.endsWith('/Nami-arm64.dmg'));
   assert.ok(releaseFromApi(both, 'x64', 'darwin').url.endsWith('/Nami-x64.dmg'));
 });
+
+test('no agent is installed on Windows by piping a script into bash', async () => {
+  const { KNOWN_AGENTS, installCommand, detectAgents } = require('../src/main/agents-detect.js');
+  for (const a of KNOWN_AGENTS) {
+    const cmd = installCommand(a, 'win32');
+    assert.ok(cmd, `${a.id} has no install command for Windows`);
+    assert.doesNotMatch(cmd, /\bbash\b|\bcurl\b|&&/, `${a.id}: ${cmd}`);   // && is a syntax error in Windows PowerShell
+    assert.equal(installCommand(a, 'darwin'), a.install);
+  }
+  // and the renderer is handed the one for the machine, under the name it already reads
+  const seen = await detectAgents({ exec: async () => '', home: 'C:\\Users\\cal', env: {}, platform: 'win32' });
+  assert.equal(seen.find((a) => a.id === 'claude').install, 'irm https://claude.ai/install.ps1 | iex');
+  const mac = await detectAgents({ exec: async () => '', home: '/Users/cal', env: {}, platform: 'darwin' });
+  assert.equal(mac.find((a) => a.id === 'claude').install, 'curl -fsSL https://claude.ai/install.sh | bash');
+});

@@ -26,6 +26,7 @@ const KNOWN_AGENTS = [
   { id: 'claude', name: 'Claude Code', bin: 'claude', kind: 'claude',
     sub: 'your subscription · slash commands work',
     install: 'curl -fsSL https://claude.ai/install.sh | bash',
+    installWin: 'irm https://claude.ai/install.ps1 | iex',
     docs: 'https://docs.anthropic.com/en/docs/claude-code',
     contextFile: 'CLAUDE.md',
     projectSkillsDir: '.claude/skills',
@@ -56,6 +57,7 @@ const KNOWN_AGENTS = [
   { id: 'opencode', name: 'OpenCode', bin: 'opencode', kind: 'run',
     sub: 'open-source agent · bring any model',
     install: 'curl -fsSL https://opencode.ai/install | bash',
+    installWin: 'npm install -g opencode-ai',
     docs: 'https://opencode.ai/docs',
     contextFile: 'AGENTS.md',
     lifecycle: {
@@ -69,6 +71,7 @@ const KNOWN_AGENTS = [
   { id: 'grok', name: 'Grok', bin: 'grok', kind: 'run',
     sub: "xAI's coding agent",
     install: 'curl -fsSL https://x.ai/cli/install.sh | bash',
+    installWin: 'irm https://x.ai/cli/install.ps1 | iex',
     docs: 'https://grok.com/build',
     contextFile: 'AGENTS.md',
     lifecycle: {
@@ -93,6 +96,7 @@ const KNOWN_AGENTS = [
   { id: 'antigravity', name: 'Antigravity', bin: 'agy', kind: 'run',
     sub: "Google's coding agent (replaced Gemini CLI)",
     install: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+    installWin: 'irm https://antigravity.google/cli/install.ps1 | iex',
     docs: 'https://antigravity.google/docs/cli',
     contextFile: 'GEMINI.md',
     lifecycle: {
@@ -106,6 +110,9 @@ const KNOWN_AGENTS = [
     sub: "Nous Research's agent, learns as it works",
     // chain the guided first-run wizard so the install tile walks the user all the way in
     install: 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash && hermes setup --portal',
+    // Its Windows installer runs the first-run setup itself, and the PATH it
+    // writes is not visible to the shell that ran it, so nothing is chained.
+    installWin: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
     docs: 'https://hermes-agent.nousresearch.com',
     lifecycle: {
       // `hermes auth status` demands a provider argument and `hermes auth list`
@@ -126,6 +133,7 @@ const KNOWN_AGENTS = [
   { id: 'kimi', name: 'Kimi Code', bin: 'kimi', kind: 'run',
     sub: "Moonshot's coding agent",
     install: 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash',
+    installWin: 'irm https://code.kimi.com/kimi-code/install.ps1 | iex',
     docs: 'https://moonshotai.github.io/kimi-code/en/',
     contextFile: 'AGENTS.md',
     // `kimi login` exists but the CLI has no logout, and a sheet that can
@@ -197,7 +205,15 @@ async function shellWhich(bin, options) {
   return pathFromShellOutput(out) || findOnDisk(bin);
 }
 
-async function detectAgents({ exec = shellWhich, home = os.homedir(), settings = {}, env = process.env } = {}) {
+// The command that installs an agent on the machine being asked about. Every
+// `install` above pipes a script into bash, which Windows does not have; each
+// vendor ships a PowerShell twin, and that is `installWin`. An agent with no
+// twin keeps its one command — npm installs the same way everywhere.
+function installCommand(agent, platform = process.platform) {
+  return (platform === 'win32' && agent.installWin) || agent.install;
+}
+
+async function detectAgents({ exec = shellWhich, home = os.homedir(), settings = {}, env = process.env, platform = process.platform } = {}) {
   return Promise.all(KNOWN_AGENTS.map(async (a) => {
     let p = '';
     try { p = String((await exec(a.bin, { settings, env })) || '').trim(); } catch (_) { p = ''; }
@@ -205,7 +221,9 @@ async function detectAgents({ exec = shellWhich, home = os.homedir(), settings =
     // can hand it straight to openFile() without knowing where home is.
     const configFile = a.lifecycle && a.lifecycle.configPath
       ? expandHome(a.lifecycle.configPath, home) : '';
-    return { ...a, found: !!p, path: p, pathShort: shortHome(p, home), configFile };
+    // The renderer shows and runs `install` as it finds it, so it is handed the
+    // one for this machine and never learns there was a choice.
+    return { ...a, install: installCommand(a, platform), found: !!p, path: p, pathShort: shortHome(p, home), configFile };
   }));
 }
 
@@ -270,7 +288,7 @@ async function agentStatus(id, { exec = shellRun, readFile = readIfPresent, home
   }
 }
 
-module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
+module.exports = { KNOWN_AGENTS, POINTER_FILE, contextFilesFor, detectAgents, installCommand, agentStatus, agentById, expandHome, pathFromShellOutput, findOnDisk };
 
 // The selected ID comes from launch metadata. Validate its command against
 // main's registry before granting credentials; never infer identity from text.

@@ -128,6 +128,8 @@ function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}
     join(env.APPDATA, 'npm'),
     join(env.LOCALAPPDATA, 'Programs'),
     join(env.LOCALAPPDATA, 'agy', 'bin'),
+    join(env.LOCALAPPDATA, 'Antigravity'),   // antigravity.google/cli/install.ps1
+    join(home, '.grok', 'bin'),              // x.ai/cli/install.ps1
     join(env.LOCALAPPDATA, 'hermes', 'bin'),
     join(env.LOCALAPPDATA, 'hermes', 'hermes-agent', 'bin'),
     join(home, '.kimi-code', 'bin'),
