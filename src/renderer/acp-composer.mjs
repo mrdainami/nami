@@ -6,6 +6,8 @@
 // State setters returned: setCommands, setSkills, setMode, setModel, setUsage,
 // setBusy, attach, focus.
 
+import { isSlashCommandDraft } from './paths.mjs';
+
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export function createComposer(host, o) {
@@ -131,7 +133,8 @@ export function createComposer(host, o) {
   input.addEventListener('input', () => {
     grow();
     const v = input.value;
-    if (v.startsWith('/') && !v.includes(' ') && !v.includes('\n')) openMenu(v);
+    // a pasted path starts with a slash too, and is not a command
+    if (isSlashCommandDraft(v)) openMenu(v);
     else closeMenu();
   });
   document.addEventListener('click', closeMenu);

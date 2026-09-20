@@ -1,6 +1,7 @@
 import { createBrowserAnnotations } from './browser-annotations.mjs';
 import { browserSettingsHtml, wireBrowserSettings } from './browser-settings.mjs';
 import { createBrowserOverlays } from './browser-overlays.mjs';
+import { baseName } from './paths.mjs';
 // Native page content; all chrome remains the same DOM tile as other files.
 export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFile, isSession, pin, focus, refresh, save,
   show, dialog, close, closePanel, toast, selection, settings, dictation, insertAnnotation, sessions, panelIcon, tileMenu, showMenu, openOutside }) {
@@ -51,7 +52,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
   // resizing the browser viewport itself. Observe geometry-affecting DOM state.
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'data-theme', 'data-glass', 'data-soft'] });
   function open(url = 'about:blank', filePath = null, owner = null, id = null, deferred = false, profileId = null) {
-    const p = { id: id || uid('p_'), kind: 'browser', chipKind: 'viewer', code: 'WEB', title: filePath ? filePath.split('/').pop() : 'Browser', url, filePath, status: 'live', browserDeferred: deferred, profileId };
+    const p = { id: id || uid('p_'), kind: 'browser', chipKind: 'viewer', code: 'WEB', title: filePath ? baseName(filePath) : 'Browser', url, filePath, status: 'live', browserDeferred: deferred, profileId };
     pin(p, owner ? { owner } : {}); if (owner) { p.owner = owner; refresh(); } return p;
   }
   function newBrowser(owner) {

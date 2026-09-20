@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tailPath, fileKind, shellQuote, fileUrl, pathRef } from '../src/renderer/file-kinds.mjs';
+import { tailPath, fileKind, shellQuote, fileUrl, docUrl, pathRef } from '../src/renderer/file-kinds.mjs';
 
 test('fileKind: images', () => {
   for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.svg', 'g.bmp', 'h.ico', 'i.avif'])
@@ -160,4 +160,87 @@ test('pathRef: an out-of-root folder gets no trailing slash', () => {
   // it is an absolute path, not a mention — the slash only disambiguates a
   // mention, and adding one here would just be a path that does not exist
   assert.equal(pathRef('/tmp/foo', ROOT, true), "'/tmp/foo' ");
+});
+
+// ---- Windows ---------------------------------------------------------------
+// Every call names win32, so these read the Windows column from any machine.
+const WROOT = 'C:\\Users\\cal\\nami';
+
+test('windows: fileKind reads the name after a backslash', () => {
+  assert.equal(fileKind('C:\\Users\\cal\\My Movies\\demo.mp4'), 'video');
+  assert.equal(fileKind('C:\\Users\\cal\\dir.mp4\\readme.txt'), 'text');
+});
+
+test('windows: fileUrl keeps the drive colon and encodes the rest', () => {
+  assert.equal(fileUrl('C:\\Users\\me\\My Site\\a.png', 'win32'), 'file:///C:/Users/me/My%20Site/a.png');
+  assert.equal(fileUrl('C:\\tmp\\a#b?.png', 'win32'), 'file:///C:/tmp/a%23b%3F.png');
+  assert.equal(fileUrl('\\\\server\\share\\x.pdf', 'win32'), 'file://server/share/x.pdf');
+  assert.equal(fileUrl('/Users/cal/My File.png', 'darwin'), 'file:///Users/cal/My%20File.png');
+});
+
+test('windows: docUrl sends the folder whole and the name after it', () => {
+  assert.equal(docUrl('C:\\Users\\me\\My Site\\index.html', 'win32'),
+    'nami-doc://doc/' + encodeURIComponent('C:\\Users\\me\\My Site') + '/index.html');
+  assert.equal(docUrl('C:\\report one.html', 'win32'), 'nami-doc://doc/' + encodeURIComponent('C:\\') + '/report%20one.html');
+  assert.equal(docUrl('/p/site/index.html', 'darwin'), 'nami-doc://doc/%2Fp%2Fsite/index.html');
+  assert.equal(docUrl('/index.html', 'darwin'), 'nami-doc://doc/%2F/index.html');
+});
+
+test('windows: what docUrl builds is what the main process takes apart', async () => {
+  const { createRequire } = await import('node:module');
+  const { parseDocUrl, buildDocUrl } = createRequire(import.meta.url)('../src/main/doc-protocol.js');
+  // POSIX halves agree on any machine; the Windows half needs a real win32 path
+  // module behind parseDocUrl to call C:\ absolute, so it is checked there.
+  if (process.platform !== 'win32') {
+    assert.equal(docUrl('/p/my site/index.html', 'darwin'), buildDocUrl('/p/my site', '/p/my site/index.html'));
+    assert.deepEqual(parseDocUrl(docUrl('/p/my site/index.html', 'darwin')), { root: '/p/my site', rel: 'index.html' });
+  } else {
+    assert.equal(docUrl('C:\\p\\my site\\index.html', 'win32'), buildDocUrl('C:\\p\\my site', 'C:\\p\\my site\\index.html'));
+    assert.deepEqual(parseDocUrl(docUrl('C:\\p\\my site\\index.html', 'win32')), { root: 'C:\\p\\my site', rel: 'index.html' });
+  }
+});
+
+test('windows: tailPath keeps the end, with the separator Windows shows', () => {
+  assert.equal(tailPath('C:\\Users\\cal\\work\\atlas\\src\\main', 2, 'win32'), '…\\src\\main');
+  assert.equal(tailPath('C:\\tmp\\atlas', 2, 'win32'), 'C:\\tmp\\atlas');
+  assert.equal(tailPath('C:\\atlas', 2, 'win32'), 'C:\\atlas');
+  assert.equal(tailPath('C:\\', 2, 'win32'), 'C:\\');
+  assert.equal(tailPath('C:\\Users\\cal\\work\\atlas\\src\\', 2, 'win32'), '…\\atlas\\src');
+  assert.equal(tailPath('~\\work\\atlas\\src\\renderer', 2, 'win32'), '…\\src\\renderer');
+  assert.equal(tailPath('~\\work\\atlas', 2, 'win32'), '~\\work\\atlas');
+  assert.equal(tailPath('\\\\nas\\media\\a\\b\\c', 2, 'win32'), '…\\b\\c');
+  assert.equal(tailPath('\\\\nas\\media\\a', 2, 'win32'), '\\\\nas\\media\\a');
+});
+
+test('windows: shellQuote quotes the way PowerShell unquotes', () => {
+  assert.equal(shellQuote('C:\\tmp\\My File.txt', 'win32'), "'C:\\tmp\\My File.txt'");
+  assert.equal(shellQuote("C:\\tmp\\it's.txt", 'win32'), "'C:\\tmp\\it''s.txt'");
+  assert.equal(shellQuote("/tmp/it's.txt", 'darwin'), "'/tmp/it'\\''s.txt'");
+});
+
+test('windows: inside the open folder becomes an @ mention, written with forward slashes', () => {
+  assert.equal(pathRef(WROOT + '\\src\\main\\main.js', WROOT, false, 'win32'), '@src/main/main.js ');
+  assert.equal(pathRef(WROOT + '\\README.md', WROOT, false, 'win32'), '@README.md ');
+  assert.equal(pathRef(WROOT + '\\src\\renderer', WROOT, true, 'win32'), '@src/renderer/ ');
+  assert.equal(pathRef(WROOT + '\\src\\a.js', WROOT + '\\', false, 'win32'), '@src/a.js ');
+  assert.equal(pathRef('C:\\Users\\cal\\My Project\\src\\a.js', 'C:\\Users\\cal\\My Project', false, 'win32'), '@src/a.js ');
+  assert.equal(pathRef('c:\\users\\CAL\\nami\\src\\a.js', WROOT, false, 'win32'), '@src/a.js ', 'the same folder in another case');
+});
+
+test('windows: everything else quotes the absolute path', () => {
+  assert.equal(pathRef('C:\\Users\\cal\\Desktop\\shot.png', WROOT, false, 'win32'), "'C:\\Users\\cal\\Desktop\\shot.png' ");
+  assert.equal(pathRef('C:\\Users\\cal\\nami-other\\x.js', WROOT, false, 'win32'), "'C:\\Users\\cal\\nami-other\\x.js' ", 'a sibling with the same prefix');
+  assert.equal(pathRef(WROOT + '\\my notes.md', WROOT, false, 'win32'), "'C:\\Users\\cal\\nami\\my notes.md' ");
+  assert.equal(pathRef(WROOT, WROOT, false, 'win32'), "'C:\\Users\\cal\\nami' ");
+  assert.equal(pathRef(WROOT + '\\a.js', '', false, 'win32'), "'C:\\Users\\cal\\nami\\a.js' ");
+  assert.equal(pathRef('C:\\Windows\\win.ini', 'C:\\', false, 'win32'), "'C:\\Windows\\win.ini' ", 'a drive opened as the project, like / on a Mac');
+  assert.equal(pathRef("C:\\Users\\cal\\it's.txt", WROOT, false, 'win32'), "'C:\\Users\\cal\\it''s.txt' ");
+});
+
+test('windows: a shell metacharacter never rides out unquoted there either', () => {
+  for (const name of ['$(id).txt', '`id`.md', 'a;whoami.txt', 'a&&b.md', 'a|b.md', 'a>out.md',
+                      "it's.md", 'a*.md', 'a#b.md', '~evil.md', 'a{b}.md', 'a[b].md', 'a%PATH%.md', 'a^b.md']) {
+    const out = pathRef(WROOT + '\\' + name, WROOT, false, 'win32');
+    assert.equal(out[0], "'", name + ' must quote, got ' + out);
+  }
 });

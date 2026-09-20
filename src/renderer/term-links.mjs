@@ -7,6 +7,8 @@
 // "https://opencode.ai/docs" as the file "/opencode.ai/docs" and every web link
 // in the session dies as "Not found".
 
+import { currentPlatform, isWin } from './paths.mjs';
+
 // A scheme'd URL, or a bare www. host. Stops at whitespace and at the brackets
 // and quotes that wrap links in prose.
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`{}|\\^[\]]+/gi;
@@ -17,6 +19,26 @@ const LOCALHOST_RE = /\b(?:localhost|127\.0\.0\.1):\d{2,5}(?:\/[^\s<>"'`]*)?/gi;
 // then rel/ative/path, then a bare name.js. The bare branch demands two
 // characters before the dot so "e.g." and "i.e." stay prose.
 const PATH_RE = /(?:~|\.{1,2})?(?:\/[\w.@+-]+)+|(?:[\w.@+-]+\/)+[\w.@+-]+|\b[\w@+-]{2,}\.[A-Za-z][A-Za-z0-9]{0,7}\b/g;
+// The same on Windows, where `\` separates too and two more shapes are
+// absolute: a drive (C:\src\app.js) and a network share (\\server\share\x).
+// They come first, and the dotted and relative branches take either separator,
+// so a path is one whole link rather than its last segment. A backslash may
+// come doubled — an agent that prints JSON prints C:\\src\\app.js, and the disk
+// reads that the same. A drive letter must not be the tail of a word: "note:\t"
+// is a label and a tab. What starts with a lone `\` is left alone altogether;
+// nobody prints a path that way and every escape sequence looks like one.
+// The forward-slash branches are the Mac's own, so a line with no backslash in
+// it reads the same on both.
+const WSEP = '(?:\\\\{1,2}|\\/)';
+const WSEG = '[\\w.@+-]+';
+const WIN_PATH_RE = new RegExp([
+  '(?<![\\\\\\w])\\\\\\\\[\\w.$@+-]+(?:\\\\[\\w.$@+-]+)+',
+  '(?<!\\w)[A-Za-z]:(?:' + WSEP + WSEG + ')+',
+  '(?:~|\\.{1,2})(?:' + WSEP + WSEG + ')+',
+  '(?:\\/' + WSEG + ')+',
+  '(?:' + WSEG + WSEP + ')+' + WSEG,
+  '\\b[\\w@+-]{2,}\\.[A-Za-z][A-Za-z0-9]{0,7}\\b',
+].join('|'), 'g');
 // Punctuation a link can end next to but never owns.
 const TRAIL_RE = /[)\]}>.,;:!?'"«»]+$/;
 // The :12 or :12:5 an agent appends to point at a line.
@@ -31,6 +53,20 @@ function trimEnd(text, start, end) {
   const tok = text.slice(start, end);
   const cut = tok.match(TRAIL_RE);
   return cut ? end - cut[0].length : end;
+}
+
+// Words joined by backslashes and nothing else to mark them as a path:
+// "and\or" is prose, "one\nline" is an escape in a printed string, 20\09\2026
+// is a date. A real one names a file (src\app.js) or runs at least three deep
+// (node_modules\xterm\lib), and has a letter in it somewhere. Anything with a
+// forward slash is not judged here — the Mac has never judged those, and the
+// disk still arbitrates every link before it lights up.
+function winProse(tok) {
+  if (tok.includes('/') || /^(?:~|\.{1,2})?\\|^[A-Za-z]:\\/.test(tok)) return false;
+  const segs = tok.split(/\\+/);
+  if (segs.length < 2) return false;
+  if (!/[A-Za-z]/.test(tok)) return true;
+  return segs.length < 3 && !/\.[A-Za-z]/.test(segs[segs.length - 1]);
 }
 
 function collect(text, re, kind, taken) {
@@ -49,12 +85,15 @@ function collect(text, re, kind, taken) {
 // One line of terminal text → the links in it, left to right.
 // Each link is { kind: 'url' | 'path', text, start, end } and a path may carry
 // { line, col } lifted off a trailing :12:5.
-export function scanLinks(text) {
+export function scanLinks(text, platform = currentPlatform()) {
   const line = String(text == null ? '' : text);
+  const win = isWin(platform);
   const urls = collect(line, URL_RE, 'url', []);
   const hosts = collect(line, LOCALHOST_RE, 'url', urls);
   const taken = urls.concat(hosts);
-  const paths = collect(line, PATH_RE, 'path', taken).filter((l) => l.text.includes('/') || l.text.includes('.'));
+  const paths = collect(line, win ? WIN_PATH_RE : PATH_RE, 'path', taken)
+    .filter((l) => l.text.includes('/') || l.text.includes('.') || (win && l.text.includes('\\')))
+    .filter((l) => !(win && winProse(l.text)));
 
   for (const p of paths) {
     const after = line.slice(p.end).match(LINE_RE);
