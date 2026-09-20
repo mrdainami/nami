@@ -390,7 +390,7 @@ function createWindow(folder, bounds) {
     // at the foot of paper.css.
     width: 1360, height: 940, minWidth: 560, minHeight: 480,
     ...(bounds && Number.isFinite(bounds.width) ? bounds : {}),
-    ...windowChrome(),
+    ...windowChrome(process.platform, settingsStore.themeBackground(readSettings().theme)),
     backgroundColor: settingsStore.themeBackground(readSettings().theme),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, plugins: true },
   });
@@ -917,8 +917,13 @@ ipcMain.handle('url:open', (_e, url) => {
 
 // Theme lives in settings.json so the window background matches on next launch.
 ipcMain.on('theme:applied', (e, theme) => {
-  if (!wins.has(BrowserWindow.fromWebContents(e.sender))) return;
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!wins.has(w)) return;
   windowThemes.set(e.sender.id, settingsStore.normalizeTheme(theme));
+  // The Windows caption buttons are painted by the system on a colour we chose
+  // at creation, so a theme change has to repaint them or they stay behind.
+  const overlay = windowChrome(process.platform, settingsStore.themeBackground(theme)).titleBarOverlay;
+  if (overlay && !w.isDestroyed()) w.setTitleBarOverlay(overlay);
   refreshAppMenu();
 });
 ipcMain.handle('theme:set', (_e, theme) => {

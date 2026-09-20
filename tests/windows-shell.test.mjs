@@ -96,3 +96,17 @@ test('a PowerShell one-shot reports its exit code and stays open', () => {
 test('the POSIX one-shot is untouched', () => {
   assert.deepEqual(oneShotArgs('/bin/zsh', 'ls'), ['-i', '-c', `${doneSuffix('ls')}; exec /bin/zsh -i`]);
 });
+
+test('the Windows caption buttons take the theme and stay readable on it', () => {
+  const { windowChrome } = require('../src/main/platform.js');
+  const paper = windowChrome('win32', '#cfc3ac').titleBarOverlay;
+  const operator = windowChrome('win32', '#121212').titleBarOverlay;
+  assert.equal(paper.color, '#cfc3ac');
+  assert.equal(paper.symbolColor, '#2f2b26');
+  assert.equal(operator.color, '#121212');
+  assert.equal(operator.symbolColor, '#f2efe8');
+  // nonsense in, the paper default out — never an invalid colour to Electron
+  assert.equal(windowChrome('win32', 'red').titleBarOverlay.color, '#fffdf6');
+  // and a Mac has no overlay at all
+  assert.equal(windowChrome('darwin', '#121212').titleBarOverlay, undefined);
+});

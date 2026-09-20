@@ -185,9 +185,17 @@ function claudeCandidates({ home = '', env = {}, platform = process.platform } =
 // over our own header; Windows has no equivalent, so it gets a hidden frame
 // with an overlay tinted to match the paper header rather than a system bar
 // sitting on top of the design.
-function windowChrome(platform = process.platform) {
+//
+// The overlay takes the theme's own background, so the three window buttons sit
+// on the desk rather than on a strip of paper above a dark one. The symbols go
+// light or dark by how bright that background is, which keeps a theme added
+// later from needing an entry here.
+function windowChrome(platform = process.platform, background = '#fffdf6') {
   if (platform === WIN) {
-    return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#fffdf6', symbolColor: '#2f2b26', height: 38 } };
+    const hex = /^#[0-9a-f]{6}$/i.test(background) ? background : '#fffdf6';
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const bright = (0.299 * r + 0.587 * g + 0.114 * b) > 140;
+    return { titleBarStyle: 'hidden', titleBarOverlay: { color: hex, symbolColor: bright ? '#2f2b26' : '#f2efe8', height: 38 } };
   }
   // The sheet is edge-to-edge, so the renderer reserves a 22px lights deck at
   // the top (see .lights-deck in paper.css). y gives the 12px buttons 11px of
