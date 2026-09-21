@@ -127,14 +127,19 @@ Tagging a version is the only thing that produces an installer:
 npm version patch && git push --follow-tags
 ```
 
-That builds from a clean checkout, signs and notarises, and creates a **draft**
-release. Publishing it is a deliberate human step — the moment it goes live is
-the moment every installed Nami starts offering it.
+That builds from a clean checkout — the Mac apps signed and notarised, the
+Windows installers signed, side by side — and creates a **draft** release.
+Publishing it is a deliberate human step — the moment it goes live is the
+moment every installed Nami starts offering it.
 
 Each release carries two Mac builds of each architecture. The `.dmg` is what a
 person downloads; the `.zip` is what an update installs, because on macOS the
 swap is done by Squirrel, which can only unpack a zip. A release with no zip on
 it is a release nothing can update to.
+
+It also carries a Windows installer and a portable app for x64 and for ARM64,
+and one `latest.yml` that lists both installers. A release that cannot sign
+them stops rather than publishing unsigned ones.
 
 ## Testing an update without publishing one
 

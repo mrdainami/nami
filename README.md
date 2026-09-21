@@ -70,15 +70,15 @@ run. Same for skills and connections. Notion, Gmail and Slack connect in one cli
 Nami only ever looks inside the one folder you point it at. Dictation runs on
 your own machine, so it works on a fresh install with no account, no key and no
 network. Every Mac build is signed and notarised by Apple, so it opens without a
-security warning. The Windows build is not signed yet, so Windows asks once
-before it runs — the step below says what to press.
+security warning. Every Windows build is signed by Dainami, so it installs
+without one too.
 
 ## Get started
 
 1. **Download it.**
    - **Mac:** [get the .dmg](https://github.com/mrdainami/nami/releases/latest/download/Nami-arm64.dmg) and drag Nami into your Applications folder.
-   - **Windows:** [get the installer](https://github.com/mrdainami/nami/releases/latest/download/Nami-Setup-x64.exe) and run it. Until the build is signed, Windows
-     shows a blue box that says the publisher is unknown. Choose **More info**, then **Run anyway**.
+   - **Windows:** [get the installer](https://github.com/mrdainami/nami/releases/latest/download/Nami-Setup-x64.exe) and run it. While a release is new, Edge may say
+     the file "isn't commonly downloaded". Choose **…**, then **Keep**, then **Show more**, then **Keep anyway**.
 2. **Point it at one folder** you work in. It never looks outside it.
 3. **Ask for something.** It finds the agents you already have.
 
