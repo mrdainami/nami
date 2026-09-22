@@ -5539,7 +5539,7 @@ function renderAgentPickerSheet() {
   });
   const visible = groups[0].concat(groups[1]);
   if (o.hi > visible.length - 1) o.hi = Math.max(0, visible.length - 1);
-  const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
+  const input = q('#ap-input', modal); setTimeout(() => { input.focus(); const n = input.value.length; input.setSelectionRange(n, n); }, 30);
   input.oninput = () => { o.query = input.value; o.hi = 0; o.open = null; renderOverlay(); };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
