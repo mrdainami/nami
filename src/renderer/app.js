@@ -5313,109 +5313,6 @@ function renderFolderFirst() {
   };
 }
 
-// Tablet-friendly interactive Folder Picker Modal
-window.openFolderPickerSheet = openFolderPickerSheet;
-function openFolderPickerSheet(onPicked, startDir = null) {
-  const initial = startDir || (S.project && S.project.path) || (S.recents[0] && S.recents[0].path) || '~';
-  S.overlay = { type: 'folder-picker', currentDir: initial, onPicked };
-  renderOverlay();
-}
-
-async function renderFolderPicker() {
-  const o = S.overlay;
-  let cur = o.currentDir || '~';
-
-  const modal = overlay('modal folder-picker-sheet', `
-    <div class="picker-input">
-      <span class="prompt-mark">📁</span>
-      <span style="font-weight:700">Choose Workspace Directory</span>
-    </div>
-    <div class="folder-picker-crumbs" id="fp-crumbs"></div>
-    <div class="folder-picker-list" id="fp-list"><div style="padding:16px;color:var(--muted)">Loading folders…</div></div>
-    <div class="folder-picker-foot">
-      <button class="btn" id="fp-cancel">Cancel</button>
-      <button class="btn btn--go" id="fp-select">Select this folder</button>
-    </div>`, { top: true });
-
-  const crumbsEl = q('#fp-crumbs', modal);
-  const listEl = q('#fp-list', modal);
-
-  const renderPath = async (dirPath) => {
-    crumbsEl.innerHTML = '';
-    listEl.innerHTML = '<div style="padding:16px;color:var(--muted)">Reading directory…</div>';
-
-    let resolvedInfo = null;
-    try {
-      resolvedInfo = await api.openFolder(dirPath, false);
-    } catch (_) {}
-
-    const displayPath = (resolvedInfo && resolvedInfo.path) ? resolvedInfo.path : dirPath;
-    o.currentDir = displayPath;
-
-    // Render breadcrumbs
-    const parts = displayPath.split(/[/\\]/).filter(Boolean);
-    const rootCrumb = document.createElement('span');
-    rootCrumb.className = 'crumb';
-    rootCrumb.textContent = '/';
-    rootCrumb.onclick = () => renderPath('/');
-    crumbsEl.appendChild(rootCrumb);
-
-    let accum = '';
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i];
-      accum += '/' + p;
-      const target = accum;
-      const sep = document.createElement('span');
-      sep.textContent = ' / ';
-      crumbsEl.appendChild(sep);
-
-      const c = document.createElement('span');
-      c.className = 'crumb';
-      c.textContent = p;
-      c.onclick = () => renderPath(target);
-      crumbsEl.appendChild(c);
-    }
-
-    // List subdirectories
-    let entries = [];
-    try {
-      entries = await api.listDir(displayPath, false);
-    } catch (e) {
-      listEl.innerHTML = `<div style="padding:16px;color:var(--red-ink)">Cannot open folder: ${esc(e.message || 'Permission denied')}</div>`;
-      return;
-    }
-
-    listEl.innerHTML = '';
-    const subDirs = (entries || []).filter((e) => e.kind === 'dir' && !e.name.startsWith('.'));
-
-    if (!subDirs.length) {
-      listEl.innerHTML = '<div style="padding:16px;color:var(--muted)">No subdirectories inside</div>';
-    } else {
-      for (const d of subDirs) {
-        const item = document.createElement('div');
-        item.className = 'folder-item';
-        item.innerHTML = `<span class="folder-glyph">${treeIcon('', 'dir', false)}</span><span class="name">${esc(d.name)}</span>`;
-        item.onclick = () => renderPath(d.path);
-        listEl.appendChild(item);
-      }
-    }
-  };
-
-  q('#fp-cancel', modal).onclick = () => closeOverlay();
-  q('#fp-select', modal).onclick = async () => {
-    const chosen = o.currentDir;
-    const onPicked = o.onPicked;
-    closeOverlay();
-    let info = null;
-    try {
-      info = await api.openFolder(chosen, true);
-    } catch (_) {}
-    if (onPicked && info) onPicked(info);
-    else if (info) await switchToFolder(info);
-  };
-
-  await renderPath(cur);
-}
 
 // Callers await this, so a scan already in flight must hand back the SAME
 // promise rather than an instantly-resolved undefined — otherwise the second
@@ -6374,7 +6271,6 @@ function renderOverlay() {
   if (o.type === 'selection-draft') return renderSelectionDraft();
   if (o.type === 'launcher') return renderLauncher();
   if (o.type === 'folder-first') return renderFolderFirst();
-  if (o.type === 'folder-picker') return renderFolderPicker();
   if (o.type === 'peek') return renderPeek();
   if (o.type === 'agent-setup') return renderAgentSetup();
   if (o.type === 'agent-remove') return renderAgentRemove();
@@ -6790,7 +6686,6 @@ function wireAboutPane(modal) {
 // Agent CLIs (Claude Code, OpenCode…) carry their own logins — no API key here,
 // except Grok, whose API-key path is the XAI_API_KEY env var.
 const SUGGESTED_KEYS = [
-  { name: 'ANTHROPIC_API_KEY', hint: 'backs Claude Code · console.anthropic.com' },
   { name: 'OPENAI_API_KEY', hint: 'backs Voice · OpenAI Whisper' },
   { name: 'ELEVENLABS_API_KEY', hint: 'backs Voice · ElevenLabs Scribe' },
   { name: GROK_API_KEY, hint: 'backs Grok · console.x.ai' },
@@ -7360,16 +7255,7 @@ async function drainPendingOpen() {
   await openFile(file, { pin: true });
 }
 
-async function openFolderDialog() {
-  if (window.dainami && window.dainami.__isPwa) {
-    openFolderPickerSheet(async (info) => {
-      if (info) await switchToFolder(info);
-    });
-    return;
-  }
-  const info = await api.pickFolder();
-  if (info) await switchToFolder(info);
-}
+async function openFolderDialog() { const info = await api.pickFolder(); if (info) await switchToFolder(info); }
 async function openFolder(path) {
   // Read it, don't adopt it — switchToFolder may still route this folder to a
   // new window, and a switch that never happens must leave Recents untouched.
