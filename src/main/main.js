@@ -43,6 +43,8 @@ const { reportingArgs, feedCwd } = require('./shell-integration');
 const { findPwsh } = require('./pwsh-find');
 const settingsStore = require('./settings');
 const { migrateRecents, sortRecents, rememberFolderIn, setPinnedIn, removeFrom } = require('./recents');
+const { WorkspaceStateService, folderKey, homeShort, baseName } = require('./workspace-state');
+const { PtyExecutionService } = require('./pty-service');
 const { windowChrome, paneShell, scriptArgs, spawnPlan } = require('./platform');
 const { seedStartHere } = require('./start-here');
 const { rememberedWindows } = require('./window-memory');
@@ -172,17 +174,32 @@ const browserIpc = { handle: ipcMain.handle, on: electronIpc.on.bind(electronIpc
 const windowThemes = new Map();
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
-const termSessions = new Map();   // id -> pty
-// Sessions Nami is ending on purpose — quit, window close, tile close. pty.kill()
-// sends SIGHUP, which surfaces as exit 129, and without this the tile cannot tell
-// "you closed me" from "I died". Recorded before the kill, read in onExit.
-const deliberateKills = new Set();
+const termSessions = new Map();   // id -> pty (compatibility fallback for isolated VM test harness)
+
+let ptyService = null;
+
+function getPtyService() {
+  if (!ptyService) {
+    ptyService = new PtyExecutionService({
+      pty,
+      readSettings,
+      platform: process.platform,
+      env: process.env,
+      homedir: os.homedir(),
+      ptyCwdService: ptyCwd,
+    });
+  }
+  return ptyService;
+}
 
 // Every intentional teardown goes through here, so the exit note stays honest.
 function killSession(id) {
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc && (svc.hasSession(id) || svc.getSession(id))) {
+    return svc.kill(id);
+  }
   const p = termSessions.get(id);
   if (!p) return false;
-  deliberateKills.add(id);
   try { p.kill(); } catch (_) {}
   termSessions.delete(id);
   return true;
@@ -190,32 +207,15 @@ function killSession(id) {
 
 // ---- state (restart-proof) -------------------------------------------------
 function stateFile() { return path.join(app.getPath('userData'), 'state.json'); }
+let workspaceState = null;
 let state = { recentFolders: [], currentFolder: null, panels: [], panelsByFolder: {}, windows: [] };
 function loadState() {
-  try { state = Object.assign(state, JSON.parse(fs.readFileSync(stateFile(), 'utf8'))); } catch (_) {}
-  if (!state.panelsByFolder || typeof state.panelsByFolder !== 'object') state.panelsByFolder = {};
-  if (!Array.isArray(state.windows)) state.windows = [];
-  // pre-multi-window states kept a single desk in `panels`
-  if (Array.isArray(state.panels) && state.panels.length && state.currentFolder && !state.panelsByFolder[state.currentFolder]) {
-    state.panelsByFolder[state.currentFolder] = state.panels;
-  }
-  // recentFolders used to be a bare path list; it now carries when it was last
-  // opened and whether it is pinned, so the popover can sort and label rows.
-  state.recentFolders = migrateRecents(state.recentFolders);
+  workspaceState = new WorkspaceStateService({ stateFile: stateFile() });
+  state = workspaceState.getState();
 }
-const folderKey = (f) => f || '__no_folder__';
-function panelsFor(folder) { const p = state.panelsByFolder[folderKey(folder)]; return Array.isArray(p) ? p.slice(0, 12) : []; }
-let saveTimer = null;
+function panelsFor(folder) { return workspaceState ? workspaceState.getPanels(folder) : []; }
 function persist(partial) {
-  if (partial) state = Object.assign(state, partial);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
-      fs.writeFileSync(stateFile() + '.tmp', JSON.stringify(state, null, 2));
-      fs.renameSync(stateFile() + '.tmp', stateFile());
-    } catch (_) {}
-  }, 250);
+  if (workspaceState) workspaceState.persist(partial);
 }
 
 // ---- settings (how the app behaves: theme, model, transcription) ------------
@@ -283,15 +283,19 @@ function readFrontmatter(file) {
 }
 
 function rememberFolder(folder) {
-  state.recentFolders = rememberFolderIn(state.recentFolders || [], folder, Date.now());
-  state.currentFolder = folder;
-  persist();
+  if (workspaceState) workspaceState.rememberFolder(folder);
+  else {
+    state.recentFolders = rememberFolderIn(state.recentFolders || [], folder, Date.now());
+    state.currentFolder = folder;
+    persist();
+  }
   broadcastRecents();
 }
 
 // The list lives in main but every window renders its own copy, so a change in
 // one window has to reach the others or their popovers show a stale order.
 function recentsForRenderer() {
+  if (workspaceState) return workspaceState.getRecentsForRenderer();
   return sortRecents(state.recentFolders || []).map((r) => ({
     path: r.path, pathShort: homeShort(r.path), name: baseName(r.path),
     at: r.at, pinned: !!r.pinned, missing: !fs.existsSync(r.path),
@@ -564,10 +568,13 @@ function createWindow(folder, bounds) {
 
 // A closing window takes its live sessions with it (same as quit does for all).
 function reapSessions(wcId) {
+  // In decoupled execution mode, closing an Electron window unbinds its listener
+  // callbacks without terminating the underlying PTY process in PtyExecutionService.
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
   for (const [id, owner] of [...sessionOwners]) {
     if (owner !== wcId) continue;
     sessionOwners.delete(id);
-    killSession(id);
+    if (svc) svc.unsubscribeAll(id);
   }
 }
 
@@ -627,19 +634,29 @@ app.whenReady().then(() => {
   // The same for Windows, where the file or folder came in on the command line
   // (and anything a second launch handed over before there was a window).
   routeLaunch(LAUNCH);
-});
+
+  // Initialize remote access gateway if enabled in settings
+  });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
   // The snapshot is debounced; quitting mid-debounce would lose the last move
   // or the folder a window switched to a moment ago.
   clearTimeout(winSnapTimer);
   state.windows = rememberedWindows({ open: openWindowRecords(), lastClosed: lastClosedWindow });
-  clearTimeout(saveTimer);
-  try {
-    fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
-    fs.writeFileSync(stateFile() + '.tmp', JSON.stringify(state, null, 2));
-    fs.renameSync(stateFile() + '.tmp', stateFile());
-  } catch (_) {}
+  if (workspaceState) {
+    workspaceState.flush();
+  } else {
+    try {
+      fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
+      fs.writeFileSync(stateFile() + '.tmp', JSON.stringify(state, null, 2));
+      fs.renameSync(stateFile() + '.tmp', stateFile());
+    } catch (_) {}
+  }
+  if (ptyService) ptyService.shutdown();
+  if (remoteGateway) {
+    try { remoteGateway.stop(); } catch (_) {}
+    remoteGateway = null;
+  }
   for (const id of [...termSessions.keys()]) killSession(id);
 });
 
@@ -744,6 +761,7 @@ ipcMain.handle('boot', (e) => {
 
 // Renderer sends its panel layout after every change; restored per folder on next boot.
 ipcMain.handle('panels:save', (_e, { panels, folder }) => {
+  if (workspaceState) return workspaceState.savePanels(folder, panels);
   state.panelsByFolder[folderKey(folder)] = Array.isArray(panels) ? panels.slice(0, 12) : [];
   persist();
   return { ok: true };
@@ -753,11 +771,21 @@ ipcMain.handle('panels:save', (_e, { panels, folder }) => {
 ipcMain.handle('panels:load', (_e, folder) => panelsFor(folder));
 
 ipcMain.handle('recents:pin', (_e, { path: p, pinned }) => {
+  if (workspaceState) {
+    const rows = workspaceState.pinRecent(p, pinned);
+    broadcastRecents();
+    return rows;
+  }
   state.recentFolders = setPinnedIn(state.recentFolders || [], p, pinned);
   persist(); broadcastRecents();
   return recentsForRenderer();
 });
 ipcMain.handle('recents:remove', (_e, p) => {
+  if (workspaceState) {
+    const rows = workspaceState.removeRecent(p);
+    broadcastRecents();
+    return rows;
+  }
   state.recentFolders = removeFrom(state.recentFolders || [], p);
   // Forget the desk too — leaving it behind would resurrect the tiles if the
   // same path is ever opened again, which is not what "remove" looks like.
@@ -871,7 +899,8 @@ function stagedUpdateWaiting() {
 // before installing, because an update that silently kills four agents
 // mid-thought is the outcome this whole feature was shaped to avoid.
 function liveSessionCount() {
-  return termSessions.size;
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  return svc ? svc.sessionCount : termSessions.size;
 }
 ipcMain.handle('update:sessions', () => liveSessionCount());
 
@@ -1097,6 +1126,7 @@ const WRITABLE_SETTINGS = new Set([
   'theme', 'view',
   'sttProvider', 'openaiKey', 'elevenKey', 'openaiModel', 'elevenModel',
   'sttModelId',
+  'remoteAccessEnabled', 'remoteAccessHost', 'remoteAccessPort',
 ]);
 ipcMain.handle('settings:get', () => {
   const s = readSettings();
@@ -1142,6 +1172,8 @@ ipcMain.handle('settings:set', (_e, patch) => {
   for (const [k, v] of Object.entries(patch || {})) if (WRITABLE_SETTINGS.has(k)) clean[k] = v;
   if (REVIEW) { delete clean.theme; delete clean.view; }
   const res = writeSettings(clean);
+  if (clean.remoteAccessEnabled !== undefined || clean.remoteAccessHost !== undefined || clean.remoteAccessPort !== undefined) {
+      }
   return res.ok ? { ok: true, sttInfo: sttStatus() } : res;
 });
 
@@ -1268,7 +1300,8 @@ ipcMain.handle('path:stat', async (_e, { token, cwd, id }) => {
   const roots = [cwd, os.homedir()];
   const hit = await statToken(token, cwd, { roots });
   if (hit.exists || !hit.relative) return hit;
-  const term = id ? termSessions.get(id) : null;
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  const term = svc ? svc.getSession(id) : (id ? termSessions.get(id) : null);
   if (!term || !term.pid) return hit;
   const live = await ptyCwd(term.pid);
   if (!live || live === cwd) return hit;
@@ -1505,6 +1538,49 @@ function sessionPolicy(launch) {
   return policy;
 }
 
+function bindRendererEvents(svc, id, wc) {
+  let unsub = null;
+  const onDestroy = () => {
+    if (unsub) {
+      unsub();
+      unsub = null;
+    }
+    if (sessionOwners.get(id) === wc.id) {
+      sessionOwners.delete(id);
+    }
+  };
+
+  unsub = svc.subscribe(id, (ev) => {
+    if (wc.isDestroyed()) {
+      onDestroy();
+      return;
+    }
+    if (ev.type === 'data') {
+      sendWc(wc, 'term:data', { id, data: ev.data, seq: ev.seq });
+    } else if (ev.type === 'exit') {
+      sessionOwners.delete(id);
+      sendWc(wc, 'term:exit', { id, code: ev.code, signal: ev.signal, deliberate: ev.deliberate, note: ev.note });
+    } else if (ev.type === 'command-done') {
+      sendWc(wc, 'term:command-done', { id, code: ev.code });
+    } else if (ev.type === 'title') {
+      sendWc(wc, 'session:title', { id, title: ev.title });
+    } else if (ev.type === 'sid') {
+      sendWc(wc, 'term:session-id', { id, sid: ev.sid });
+    }
+  });
+
+  if (wc.once) {
+    wc.once('destroyed', onDestroy);
+  }
+
+  return () => {
+    if (wc.removeListener) {
+      try { wc.removeListener('destroyed', onDestroy); } catch (_) {}
+    }
+    onDestroy();
+  };
+}
+
 // ---- IPC: terminal / harness sessions --------------------------------------
 // kind: 'claude' (spawn the logged-in claude directly), 'shell' (a plain shell),
 // 'run' (a shell that runs `command`), 'harness' (spawn `program args`).
@@ -1518,6 +1594,37 @@ function sessionPolicy(launch) {
 ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, program, args, seed, cont, sid, acpSid, name, watchDone, oneShot, purpose, agentId }) => {
   const wc = e.sender;
   browserViews.registerSession({id,windowId:wc.id,title:name||command||kind||'Session'});
+
+  // When PtyExecutionService is available (runtime app execution), route the complete
+  // lifecycle through it, decoupling PTY ownership and enabling replayable buffering.
+  if (typeof getPtyService === 'function' && getPtyService()) {
+    const svc = getPtyService();
+    // Clean up any stale subscription for this session id before creating a new one
+    svc.unsubscribeAll(id);
+    sessionOwners.set(id, wc.id);
+
+    const unsub = bindRendererEvents(svc, id, wc);
+
+    let res;
+    try {
+      res = await svc.create({
+        id, cwd, cols, rows, kind, command, program, args,
+        seed, cont, sid, acpSid, name, watchDone, oneShot,
+        purpose, agentId,
+      });
+    } catch (err) {
+      unsub();
+      sessionOwners.delete(id);
+      throw err;
+    }
+
+    if (!res || !res.ok) {
+      unsub();
+      sessionOwners.delete(id);
+    }
+    return res;
+  }
+
   if (!pty) { sendWc(wc, 'term:data', { id, data: '\r\n[node-pty unavailable — terminal disabled]\r\n' }); return { ok: false }; }
   // Primed at startup, so by the time anyone opens a tile this is already
   // settled; the await only ever bites on a session created within the first
@@ -1693,7 +1800,10 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   // Display-only: straight to the renderer, never into the pty. A spawned
   // one-shot echoes nothing, and a tile that opens on silent output does not
   // say what it is doing.
-  if (echoLine) sendWc(wc, 'term:data', { id, data: `\x1b[38;2;141;128;101m$ ${echoLine}\x1b[0m\r\n` });
+  if (echoLine) {
+    const echoData = `\x1b[38;2;141;128;101m$ ${echoLine}\x1b[0m\r\n`;
+    sendWc(wc, 'term:data', { id, data: echoData });
+  }
 
   const osc = { last: null };
   const done = { buf: '' };
@@ -1823,12 +1933,20 @@ function watchTitle(id, wc, file, { pid = null, sid = null, cwd = null, agent = 
 const STORE_AGENT = { antigravity: 'agy' };
 ipcMain.handle('session:watch-title', (e, { id, agent, cwd, sid }) => {
   if (!id || !sid) return { ok: false };
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc) {
+    return { ok: svc.watchTitleFromClient(id, agent, cwd, sid) };
+  }
   const key = STORE_AGENT[agent] || agent || 'claude';
   watchTitle(id, e.sender, null, { agent: key, sid, cwd });
   return { ok: true };
 });
 
 ipcMain.handle('term:write', (_e, { id, data }) => {
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc && svc.hasSession(id)) {
+    return { ok: svc.write(id, data) };
+  }
   const p = termSessions.get(id);
   if (!p) return { ok: false };
   if (p.namiSeedGate) p.namiSeedGate.onInput(data);
@@ -1836,6 +1954,10 @@ ipcMain.handle('term:write', (_e, { id, data }) => {
 });
 let ptyResizeN = 0;
 ipcMain.handle('term:resize', (_e, { id, cols, rows }) => {
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc && svc.hasSession(id)) {
+    return { ok: svc.resize(id, cols, rows) };
+  }
   if (process.env.NAMI_PTY_LOG) {
     ptyResizeN++;
     const line = `${ptyResizeN} ${id} ${cols}x${rows}\n`;
@@ -1844,4 +1966,42 @@ ipcMain.handle('term:resize', (_e, { id, cols, rows }) => {
   }
   const p = termSessions.get(id); if (p) try { p.resize(cols, rows); } catch (_) {} return { ok: !!p };
 });
-ipcMain.handle('term:kill', (_e, { id }) => { killSession(id); sessionOwners.delete(id); titleWatch.delete(id); return { ok: true }; });
+ipcMain.handle('term:kill', (_e, { id }) => {
+  sessionOwners.delete(id);
+  titleWatch.delete(id);
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc && (svc.hasSession(id) || svc.getSession(id))) {
+    return { ok: svc.kill(id) };
+  }
+  killSession(id);
+  return { ok: true };
+});
+ipcMain.handle('term:attach', async (e, { id, fromSeq = 0 }) => {
+  const wc = e.sender;
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (!svc || (!svc.hasSession(id) && !svc.getExitedSession(id))) {
+    return { ok: false, error: 'session not found' };
+  }
+
+  // Detach any previous window/listener and assign current window as active owner
+  svc.unsubscribeAll(id);
+  sessionOwners.set(id, wc.id);
+
+  // Subscribe new window for live streaming
+  bindRendererEvents(svc, id, wc);
+
+  // Fetch buffered output for replay
+  const replay = svc.replay(id, fromSeq);
+  return {
+    ok: true,
+    active: svc.hasSession(id),
+    earliestSeq: replay.earliestSeq,
+    nextSeq: replay.nextSeq,
+    chunks: replay.chunks,
+  };
+});
+ipcMain.handle('term:replay', (_e, { id, fromSeq = 0 }) => {
+  const svc = typeof getPtyService === 'function' ? getPtyService() : null;
+  if (svc) return svc.replay(id, fromSeq);
+  return { earliestSeq: 1, nextSeq: 1, chunks: [] };
+});

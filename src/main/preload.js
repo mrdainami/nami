@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld('dainami', {
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
 
   termCreate: (args) => ipcRenderer.invoke('term:create', args),
+  termAttach: (args) => ipcRenderer.invoke('term:attach', args),
+  termReplay: (args) => ipcRenderer.invoke('term:replay', args),
   termWrite: (args) => ipcRenderer.invoke('term:write', args),
   termResize: (args) => ipcRenderer.invoke('term:resize', args),
   termKill: (args) => ipcRenderer.invoke('term:kill', args),
