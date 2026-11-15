@@ -397,6 +397,9 @@ function dropPathOnPanel(p, path, isDir) {
 //  Boot
 // ===========================================================================
 (async function boot() {
+  if (api.init && api.__isPwa) {
+    try { await api.init(); } catch (_) {}
+  }
   // Before buildShell paints: the lights deck and the windows overlay gutter
   // are per-OS CSS, keyed off this attribute.
   document.body.dataset.platform = api.platform || '';
@@ -443,10 +446,274 @@ function dropPathOnPanel(p, path, isDir) {
     if (q('.projects-pop')) { q('.projects-pop').remove(); toggleProjectsPop(); }
   });
 
-  api.onTermData(({ id, data }) => {
-    const t = tileEls.get(id); if (t && t.term) t.term.write(data);
-    // when a byte last moved — the auto-takeover's "is the terminal mid-task"
-    const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
+  function applyReplayChunks(p, chunks) {
+    if (!chunks || !Array.isArray(chunks) || !chunks.length) return false;
+    const t = tileEls.get(p.id);
+
+    // Sort replay chunks ascending by sequence number
+    const sorted = [...chunks].filter(c => c && typeof c.seq === 'number').sort((a, b) => a.seq - b.seq);
+    if (!sorted.length) {
+      // Raw string chunks without seq
+      for (const c of chunks) {
+        if (c && c.data && t && t.term) t.term.write(c.data);
+      }
+      return true;
+    }
+
+    let current = p.lastSeenSeq || 0;
+    let anyApplied = false;
+
+    for (const c of sorted) {
+      if (c.seq <= current) {
+        continue; // already rendered
+      }
+      if (c.seq === current + 1) {
+        current = c.seq;
+        p.lastSeenSeq = current;
+        if (t && t.term && c.data) t.term.write(c.data);
+        anyApplied = true;
+      } else {
+        // Non-contiguous gap in replay chunks: stop advancing sequence immediately
+        // to prevent silently skipping missing output!
+        break;
+      }
+    }
+    return anyApplied;
+  }
+
+  // Active timer for scheduling retry on unfulfilled sequence gaps
+  const gapRetryTimers = new Map();
+
+  function scheduleGapRetry(p, id) {
+    if (gapRetryTimers.has(id)) return;
+    const timer = setTimeout(() => {
+      gapRetryTimers.delete(id);
+      if (!p || !p.pendingGapEvents || !p.pendingGapEvents.length) return;
+      p.dataQueue = (p.dataQueue || Promise.resolve())
+        .then(() => retryGapRecovery(p, id))
+        .catch(() => {});
+    }, 150);
+    gapRetryTimers.set(id, timer);
+  }
+
+  async function retryGapRecovery(p, id) {
+    if (!p || !p.pendingGapEvents || !p.pendingGapEvents.length) return;
+    p.pendingGapRetries = (p.pendingGapRetries || 0) + 1;
+    const maxRetries = 10;
+    const expected = (p.lastSeenSeq || 0) + 1;
+    const t = tileEls.get(id);
+
+    if (api.termReplay) {
+      try {
+        const replay = await api.termReplay({ id: p.id, fromSeq: expected });
+        if (replay && Array.isArray(replay.chunks)) {
+          applyReplayChunks(p, replay.chunks);
+        }
+      } catch (_) {}
+    }
+
+    // Check if ring buffer rotated past expected
+    if ((p.lastSeenSeq || 0) < expected) {
+      try {
+        const status = await api.termReplay({ id: p.id, fromSeq: 0 });
+        if (status && typeof status.earliestSeq === 'number' && status.earliestSeq > expected) {
+          if (t && t.term) t.term.write(`\r\n\x1b[33m[terminal: output truncated due to buffer rotation (${expected}..${status.earliestSeq - 1})]\x1b[0m\r\n`);
+          p.lastSeenSeq = status.earliestSeq - 1;
+          if (status.chunks) {
+            applyReplayChunks(p, status.chunks);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Drain pending events that are covered or ready
+    if (p.pendingGapEvents && p.pendingGapEvents.length) {
+      // Remove any pending events that are already covered
+      p.pendingGapEvents = p.pendingGapEvents.filter(e => e.seq > (p.lastSeenSeq || 0));
+      p.pendingGapEvents.sort((a, b) => a.seq - b.seq);
+      while (p.pendingGapEvents.length && p.pendingGapEvents[0].seq === (p.lastSeenSeq || 0) + 1) {
+        const next = p.pendingGapEvents.shift();
+        p.lastSeenSeq = next.seq;
+        if (t && t.term) t.term.write(next.data);
+      }
+    }
+
+    if (p.pendingGapEvents && p.pendingGapEvents.length) {
+      if (p.pendingGapRetries >= maxRetries) {
+        // Exceeded bounded retries: report desync notice, jump to lowest pending seq
+        p.pendingGapEvents.sort((a, b) => a.seq - b.seq);
+        const nextPending = p.pendingGapEvents[0];
+        if (t && t.term) t.term.write(`\r\n\x1b[33m[terminal: unrecoverable gap between ${p.lastSeenSeq || 0} and ${nextPending.seq}; output lost and desync resynchronized]\x1b[0m\r\n`);
+        p.lastSeenSeq = nextPending.seq - 1;
+        while (p.pendingGapEvents.length && p.pendingGapEvents[0].seq === (p.lastSeenSeq || 0) + 1) {
+          const next = p.pendingGapEvents.shift();
+          p.lastSeenSeq = next.seq;
+          if (t && t.term) t.term.write(next.data);
+        }
+        // If pendingGapEvents still has disconnected groups remaining, schedule another recovery attempt
+        // rather than leaving them stranded.
+        if (p.pendingGapEvents.length > 0) {
+          p.pendingGapRetries = 0;
+          scheduleGapRetry(p, id);
+          return;
+        }
+        p.pendingGapRetries = 0;
+      } else {
+        scheduleGapRetry(p, id);
+      }
+    } else {
+      p.pendingGapRetries = 0;
+    }
+
+    // Attach gate release transition:
+    // If the panel was held in isAttaching (e.g. following an earlier drain failure),
+    // drain any new events in attachPendingBuffer while repeatedly rechecking BOTH queues.
+    // Only release isAttaching when both attachPendingBuffer AND pendingGapEvents are confirmed empty.
+    if (p.isAttaching && (!p.pendingGapEvents || !p.pendingGapEvents.length)) {
+      while (p.attachPendingBuffer && p.attachPendingBuffer.length > 0) {
+        const pending = p.attachPendingBuffer;
+        p.attachPendingBuffer = [];
+        pending.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        for (let i = 0; i < pending.length; i++) {
+          const ev = pending[i];
+          try {
+            await processTermDataEvent(p, ev.id, ev.data, ev.seq);
+          } catch (err) {
+            // Drain error while emptying attachPendingBuffer: hold in pendingGapEvents and reschedule
+            p.pendingGapEvents = p.pendingGapEvents || [];
+            for (let j = i; j < pending.length; j++) {
+              if (!p.pendingGapEvents.some(e => e.seq === pending[j].seq)) {
+                p.pendingGapEvents.push(pending[j]);
+              }
+            }
+            scheduleGapRetry(p, id);
+            return;
+          }
+          // If processTermDataEvent encountered a new gap and populated pendingGapEvents,
+          // do NOT release the attach gate. Retain any remaining events in this batch and schedule recovery.
+          if (p.pendingGapEvents && p.pendingGapEvents.length > 0) {
+            for (let j = i + 1; j < pending.length; j++) {
+              if (!p.pendingGapEvents.some(e => e.seq === pending[j].seq)) {
+                p.pendingGapEvents.push(pending[j]);
+              }
+            }
+            scheduleGapRetry(p, id);
+            return;
+          }
+        }
+      }
+      // Recheck BOTH queues: only when both are strictly empty can the gate be released
+      if ((!p.pendingGapEvents || !p.pendingGapEvents.length) && (!p.attachPendingBuffer || !p.attachPendingBuffer.length)) {
+        p.isAttaching = false;
+      } else {
+        scheduleGapRetry(p, id);
+      }
+    }
+  }
+
+  async function processTermDataEvent(p, id, data, seq) {
+    const t = tileEls.get(id);
+
+    // If chunk has sequence number, enforce monotonic sequence integrity
+    if (p && typeof seq === 'number') {
+      if (seq <= (p.lastSeenSeq || 0)) {
+        // Drop duplicate chunk already covered by replay or previous delivery
+        return;
+      }
+
+      const expected = (p.lastSeenSeq || 0) + 1;
+      if (seq > expected) {
+        // Sequence gap detected: attempt recovery via termReplay
+        if (api.termReplay) {
+          try {
+            const replay = await api.termReplay({ id: p.id, fromSeq: expected });
+            if (replay && Array.isArray(replay.chunks)) {
+              applyReplayChunks(p, replay.chunks);
+            }
+          } catch (_) {
+            // Replay error: do not advance or drop gap; hold processing
+          }
+        }
+
+        // If the gap is still unresolved (replay failed, threw, or returned incomplete range),
+        // check whether the buffer has rotated past the expected sequence (gap cannot be filled).
+        if (seq > (p.lastSeenSeq || 0) + 1) {
+          try {
+            const status = await api.termReplay({ id: p.id, fromSeq: 0 });
+            if (status && typeof status.earliestSeq === 'number' && status.earliestSeq > expected) {
+              // Service buffer evicted missed chunks: mark resynchronization notice and jump forward
+              if (t && t.term) t.term.write(`\r\n\x1b[33m[terminal: output truncated due to buffer rotation (${expected}..${status.earliestSeq - 1})]\x1b[0m\r\n`);
+              p.lastSeenSeq = status.earliestSeq - 1;
+              if (seq > (p.lastSeenSeq || 0) + 1 && status.chunks) {
+                applyReplayChunks(p, status.chunks);
+              }
+            }
+          } catch (_) {}
+        }
+
+        // If still unresolved, retain event in pendingQueue for retry and prevent overtaking
+        if (seq > (p.lastSeenSeq || 0) + 1) {
+          p.pendingGapEvents = p.pendingGapEvents || [];
+          if (!p.pendingGapEvents.some(e => e.seq === seq)) {
+            // Enforce bounded pending queue size to prevent memory exhaustion
+            if (p.pendingGapEvents.length < 500) {
+              p.pendingGapEvents.push({ id, data, seq });
+            }
+          }
+          scheduleGapRetry(p, id);
+          return;
+        }
+
+        if (seq <= (p.lastSeenSeq || 0)) {
+          return; // Gap recovery already covered this chunk
+        }
+      }
+      p.lastSeenSeq = seq;
+    }
+
+    if (t && t.term) t.term.write(data);
+
+    // Drain any retained pending events that can now be accepted in order
+    if (p && p.pendingGapEvents && p.pendingGapEvents.length) {
+      p.pendingGapEvents = p.pendingGapEvents.filter(e => e.seq > (p.lastSeenSeq || 0));
+      p.pendingGapEvents.sort((a, b) => a.seq - b.seq);
+      while (p.pendingGapEvents.length && p.pendingGapEvents[0].seq === (p.lastSeenSeq || 0) + 1) {
+        const next = p.pendingGapEvents.shift();
+        p.lastSeenSeq = next.seq;
+        if (t && t.term) t.term.write(next.data);
+      }
+      if (!p.pendingGapEvents.length) {
+        p.pendingGapRetries = 0;
+        if (gapRetryTimers.has(id)) {
+          clearTimeout(gapRetryTimers.get(id));
+          gapRetryTimers.delete(id);
+        }
+      }
+    }
+  }
+
+  api.onTermData(({ id, data, seq }) => {
+    const p = S.panels.find((x) => x.id === id);
+    if (p) p.lastPtyData = Date.now();
+
+    // If panel is actively waiting on termAttach() resolution, buffer incoming events
+    // without processing them so they cannot interleave or execute ahead of attach replay.
+    if (p && p.isAttaching) {
+      p.attachPendingBuffer = p.attachPendingBuffer || [];
+      p.attachPendingBuffer.push({ id, data, seq });
+      return;
+    }
+
+    // Per-panel FIFO promise queue guarantees strict serial processing of all events,
+    // attach replays, and gap recovery. Live events cannot overtake earlier chunks.
+    if (p) {
+      p.dataQueue = (p.dataQueue || Promise.resolve())
+        .then(() => processTermDataEvent(p, id, data, seq))
+        .catch(() => {});
+    } else {
+      const t = tileEls.get(id);
+      if (t && t.term) t.term.write(data);
+    }
   });
 
   // Main watched the agent's store after spawn and found the conversation this
@@ -1004,6 +1271,24 @@ function buildShell() {
   // actually changes, which is a handful of times across a whole window drag.
   syncDeskColumns();
   window.addEventListener('resize', () => { syncDeskColumns(); positionThemePop(); });
+
+  // Tablet & Mobile WebKit Dynamic Visual Viewport support (software keyboard compensation)
+  function syncViewportHeight() {
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-height', `${vh}px`);
+    syncDeskColumns();
+    tileEls.forEach((t) => markFit(t));
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncViewportHeight);
+    window.visualViewport.addEventListener('scroll', () => {
+      // Keep scroll anchored to top if viewport moves
+      if (document.documentElement.scrollTop > 0) {
+        document.documentElement.scrollTop = 0;
+      }
+    });
+  }
+  syncViewportHeight();
 
   // A folder changed on disk — usually because a session just wrote to it.
   if (api.onDirChanged) api.onDirChanged(({ dir, files }) => onDirChanged(dir, files));
@@ -2911,6 +3196,7 @@ function mountTerminal(p, rec) {
     linkHandler: oscLinkHandler(p),
   });
   const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
+  wireTerminalTouchBar(p, rec);
   if (S.demo) (window.__terms = window.__terms || []).push(term);
   requestAnimationFrame(() => {
     fitCanvas(rec);
@@ -2938,6 +3224,56 @@ function mountTerminal(p, rec) {
     clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id); terminalHint.hide(p);
     for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
   };
+}
+
+// Touch accessory toolbar for mobile / tablet terminals
+function wireTerminalTouchBar(p, rec) {
+  const bar = document.createElement('div');
+  bar.className = 'term-touch-bar';
+  bar.setAttribute('aria-label', 'Terminal Key Controls');
+
+  const keys = [
+    { label: 'ESC', code: '\x1b', title: 'Escape', cls: 'key-accent' },
+    { label: 'TAB', code: '\t', title: 'Tab' },
+    { label: '^C', code: '\x03', title: 'Ctrl+C (Interrupt)', cls: 'key-accent' },
+    { label: '^D', code: '\x04', title: 'Ctrl+D (EOF)' },
+    { label: '^L', code: '\x0c', title: 'Ctrl+L (Clear Screen)' },
+    { label: '^Z', code: '\x1a', title: 'Ctrl+Z (Suspend)' },
+    { label: '▲', code: '\x1b[A', title: 'Up Arrow' },
+    { label: '▼', code: '\x1b[B', title: 'Down Arrow' },
+    { label: '◀', code: '\x1b[D', title: 'Left Arrow' },
+    { label: '▶', code: '\x1b[C', title: 'Right Arrow' },
+    { label: 'PASTE', action: 'paste', title: 'Paste from Clipboard' },
+  ];
+
+  for (const k of keys) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'term-touch-key' + (k.cls ? ' ' + k.cls : '');
+    btn.textContent = k.label;
+    btn.title = k.title;
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); // Don't steal focus from terminal textarea
+      if (k.action === 'paste') {
+        if (api.readClipboard) {
+          api.readClipboard().then((clip) => {
+            if (clip && rec.term) {
+              rec.term.paste(clip);
+              rec.term.focus();
+            }
+          });
+        }
+      } else if (k.code) {
+        api.termWrite({ id: p.id, data: k.code });
+        if (rec.term) rec.term.focus();
+      }
+    });
+
+    bar.appendChild(btn);
+  }
+
+  rec.body.parentElement.insertBefore(bar, rec.body);
 }
 
 // A selection is captured before opening a menu or moving keyboard focus.
@@ -3531,10 +3867,143 @@ function oscLinkHandler(p) {
 }
 async function startProcess(p, cols, rows) {
   if (p.started) return; p.started = true;
+
+  // Initialize sequence tracking and state queues on panel
+  p.lastSeenSeq = typeof p.lastSeenSeq === 'number' ? p.lastSeenSeq : 0;
+  p.queuedData = p.queuedData || [];
+
+  // Attempt to attach to an existing session in PtyExecutionService first (reconnection path)
+  if (api.termAttach) {
+    p.isAttaching = true;
+    p.attachPendingBuffer = [];
+    let attachResult = null;
+    let attachThrew = false;
+    try {
+      attachResult = await api.termAttach({ id: p.id, fromSeq: (p.lastSeenSeq || 0) + 1, cols, rows });
+    } catch (_) {
+      attachThrew = true;
+    }
+
+    if (attachResult && attachResult.ok) {
+      // Successful attachment: enqueue replay chunk application and buffered event reconciliation into dataQueue first
+      p.dataQueue = (p.dataQueue || Promise.resolve()).then(async () => {
+        const t = tileEls.get(p.id);
+        const expected = (p.lastSeenSeq || 0) + 1;
+
+        // Check for ring buffer rotation during initial attach
+        if (typeof attachResult.earliestSeq === 'number' && attachResult.earliestSeq > expected) {
+          if (t && t.term) t.term.write(`\r\n\x1b[33m[terminal: output truncated due to buffer rotation (${expected}..${attachResult.earliestSeq - 1})]\x1b[0m\r\n`);
+          p.lastSeenSeq = attachResult.earliestSeq - 1;
+        }
+
+        // Apply replay chunks contiguously
+        if (Array.isArray(attachResult.chunks)) {
+          applyReplayChunks(p, attachResult.chunks);
+        }
+
+        // Drain attachPendingBuffer in a drain-until-empty loop using the sequence-aware
+        // processTermDataEvent processor. If new live IPC events arrive while processTermDataEvent
+        // is awaiting replay recovery, they are buffered into p.attachPendingBuffer and drained
+        // in subsequent iterations. Only when the buffer is confirmed empty is isAttaching
+        // synchronously set to false with no intervening await.
+        while (p.attachPendingBuffer && p.attachPendingBuffer.length > 0) {
+          const pending = p.attachPendingBuffer;
+          p.attachPendingBuffer = [];
+          pending.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+          for (let i = 0; i < pending.length; i++) {
+            const ev = pending[i];
+            try {
+              await processTermDataEvent(p, ev.id, ev.data, ev.seq);
+            } catch (err) {
+              // Drain failure: retain current event and remaining un-drained batch in pendingGapEvents
+              // so they are not permanently lost, schedule recovery retry, and report desync error.
+              p.pendingGapEvents = p.pendingGapEvents || [];
+              for (let j = i; j < pending.length; j++) {
+                if (!p.pendingGapEvents.some(e => e.seq === pending[j].seq)) {
+                  p.pendingGapEvents.push(pending[j]);
+                }
+              }
+              if (t && t.term) {
+                t.term.write(`\r\n\x1b[31m[terminal: error processing attach replay (${err && err.message ? err.message : 'drain error'}); retaining events for recovery]\x1b[0m\r\n`);
+              }
+              scheduleGapRetry(p, p.id);
+              throw err;
+            }
+          }
+        }
+
+        // Synchronous transition: only when buffer is confirmed empty with no error
+        p.isAttaching = false;
+      }).catch((err) => {
+        // If attach reconciliation threw, do NOT clear isAttaching or allow normal live processing
+        // until pending events have been successfully reconciled or retried.
+        // Surface visible desync error if not already displayed.
+        const t = tileEls.get(p.id);
+        if (p.isAttaching && (!p.attachPendingBuffer || !p.attachPendingBuffer.length) && (!p.pendingGapEvents || !p.pendingGapEvents.length)) {
+          // If no events remain pending at all, release gate
+          p.isAttaching = false;
+        } else if (p.isAttaching) {
+          scheduleGapRetry(p, p.id);
+        }
+      });
+      await p.dataQueue;
+      return;
+    }
+
+    // Attachment did not succeed. Check whether live events arrived while attaching.
+    // If live output arrived (attachPendingBuffer non-empty), the session definitely exists!
+    const bufferedEvents = p.attachPendingBuffer || [];
+    p.attachPendingBuffer = [];
+    p.isAttaching = false;
+
+    if (bufferedEvents.length > 0) {
+      // Session exists: do not clear buffered events and do NOT start a duplicate PTY.
+      // Reconcile buffered events through dataQueue and recover missed sequence ranges.
+      p.dataQueue = (p.dataQueue || Promise.resolve()).then(async () => {
+        bufferedEvents.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        for (const ev of bufferedEvents) {
+          await processTermDataEvent(p, ev.id, ev.data, ev.seq);
+        }
+      }).catch(() => {});
+      await p.dataQueue;
+      return;
+    }
+
+    // If attach resulted in an explicit 'session not found' error (not transient IPC error),
+    // we can safely proceed to create a fresh PTY.
+    // If it threw or failed with a generic network/IPC error, do not spawn a duplicate PTY;
+    // reset started flag and surface the connection error.
+    if (attachThrew || (attachResult && attachResult.error !== 'session not found')) {
+      p.started = false;
+      const t = tileEls.get(p.id);
+      if (t && t.term) t.term.write(`\r\n\x1b[31m[terminal: failed to attach to session (${attachResult && attachResult.error ? attachResult.error : 'ipc error'})]\x1b[0m\r\n`);
+      return;
+    }
+  }
+
   // A name nami chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
-  const made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+
+  // Prepare fresh session sequence state BEFORE triggering creation, so that any early output
+  // arriving before termCreate resolves is processed against clean sequence state (seq 1+)
+  // and serialized through p.dataQueue without race conditions.
+  p.lastSeenSeq = 0;
+  p.queuedData = [];
+  p.pendingGapEvents = [];
+  p.pendingGapRetries = 0;
+
+  let made = null;
+  try {
+    made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  } catch (err) {
+    p.started = false; // ensure p.started is not left stuck on creation error
+    throw err;
+  }
+  if (!made || !made.ok) {
+    p.started = false; // ensure p.started is not left stuck on creation failure
+    return;
+  }
   // Windows only: an agent that npm installed is a .cmd file, and a first
   // message cannot be handed to one safely (src/main/cmd-shim.js). Rather than
   // let it vanish, it goes on the clipboard, one paste away from where it was
@@ -4553,7 +5022,7 @@ function panelSnapshot() {
     if (p.oneShot && (p.commandDone || p.exited)) {
       return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
     }
-    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, oneShot: p.oneShot, purpose: p.purpose, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, oneShot: p.oneShot, purpose: p.purpose, agentId: p.agentId, watchDone: p.watchDone, lastSeenSeq: p.lastSeenSeq || 0, ...size(p) };
   });
 }
 function savePanels() {
@@ -4591,7 +5060,7 @@ async function restorePanels(snaps) {
       else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
       else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
       else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
-      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, purpose: s.purpose, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' ? (!!s.sid || s === newestLegacy) : !!s.acpSid });
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, purpose: s.purpose, agentId: s.agentId, watchDone: s.watchDone, lastSeenSeq: s.lastSeenSeq || 0, cont: s.kind === 'claude' ? (!!s.sid || s === newestLegacy) : !!s.acpSid });
       // A snapshot from before spans existed carries none, and a panel with no
       // span renders at the default. That is the whole of the migration.
       if (S.panels.length > before) {
@@ -4644,6 +5113,7 @@ function startPanel(opts) {
     id: uid('p_'), kind: 'claude', chipKind: opts.chipKind, code: opts.code || code2(opts.title || 'SS'),
     title: opts.title || 'Session', cwd, status: 'live',
     attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed, cont: opts.cont,
+    lastSeenSeq: opts.lastSeenSeq || 0, isAttaching: false, queuedData: [],
   }, opts);
   // Cards is retired. A desk saved with view:'cards' (or any leftover caller)
   // must open as a terminal, not a missing surface.
@@ -4842,6 +5312,7 @@ function renderFolderFirst() {
     if (S.project) run();
   };
 }
+
 
 // Callers await this, so a scan already in flight must hand back the SAME
 // promise rather than an instantly-resolved undefined — otherwise the second
